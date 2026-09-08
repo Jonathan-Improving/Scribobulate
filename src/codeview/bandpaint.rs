@@ -106,6 +106,18 @@ pub(super) fn paint_band(
             None => {}
         },
     }
+    // The SCENE rides on top of whichever of those painted, because it composites
+    // rather than replaces (`theme::Band::scene`). It is deliberately outside the match:
+    // a theme may state a scene with a flat fill, with a gradient, with a tiled sprite,
+    // or with nothing at all — "a scene alone is a band" for the same reason a sprite
+    // alone is (`Band::is_present`), and each of those four combinations has to paint
+    // the scene exactly once.
+    //
+    // Inside the rounded clip pushed above, so a scene cannot square off the band's
+    // corners — the failure a caller drawing it after the `pop` would ship.
+    if let Some(scene) = decor.scene {
+        crate::widgets::draw_scene_into(snapshot, &rect, scene);
+    }
     if radius > 0.0 {
         snapshot.pop();
     }

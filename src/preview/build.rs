@@ -744,7 +744,7 @@ pub(super) fn build_products(buf: &TextBuffer, prepared: &Prepared<'_>) -> Rende
         // which would misalign the check by one char per anchored child.
         let slice = buf.slice(&buf.start_iter(), &buf.end_iter(), true);
         let chars: Vec<char> = slice.chars().collect();
-        crate::copymap::debug_verify(&copymap, md, &chars);
+        crate::copymap::debug_verify(&copymap, md, &chars, Some(&buf));
     }
 
     // Paint the CriticMarkup highlight tag over each annotated claim's exact

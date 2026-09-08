@@ -114,6 +114,132 @@ pub(crate) fn tile_texture(
     snapshot.pop();
 }
 
+/// Draw `sprite` ONCE into `rect`, fitted by HEIGHT and anchored to the right edge.
+///
+/// The third member of this vocabulary, beside [`tile_texture`] (a texture the
+/// decoration is made OF) and [`draw_sprite_into`] (a picture resampled to fill a box
+/// the layout chose). A **scene** is neither: it keeps its own aspect ratio, is drawn
+/// once rather than repeated, and composites OVER whatever the band already painted.
+///
+/// **Right-anchored, and that is the whole design.** A heading band's width tracks the
+/// content column and changes with the window; its height tracks the heading and does
+/// not. So the right edge is the only part of the band whose position is stable
+/// relative to its content, and the left is where the heading text sits. Anchoring left
+/// would slide scenery under the text at every width; stretching to the width would
+/// distort the scene as the window resized. Overflow therefore runs off the LEFT, where
+/// a scene is expected to fade into the fill, and is clipped away.
+///
+/// Scaled by height with the width derived from the source's aspect, so the scene never
+/// distorts, and resampled through `sprite::scaled` (cached per size, nearest-neighbour)
+/// rather than handed to GSK at the wrong size — GSK 4.6's `append_texture` takes no
+/// filter (GTK4Rs/AP-114), and letting it scale would also make the result depend on the
+/// active renderer, which is the environment-dependence forcing `GSK_RENDERER=cairo`
+/// exists to remove.
+///
+/// The clip is unconditional and costs nothing when it is unnecessary: `gtk_snapshot`
+/// emits no clip node at all when the clip fully contains the child.
+///
+/// ⚠️ Sizes here are LOGICAL px, like every other sprite call site in this tree. On a
+/// HiDPI surface `append_texture` bakes the scale factor into the node, so the
+/// nearest-resampled texture is scaled a second time by GSK. That gap is not specific
+/// to scenes — it applies to every `sprite::scaled` and `tile_texture` caller — and
+/// fixing it belongs to one sweep of them all, not to this function.
+///
+/// Returns `false` — painting nothing — when the rect is degenerate or the sprite will
+/// not decode, this vocabulary's inert-by-default failure.
+pub(crate) fn draw_scene_into(
+    snapshot: &gtk::Snapshot,
+    rect: &gtk::graphene::Rect,
+    sprite: &crate::sprite::SpriteRef,
+) -> bool {
+    use gtk::gdk::prelude::TextureExt;
+    let h = rect.height().round() as i32;
+    if h <= 0 || rect.width() <= 0.0 {
+        return false;
+    }
+    let Some(natural) = crate::sprite::texture(sprite) else {
+        return false;
+    };
+    let (nw, nh) = (natural.width(), natural.height());
+    if nw <= 0 || nh <= 0 {
+        return false;
+    }
+    let w = ((f64::from(nw) * f64::from(h) / f64::from(nh)).round() as i32).max(1);
+    let Some(tex) = crate::sprite::scaled(sprite, w, h) else {
+        return false;
+    };
+    let dst = gtk::graphene::Rect::new(
+        rect.x() + rect.width() - w as f32,
+        rect.y(),
+        w as f32,
+        h as f32,
+    );
+    snapshot.push_clip(rect);
+    snapshot.append_texture(&tex, &dst);
+    snapshot.pop();
+    true
+}
+
+/// Draw `sprite` ONCE in `rect`'s BOTTOM-RIGHT corner, at its natural size scaled by
+/// `zoom`, clipped to `rect`.
+///
+/// The corner-anchored member of this vocabulary, beside [`draw_scene_into`] (fitted to
+/// an edge) and [`tile_texture`] (repeated). The distinction is not decoration: a
+/// heading band's height is fixed by its heading, so a scene can be fitted to it, while
+/// a quote panel's height is however long the quote is. Fitting to that would balloon
+/// the scene on a long quotation. Drawn at a fixed size on the panel's floor instead, so
+/// the panel reveals MORE of the scene as it grows rather than magnifying it — a short
+/// quote shows the seabed, a long one brings what swims above it into view.
+///
+/// Scaled by `zoom` and not by the rect, because at a fixed size it is a themed pixel
+/// metric like any other and must track the page's zoom or it shrinks to nothing as the
+/// reader zooms in. Resampled through `sprite::scaled` (cached, nearest-neighbour) for
+/// the reason every sprite here is: GSK 4.6's `append_texture` takes no filter
+/// (GTK4Rs/AP-114), and letting it scale would make the result depend on the active
+/// renderer — the environment-dependence `GSK_RENDERER=cairo` exists to remove.
+///
+/// ⚠️ The caller owns the decision that `rect`'s bottom edge is REAL. Paint-path extents
+/// in this project are viewport-clamped (GTK4Rs/AP-22 — never measure an off-screen,
+/// unvalidated iter), so a rect whose bottom was clamped would anchor this to the
+/// viewport and slide it as the reader scrolls, which is ScrAP-333's shape. See
+/// `codeview::quotes::draw_panel_scene`.
+///
+/// Returns `false` — painting nothing — when the rect is degenerate or the sprite will
+/// not resample.
+pub(crate) fn draw_scene_corner(
+    snapshot: &gtk::Snapshot,
+    rect: &gtk::graphene::Rect,
+    sprite: &crate::sprite::SpriteRef,
+    zoom: f64,
+) -> bool {
+    use gtk::gdk::prelude::TextureExt;
+    if rect.width() <= 0.0 || rect.height() <= 0.0 {
+        return false;
+    }
+    let Some(natural) = crate::sprite::texture(sprite) else {
+        return false;
+    };
+    let (nw, nh) = (natural.width(), natural.height());
+    if nw <= 0 || nh <= 0 {
+        return false;
+    }
+    let w = ((f64::from(nw) * zoom).round() as i32).max(1);
+    let h = ((f64::from(nh) * zoom).round() as i32).max(1);
+    let Some(tex) = crate::sprite::scaled(sprite, w, h) else {
+        return false;
+    };
+    let dst = gtk::graphene::Rect::new(
+        rect.x() + rect.width() - w as f32,
+        rect.y() + rect.height() - h as f32,
+        w as f32,
+        h as f32,
+    );
+    snapshot.push_clip(rect);
+    snapshot.append_texture(&tex, &dst);
+    snapshot.pop();
+    true
+}
+
 /// Draw `sprite` filling `rect` exactly, resampled to that size with nearest-neighbour.
 ///
 /// The twin of [`tile_texture`], and the other half of what "paint a themed sprite"

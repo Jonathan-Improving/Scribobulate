@@ -99,6 +99,43 @@ pub(super) fn draw_panel(snapshot: &gtk::Snapshot, ctx: &PaintCtx) {
             );
         }
     }
+    draw_panel_scene(snapshot, ctx);
+}
+
+/// The quote panel's scene, in its BOTTOM-RIGHT corner (TDD 18.56).
+///
+/// Painted after the fill and over it — a scene composites rather than replaces, the
+/// same rule `heading_band_scene` follows — and at depth 1 only, because the panel it
+/// sits on is depth 1 only.
+///
+/// **Only where the quote's bottom is genuinely visible, and that gate is the whole
+/// correctness argument.** `quote_extents` are viewport-CLAMPED by
+/// `span_card_y_extent`, which is deliberate (GTK4Rs/AP-22: measuring an off-screen,
+/// unvalidated iter blanks the view). A bottom-anchored decoration drawn from a clamped
+/// bottom would pin itself to the VIEWPORT and slide up the quote as the reader scrolls
+/// — ScrAP-333's shape, and the same trap the accent bar's tile phase already carries a
+/// note about.
+///
+/// Asking for the true bottom instead is not available: obtaining it means measuring the
+/// quote's last line while it is off-screen, which is the exact read the clamp exists to
+/// prevent. So this takes the other branch — `bottom < vbot` means the clamp did not
+/// bite and the bottom edge is the quote's own. When it did bite, the quote runs past
+/// the bottom of the screen, so its floor is off-screen and there is nothing to draw:
+/// the gate is not a compromise, it is the same picture.
+fn draw_panel_scene(snapshot: &gtk::Snapshot, ctx: &PaintCtx) {
+    let theme = crate::theme::active();
+    let Some(scene) = theme.sprites.blockquote_scene.as_ref() else {
+        return;
+    };
+    let zoom = ctx.imp.gutter_zoom.get();
+    for e in ctx
+        .quote_extents
+        .iter()
+        .filter(|e| e.depth == 1 && e.bottom < ctx.vbot)
+    {
+        let rect = graphene::Rect::new(ctx.lm, e.top, ctx.card_w, e.bottom - e.top);
+        crate::widgets::draw_scene_corner(snapshot, &rect, scene, zoom);
+    }
 }
 
 /// The quote's accent bar.
@@ -129,7 +166,39 @@ pub(super) fn draw_accent_bar(snapshot: &gtk::Snapshot, ctx: &PaintCtx) {
     // palette-derived default a theme that states neither key falls back
     // to, so it is passed in rather than re-derived here.
     let bar_decor = bqm.blockquote_bar_decor();
-    let bar_sprite = bar_decor.sprite.and_then(crate::sprite::texture);
+    // The tile is resampled so its WIDTH is the bar's width, and this is a correction
+    // rather than a refinement. `blockquote_bar_width` is a themed pixel metric, so
+    // `bar_w` above scales with zoom; a texture's natural size does not. Tiling the
+    // natural plate into a zoomed bar therefore left a CLIPPED PARTIAL COLUMN down the
+    // right-hand edge at every zoom but 1.0 — the gutter grew, the plate did not, and
+    // `push_repeat` filled the remainder with a slice of the next tile. The defect is
+    // horizontal only: the bar's height is the quote's extent, which no themed metric
+    // governs.
+    //
+    // Height takes the SAME factor as the width so the tile keeps its aspect — deriving
+    // it from the zoom independently would let rounding pull the two apart and shear the
+    // pattern. Nearest-neighbour through `sprite::scaled` (cached per size, so a zoom
+    // level costs one texture, not one per paint) for the reason every other resampled
+    // sprite here takes it: GSK 4.6's `append_texture` filters linearly with no choice
+    // (GTK4Rs/AP-114), which turns pixel art to mush.
+    //
+    // At zoom 1.0 a theme that sized `blockquote_bar_width` to its tile — which the key's
+    // own comment tells it to — hits the `==` short-circuit and gets the natural texture
+    // back, byte-identical to what this drew before.
+    let bar_sprite = bar_decor.sprite.and_then(|s| {
+        use gtk::gdk::prelude::TextureExt;
+        let natural = crate::sprite::texture(s)?;
+        let (tw, th) = (natural.width(), natural.height());
+        let w = bar_w.round() as i32;
+        if tw <= 0 || th <= 0 || w <= 0 {
+            return None;
+        }
+        if w == tw {
+            return Some(natural);
+        }
+        let h = (f64::from(th) * f64::from(w) / f64::from(tw)).round() as i32;
+        crate::sprite::scaled(s, w, h)
+    });
     // The SAME `quote_extents` the panel was filled from, so the bar and the
     // fill behind it can never disagree about where the quote starts or ends
     // — which is precisely how the TDD 18.29 defect announced itself.

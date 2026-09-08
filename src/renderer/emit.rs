@@ -138,6 +138,65 @@ impl Renderer {
         self.inter.at_start = false;
     }
 
+    /// Draw the level's themed marker immediately after the heading's text (TDD 18.55).
+    ///
+    /// **A Pango shape, not a computed x.** The marker goes into the buffer as a
+    /// paintable, so Pango places it just past the final glyph run — which means a
+    /// soft-wrapped heading carries it onto its LAST display row for free. Computing
+    /// that position instead would need an end-of-text x, and at GTK 4.6–4.12 the only
+    /// source of one is a `GtkTextLineDisplay`: the non-caching accessor for it
+    /// (`gtk_text_layout_get_line_display`, `size_only=TRUE`) is not merely private but
+    /// absent from `libgtk-4.so.1`'s dynamic symbol table, so no binding or shim reaches
+    /// it, and every public path that yields an x inserts into the display cache —
+    /// ScrAP-105's use-after-free. Researcher-verified against 4.6.9 source and
+    /// reproduced here with `nm -D`.
+    ///
+    /// **Inserted BEFORE the caller records the heading's span**, which is load-bearing
+    /// twice over: the band then covers the marker, and the heading's copymap node
+    /// claims the `U+FFFC` this leaves in the buffer, so copied source stays clean and
+    /// `copymap`'s unclaimed-anchor check keeps passing (measured: copy round-trips a
+    /// marked-up heading byte-identically).
+    ///
+    /// Sized by HEIGHT from `heading_marker_size` — a themed design-px metric scaled by
+    /// this render's zoom, exactly as every other decoration metric is. Zoom re-renders
+    /// the buffer (`window::zoom::apply_zoom`), so a size baked in here cannot go stale.
+    /// The width follows the sprite's own aspect so a non-square marker is not stretched.
+    ///
+    /// Inert unless the level states a marker, and inert again if it will not resample —
+    /// the same degrade-to-nothing every decoration in this vocabulary takes.
+    pub(super) fn insert_heading_marker(&mut self, slot: usize) {
+        let theme = crate::theme::active();
+        let Some(sprite) = theme.sprites.heading_marker[slot].as_ref() else {
+            return;
+        };
+        let h = crate::theme::px(theme.metrics.heading_marker_size[slot], self.zoom);
+        if h <= 0 {
+            return;
+        }
+        // Width from the source's aspect, height from the theme — a squat marker stays
+        // squat. `texture` is the natural-size decode both branches share, so the aspect
+        // and the resample never disagree about the source.
+        let Some(natural) = crate::sprite::texture(sprite) else {
+            return;
+        };
+        let (nw, nh) = {
+            use gtk::gdk::prelude::TextureExt;
+            (natural.width(), natural.height())
+        };
+        if nw <= 0 || nh <= 0 {
+            return;
+        }
+        let w = ((f64::from(nw) * f64::from(h) / f64::from(nh)).round() as i32).max(1);
+        let Some(tex) = crate::sprite::scaled(sprite, w, h) else {
+            return;
+        };
+        // A space first, so the marker never touches the final glyph. It is ordinary
+        // text and takes the heading's own tags, so it scales with the level.
+        self.insert(" ");
+        let mut iter = self.tip();
+        self.buf.insert_paintable(&mut iter, &tex);
+    }
+
     pub(super) fn newline(&mut self) {
         let mut iter = self.tip();
         self.buf.insert(&mut iter, "\n");

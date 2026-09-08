@@ -526,6 +526,25 @@ keys! {
                            = "heading_band_gradient_to_color" : Color Heading,
                              Reach::gated_on("heading_band_color = \"#123456\"\n");
     HEADING_BAND_SPRITE    = "heading_band_sprite"     : Sprite Heading;
+    // A single CURATED image, drawn once and anchored to the band's right edge, in
+    // ADDITION to whatever the band is filled with — the one decoration here that
+    // composites rather than replaces. `heading_band_sprite` beside it tiles a texture
+    // INSTEAD of the fill; the two answer different questions ("what is this band made
+    // of" vs "what is happening at the end of it") and a theme may state both.
+    //
+    // Anchored RIGHT and fitted by HEIGHT because a band's width tracks the content
+    // column while its height tracks the heading: a scene pinned to the left would sit
+    // under the heading text at every width, and one stretched to the width would
+    // distort as the window resized. The right edge is the only part of a band whose
+    // position is stable, and the left is where the text lives.
+    //
+    // NOT ON PAPER, for the reason `heading_band_radius` gives one line below: the PDF
+    // sink draws a band line by line, so a wrapped heading is several abutting rects
+    // with no single right edge to anchor a scene to — it would repeat once per row.
+    HEADING_BAND_SCENE     = "heading_band_scene"      : Sprite Heading,
+                             Reach::not_on_paper("the page draws a band line by line, so a wrapped \
+                                                  heading has no single right edge to anchor one \
+                                                  scene to — it would repeat once per row", "");
     // No heading carries a band until a theme states a fill for its level, so the
     // radius is only ever consulted for a band that exists.
     HEADING_BAND_RADIUS    = "heading_band_radius"     : Int    Heading | int(&[0], METRIC),
@@ -545,6 +564,28 @@ keys! {
     // key existed — the floor IS today's rendering, which is what keeps System
     // byte-identical (TDD 18.2). Not symmetric with the below-floor by accident: only
     // space-below was ever expressed.
+    // A themed icon drawn immediately AFTER a heading's text — the level's emblem,
+    // where the band behind it is the level's setting. Inserted into the rendered
+    // buffer as a Pango shape (`renderer::end_tag`), so Pango places it just past the
+    // final glyph and it follows a soft-wrapped heading onto its last row for free.
+    HEADING_MARKER_SPRITE  = "heading_marker_sprite"   : Sprite Heading;
+    // The marker's BOX, design-time px at zoom 1.0, exactly as `disclosure_marker_size`
+    // sizes that indicator's box and for the same reason: a sprite is resampled to the
+    // box, so the box is the only thing that decides how big it looks.
+    //
+    // The defaults are the MEASURED cap height of the shipped `heading_scale` ladder at
+    // zoom 1.0, because a marker aligns with a heading's CAPITALS: a paintable's box
+    // sits on the text baseline, so a box of cap height lands its top at cap height and
+    // its bottom on the baseline with no rise to apply. Art for this key must therefore
+    // be bottom-flush and full-height — transparent padding at the bottom lifts the icon
+    // off the baseline, and padding at the top makes it read small beside the letters.
+    //
+    // Only the HEIGHT is taken from this key. The width follows the source's aspect, so
+    // a marker that is not square (a squat creature, a wide banner) keeps its shape
+    // instead of being stretched into the box.
+    HEADING_MARKER_SIZE    = "heading_marker_size"     : Int    Heading
+                             | int(&[22, 17, 14, 12, 11], METRIC),
+                             Reach::gated_on("heading_marker_sprite = \"sprites/copper-plate.png\"\n");
     HEADING_SPACE_ABOVE    = "heading_space_above"     : Int    Heading | int(&[0], METRIC);
     HEADING_SPACE_BELOW    = "heading_space_below"     : Int    Heading
                              | int(&[4, 4, 2, 2, 2], METRIC);
@@ -587,6 +628,20 @@ keys! {
 
     // ── blockquote ───────────────────────────────────────────────────────────
     BLOCKQUOTE_BAR_COLOR   = "blockquote_bar_color"    : Color;
+    // A single curated scene in the quote panel's BOTTOM-RIGHT corner, over the fill.
+    // The blockquote's answer to `heading_band_scene`, and anchored to a corner rather
+    // than an edge for the one reason that matters: a band's height is fixed by its
+    // heading, but a quote panel's height is however long the quote is. Fitting to that
+    // would balloon the scene on a long quotation, so it is drawn at a fixed size on the
+    // panel's floor and the panel simply reveals more of it as the quote grows.
+    //
+    // NOT ON PAPER, for the reason the heading scene gives: the PDF sink draws a quote
+    // panel line by line, so a wrapped quote is several abutting rects with no single
+    // bottom-right corner to anchor one scene to.
+    BLOCKQUOTE_SCENE       = "blockquote_scene"        : Sprite,
+                             Reach::not_on_paper("the page draws a quote panel line by line, so a \
+                                                  wrapped quote has no single bottom-right corner \
+                                                  to anchor one scene to", "");
     BLOCKQUOTE_BAR_SPRITE  = "blockquote_bar_sprite"   : Sprite;
     BLOCKQUOTE_BAR_WIDTH   = "blockquote_bar_width"    : Int    | int(&[3], METRIC);
     BLOCKQUOTE_TEXT_GAP    = "blockquote_text_gap"     : Int    | int(&[10], METRIC);

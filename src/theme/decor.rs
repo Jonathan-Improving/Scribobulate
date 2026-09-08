@@ -136,6 +136,12 @@ pub(crate) struct Band<'a> {
     /// and the gradient. SCHEMA's `heading_band_sprite` row: *"Outranks the fill and
     /// the gradient."*
     pub sprite: Option<&'a SpriteRef>,
+    /// A single curated image drawn ONCE, anchored to the band's right edge, **over**
+    /// whatever the band is filled with rather than in place of it. The one member of
+    /// this struct that composites, which is why it is not part of the
+    /// sprite/gradient/flat precedence below and why [`Band::without_sprite`] ignores
+    /// it entirely: a scene is a second layer, not a fourth appearance.
+    pub scene: Option<&'a SpriteRef>,
     /// A vertical two-stop gradient, `(from, to)`. Present only where the level
     /// states **both** a fill and a `gradient_to`.
     pub gradient: Option<(gdk::RGBA, gdk::RGBA)>,
@@ -160,7 +166,7 @@ impl Band<'_> {
     /// is what keeps a theme that bands nothing identical to one from before the key
     /// existed (TDD 18.2).
     pub(crate) fn is_present(&self) -> bool {
-        self.sprite.is_some() || self.flat.is_some()
+        self.sprite.is_some() || self.flat.is_some() || self.scene.is_some()
     }
 
     /// The flat appearance to paint when the sprite is absent or could not be
@@ -292,6 +298,7 @@ impl Theme {
         let flat = self.heading_band.fills[level];
         Band {
             sprite: self.sprites.heading_band[level].as_ref(),
+            scene: self.sprites.heading_band_scene[level].as_ref(),
             // The gradient keeps its precondition, because a gradient is a second stop
             // and needs a first one — SCHEMA's `heading_band_gradient_to_color` row
             // states it, unlike the sprite row.
@@ -320,6 +327,9 @@ impl Theme {
         let flat = self.disclosure_band_color;
         Band {
             sprite: self.sprites.disclosure_band.as_ref(),
+            // A disclosure summary carries no scene: the key is per heading LEVEL and a
+            // fold has no levels, exactly as its gradient is flat rather than per level.
+            scene: None,
             gradient: flat.zip(self.disclosure_band_gradient_to),
             flat,
         }
@@ -398,7 +408,10 @@ static NO_SPRITES: Sprites = Sprites {
     list_task: None,
     list_task_checked: None,
     heading_band: [None, None, None, None, None],
+    heading_band_scene: [None, None, None, None, None],
+    heading_marker: [None, None, None, None, None],
     blockquote_bar: None,
+    blockquote_scene: None,
     rule: None,
 };
 

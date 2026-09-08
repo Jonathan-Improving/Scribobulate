@@ -105,12 +105,36 @@ const PROBE_CHUNK: usize = 64 * 1024;
 /// unresolved sprite is inert — for every installed copy.
 const BUILTIN_SPRITES: &[(&str, &[u8])] = &[
     (
+        "sprites/chest-marker.png",
+        include_bytes!("../data/sprites/chest-marker.png"),
+    ),
+    (
         "sprites/copper-plate.png",
         include_bytes!("../data/sprites/copper-plate.png"),
     ),
     (
+        "sprites/flower-marker.png",
+        include_bytes!("../data/sprites/flower-marker.png"),
+    ),
+    (
         "sprites/grass-platform.png",
         include_bytes!("../data/sprites/grass-platform.png"),
+    ),
+    (
+        "sprites/scene-cave.png",
+        include_bytes!("../data/sprites/scene-cave.png"),
+    ),
+    (
+        "sprites/scene-reef.png",
+        include_bytes!("../data/sprites/scene-reef.png"),
+    ),
+    (
+        "sprites/scene-ridge.png",
+        include_bytes!("../data/sprites/scene-ridge.png"),
+    ),
+    (
+        "sprites/scene-stage.png",
+        include_bytes!("../data/sprites/scene-stage.png"),
     ),
     (
         "sprites/sign-down.png",
@@ -119,6 +143,10 @@ const BUILTIN_SPRITES: &[(&str, &[u8])] = &[
     (
         "sprites/sign-right.png",
         include_bytes!("../data/sprites/sign-right.png"),
+    ),
+    (
+        "sprites/slime-marker.png",
+        include_bytes!("../data/sprites/slime-marker.png"),
     ),
     (
         "sprites/sword.png",

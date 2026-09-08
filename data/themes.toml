@@ -712,12 +712,20 @@ heading_color  = "#5f1010"                                    # h4/h5 — 9.12:1
                                                                # page removed that pressure,
                                                                # so the brighter original is
                                                                # available again if wanted
-heading_color_h1 = "#ffd400"  # h1 gold, h2 cream, h3 deep blue (h3 SHADED
-heading_color_h2 = "#fff3c4"
-heading_color_h3 = "#0a2d62"
-                                                                # darker for the old page, was #0e3e86 — now 9.14:1;
-                                                                # h1/h2 ink is unchanged, checked against their
-                                                                # BAND fill below, not the page)
+heading_color_h1 = "#ffd400"  # h1 gold, h2 cream, h3 pale leaf. All three are now
+heading_color_h2 = "#fff3c4"  # checked against their BAND fill, not the page.
+# h3 was the deep blue #0a2d62 (9.14:1 on the page) up to 2026-09-08, when h3 gained a
+# band of its own. A dark ink on a dark band is the one combination that cannot be
+# rescued by tuning — it inverted from 9.14:1 on the sky-blue page to under 2:1 on the
+# leaf green — so the level flips to a LIGHT ink like the two banded levels above it.
+#
+# It is h2's CREAM, deliberately shared rather than given a shade of its own. It was a
+# pale leaf (#d7f0c8) for one afternoon, chosen so h3 would read as a distinct voice;
+# on the cave scene that ink washed out against the green rock instead. Sharing h2's
+# cream costs nothing here because the BAND already tells the two levels apart — the
+# scene behind h3 is a cave and h2's is a platform stage — so the ink does not have to
+# carry that job as well. 7.4:1 on the leaf-green fill.
+heading_color_h3 = "#fff3c4"
 heading_font_h1 = '"Titan One", "Luckiest Guy", sans-serif'
 
 # A level-title BAND behind h1/h2 (TDD 18.25) — solid fills only, deliberately no
@@ -728,7 +736,72 @@ heading_font_h1 = '"Titan One", "Luckiest Guy", sans-serif'
 # 10.19:1.
 heading_band_color_h1 = "#2b2d6b"
 heading_band_color_h2 = "#5b2e1c"
+# h3 joins the banded levels (it was page-coloured until 2026-09-08). Its fill is the
+# leaf green of the flower tile below, stated for the same reason h1's and h2's are:
+# it is what the level falls back to if the sprite is missing, unreadable or refused
+# by `sprite::resolve`, and a band that degraded to a DIFFERENT colour than its tile
+# would read as a third heading family rather than as the same one undecorated.
+heading_band_color_h3 = "#24512a"
 heading_band_radius = 10
+
+# ── The banded levels' SCENES ────────────────────────────────────────────────────
+# One curated picture per banded level, drawn ONCE and anchored to the band's RIGHT
+# edge over the flat fill — not tiled. `heading_band_scene` and `heading_band_sprite`
+# are different questions: a sprite is what a band is MADE OF and repeats, a scene is
+# what is HAPPENING at the end of it and does not. This theme states only scenes; it
+# tiled four seamless patterns until 2026-09-08, and they were replaced rather than
+# supplemented because a tiled texture behind a curated scene reads as noise.
+#
+# Two constraints shape all three, and a fourth scene must honour both:
+#  1. Each scene's own ground IS its level's `heading_band_color` above, so the seam
+#     where the picture starts is invisible and the band reads as one surface however
+#     wide the window is. A scene whose ground differs would draw a visible edge that
+#     moves as the content column resizes.
+#  2. Interest is weighted to the RIGHT third and the left is left quiet, because the
+#     heading TEXT sits at the left of the band. Scenery under the text is the failure
+#     this weighting exists to avoid, and it is why the anchor is the right edge.
+# Both are why all three are NOCTURNAL/underground: the fill has to stay dark enough
+# for the heading ink, so a daylit scene would need a bright ground and break it.
+#
+# Original art, drawn for this project on the arcade idiom the theme already speaks:
+# no franchise names and no reproduced character, block or tile art (POLICY "Bundled
+# decoration art").
+heading_band_scene_h1 = "sprites/scene-ridge.png"   # a night ridge under a low moon
+heading_band_scene_h2 = "sprites/scene-stage.png"   # a platformer stage: floating
+                                                    # platforms and a block staircase
+                                                    # climbing to a pennant
+heading_band_scene_h3 = "sprites/scene-cave.png"    # a cave: stalactites, stalagmites,
+                                                    # a bat, and two eyes in the dark.
+                                                    # GREEN rock, not the grey-purple a
+                                                    # literal cave would take — this is
+                                                    # an arcade platformer's cave, and
+                                                    # it keeps h3's measured ink contrast
+                                                    # against the leaf-green fill
+
+# ── The levels' MARKERS ──────────────────────────────────────────────────────────
+# An emblem drawn immediately after each heading's text, where the scene behind it is
+# the level's setting: the chest is what you are looking for, the flower and the slime
+# are what you meet on the way. Placed by Pango as a shape rather than at a computed
+# x, so a heading that soft-wraps carries its marker onto the last row (see
+# `renderer::emit::insert_heading_marker` for why a computed x is unreachable here).
+#
+# All three are drawn BOTTOM-FLUSH and FULL-HEIGHT in their own box, which is a
+# requirement of the mechanism rather than a style: the box sits on the text baseline,
+# so transparent padding at the bottom would lift the icon off it and padding at the top
+# would make it read small beside the capitals. The slime's box is 32x24 rather than
+# square for the same reason — a squat creature needs a squat BOX, and only the height
+# is taken from `heading_marker_size` (the width follows the art's aspect).
+#
+# `heading_marker_size` is left UNSET on every level: the defaults are already the
+# measured cap height of this theme's `heading_scale` ladder, which is exactly what a
+# marker beside capital letters wants.
+#
+# Original art, drawn for this project — no franchise names and no reproduced character
+# or object art (POLICY "Bundled decoration art").
+heading_marker_sprite_h1 = "sprites/chest-marker.png"   # an OPEN chest, gold showing
+heading_marker_sprite_h2 = "sprites/flower-marker.png"
+heading_marker_sprite_h3 = "sprites/slime-marker.png"   # cyan, so it reads against the
+                                                        # cave scene's green rock
 
 # NO heading rule, above or below. This theme carried a furniture-blue underline
 # (#274665) until 2026-08-28; it was briefly an overline instead, and the operator then
@@ -816,6 +889,24 @@ blockquote_fg        = "#17263b"
 # tile or a 24px plate shows up as a 4px slice of one: `blockquote_bar_width` is 24 here
 # for that reason and no other, and a theme swapping the tile must resize with it.
 blockquote_bar_sprite = "sprites/copper-plate.png"
+# An underwater SCENE on the panel's floor (TDD 18.56) — a sandy bottom with seaweed,
+# bubbles, a squid and two fish, anchored BOTTOM-RIGHT and drawn once at a fixed size, so
+# a short quote shows the seabed and a long one brings what swims above it into view.
+#
+# Its water IS `blockquote_bg` above, so the seam where the picture starts is invisible
+# however wide the panel is — the same rule the heading scenes follow.
+#
+# INVERTED contrast rule, and it is the reason nothing here is a dark silhouette: quoted
+# text is `blockquote_fg`, a near-navy ink on a LIGHT panel, and it clears the 4.5:1 text
+# floor by very little. So every element in this scene sits at or ABOVE the water's own
+# luminance, which means text crossing the scene is never worse off than text on the bare
+# panel. The heading scenes take the opposite rule for the opposite reason (pale ink on a
+# dark band), and getting the two the same way round would be the bug.
+#
+# Original art — and the squid is drawn SIDE-ON with a tapered mantle, tail fins and
+# streaming arms, deliberately not a front-facing bell with straight tentacles, which is
+# a well-known platformer character's silhouette (POLICY "Bundled decoration art").
+blockquote_scene = "sprites/scene-reef.png"
 blockquote_bar_width = 24
 blockquote_text_gap  = 12
 list_item_gap        = 10
@@ -894,19 +985,25 @@ disclosure_expanded_glyph  = "▼"
 disclosure_marker_size     = 16
 # Inks the GLYPH rung only — a sprite indicator ignores it, per the sprite-outranks-flat
 # rule. The theme's gold, so the fallback and the plate it stands in for read as the same
-# object: 7.92:1 on the band, far past the 3:1 non-text floor.
+# object: 7.3:1 on the teal band, far past the 3:1 non-text floor.
 disclosure_marker_color    = "#ffd400"
-# A sign BOARD behind the whole summary line, in the h2 banner's wood. Reused rather than
-# re-picked: the fold's board, the h2 banner and the plate in front of it are meant to
-# read as one carpentry, and this page's palette holds no second dark surface that would
-# not have meant "heading" (the h1 indigo) or "quote panel" (the navy) instead. NO
-# gradient, for the reason the heading bands state: fading a dark band down to this
-# bright sky page drags every ink on it toward the floor along the run, and nothing here
-# needs to prove that is safe to ship.
-disclosure_band_color  = "#5b2e1c"
+# A slime POOL behind the whole summary line. This was the h2 banner's wood (#5b2e1c)
+# until 2026-09-08, on a "one carpentry" argument that did not survive contact with the
+# shipped theme: once h1, h2 and h3 all carry bands, a fold wearing a heading's exact
+# surface reads as a fourth heading rather than as a control, which is the one thing this
+# widget must not look like. A deep teal is the theme's only dark surface that means
+# neither "heading" (indigo / wood / leaf) nor "quote panel" (the navy), so the fold
+# finally has a colour of its own. NO gradient, for the reason the heading bands state:
+# fading a dark band down to this bright sky page drags every ink on it toward the floor
+# along the run, and nothing here needs to prove that is safe to ship.
+disclosure_band_color  = "#16414a"
+# NO sprite and NO scene on this band. The fold wore a tiled slime until 2026-09-08;
+# the slime is now h3's end-of-heading MARKER instead, where it reads at a size worth
+# drawing. The flat teal below is enough to keep the fold distinct from every heading
+# band, which was the only job the tile was doing here.
 disclosure_band_radius = 6
-# Cream label on the wood — the h2's own pairing, 10.19:1 — and the collapsed body
-# preview a step quieter in the gold, 7.92:1. Both clear the 4.5:1 text floor with room;
+# Cream label on the teal, 8.9:1 — and the collapsed body preview a step quieter in the
+# gold, 7.3:1. Both clear the 4.5:1 text floor with room;
 # the ORDER matters more than the margin, since a preview brighter than the label it
 # follows would read as the more important half of the line.
 disclosure_fg          = "#fff3c4"

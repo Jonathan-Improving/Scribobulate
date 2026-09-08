@@ -2729,6 +2729,35 @@ appearance that predates the feature; `Sepia` is the book-like reading theme.
 - **And** under System, which states no page, the indicator keeps the desktop's chevron in the desktop's colour, exactly as it did before any of these keys existed
 - **Rationale** the fallback is the rule the drawn list markers already follow — a marker's ink is the body's until the theme says otherwise — so the two kinds of marker cannot disagree; and an indicator left on the desktop's colour is not merely off-palette, it is the one part of a themed page that changes when the window loses focus (18.52)
 
+### 18.54 A theme can put a curated SCENE on a heading's band
+- **Given** a theme setting `heading_band_scene` for a level, with or without a `heading_band_color` beneath it
+- **When** a document with headings at that level is rendered, at several window widths and zooms
+- **Then** the scene is drawn ONCE, fitted to the band's height with its width following the source's aspect, and anchored to the band's RIGHT edge — never tiled, never stretched
+- **And** it composites OVER the band's fill or gradient rather than replacing it, which is what separates it from `heading_band_sprite`; a theme may state both
+- **And** a scene alone is a band, exactly as a sprite alone is
+- **And** it is clipped to the band, including its rounded corners
+- **And** the same picture reaches the HTML artefact; the PDF sink draws the band's fill only, because a paginated band is several abutting rects with no single right edge to anchor one scene to
+
+### 18.55 A theme can mark a heading with an icon after its text
+- **Given** a theme setting `heading_marker_sprite` for a level (optionally with `heading_marker_size`)
+- **When** a document with headings at that level is rendered, including a heading long enough to soft-wrap
+- **Then** the marker sits immediately after the heading's final glyph — on the LAST display row of a wrapped heading, not the first
+- **And** its box takes its HEIGHT from `heading_marker_size` and its width from the sprite's aspect, so a non-square marker is not stretched
+- **And** it aligns with the heading's capitals: box bottom on the text baseline
+- **And** it scales with the page's zoom
+- **And** copied source is unaffected — the marker contributes no characters to copied Markdown, and the copymap raises no drift
+- **And** the same marker reaches the HTML artefact and the PDF page
+
+### 18.56 A theme can put a curated SCENE in a quote panel
+- **Given** a theme setting `blockquote_scene`, with a `blockquote_bg` beneath it
+- **When** quotations of differing lengths are rendered, and the view is scrolled
+- **Then** the scene is drawn ONCE at a fixed size in the panel's BOTTOM-RIGHT corner, so a longer quotation reveals more of it rather than magnifying it
+- **And** it composites over the panel's fill rather than replacing it, and is clipped to the panel
+- **And** it scales with the page's zoom
+- **And** it does NOT nest: a quotation inside a quotation shows its parent's panel and one scene, not two
+- **And** it stays fixed to the quotation as the view scrolls — never anchored to the viewport's edge
+- **And** the same picture reaches the HTML artefact; the PDF sink draws the panel's fill only, for the reason 18.54 gives
+
 ### 19.1 A relative link to a Markdown sibling opens as a new tab
 - **Given** a rendered document containing a relative link to another `.md`/`.markdown` file that resolves within the current document's folder
 - **When** the reader clicks it

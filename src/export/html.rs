@@ -100,6 +100,29 @@ fn block_html(block: &Block, page: &Page<'_>, out: &mut String) {
         Block::Heading { level, id, inlines } => {
             let _ = write!(out, "<h{level} id=\"{}\">", escape_attr(id));
             inlines_html(inlines, page, out);
+            // The level's marker, INSIDE the heading element and after its text — the
+            // artefact's half of `renderer::emit::insert_heading_marker`. Inline rather
+            // than a `::after` pseudo-element so it inherits the heading's own line box
+            // and lands on the last line of a wrapped heading, which is where the
+            // preview puts it.
+            //
+            // `height` from the theme with `width: auto`, mirroring the preview's
+            // "height from `heading_marker_size`, width from the sprite's aspect" — a
+            // square box here would stretch the non-square markers the preview does not.
+            // `vertical-align: baseline` is what the preview gets for free from Pango
+            // placing the shape on the baseline.
+            let slot = crate::theme::heading_slot(*level);
+            if let Some((uri, _, _)) = page.theme.sprites.heading_marker[slot]
+                .as_ref()
+                .and_then(|r| page.uris.get(r))
+            {
+                let h = page.theme.metrics.heading_marker_size[slot];
+                let _ = write!(
+                    out,
+                    " <img src=\"{uri}\" alt=\"\" style=\"height: {h}px; width: auto; \
+                     vertical-align: baseline;\">"
+                );
+            }
             let _ = writeln!(out, "</h{level}>");
         }
         Block::Paragraph(inlines) => {
@@ -433,7 +456,7 @@ fn escape_attr(s: &str) -> String {
 fn stylesheet(p: &Palette, t: &Theme, uris: &SpriteUris) -> String {
     let mut css = String::with_capacity(2048);
     css.push_str(&page_rules(p, t));
-    css.push_str(&block_rules(p, t));
+    css.push_str(&block_rules(p, t, uris));
     css.push_str(&disclosure_summary_css(t, uris));
     css.push_str(&list_rules(p, t, uris));
     css.push_str(&inline_rules(p, t));
@@ -474,7 +497,7 @@ a {{ color: {link};{link_line} }}
 }
 
 /// Block-level constructs: code, quotes, the rule, and tables.
-fn block_rules(p: &Palette, t: &Theme) -> String {
+fn block_rules(p: &Palette, t: &Theme, uris: &SpriteUris) -> String {
     let m = &t.metrics;
     let mut css = String::new();
     let _ = write!(
@@ -498,7 +521,7 @@ td.a-r, th.a-r {{ text-align: right; }}
         bar = to_hex_rgba(p.blockquote_bar),
         bar_w = m.blockquote_bar_width,
         bar_sprite_css = blockquote_bar_sprite_css(t),
-        quote_panel_css = blockquote_panel_css(t, &to_hex_rgba(p.body_fg)),
+        quote_panel_css = blockquote_panel_css(t, &to_hex_rgba(p.body_fg), uris),
         bar_gap = m.blockquote_text_gap,
         rule = to_hex_rgba(p.rule),
         rule_space = m.rule_space,
@@ -702,29 +725,52 @@ fn band_css(decor: &crate::theme::Band<'_>, radius_design_px: i32, uris: &Sprite
         return String::new();
     }
     let mut out = String::new();
+    // The band's own surface, as a background VALUE rather than a whole declaration,
+    // because a scene may have to be layered in front of it below.
+    //
     // A sprite outranks the fill and the gradient, the same precedence the drawn gutter
     // applies to a marker — and it TILES at natural size here too, so the artefact and
     // the screen show the same picture rather than the same file scaled differently.
     // A sprite that cannot be embedded degrades to whatever the band would have been
     // without it, exactly as the preview does.
-    match decor.sprite.and_then(|r| uris.get(r)) {
-        Some((uri, _, _)) => {
-            let _ = write!(out, " background: url({uri}) repeat;");
-        }
+    let base: Option<String> = match decor.sprite.and_then(|r| uris.get(r)) {
+        Some((uri, _, _)) => Some(format!("url({uri}) repeat")),
         None => match decor.without_sprite() {
-            Some(crate::theme::BandPaint::Gradient { from, to }) => {
-                let _ = write!(
-                    out,
-                    " background: linear-gradient({}, {});",
-                    to_hex_rgba(from),
-                    to_hex_rgba(to)
-                );
-            }
-            Some(crate::theme::BandPaint::Flat(fill)) => {
-                let _ = write!(out, " background: {};", to_hex_rgba(fill));
-            }
-            None => {}
+            Some(crate::theme::BandPaint::Gradient { from, to }) => Some(format!(
+                "linear-gradient({}, {})",
+                to_hex_rgba(from),
+                to_hex_rgba(to)
+            )),
+            Some(crate::theme::BandPaint::Flat(fill)) => Some(to_hex_rgba(fill)),
+            None => None,
         },
+    };
+    // The SCENE is a second LAYER in front of that, not a fourth appearance — the same
+    // compositing the preview performs by drawing it after the fill
+    // (`codeview::bandpaint`). CSS lists layers front-to-back, so the scene is written
+    // first and the band's own surface last; a bare colour is only legal as the final
+    // item of the shorthand, which that ordering also satisfies.
+    //
+    // `right center / auto 100%` is the declaration of the same fit
+    // `widgets::draw_scene_into` computes: fit to the band's HEIGHT, keep the source
+    // aspect (`auto` width), anchor to the right edge, and draw once. `no-repeat` is
+    // what makes it a scene rather than a texture, and is the single token that would
+    // silently turn this into a second tiling path if it were dropped.
+    let scene = decor
+        .scene
+        .and_then(|r| uris.get(r))
+        .map(|(uri, _, _)| format!("url({uri}) right center / auto 100% no-repeat"));
+    match (scene, base) {
+        (Some(scene), Some(base)) => {
+            let _ = write!(out, " background: {scene}, {base};");
+        }
+        (Some(scene), None) => {
+            let _ = write!(out, " background: {scene};");
+        }
+        (None, Some(base)) => {
+            let _ = write!(out, " background: {base};");
+        }
+        (None, None) => {}
     }
     // Consulted only for a band that exists, the same gate the preview applies.
     if radius_design_px > 0 {
@@ -901,11 +947,26 @@ fn disclosure_summary_css(t: &Theme, uris: &SpriteUris) -> String {
 /// claim wash is unreadable. `.annotations blockquote.claim` already overrides the
 /// bar; this restores the body ink there for the same reason, and only when there is
 /// an ink to restore from.
-fn blockquote_panel_css(t: &Theme, body_fg: &str) -> String {
-    let bg = t
-        .blockquote_bg
-        .map(|c| format!(" background: {};", to_hex_rgba(c)))
-        .unwrap_or_default();
+fn blockquote_panel_css(t: &Theme, body_fg: &str, uris: &SpriteUris) -> String {
+    // The panel's own fill, and the SCENE layered in front of it in its bottom-right
+    // corner — one `background` declaration carrying both, scene first, exactly as
+    // `band_css` layers a heading band's. `right bottom / auto no-repeat` is the
+    // declaration of what `widgets::draw_scene_corner` computes: natural size, anchored
+    // to the corner, drawn once. A bare colour is legal only as the shorthand's last
+    // item, which that ordering also satisfies.
+    let scene = t
+        .sprites
+        .blockquote_scene
+        .as_ref()
+        .and_then(|r| uris.get(r))
+        .map(|(uri, _, _)| format!("url({uri}) right bottom no-repeat"));
+    let fill = t.blockquote_bg.map(to_hex_rgba);
+    let bg = match (&scene, &fill) {
+        (Some(scene), Some(fill)) => format!(" background: {scene}, {fill};"),
+        (Some(scene), None) => format!(" background: {scene};"),
+        (None, Some(fill)) => format!(" background: {fill};"),
+        (None, None) => String::new(),
+    };
     let fg = t
         .blockquote_fg
         .map(|c| format!(" color: {};", to_hex_rgba(c)))
@@ -2069,7 +2130,7 @@ mod html_sink_tests {
         let (palette, mut theme) = style();
         let body_fg = crate::palette::to_hex_rgba(palette.body_fg);
         assert!(
-            super::blockquote_panel_css(&theme, &body_fg).is_empty(),
+            super::blockquote_panel_css(&theme, &body_fg, &super::SpriteUris::default()).is_empty(),
             "neither key stated must emit nothing"
         );
 
@@ -2091,7 +2152,7 @@ mod html_sink_tests {
         // a theme that stated only a background would silently re-ink every quote.
         let mut bg_only = theme.clone();
         bg_only.blockquote_fg = None;
-        let css = super::blockquote_panel_css(&bg_only, &body_fg);
+        let css = super::blockquote_panel_css(&bg_only, &body_fg, &super::SpriteUris::default());
         assert_eq!(
             css,
             "blockquote { background: #0a1830; }\nblockquote blockquote { background: transparent; }\n",
@@ -2117,7 +2178,7 @@ mod html_sink_tests {
         // a bug, so its absence is asserted rather than assumed.
         let mut fg_only = theme.clone();
         fg_only.blockquote_bg = None;
-        let css = super::blockquote_panel_css(&fg_only, &body_fg);
+        let css = super::blockquote_panel_css(&fg_only, &body_fg, &super::SpriteUris::default());
         assert!(
             !css.contains("blockquote blockquote"),
             "the quote INK must reach every nesting depth; only the background is \
@@ -2417,6 +2478,104 @@ mod html_sink_tests {
         assert!(h1.contains(") repeat;"), "{h1}");
         // …and it outranks the gradient that is still stated.
         assert!(!h1.contains("linear-gradient"), "{h1}");
+    }
+
+    /// A band SCENE composites over the band's own surface rather than replacing it,
+    /// and is drawn once — the artefact's half of `widgets::draw_scene_into`.
+    ///
+    /// This is the property that separates a scene from `heading_band_sprite` beside it,
+    /// and every assertion here is one a naive "emit another background" implementation
+    /// gets wrong: the scene must be the FRONT layer, the fill must survive underneath
+    /// it, and it must not repeat. The last of those is one token (`no-repeat`) whose
+    /// loss would silently turn this into a second tiling path.
+    /// The quote panel's scene layers over its fill in the BOTTOM-RIGHT corner and is
+    /// drawn once — the artefact's half of `widgets::draw_scene_corner`.
+    ///
+    /// `bottom` is the assertion that separates this from the heading band's scene: a
+    /// band anchors to an edge and fits its height, a quote panel anchors to a corner
+    /// because its height is however long the quote is. A copy-paste of the band rule
+    /// would emit `center` and pass every other assertion here.
+    #[test]
+    fn a_quote_panel_scene_sits_bottom_right_over_the_fill() {
+        let (_palette, mut theme) = style();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("reef.png");
+        std::fs::write(&path, ONE_PIXEL_PNG).unwrap();
+        theme.blockquote_bg = Some(gtk::gdk::RGBA::new(0.2, 0.4, 0.6, 1.0));
+        theme.sprites.blockquote_scene = Some(crate::sprite::SpriteRef::File(path));
+        let css = super::blockquote_panel_css(&theme, "#000000", &super::SpriteUris::default());
+
+        assert!(css.contains("url(data:image/png;base64,"), "{css}");
+        assert!(css.contains("right bottom no-repeat"), "{css}");
+        // The fill SURVIVES under it — a scene that replaced it would drop quoted text
+        // onto the page instead of onto the panel.
+        assert!(css.contains("#336699"), "the fill must remain: {css}");
+        // One declaration carrying both, scene first; two would overwrite, not layer.
+        // Scoped to the `blockquote` rule: the nested-quote reset below is a second,
+        // legitimate `background:` and counting the whole sheet would fold them together.
+        let first = css.lines().next().unwrap_or_default();
+        assert_eq!(
+            first.matches("background:").count(),
+            1,
+            "scene and fill must be layers of ONE background: {first}"
+        );
+        // …and the scene does NOT nest, for the same reason the fill does not: a nested
+        // level shows its parent's panel, so a second scene drawn over it would stack two
+        // seabeds on one quote. The preview gets this from painting depth 1 only.
+        assert!(
+            css.contains("blockquote blockquote { background: transparent; }"),
+            "a nested quote must reset the whole background, scene included: {css}"
+        );
+    }
+
+    #[test]
+    fn a_band_scene_layers_over_the_fill_and_does_not_repeat() {
+        let (palette, mut theme) = style();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("scene.png");
+        std::fs::write(&path, ONE_PIXEL_PNG).unwrap();
+
+        theme.heading_band.fills[0] = Some(gtk::gdk::RGBA::new(0.2, 0.4, 0.6, 1.0));
+        theme.sprites.heading_band_scene[0] = Some(crate::sprite::SpriteRef::File(path));
+        let css = super::stylesheet(&palette, &theme, &super::SpriteUris::default());
+        let h1 = heading_rule(&css, 1);
+
+        assert!(h1.contains("url(data:image/png;base64,"), "{h1}");
+        // Fitted to the band's HEIGHT with the width left to the source's aspect, and
+        // anchored to the RIGHT edge — the declaration of the fit the preview computes.
+        assert!(h1.contains("right center / auto 100% no-repeat"), "{h1}");
+        // The flat fill SURVIVES under it. A scene that replaced the fill would leave
+        // the heading ink on the page instead of on the band, which is the whole reason
+        // this decoration composites.
+        assert!(
+            h1.contains("#336699"),
+            "the fill must remain under the scene: {h1}"
+        );
+        // One `background:` declaration carrying both, scene first — a second
+        // declaration would overwrite the first rather than layer over it.
+        assert_eq!(
+            h1.matches("background:").count(),
+            1,
+            "scene and fill must be layers of ONE background, not two declarations: {h1}"
+        );
+    }
+
+    /// A scene ALONE is a band, exactly as a sprite alone is — the artefact's half of
+    /// `theme::Band::is_present`. A level stating only a scene used to be no band at
+    /// all on every renderer (ScrAP-324's class), so this pins the emptier half.
+    #[test]
+    fn a_scene_alone_is_a_band() {
+        let (palette, mut theme) = style();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("scene.png");
+        std::fs::write(&path, ONE_PIXEL_PNG).unwrap();
+        theme.sprites.heading_band_scene[0] = Some(crate::sprite::SpriteRef::File(path));
+        let css = super::stylesheet(&palette, &theme, &super::SpriteUris::default());
+        let h1 = heading_rule(&css, 1);
+        assert!(
+            h1.contains("no-repeat"),
+            "a scene with no fill must still paint: {h1}"
+        );
     }
 
     #[test]

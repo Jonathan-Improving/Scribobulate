@@ -353,10 +353,41 @@ pub(crate) fn draw_page(
                 }
                 if let Some(pl) = layout.line_readonly(*index) {
                     let (_ink, logical) = pl.extents();
-                    cr.move_to(margin_pt + line.indent, y - pango_to_pt(logical.y()));
+                    let baseline = y - pango_to_pt(logical.y());
+                    cr.move_to(margin_pt + line.indent, baseline);
                     // `show_layout_line`, never a per-run glyph loop — the text layer is
                     // the difference between a searchable PDF and a picture of one.
                     pangocairo::functions::show_layout_line(cr, &pl);
+                    // The level's marker, immediately after this line's TEXT. The x comes
+                    // from the line's own logical width, which this sink may read freely:
+                    // it built the layout itself, so there is no `GtkTextLayout` and none
+                    // of the display-cache hazard that rules the same question out on the
+                    // preview's paint path.
+                    //
+                    // Drawn with its BOTTOM on the baseline, which is what aligns it with
+                    // the capitals — `show_layout_line` draws from the baseline, so this
+                    // is the same rule the preview gets from Pango placing a shape there,
+                    // arrived at independently rather than by copying a number.
+                    if let Some(mk) = &line.end_marker {
+                        let (nat_w, nat_h) = mk.natural;
+                        // A quarter of the marker's own height as the gap to the text,
+                        // derived from the thing being drawn rather than stated — the
+                        // same discipline the gutter marker's gap above follows, and it
+                        // stands in for the single space the preview inserts.
+                        let gap = mk.height / 4.0;
+                        let w = mk.height * nat_w / nat_h;
+                        cr.save().ok();
+                        cr.translate(
+                            margin_pt + line.indent + pango_to_pt(logical.width()) + gap,
+                            baseline - mk.height,
+                        );
+                        cr.scale(w / nat_w, mk.height / nat_h);
+                        if cr.set_source_surface(&mk.surface, 0.0, 0.0).is_ok() {
+                            cr.paint().ok();
+                        }
+                        cr.restore().ok();
+                        set_ink(cr, fg);
+                    }
                 }
                 // Put the body pen back, the same duty every branch above discharges:
                 // this is the one branch that used never to change it, so a quote's ink
