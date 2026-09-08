@@ -360,7 +360,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 | 345 | Judging a theme change against a machine that has ever run `install.sh` — the installed `themes.toml` overrides the built-in PER KEY | C |
 | 346 | Assuming every `U+FFFC` in the preview buffer is an anchored child | C |
 | 347 | A legibility gate measuring an ink against a surface its level can never show | C |
-| 348 | Trying to place a decoration after a text run by COMPUTING its end-of-text x | A |
+| 348 | Placing a decoration after a text run by COMPUTING its end-of-text x | A |
 
 ---
 
@@ -1924,18 +1924,18 @@ Severity: High
 **Scribobulate**: an image's alt text reaches the render as NOTHING, and the contract is stated once, in front of the dispatch, as `renderer::Renderer::alt_suppressed` over an `image_alt_depth` count — never as a guard inside one arm of `renderer::events::process`. `preview::build`'s per-cell copy capture asks that same predicate rather than re-deriving the condition, so the buffer and the cell offsets cannot disagree. The four leaks the one-event version shipped are one test each in `preview::altsuppression`, with a control proving the construct still renders outside an image; the contract is TDD 2.5 and the manual check is `tests/MANUAL-TEST.md` 2.5d. `export::walk` is the shape that never had the defect: it opens an inline frame at `Start(Image)` and folds the subtree into the alt string at its close, so there is nothing to enumerate and nothing to reset.
 **See**: TDD 2.5; kin ScrAP-147 (raw-HTML images reaching the scanner from inside a region meant to render as nothing — the collapsed-body half of the same hazard).
 ## 345. Judging a theme change on a machine that has ever run `install.sh`
-**Root cause**: `$XDG_DATA_HOME/scribobulate/themes.toml` (search-path row 2, written by `install.sh`) merges over the compiled-in file **per theme id and per key**, so an edit half-lands — keys added since the install apply, edited ones do not — and reads as a rendering bug. Verify under a scratch `XDG_DATA_HOME`, or refresh that copy *and* its `sprites/`.
-**See**: `sdd/THEMING.md` search path; kin ScrAP-128; GEP-57.
+**Root cause**: `$XDG_DATA_HOME/scribobulate/themes.toml` (row 2, from `install.sh`) merges over the compiled-in file **per key**, so an edit half-lands and reads as a rendering bug. Verify under a scratch `XDG_DATA_HOME`, or refresh that copy and its `sprites/`.
+**See**: `sdd/THEMING.md`; kin ScrAP-128; GEP-57.
 
 ## 346. Assuming every `U+FFFC` in the preview buffer is an anchored child
-**Root cause**: the guard equated it with a `GtkTextChildAnchor`; decoration now also enters as a Pango shape (`insert_paintable`) — same character, no anchor, opposite verdict, since it stands for no source. Ask the buffer for an anchor, never offsets taken at render time — the splice route re-bases them, so they pass on full renders and fail silently on edits.
-**See**: `copymap::debug_verify`; kin ScrAP-74; GEP-4 (debug-only guard — a release spike saw nothing, reported as absence); GEP-19.
+**Root cause**: decoration also enters as a Pango shape (`insert_paintable`) — same character, no anchor, opposite verdict, standing for no source. Ask the buffer for an anchor, never offsets taken at render time — the splice re-bases them.
+**See**: `copymap::debug_verify`; kin ScrAP-74; GEP-4; GEP-19.
 
 ## 347. A legibility gate measuring an ink against a surface its level can never show
-**Root cause**: `band_surfaces` short-circuited to the page for ANY sprite-bearing band, but a band degrades to its FILL and only a fill-less level reaches the page — so it rejected a legible ink at 1.03:1. Deleted; `Band::without_sprite` already is the degrade chain. Ask what a proxy FORBIDS, not only what it admits.
+**Root cause**: `band_surfaces` short-circuited to the page for ANY sprite-bearing band, but a band degrades to its FILL, rejecting a legible ink at 1.03:1. Deleted — `Band::without_sprite` is that chain.
 **See**: kin F-AP-B-302; GEP-6.
 
-## 348. Trying to place a decoration after a text run by COMPUTING its end-of-text x
-**Scribobulate**: `renderer::emit::insert_heading_marker` inserts it as a Pango shape, so Pango places it past the final glyph run — no x computed, and a wrapped heading carries it on its LAST row. Cost: ScrAP-346.
+## 348. Placing a decoration after a text run by COMPUTING its end-of-text x
+**Scribobulate**: `renderer::emit::insert_heading_marker` inserts it as a Pango shape, so Pango places it past the final glyph run and onto a wrapped heading's LAST row. Cost: ScrAP-346.
 **See**: gtk4-rs skill → GtkTextView geometry; kin ScrAP-105.
 
