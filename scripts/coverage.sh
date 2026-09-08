@@ -844,12 +844,19 @@ IGNORE='src[/\\](window[/\\](tabs[/\\]|editbar[/\\]|navhistory[/\\])?[a-z_]+|app
 # arrived as a leg-B scope mismatch rather than being recognised as the scaffolding it
 # is. One axis over from the `[/\\]` class discipline this block already argues for.
 #
+# `preview/altsuppression.rs` is the third kind: not a rig but a whole module of
+# `#[gtktest::test]` bodies, sited in its own file because the one it would otherwise
+# have joined (`preview/build.rs`) is far past the 500-line soft limit. It is named
+# individually rather than by a `preview/[a-z_]+` shape, because that shape would also
+# swallow a future PRODUCTION file added beside it — the failure this block's own
+# depth-agnostic argument warns about, pointed the other way.
+#
 # This names a path SHAPE and will not know about a seventh scaffolding file added later.
 # That is deliberate and is why leg B carries its own scope check: an unrecognised file
 # entering is NAMED and stops the run, rather than being quietly absorbed at whatever
 # coverage a test file happens to have. Same `[/\\]` class rule as `IGNORE` above, and
 # for the same reason.
-IGNORE_TESTONLY='src[/\\](testpump|preview[/\\]splice[/\\]excursion([/\\][a-z_]+)*)\.rs'
+IGNORE_TESTONLY='src[/\\](testpump|preview[/\\]altsuppression|preview[/\\]splice[/\\]excursion([/\\][a-z_]+)*)\.rs'
 
 # SCOPE_FILE — the measured set, recorded. Its own header states its role; the one thing
 # worth repeating HERE, where the enforcement lives, is what keeps the two files from

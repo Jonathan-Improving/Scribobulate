@@ -520,12 +520,18 @@ pub(crate) struct Renderer {
     /// and local paths outside the document folder are loaded. Defaults to false
     /// (only contained local paths render). See `links::resolve_image`.
     allow_unsafe_images: bool,
-    /// True between Start/End(Image) whenever the image loaded OR a broken-image
-    /// placeholder stands in for it (blocked / not found / undecodable) — i.e.
-    /// always, since every non-renderable image now gets a placeholder rather
-    /// than a silent alt-text fallback (`image_placeholder_tooltip`). Kept as a
-    /// field because the alt Text events arrive AFTER `Start(Image)`.
-    suppress_image_alt: bool,
+    /// How many `Tag::Image` starts the walk is currently inside — non-zero while
+    /// an image's ALT SUBTREE is being walked, and a COUNT rather than a flag
+    /// because an alt may itself contain an image (`![![i](a.png) tail](b.png)`)
+    /// whose `TagEnd::Image` would otherwise end the outer image's suppression and
+    /// spill the rest of its alt into the document.
+    ///
+    /// A field because the alt events arrive AFTER `Start(Image)`, and the whole
+    /// subtree rather than its `Text` alone because every alt event is suppressed
+    /// unconditionally: the picture — or the broken-image placeholder that stands
+    /// in for it, which every non-renderable image now gets rather than degrading
+    /// to a bare alt string (`image_placeholder_tooltip`) — IS the alt.
+    image_alt_depth: u32,
     /// (anchor, tint widget) for each rendered image — the click-through overlay box
     /// shown when the image is inside the buffer selection (preview `connect_image_tints`).
     pub image_tints: Vec<(TextChildAnchor, gtk::Widget)>,
@@ -1260,7 +1266,7 @@ impl Renderer {
             syntect_theme,
             doc_dir,
             allow_unsafe_images,
-            suppress_image_alt: false,
+            image_alt_depth: 0,
             image_tints: Vec::new(),
             html_acc: String::new(),
             in_html_block: false,

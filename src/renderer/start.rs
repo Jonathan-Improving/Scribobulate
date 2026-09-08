@@ -240,6 +240,17 @@ impl Renderer {
                 // fallback), and anchor the picture or a broken-image placeholder. The
                 // exact same machinery serves a raw-HTML `<picture>`/`<img>` —
                 // see `feed_html`/`render_image_slot` (ScrAP-147).
+                //
+                // UNLESS this image is itself inside another image's ALT TEXT
+                // (`![![i](a.png) tail](b.png)`), where it is not an image at all:
+                // CommonMark folds a nested image down to its alt string, which the
+                // outer image's picture already stands in for. So it renders nothing,
+                // resolves nothing and fetches nothing — only the nesting is counted,
+                // so the outer region ends at the outer `TagEnd::Image`.
+                self.image_alt_depth += 1;
+                if self.image_alt_depth > 1 {
+                    return;
+                }
                 let resolution = resolve_image(
                     dest_url.as_ref(),
                     self.doc_dir.as_deref(),
@@ -248,13 +259,13 @@ impl Renderer {
                 let loaded = load_texture(&resolution, self.zoom);
                 // Decide what stands in for the image. If it loaded, the picture is
                 // shown; otherwise a broken-image placeholder carries a reason in its
-                // tooltip (blocked by policy / not found / failed to decode). Either way
-                // the alt text is suppressed: the picture or the placeholder icon IS the
-                // visual signal, so an unresolvable image never silently collapses to a
-                // bare alt string (the "Show Unsafe Images left only alt text" report).
+                // tooltip (blocked by policy / not found / failed to decode). One of the
+                // two ALWAYS lands, which is what earns the unconditional suppression
+                // above: the picture or the placeholder icon IS the visual signal, so an
+                // unresolvable image never silently collapses to a bare alt string (the
+                // "Show Unsafe Images left only alt text" report).
                 let placeholder_tooltip =
                     image_placeholder_tooltip(&resolution, loaded.is_some(), dest_url.as_ref());
-                self.suppress_image_alt = loaded.is_some() || placeholder_tooltip.is_some();
                 if let Some(image) = loaded {
                     self.anchor_image(&image);
                 } else if let Some(tooltip) = placeholder_tooltip {

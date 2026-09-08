@@ -361,8 +361,11 @@ impl Renderer {
                 }
             }
             TagEnd::Image => {
-                // End of an image: stop suppressing text (the alt text, if any, is done).
-                self.suppress_image_alt = false;
+                // End of an image: its alt subtree is done. A NESTED image's end closes
+                // only its own level — the outer image's alt runs on past it, which is
+                // what a plain flag got wrong (it spilled the outer alt's tail into the
+                // document).
+                self.image_alt_depth = self.image_alt_depth.saturating_sub(1);
             }
             // The raw HTML block is complete: feed its accumulated body (block HTML
             // arrives line-by-line in `html_acc`, events.rs) through the scanner,

@@ -23,6 +23,8 @@
 //! * [`scroll`] — the scroll-position / restore helpers (validation-safe, GTK4Rs/AP-22/65).
 //! * [`css`] — the preview/table/outline/tab-strip CSS.
 
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+mod altsuppression;
 pub(crate) mod annotate;
 pub(crate) mod build;
 mod cells;

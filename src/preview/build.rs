@@ -576,6 +576,10 @@ pub(super) fn build_products(buf: &TextBuffer, prepared: &Prepared<'_>) -> Rende
         // `copymap::debug_verify` reported 1:1 leaf drift on every such document.
         let site = r.collapsed_site();
         let collapsed = site.is_some();
+        // Asked BEFORE the renderer processes the event, like `collapsed_site` above
+        // and for the same reason: the answer changes on the event that opens or
+        // closes the region.
+        let alt_suppressed = r.alt_suppressed(&ev);
         if !collapsed {
             source_map.push((before, waypoint_src_offset(&ev, &src_range)));
         }
@@ -606,7 +610,14 @@ pub(super) fn build_products(buf: &TextBuffer, prepared: &Prepared<'_>) -> Rende
         // `_ if collapsed` arm reads as one more variant this dispatcher declines to
         // name, which is exactly what `cargo xtask lint-references` check 15 exists
         // to catch. The condition is about the whole capture, not about any event.
-        if !collapsed {
+        //
+        // Skipped for the same reason inside an image's ALT TEXT: the alt reaches no
+        // cell label (the renderer drops the whole subtree — `Renderer::alt_suppressed`,
+        // which is asked here rather than re-derived so the two cannot disagree), so
+        // counting its characters into `cell_off` would push every later offset in the
+        // cell right by the length of the alt and make a copy out of that cell start
+        // in the wrong place.
+        if !collapsed && !alt_suppressed {
             match &ev {
                 Event::Start(Tag::TableCell) => {
                     cell_active = true;

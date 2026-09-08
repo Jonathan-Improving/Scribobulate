@@ -15,3 +15,7 @@ Vector image (240px SVG with text in it — must scale with zoom AND stay sharp;
 Traversal (must be refused):
 
 ![evil](../../../etc/hosts)
+
+Alt text made of MARKUP (TDD 2.5) — nothing below the picture, and no second image:
+
+![a `--flag` span, a [link](https://example.invalid/), a nested ![inner](logo.png) and a raw <img src="logo.png"> tail](logo.png)

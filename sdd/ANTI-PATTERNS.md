@@ -9,7 +9,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 2. General engineering discipline that survives deleting every Scribobulate noun? → route it to `general-engineering-principles`, cited `GEP-N`; leave a one-line `**Routed**` tombstone here. No ScrAP number is needed for provenance.
 3. Neither — Scribobulate internals, or a non-gtk4-rs dependency (Pango, GtkSourceView, pulldown-cmark, librsvg, syntect, serde/toml, the toolchain)? → it stays here, **in ≤ 6 lines**: Symptom · Root cause · Resolution · Lesson · Scribobulate · See. Extend an existing entry rather than minting a sibling for the same root cause. Route a Pango lesson on whose API *contract* it is about, and raise it before routing.
 
-**Numbers are frozen** (check 9): never renumbered, never reused; a retired entry keeps its `## N.` heading as a landing spot. Reserved gaps — do not fill: **176–179** (Windows port; holder gone, held pending operator resolution), **186** (`feat/spelling`, inbound), **276–289** (unmerged branches). **Next free number: 344**+ — check this table and announce the range you claim; never derive it from the highest heading below.
+**Numbers are frozen** (check 9): never renumbered, never reused; a retired entry keeps its `## N.` heading as a landing spot. Reserved gaps — do not fill: **176–179** (Windows port; holder gone, held pending operator resolution), **186** (`feat/spelling`, inbound), **276–289** (unmerged branches). **Next free number: 345**+ — check this table and announce the range you claim; never derive it from the highest heading below.
 
 **Growth** is gated in bytes (check 11). The ratchet only tightens; consolidate in the change that trips it.
 
@@ -356,6 +356,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 | 341 | More than one adjustment write per frame on a pre-4.10.1 `GtkListView` (a fast wheel scroll up) snaps the list to its end | A |
 | 342 | An installer anchoring its PATH and manual-page links inside the build directory — and the dangling PATH entry that is SKIPPED rather than failed | B |
 | 343 | Enlarging a decoded `GdkTexture` to display a VECTOR image at a larger size | C |
+| 344 | A region-wide suppression written as one event kind, and a `bool` where the region can nest | B |
 
 ---
 
@@ -1575,26 +1576,8 @@ clean answer of the wrong kind. Ask what it would say about the case you have *n
 Severity: High
 
 ## 279. `gvsbuild --configuration release` compiles GTK's assertions OUT, so the development box cannot enforce the contracts CI enforces
-
-**Symptom**: a test aborts in CI and cannot be reproduced on the Windows development machine under any condition — single case, full suite, same GTK version number. The abort is a fatal GLib assertion inside GTK itself (`gsk_renderer_dispose: assertion failed: (!priv->is_realized)`, exit `0xC0000409`), so it reads as a platform or timing difference rather than a build difference.
-
-**What was tried**: ruling out the GTK version (identical, 4.22.4, checked against the upstream pin); the application's own code path; teardown ordering across the full suite; and "assertions wholesale compiled out", which was inferred from a one-sided string grep and then **retracted as unsound** — a single-binary grep cannot distinguish "this assertion is present" from "some string sharing those bytes is present".
-
-**Root cause**: GTK's own meson adds `-DG_DISABLE_ASSERT` when `debug=false` and `optimization ∈ {2,3,s}` — i.e. under `--buildtype release`. `gvsbuild`'s **default** is `debug-optimized` (meson `debugoptimized`, assertions live), which is what its published release archives are built with; an explicit `--configuration release` gets a real release buildtype and every `g_assert` in GTK/GSK vanishes at compile time. **Both install to a directory named `release`**, so nothing on disk distinguishes them.
-
-**Resolution**: test against the artefact CI consumes rather than one that resembles it — unpack the published archive to a separate prefix and point the prefix variable at it per-invocation, leaving the working toolchain untouched. Confirm by the paired literals (`!priv->is_realized` and the enclosing function name present in one binary, absent in the other) and by a positive control that *aborts* where it previously exited 0.
-
-**Lesson**: **a version number is not a build.** Where a toolchain offers a configuration that removes runtime checking, "green on the development machine" is systematically weaker evidence than it reads for every assertion-backed contract in the dependency — and the weakness is invisible from that machine, because the check that would reveal it is the check that was compiled out. Ask what your build *enforces*, not what it *is*.
-
-**Where Scribobulate implements the fix**: the Windows seat's standing practice, recorded in `packaging/windows/README.md`; `.github/workflows/pipeline.yml` pins the published archive by release tag.
-
-**Scope**: MEASURED on GTK 4.22.4 / gvsbuild 2026.8.0 / MSVC / Windows 10 Pro 19045, both binaries on one machine; the meson logic is SOURCED, not measured across versions. **Ubuntu's distro GTK compiles assertions IN** (`libgtk-4-1` 4.6.9+ds-0ubuntu0.22.04.2 carries both literals). That is single-binary and so sound only as a **positive** — a PRESENT is real evidence, since the stringified expression plus `G_STRFUNC` is only produced by an expanded `g_assert`, while an ABSENT elsewhere would need the two-binary pairing first. So the Linux seat structurally could have caught this class and the Windows development box structurally could not, which is why the same suite being green on three machines was only ever proving this about one of them. MSYS2 and Homebrew remain unanswered.
-
-**See**: routed to the `gtk4-rs` skill — any GTK project with a locally built Windows toolchain has this exposure. Sibling there is GTK4Rs/AP-160 ("a green suite is evidence only about the environments it has run in"); this is the sharper child, not environments but **build configurations behind an identical version number**, and where GTK4Rs/AP-160's gap is visible from the machine you stand on, this one is definitionally not.
-
-**Cost**: a CI failure irreproducible locally, resolved only by diffing two binaries; plus a retracted intermediate conclusion. The standing consequence is larger than the one bug — every `g_assert`-backed GTK contract was unenforced on the machine the project is developed on. — Severity: High
-
----
+**Scribobulate**: the Windows seat tests against the artefact CI CONSUMES — the published gvsbuild archive unpacked to its own prefix, with the GTK-prefix variable pointed at it per-invocation — rather than a locally built lookalike; the practice is recorded in `packaging/windows/README.md` and `.github/workflows/pipeline.yml` pins that archive by release tag. Found as a fatal GTK-internal assertion aborting in CI that no configuration of the Windows development box could reproduce, same version number both sides.
+**See**: gtk4-rs skill → ui-testing-verification (GTK4Rs/AP-272), which carries the meson logic, the both-configurations-install-to-`release` trap, the paired-literal two-binary method, the runtime oracle, and the per-platform scope; sibling GTK4Rs/AP-160.
 
 ## 280. Provisioning for a machine you cannot inspect — installing a tool the image already had, and discovering one path component while pinning its sibling
 **Symptom**: Two consecutive packaging failures on a hosted runner, both in provisioning, neither reproducible on any development machine.
@@ -1931,3 +1914,8 @@ Severity: High
 **Lesson**: when a toolkit hands back a decoded raster, ask whether the SOURCE was resolution-independent and whether the decode discarded that. A scaling defect that looks like a filtering problem is often a decoding problem one layer up, and no work at the drawing end recovers what the decode threw away.
 **Scribobulate**: `renderer::start::rasterize_vector` and `LoadedImage` (which carries the size at zoom 1.0 apart from the texture's own — for a re-rendered vector they differ); target bound `renderer::image::cap_raster`. Plain-gdk-pixbuf repro and measurements: `probes/svg-rasterise-rs`.
 **See**: TDD 13.11; kin ScrAP-32, ScrAP-146; `sprite.rs` pre-resamples for the same GSK reason.
+
+## 344. A region-wide suppression written as one event kind, and a `bool` where the region can nest
+**Routed**: GEP-75 — the lesson lives in the `general-engineering-principles` skill.
+**Scribobulate**: an image's alt text reaches the render as NOTHING, and the contract is stated once, in front of the dispatch, as `renderer::Renderer::alt_suppressed` over an `image_alt_depth` count — never as a guard inside one arm of `renderer::events::process`. `preview::build`'s per-cell copy capture asks that same predicate rather than re-deriving the condition, so the buffer and the cell offsets cannot disagree. The four leaks the one-event version shipped are one test each in `preview::altsuppression`, with a control proving the construct still renders outside an image; the contract is TDD 2.5 and the manual check is `tests/MANUAL-TEST.md` 2.5d. `export::walk` is the shape that never had the defect: it opens an inline frame at `Start(Image)` and folds the subtree into the alt string at its close, so there is nothing to enumerate and nothing to reset.
+**See**: TDD 2.5; kin ScrAP-147 (raw-HTML images reaching the scanner from inside a region meant to render as nothing — the collapsed-body half of the same hazard).

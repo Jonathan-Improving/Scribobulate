@@ -24,7 +24,38 @@ fn is_raw_html(ev: &Event) -> bool {
 }
 
 impl Renderer {
+    /// **Does this event reach the buffer at all, or is it part of an image's alt
+    /// text?**
+    ///
+    /// An image's alt subtree contributes NOTHING to the render: the picture — or
+    /// the broken-image placeholder standing in for it — is what the reader sees in
+    /// its place, so every event from `Start(Image)` to its matching `TagEnd::Image`
+    /// is dropped. Suppressing the whole subtree rather than its `Text` events alone
+    /// is the point: an alt is inline Markdown, so it also arrives as `Code` (a
+    /// backtick span, which used to render into the document beside the picture), as
+    /// `SoftBreak`, as `InlineHtml` (an `<img>` in an alt was resolved, anchored, and
+    /// with "Show Unsafe Images" on FETCHED — the same hazard as ScrAP-147's
+    /// collapsed-body one), and as a nested `Start(Image)`.
+    ///
+    /// The image's own two tags are exempt because they are what maintains
+    /// [`Self::image_alt_depth`] — `start_tag` opens the region and renders the
+    /// picture, `end_tag` closes it. Stated once, here, because the build loop's
+    /// per-cell copy capture must skip exactly the events this drops or a cell map
+    /// counts characters no cell label holds (Document Rendering CAM rows 2 and 5).
+    pub(crate) fn alt_suppressed(&self, ev: &Event) -> bool {
+        self.image_alt_depth > 0
+            && !matches!(
+                ev,
+                Event::Start(Tag::Image { .. }) | Event::End(TagEnd::Image)
+            )
+    }
+
     pub(crate) fn process(&mut self, ev: Event) {
+        // Inside an image's alt text nothing but the image's own tags is acted on.
+        // See `alt_suppressed` for why the whole subtree goes, not just its `Text`.
+        if self.alt_suppressed(&ev) {
+            return;
+        }
         // A COLLAPSED disclosure's body is not rendered at all — this is the whole of
         // the collapse mechanism. Nothing is hidden, tagged invisible or parked
         // off-canvas; the events simply do not reach the buffer, so none of the
@@ -41,9 +72,7 @@ impl Renderer {
             Event::End(end) => self.end_tag(end),
 
             Event::Text(t) => {
-                if self.suppress_image_alt {
-                    // Alt text of a rendered image — the picture stands in for it.
-                } else if let Some((_, ref mut acc)) = self.code {
+                if let Some((_, ref mut acc)) = self.code {
                     acc.push_str(&t);
                 } else if self.in_table_cell() {
                     // Segmented before the cell borrow: the table is scanned per
