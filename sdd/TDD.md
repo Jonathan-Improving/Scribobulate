@@ -2758,6 +2758,8 @@ appearance that predates the feature; `Sepia` is the book-like reading theme.
 - **And** it stays fixed to the quotation as the view scrolls — never anchored to the viewport's edge
 - **And** the same picture reaches the HTML artefact; the PDF sink draws the panel's fill only, for the reason 18.54 gives
 
+## 19. Local document-link navigation
+
 ### 19.1 A relative link to a Markdown sibling opens as a new tab
 - **Given** a rendered document containing a relative link to another `.md`/`.markdown` file that resolves within the current document's folder
 - **When** the reader clicks it
