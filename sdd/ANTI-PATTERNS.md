@@ -1937,5 +1937,5 @@ Severity: High
 
 ## 348. Placing a decoration after a text run by COMPUTING its end-of-text x
 **Scribobulate**: `renderer::emit::insert_heading_marker` inserts it as a Pango shape, so Pango places it past the final glyph run and onto a wrapped heading's LAST row. Cost: ScrAP-346.
-**See**: gtk4-rs skill → GtkTextView geometry; kin ScrAP-105.
+**See**: GTK4Rs/AP-324; kin ScrAP-105.
 
