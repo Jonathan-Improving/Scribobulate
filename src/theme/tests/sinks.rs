@@ -315,6 +315,19 @@ fn decoration_digest(t: &Theme) -> String {
             format_args!("{:?}|", t.heading_band_decor(level)),
         );
     }
+    // The end-of-heading marker. It is NOT painted by `snapshot_layer` — it is inserted
+    // into the buffer as a Pango shape by `renderer::emit::insert_heading_marker` — so
+    // it would be invisible to this arm without being named here, and both its keys
+    // would read as reaching nothing.
+    for level in 0..HEADING_LEVELS {
+        let _ = std::fmt::Write::write_fmt(
+            &mut out,
+            format_args!(
+                "{:?}/{}|",
+                t.sprites.heading_marker[level], m.heading_marker_size[level]
+            ),
+        );
+    }
     for kind in [
         MarkerKind::Bullet,
         MarkerKind::Ordered,

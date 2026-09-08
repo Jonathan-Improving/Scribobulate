@@ -39,6 +39,37 @@ described from a different vantage point.
 | J | Any | Upstream | A paragraph that mixes fonts (any inline-code span) can lay out a few pixels wider than the wrap width it was given, summoning the preview's Automatic horizontal scrollbar and intermittently blanking the pane until a resize | Closed |
 | M | Windows | Production | On a machine with no Visual C++ runtime the app installs and then fails to start; the installer's bootstrapper for it has landed but has never been verified against that condition | Medium |
 | N | Any | Production | A document embedding a large SVG stalls the main thread for a fifth of a second on EVERY preview render — the decode is synchronous and uncached, so a zoom step, a disclosure toggle and each debounced keystroke in split mode all pay it again | Medium |
+| P | Any | Production | Every themed sprite is resampled at LOGICAL pixel size and then scaled a second time by GSK on a HiDPI surface, so nearest-neighbour pixel art is softened by a bilinear pass on exactly the displays that would show it best | Medium |
+
+
+## P. Themed sprites are resampled at logical size, then scaled again on HiDPI
+
+**Severity**: Medium
+
+`widgets::draw_sprite_into` sizes every resample from the destination rect's LOGICAL
+pixels (`src/widgets/mod.rs`, `rect.width().round()`), and `scale_factor` appears
+**nowhere in this tree**. `gtk_snapshot_append_texture` bakes the surface's scale factor
+into the node it builds — the affine is applied above the renderer, so this is not a
+cairo-vs-GL question — which means on a 2× display the texture we carefully resampled
+with nearest-neighbour is then enlarged by GSK's own filter. The crisp pixel art the
+resample exists to protect arrives soft, and it arrives soft *only* on the displays with
+the resolution to show it properly.
+
+Affects every sprite consumer, not one: the disclosure indicator, the drawn list
+markers, the annotation chip, the tiled paths (`tile_texture` — the quote bar's plate
+and any tiled band), and the decorations added since (`draw_scene_into`,
+`draw_scene_corner`, the end-of-heading marker). A fix belongs in one sweep of every
+`sprite::scaled` and `tile_texture` call site, keyed on DEVICE pixels
+(`round(w * scale)`, `round(h * scale)`, `scale`) rather than logical ones — fixing it
+at one call site would leave the rest wrong and make the inconsistency harder to see.
+
+**Not reproduced on hardware.** This is inferred from source plus the absence of
+`scale_factor`, and researcher-confirmed against GTK's own affine handling; it has not
+been observed on a real HiDPI display, because the reference machine is 1× and at 1×
+the second scale is the identity — which is exactly why it has survived unnoticed. The
+**macOS seat's Retina display is where it would show first**, so confirm there before
+building on this entry (and per the register's own preamble, reproduce before trusting
+the stated cause).
 
 ## A. Tables are selection islands
 

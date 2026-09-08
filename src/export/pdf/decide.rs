@@ -724,6 +724,7 @@ mod wash_tests {
         let sprite = named();
         let full = crate::theme::Band {
             sprite: Some(&sprite),
+            scene: None,
             gradient: Some((RED, GREEN)),
             flat: Some(BLUE),
         };
@@ -739,6 +740,7 @@ mod wash_tests {
 
         let gradientless = crate::theme::Band {
             sprite: None,
+            scene: None,
             gradient: None,
             flat: Some(BLUE),
         };
@@ -746,6 +748,7 @@ mod wash_tests {
 
         let unstated = crate::theme::Band {
             sprite: None,
+            scene: None,
             gradient: None,
             flat: None,
         };

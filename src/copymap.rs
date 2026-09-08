@@ -469,7 +469,12 @@ macro_rules! drift {
 /// Failures are reported through [`drift!`] — fatal under test, logged in a
 /// running debug build. See that macro for why.
 #[cfg(debug_assertions)]
-pub(crate) fn debug_verify(tree: &CopyTree, md: &str, buffer_chars: &[char]) {
+pub(crate) fn debug_verify(
+    tree: &CopyTree,
+    md: &str,
+    buffer_chars: &[char],
+    buf: Option<&gtk::TextBuffer>,
+) {
     fn walk(node: &Node, md: &str, chars: &[char]) {
         match node {
             Node::Leaf {
@@ -529,8 +534,31 @@ pub(crate) fn debug_verify(tree: &CopyTree, md: &str, buffer_chars: &[char]) {
         }
     }
     mark(&tree.root, &mut claimed);
+    // **Not every `U+FFFC` is an anchored child.** This check assumed one, and that
+    // stopped being true when themed decoration began entering the buffer as a Pango
+    // SHAPE (`renderer::emit::insert_heading_marker`): `insert_paintable` leaves the
+    // same object-replacement character but owns no `GtkTextChildAnchor`.
+    //
+    // The two need opposite verdicts. An anchored child with no node silently omits its
+    // construct from copied source — the bug below. A decoration paintable stands for no
+    // source at all, so copy omitting it is CORRECT, and reporting it is a false alarm
+    // that trains a reader to ignore a real one.
+    //
+    // Discriminated by asking the BUFFER whether the position carries a child anchor,
+    // never by a list of offsets: the splice route re-bases a region render into the
+    // document, so any offset recorded during that render is in the wrong coordinate
+    // space by the time this runs. `None` (the unit tests, which have no buffer) keeps
+    // the original behaviour of treating every `U+FFFC` as an anchored child.
+    use gtk::prelude::TextBufferExt;
+    let is_decoration = |i: usize| {
+        buf.is_some_and(|b| {
+            i32::try_from(i)
+                .ok()
+                .is_some_and(|off| b.iter_at_offset(off).child_anchor().is_none())
+        })
+    };
     for (i, ch) in buffer_chars.iter().enumerate() {
-        if *ch == '\u{FFFC}' && !claimed.get(i).copied().unwrap_or(false) {
+        if *ch == '\u{FFFC}' && !claimed.get(i).copied().unwrap_or(false) && !is_decoration(i) {
             drift!(
                 "claimed",
                 "unclaimed",
@@ -1567,7 +1595,7 @@ mod anchor_coverage_guard_tests {
         // `<picture>`. If this test stops panicking, the guard has been neutered.
         let tree = tree_without_anchor_node();
         let chars: Vec<char> = vec!['a', 'b', '\u{FFFC}'];
-        debug_verify(&tree, "ab", &chars);
+        debug_verify(&tree, "ab", &chars, None);
     }
 
     #[test]
@@ -1590,7 +1618,7 @@ mod anchor_coverage_guard_tests {
         ];
         let tree = build(md, &evs, 3, &std::rc::Rc::new(BlockScripts::default()));
         let chars: Vec<char> = vec!['a', 'b', '\u{FFFC}'];
-        debug_verify(&tree, md, &chars);
+        debug_verify(&tree, md, &chars, None);
     }
 
     #[test]
@@ -1604,6 +1632,6 @@ mod anchor_coverage_guard_tests {
             kind: RawKind::Text("ab".into()),
         }];
         let tree = build(md, &evs, 3, &std::rc::Rc::new(BlockScripts::default()));
-        debug_verify(&tree, md, &['a', 'b', 'c']);
+        debug_verify(&tree, md, &['a', 'b', 'c'], None);
     }
 }

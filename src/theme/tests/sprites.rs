@@ -120,6 +120,8 @@ fn a_compiled_in_sprite_reaches_every_slot_it_can_be_named_in() {
     let every: Vec<&Option<crate::sprite::SpriteRef>> = s
         .heading_band
         .iter()
+        .chain(s.heading_band_scene.iter())
+        .chain(s.heading_marker.iter())
         .chain(s.list_bullet.iter())
         .chain([
             &s.annotation_chip,
@@ -127,6 +129,7 @@ fn a_compiled_in_sprite_reaches_every_slot_it_can_be_named_in() {
             &s.list_task,
             &s.list_task_checked,
             &s.blockquote_bar,
+            &s.blockquote_scene,
             &s.rule,
             &s.disclosure,
             &s.disclosure_expanded,
@@ -325,8 +328,14 @@ fn sprite_slot<'a>(
         &s.list_task_checked
     } else if key.name == keys::HEADING_BAND_SPRITE.name {
         &s.heading_band[idx]
+    } else if key.name == keys::HEADING_BAND_SCENE.name {
+        &s.heading_band_scene[idx]
+    } else if key.name == keys::HEADING_MARKER_SPRITE.name {
+        &s.heading_marker[idx]
     } else if key.name == keys::BLOCKQUOTE_BAR_SPRITE.name {
         &s.blockquote_bar
+    } else if key.name == keys::BLOCKQUOTE_SCENE.name {
+        &s.blockquote_scene
     } else if key.name == keys::RULE_SPRITE.name {
         &s.rule
     } else if key.name == keys::DISCLOSURE_SPRITE.name {

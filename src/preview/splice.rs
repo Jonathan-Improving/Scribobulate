@@ -335,7 +335,12 @@ pub(super) fn splice(
     {
         let slice = buf.slice(&buf.start_iter(), &buf.end_iter(), true);
         let chars: Vec<char> = slice.chars().collect();
-        crate::copymap::debug_verify(&products.maps.copymap, &products.maps.md_owned, &chars);
+        crate::copymap::debug_verify(
+            &products.maps.copymap,
+            &products.maps.md_owned,
+            &chars,
+            Some(buf),
+        );
     }
 
     // ...and the release-safe half of the same question, because the check above is the

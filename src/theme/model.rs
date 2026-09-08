@@ -262,6 +262,10 @@ pub(crate) struct Metrics {
     /// edge by this much on each side, while the band itself keeps the content column it
     /// shares with both export sinks. Only consulted where a band exists.
     pub heading_band_padding: [i32; HEADING_LEVELS],
+    /// The end-of-heading marker's box HEIGHT, per level, in design px at zoom 1.0. The
+    /// width follows the sprite's own aspect. Only consulted where that level states a
+    /// marker.
+    pub heading_marker_size: [i32; HEADING_LEVELS],
     /// The flat horizontal rule's weight, in design pixels at zoom 1.0 — the one
     /// decoration metric BOTH surfaces read: the preview separator's generated CSS
     /// and the PDF sink's stroke. Default `1`, which is GTK's own separator height
@@ -433,7 +437,18 @@ pub(crate) struct Sprites {
     pub list_task: Option<crate::sprite::SpriteRef>,
     pub list_task_checked: Option<crate::sprite::SpriteRef>,
     pub heading_band: [Option<crate::sprite::SpriteRef>; HEADING_LEVELS],
+    /// The band's single curated SCENE, per level — drawn once and anchored right, over
+    /// whatever the band is filled with, rather than in place of it (SCHEMA's
+    /// `heading_band_scene` row). Independent of `heading_band` above: a theme may tile
+    /// a texture AND put a scene on the end of it.
+    pub heading_band_scene: [Option<crate::sprite::SpriteRef>; HEADING_LEVELS],
+    /// The icon drawn immediately after a heading's text, per level (SCHEMA's
+    /// `heading_marker_sprite` row). Sized by `Metrics::heading_marker_size`.
+    pub heading_marker: [Option<crate::sprite::SpriteRef>; HEADING_LEVELS],
     pub blockquote_bar: Option<crate::sprite::SpriteRef>,
+    /// The quote panel's single curated scene, drawn once in its BOTTOM-RIGHT corner
+    /// over the fill (SCHEMA's `blockquote_scene` row).
+    pub blockquote_scene: Option<crate::sprite::SpriteRef>,
     /// The horizontal rule's tile (TDD 18.31). Unlike every other entry here, this one
     /// is read by a WIDGET rather than by a drawing pass or an export sink alone — see
     /// `crate::widgets::rule`.

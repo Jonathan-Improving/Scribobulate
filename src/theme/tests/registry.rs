@@ -43,8 +43,11 @@ fn every_levelled_key_lands_on_a_model_array_of_its_own_slot_count() {
             t.heading_band.gradient_to.len(),
         ),
         ("heading_band_sprite", t.sprites.heading_band.len()),
+        ("heading_band_scene", t.sprites.heading_band_scene.len()),
         ("heading_band_radius", t.metrics.heading_band_radius.len()),
         ("heading_band_padding", t.metrics.heading_band_padding.len()),
+        ("heading_marker_sprite", t.sprites.heading_marker.len()),
+        ("heading_marker_size", t.metrics.heading_marker_size.len()),
         ("heading_space_above", t.metrics.heading_space_above.len()),
         ("heading_space_below", t.metrics.heading_space_below.len()),
     ];

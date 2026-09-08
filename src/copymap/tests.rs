@@ -587,10 +587,10 @@ fn loose_list_item_paragraphs_stay_separated() {
 fn debug_verify_walks_a_consistent_render_without_panicking() {
     // Happy path: 1:1 leaves match the buffer the (simulated) renderer produced.
     let (t, md, slice) = render("a **bold** b");
-    debug_verify(&t, &md, &slice.chars().collect::<Vec<_>>());
+    debug_verify(&t, &md, &slice.chars().collect::<Vec<_>>(), None);
     // A non-1:1 (entity) leaf is skipped by the guard, not falsely flagged.
     let (t2, md2, slice2) = render("x &amp; y");
-    debug_verify(&t2, &md2, &slice2.chars().collect::<Vec<_>>());
+    debug_verify(&t2, &md2, &slice2.chars().collect::<Vec<_>>(), None);
 }
 
 #[cfg(debug_assertions)]
@@ -605,8 +605,8 @@ fn debug_verify_stays_aligned_when_an_anchor_precedes_text() {
     let md = "before\n\n| a | b |\n|---|---|\n| c | d |\n\nmid text\n\n\
               | e | f |\n|---|---|\n| g | h |\n\nafter table text";
     let (t, md_s, slice) = render(md);
-    debug_verify(&t, &md_s, &slice.chars().collect::<Vec<_>>()); // must not panic
-                                                                 // And the copy of the trailing prose (past both table anchors) is exact:
+    debug_verify(&t, &md_s, &slice.chars().collect::<Vec<_>>(), None); // must not panic
+                                                                       // And the copy of the trailing prose (past both table anchors) is exact:
     let start = slice.find("after table text").unwrap();
     let start = slice[..start].chars().count() as i32;
     let end = start + "after table text".chars().count() as i32;
@@ -628,8 +628,8 @@ fn debug_verify_passes_for_a_multi_line_list_item() {
         slice.contains("item\nsecond"),
         "the in-item break renders as a newline in the sim buffer: {slice:?}"
     );
-    debug_verify(&t, &md_s, &slice.chars().collect::<Vec<_>>()); // must not panic
-                                                                 // Whole-document copy reconstructs the byte-exact source.
+    debug_verify(&t, &md_s, &slice.chars().collect::<Vec<_>>(), None); // must not panic
+                                                                       // Whole-document copy reconstructs the byte-exact source.
     let n = t.char_count;
     assert_eq!(resolve(&t, &md_s, 0, n), md);
     // A within-item selection that crosses the break copies the source text of that span

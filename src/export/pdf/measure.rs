@@ -264,6 +264,7 @@ impl Layouter<'_> {
             // six sites is how the pairing invariant this function exists to hold gets
             // diluted.
             marker: None,
+            end_marker: None,
             fill: None,
         });
     }
@@ -333,6 +334,25 @@ impl Layouter<'_> {
                         right_inset: pad,
                     },
                 );
+                // The level's end-of-heading marker (TDD 18.55), on the LAST line of the
+                // heading — a wrapped heading carries it after its final word, matching
+                // where Pango places the shape in the preview. Decoded once per heading
+                // rather than per line, the same economy `heading_band_ink` states.
+                if let Some((surface, nw, nh)) = self.theme.sprites.heading_marker[level_index]
+                    .as_ref()
+                    .and_then(crate::sprite::surface)
+                {
+                    let height = px_to_pt(self.theme.metrics.heading_marker_size[level_index]);
+                    if height > 0.0 && nw > 0.0 && nh > 0.0 {
+                        if let Some(line) = self.lines.last_mut() {
+                            line.end_marker = Some(super::EndMarker {
+                                surface,
+                                natural: (nw, nh),
+                                height,
+                            });
+                        }
+                    }
+                }
                 // EVERY line of the heading, not just the first: a heading that wrapped
                 // is several abutting rects, which is one continuous band (TDD 18.25).
                 if let Some(band) = band {

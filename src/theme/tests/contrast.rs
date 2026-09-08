@@ -319,16 +319,27 @@ fn ink_pairs(t: &Theme, page: gdk::RGBA) -> Vec<Pair> {
 /// They were two copies of this match and had drifted on exactly that compositing step,
 /// which meant one colour could pass one gate and fail the other (F-AP-B-303).
 ///
-/// A **sprite** band yields the PAGE. Its own pixels are arbitrary and no ratio computed
-/// over a fill says anything about reading text on one, so the band surface is not
-/// measured — but a sprite that fails to decode degrades to the page
-/// (`codeview::bandpaint`), so the page is the surface the ink must clear regardless.
-/// Returning nothing instead dropped every ink on such a theme out of the sweep
-/// entirely, which is a gate silently switching itself off (F-AP-B-302).
+/// A **sprite** band is measured on what it DEGRADES to, which is what
+/// [`crate::theme::Band::without_sprite`] returns and therefore needs no branch of its
+/// own here. A sprite's own pixels are arbitrary and unmeasurable — no ratio computed
+/// over a fill says anything about reading text on one — so the gate's job is the
+/// reachable surface underneath it, and `codeview::bandpaint`'s chain is sprite →
+/// gradient → flat → nothing. A level stating a fill therefore degrades to that fill and
+/// never exposes the page; a level stating a sprite ALONE degrades to nothing and is
+/// read on the page, which is the case that must keep yielding `page` (F-AP-B-302 — the
+/// gate silently switching itself off by returning no surfaces at all).
+///
+/// This used to short-circuit to `vec![page]` for ANY sprite, which was wrong in one
+/// direction and expensively so: it demanded that a sprite-banded heading's ink clear
+/// the floor on a surface that level can never show, and the only way to satisfy it was
+/// to give up either the sprite or the ink. Pixel Quest's h1 gold on its indigo band is
+/// exactly that shape — 1.03:1 against the page it never touches, 8.68:1 against the
+/// fill its sprite falls back to.
+///
+/// What the gate does NOT cover, in either form, is the tile's own pixels. That is left
+/// to the theme author, and the four Pixel Quest band tiles are drawn to a stated
+/// luminance ceiling for it (`data/themes.toml`, "The banded levels' scenery tiles").
 fn band_surfaces(decor: &crate::theme::Band<'_>, page: gdk::RGBA) -> Vec<gdk::RGBA> {
-    if decor.sprite.is_some() {
-        return vec![page];
-    }
     match decor.without_sprite() {
         Some(crate::theme::BandPaint::Gradient { from, to }) => {
             vec![over(from, page), over(to, page)]
@@ -442,6 +453,7 @@ fn the_band_surface_resolver_answers_every_arm() {
     // No band at all: the page is the surface.
     let none = Band {
         sprite: None,
+        scene: None,
         gradient: None,
         flat: None,
     };
@@ -450,6 +462,7 @@ fn the_band_surface_resolver_answers_every_arm() {
     // A flat band, composited.
     let flat = Band {
         sprite: None,
+        scene: None,
         gradient: None,
         flat: Some(half),
     };
@@ -467,6 +480,7 @@ fn the_band_surface_resolver_answers_every_arm() {
     // A gradient: both endpoints, both composited.
     let grad = Band {
         sprite: None,
+        scene: None,
         gradient: Some((half, opaque)),
         flat: Some(half),
     };
@@ -480,17 +494,48 @@ fn the_band_surface_resolver_answers_every_arm() {
         Some(BandPaint::Gradient { .. })
     ));
 
-    // A sprite: the band surface is not measured, but the PAGE still is.
+    // A sprite: the tile's own pixels are unmeasurable, so the gate takes the surface
+    // the band DEGRADES to — `bandpaint`'s sprite → gradient → flat → nothing chain.
+    // Stating a fill means the page is never reachable behind this band, and demanding
+    // the ink clear it there is a floor no level wearing a sprite could ever meet.
     let sprite = crate::sprite::SpriteRef::Compiled("nothing-in-particular");
     let with_sprite = Band {
         sprite: Some(&sprite),
+        scene: None,
         gradient: Some((half, opaque)),
         flat: Some(half),
     };
     assert_eq!(
         band_surfaces(&with_sprite, page),
+        vec![over(half, page), over(opaque, page)],
+        "a sprite over a gradient degrades to that gradient, not to the page"
+    );
+
+    let sprite_over_flat = Band {
+        sprite: Some(&sprite),
+        scene: None,
+        gradient: None,
+        flat: Some(half),
+    };
+    assert_eq!(
+        band_surfaces(&sprite_over_flat, page),
+        vec![over(half, page)],
+        "a sprite over a flat fill degrades to that fill"
+    );
+
+    // A sprite ALONE is still a band (`Band::is_present`), and it degrades to nothing —
+    // so its inks ARE read on the page, and this arm must keep saying so. Returning an
+    // empty list here is the gate switching itself off (F-AP-B-302).
+    let sprite_only = Band {
+        sprite: Some(&sprite),
+        scene: None,
+        gradient: None,
+        flat: None,
+    };
+    assert_eq!(
+        band_surfaces(&sprite_only, page),
         vec![page],
-        "a sprite band still gates its inks against the page it degrades to — an empty \
-         list here is a gate switching itself off"
+        "a sprite stating no fill degrades to nothing, so the page is what its ink is \
+         read on"
     );
 }

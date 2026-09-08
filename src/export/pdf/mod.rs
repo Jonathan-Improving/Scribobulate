@@ -99,6 +99,27 @@ pub(crate) struct Line {
     /// the whole reason this field exists rather than a fourth `LineKind`: the line is
     /// still ordinary text, with a picture beside it.
     marker: Option<MarkerImage>,
+    /// The level's themed marker, drawn immediately AFTER this line's text (TDD 18.55).
+    /// Attached to a heading's LAST line only, which is where the preview puts it: Pango
+    /// places the shape past the final glyph run, so a wrapped heading carries it on the
+    /// row its text actually ends on.
+    end_marker: Option<EndMarker>,
+}
+
+/// A decoded end-of-heading marker, already sized for the page.
+///
+/// Deliberately NOT [`MarkerImage`], which it otherwise resembles: the two differ in the
+/// one property that matters at draw time. A list marker is drawn SQUARE in the gutter;
+/// a heading marker keeps its source aspect, because the art for it is not square (a
+/// squat creature, a wide banner) and stretching it into a square box is exactly the
+/// distortion the preview avoids by taking only the height from the theme. Sharing one
+/// struct would mean one of the two draw sites quietly ignoring a field.
+struct EndMarker {
+    surface: cairo::ImageSurface,
+    /// Natural size in device pixels, for the draw-time scale factor.
+    natural: (f64, f64),
+    /// The HEIGHT it is drawn at, in points. The width follows `natural`'s aspect.
+    height: f64,
 }
 
 /// Which blockquote a line belongs to, and where that quote's own column starts.

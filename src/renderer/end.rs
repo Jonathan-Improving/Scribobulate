@@ -19,6 +19,7 @@ impl Renderer {
                 // position so `#slug` links can scroll here.
                 let slug = unique_slug(&slugify(&self.heading_text), &mut self.inter.slug_seen);
                 self.headings.push((slug, self.inter.heading_start));
+                self.insert_heading_marker(crate::theme::heading_slot(level as u8));
                 // …and its EXTENT, for the drawn band (TDD 18.25). Recorded BEFORE the
                 // terminating newline, so the span covers the heading's content only —
                 // the same content-not-separator discipline the blockquote range below
