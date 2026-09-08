@@ -290,6 +290,14 @@ colour. Ignored where the level states no fill.
 Sprite. Tiled at its natural size across the band in place of its fill.
 Outranks the fill and the gradient.
 .TP
+.B heading_band_scene
+Sprite. A single curated image drawn once, fitted to the band's height with its
+width from the source's aspect, anchored to the band's right edge and clipped to
+it. Composites over the fill or gradient rather than replacing it, unlike
+.B heading_band_sprite
+beside it; a theme may state both. A scene alone is a band. Not drawn on the PDF
+page, where a band is paginated into several abutting rects.
+.TP
 .B heading_band_radius
 Integer, default 0. Corner radius of the band. Clamped 0\-400. Not drawn in an
 exported PDF.
@@ -297,6 +305,17 @@ exported PDF.
 .B heading_band_padding
 Integer, default 12. Space between the band's edge and the text inside it, each
 side. Clamped 0\-400. Applied only to a level that carries a band.
+.TP
+.B heading_marker_sprite
+Sprite. An icon drawn immediately after the heading's text, on the last display
+row of a heading that soft-wraps.
+.TP
+.B heading_marker_size
+Integer, default 22 17 14 12 11 per level. The marker's box height in design
+pixels at zoom 1.0; the width follows the sprite's aspect. Clamped 0\-400. The
+defaults are the cap height of the shipped heading scales, which is what puts the
+box bottom on the text baseline. Art for this key must be bottom-flush and
+full-height. Ignored where the level states no marker.
 .TP
 .B heading_space_above
 Integer, default 0. Clamped 0\-400.
@@ -412,6 +431,13 @@ Sprite tiled at its natural size down the accent bar. The tile is clipped to the
 bar, so set
 .B blockquote_bar_width
 to the tile's own width.
+.TP
+.B blockquote_scene
+Sprite. A single curated image drawn once at a fixed size in the quote panel's
+bottom-right corner, over
+.B blockquote_bg
+and clipped to the panel. Scales with zoom, so a longer quotation reveals more of
+the scene rather than magnifying it. Does not nest. Not drawn on the PDF page.
 .TP
 .B blockquote_bar_width
 Integer, default 3. Clamped 0\-400. With

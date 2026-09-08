@@ -356,6 +356,10 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 | 341 | More than one adjustment write per frame on a pre-4.10.1 `GtkListView` (a fast wheel scroll up) snaps the list to its end | A |
 | 342 | An installer anchoring its PATH and manual-page links inside the build directory — and the dangling PATH entry that is SKIPPED rather than failed | B |
 | 343 | Enlarging a decoded `GdkTexture` to display a VECTOR image at a larger size | C |
+| 344 | Judging a theme change against a machine that has ever run `install.sh` — the installed `themes.toml` overrides the built-in PER KEY | C |
+| 345 | Assuming every `U+FFFC` in the preview buffer is an anchored child | C |
+| 346 | A legibility gate measuring an ink against a surface its level can never show | C |
+| 347 | Trying to place a decoration after a text run by COMPUTING its end-of-text x | A |
 
 ---
 
@@ -1931,3 +1935,32 @@ Severity: High
 **Lesson**: when a toolkit hands back a decoded raster, ask whether the SOURCE was resolution-independent and whether the decode discarded that. A scaling defect that looks like a filtering problem is often a decoding problem one layer up, and no work at the drawing end recovers what the decode threw away.
 **Scribobulate**: `renderer::start::rasterize_vector` and `LoadedImage` (which carries the size at zoom 1.0 apart from the texture's own — for a re-rendered vector they differ); target bound `renderer::image::cap_raster`. Plain-gdk-pixbuf repro and measurements: `probes/svg-rasterise-rs`.
 **See**: TDD 13.11; kin ScrAP-32, ScrAP-146; `sprite.rs` pre-resamples for the same GSK reason.
+
+## 344. Judging a theme change against a machine that has ever run `install.sh` — the installed `themes.toml` overrides the built-in PER KEY
+**Symptom**: an edit to `data/themes.toml` does not reach the running app, and the result is not the OLD theme either — it is a mixture. New keys take effect while edited ones do not, so it presents as a rendering bug in whichever decoration happens to straddle the two.
+**Root cause**: `$XDG_DATA_HOME/scribobulate/themes.toml` is search-path row 2 (`sdd/THEMING.md`) and is merged over the compiled-in file **per theme id and per key**. `install.sh` writes it, so any machine that has ever installed carries a frozen copy. A key the stale file names wins; a key added since falls through to the built-in — which is exactly why the result looks like a half-applied change rather than a stale one.
+**Resolution**: verify with `XDG_DATA_HOME` pointed at a scratch directory, or refresh the installed copy — and refresh its `sprites/` beside it, because a *user* file resolves sprite references relative to its own directory.
+**Lesson**: a layered-config lookup makes "did my edit take effect?" unanswerable from the artefact alone. Before believing a rendering result, establish WHICH file the running process read; a per-key merge is the shape that hides this, because the surviving half of the change makes it look like the file was found.
+**Scribobulate**: search path in `sdd/THEMING.md`; row 1 is `config::user_config_dir`, rows 2–3 the GLib data dirs. Cost twice in one session, both times investigated as an app defect first.
+**See**: kin ScrAP-128 (the other `XDG_CONFIG_HOME` redirect trap); GEP-57 (a resolved identifier is scoped to the environment that resolved it).
+
+## 345. Assuming every `U+FFFC` in the preview buffer is an anchored child
+**Symptom**: `copymap drift — anchored child at buffer offset N has no copymap node` on an ordinary document, while copied Markdown is in fact correct.
+**Root cause**: the guard equated the object-replacement character with a `GtkTextChildAnchor`, which held until themed decoration began entering the buffer as a Pango SHAPE (`insert_paintable`, THEMING mechanism D). Both leave `U+FFFC`; only one owns an anchor, and they need OPPOSITE verdicts — an unclaimed anchored child silently drops its construct from copied source, while a decoration paintable stands for no source at all, so copy omitting it is correct.
+**Resolution**: discriminate by asking the buffer whether the offset carries a child anchor. **Not** by a list of offsets recorded at render time: the splice route re-bases a region render, so any such offset is in the wrong coordinate space by the time the guard runs — an approach that passes on full renders and fails silently on edits.
+**Lesson**: when a guard keys on a *representation* shared by two constructs, adding a second producer of that representation inverts it rather than weakening it. Re-derive the discriminator from what actually differs, not from what is convenient to record.
+**Scribobulate**: `copymap::debug_verify` takes `Option<&TextBuffer>` and exempts anchor-less `U+FFFC`; producer is `renderer::emit::insert_heading_marker`.
+**See**: kin ScrAP-74 (`get_text` omits anchored children — the same character, the opposite direction); GEP-4 (the guard is `#[cfg(debug_assertions)]`, so a release spike observed nothing and was reported as evidence of absence); GEP-19.
+
+## 346. A legibility gate measuring an ink against a surface its level can never show
+**Symptom**: a contrast gate rejects a heading ink at 1.03:1 against the page, for a level whose band is opaque and always painted — the design is legible and unshippable.
+**Root cause**: `band_surfaces` short-circuited to the page for ANY sprite-bearing band, on the reasoning that sprite pixels are unmeasurable. Half right: a band DEGRADES to its fill, and only a level stating no fill ever reaches the page. The proxy was conservative in the wrong direction, forbidding a whole class of theme rather than admitting an unsafe one.
+**Resolution**: delete the short-circuit. `Band::without_sprite` already IS the degrade chain, so the accurate answer was the code path already there; the sprite-with-no-fill case still yields the page, which is the one that must keep working.
+**Lesson**: a gate that cannot measure something reaches for a proxy, and a proxy has a direction. Ask what the proxy FORBIDS as well as what it admits — an over-strict gate is invisible in CI (it is green until someone tries the design) and its cost is paid in abandoned work, not in bugs.
+**Scribobulate**: `theme::tests::contrast::band_surfaces`; its unit test pins all three sprite arms, the emptiest one included.
+**See**: kin F-AP-B-302 (returning no surfaces at all — the same function switching itself off); GEP-6.
+
+## 347. Trying to place a decoration after a text run by COMPUTING its end-of-text x
+**Scribobulate**: `renderer::emit::insert_heading_marker` inserts the marker as a Pango shape via `gtk_text_buffer_insert_paintable`, so Pango places it past the final glyph run and a soft-wrapped heading carries it onto its LAST display row with no x computed anywhere; the PDF sink, which owns its own Pango layout and has no `GtkTextLayout`, reads the line width directly (`export::pdf::ink`). Cost of the buffer route is ScrAP-345.
+**See**: gtk4-rs skill → GtkTextView geometry; kin ScrAP-105 (the display-cache use-after-free the caching accessors reach).
+
