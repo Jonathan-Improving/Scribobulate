@@ -34,11 +34,11 @@ described from a different vantage point.
 | F | Mac | Upstream | A GTK4/Quartz autorelease-pool crash SIGABRTs the macOS integration suite in roughly one full run in four, at a varying site | Medium |
 | G | Any | Test | Two wall-clock growth-ratio guards (tab normalisation, annotation extraction) go red on a loaded machine — the ratio is scheduler noise on a small baseline, not an exponent | Low |
 | Q | Any | Test | A complexity guard asserts a growth RATIO to be machine-independent and it is not — `tab_normalisation_over_a_single_enormous_line_grows_linearly` goes red on a loaded host, and its failure text accuses an already-fixed regression by name | Low |
-| H | Mac | Production | macOS only, INTERMITTENT: the preview's hover cursor sometimes does not take over body text or a link, showing the default arrow; the drawn affordances that repaint on hover are always correct | Low |
 | I | Mac | Upstream | macOS only: every native file-chooser invocation (Open, Save, Export) grows RSS by ~1.1 MB and does not give it back. Roughly four fifths is AppKit's own price for presenting an `NSSavePanel` — reproduced with no GTK in the process — with about a fifth GTK-attributable. Caching the panel upstream would recover ~95% | Medium |
 | J | Any | Upstream | A paragraph that mixes fonts (any inline-code span) can lay out a few pixels wider than the wrap width it was given, summoning the preview's Automatic horizontal scrollbar and intermittently blanking the pane until a resize | Closed |
 | M | Windows | Production | On a machine with no Visual C++ runtime the app installs and then fails to start; the installer's bootstrapper for it has landed but has never been verified against that condition | Medium |
 | N | Any | Production | A document embedding a large SVG stalls the main thread for a fifth of a second on EVERY preview render — the decode is synchronous and uncached, so a zoom step, a disclosure toggle and each debounced keystroke in split mode all pay it again | Medium |
+| S | Mac | Production | A `--` switch is not always interpreted as one — the operator reports `--help` being taken as a document to open. Reproduced on neither Linux path; macOS answers `--version` differently from Linux, which is where to look | Medium |
 
 
 ## A. Tables are selection islands
@@ -448,103 +448,6 @@ stops being a timing test.
 
 ---
 
-## H. macOS: the preview's hover cursor sometimes does not take over body text or a link
-
-**Severity**: Low (nothing is unreachable — links still activate on click and the copy
-button still copies; what is lost is the *affordance*, i.e. every link on the page looks
-un-clickable to a macOS reader until they try it)
-
-**READ THIS FIRST: it is INTERMITTENT, and that was established late.** The table below is
-what was measured, and every cell of it is real — but a later cold launch, same fixture,
-same point, same procedure, produced the *correct* text-beam where two earlier independent
-cold launches had produced the arrow. So the macOS column is not reliably reproducible, and
-any theory built only on the table (including the two this entry has already discarded)
-will over-explain it. Whatever gates this is not captured by "cold versus warm", and is not
-named here because it is not known.
-
-MEASURED on macOS (GTK 4.22.4/Quartz/Homebrew) against the identical build on Linux
-(GTK 4.6.9/X11), same fixtures, cursor identity read by name rather than judged from a
-screenshot — `XFixesGetCursorImage` on X11, screenshots on Quartz:
-
-| pointer over | asks for | Linux/X11 | Windows/GDK-Win32 | macOS/Quartz |
-|---|---|---|---|---|
-| plain body text | `text` | `text` | IBEAM | **arrow** |
-| a body link | `pointer` | `pointer` | HAND | **arrow** |
-| a task checkbox | `pointer` | `pointer` | HAND | hand |
-| a code-block copy button | `pointer` | `pointer` | HAND | hand |
-
-**Three platforms, and macOS is the outlier** — Windows read via `GetCursorInfo().hCursor`
-against `LoadCursorW(NULL, IDC_*)` handles after a settle, with the copy-button cell
-corroborated by accent-pixel count so the pointer was provably on the button when the
-handle was sampled.
-
-**All four go through one `set_cursor_from_name` call in one motion handler**
-(`preview::interactions::wire_link_gestures`); only the string differs. So this is not
-about links, and not about any hit-test: two of the four cells take effect on Quartz and
-two do not.
-
-**Ruled out, measured, not assumed.** The first hypothesis was that GTK's tooltip resets
-the cursor — a link is the only one of the four that makes `query-tooltip` return true and
-put a window on screen. Sampled at ~200 ms (pre-tooltip) and ~2000 ms (tooltip visibly up),
-same pointer position, no re-entry: **arrow both times**. The tooltip is innocent; the
-cursor never takes at all on those two cells.
-
-**Standing hypothesis, NOT confirmed, and now bounded to one backend.** The only
-structural difference between the working and failing cells is that the checkbox and
-copy-button branches also `queue_draw()` when the hovered identity changes, while the link
-and plain-text branches draw nothing — suggesting a cursor set via `gtk_widget_set_cursor`
-does not take effect until something invalidates the surface. **The Windows result refutes
-the general form**: there the two "draw nothing" cells get their cursors, and get two
-*different* ones (IBEAM and HAND), so this is not a property of GDK backends at large. If
-it holds anywhere it holds on Quartz alone.
-
-**TWO HYPOTHESES HAVE BEEN TRIED AND NEITHER SURVIVED. Do not re-derive them.**
-
-1. *The tooltip resets the cursor* — a link is the only cell that makes `query-tooltip`
-   return true. Refuted by sampling at ~200 ms (pre-tooltip) and ~2000 ms (tooltip visibly
-   up): arrow both times.
-2. *The cursor does not take until the surface is repainted, so only the cells whose hover
-   fires a `queue_draw` work* — which fitted every observation at the time, including the
-   original three-way result (run with a fresh instance per target, so the "working" cells
-   are exactly the ones that repaint themselves). Refuted twice over: on Windows the two
-   "draw nothing" cells get their cursors and get two *different* ones, so it is not a GDK
-   property; and the motion-only test that would have confirmed it on Quartz — approach one
-   spot of plain text from other plain text versus straight off the copy button — returned
-   the correct text-beam **both** ways, on an instance where plain text had already started
-   behaving before the test began.
-
-**What is left is the intermittency itself, and it is not yet characterised.** A cold
-launch has produced the arrow twice (independently, same instance) and the correct
-text-beam once (a different instance), with no known difference in procedure. Until that
-reproduces on demand there is nothing to hand a researcher: a mechanism proposed against an
-observation this unstable will fit and still be wrong, which is how both hypotheses above
-were reached. **The next useful step is a reproduction rate, not a theory** — the same cold
-launch and single hover, repeated enough times to say how often it bites, which turns an
-anecdote into something a mechanism can be tested against.
-
-**Pre-existing, and older than the affordance that exposed it.** Nothing here was
-introduced by the code-block copy button; that button is one of the two cells that *works*,
-and the pattern only became visible once an affordance existed that happens to repaint on
-hover. Do not file it against that change.
-
-**Dead end, so it is not re-attempted.** Forcing a repaint through the macOS menu bar
-failed three ways: keyboard-only menu navigation quit the application partway through;
-`System Events` `click menu item` on the theme's leaf entry failed `-1728` reproducibly
-with and without its emoji prefix, on a fresh instance, *while querying that same item's
-name succeeded*; and a raw-coordinate fallback both moved the pointer (which the test
-forbids) and missed. A theme switch would also have been ambiguous even if it had landed —
-it re-renders the whole preview, so an arrow afterwards could mean either "the repaint did
-not help" or "the re-render reset the cursor".
-
-**Harness note for whoever picks this up.** "Did the cursor change" is not a question a
-screenshot answers reliably on either platform. On X11 read the cursor's *name* directly
-(`XFixesGetCursorImage` via ctypes — it returns `b'pointer'` / `b'text'`). On macOS,
-`CGSCurrentCursorSeed` was tried as a corroborating signal and is **unusable the way it was
-built**: the seed increments on `screencapture -C` itself, measured by running the identical
-sampling loop over blank space with no hover target and seeing the same climb. An instrument
-inside its own measurement, and the artefact it produced happened to match the hypothesis
-under test.
-
 ## I. Every native file chooser invocation grows RSS on macOS
 
 **Severity**: Medium. Monotonic within everything measured at the per-invocation scale, but the
@@ -763,3 +666,47 @@ the main thread is the larger fix and the loader permits it: the SVG loader decl
 parses the whole document and merely skips the render (researcher-measured at 27 ms on a
 6000-element file, against 0.078 ms for a raster header sniff), so it is not the free
 question its raster behaviour suggests.
+
+
+## S. A `--` switch is not reliably interpreted as a switch
+
+**Severity**: Medium (an operator running `scribobulate --help` gets a window opening a
+document named `--help` instead of usage text. Nothing is damaged, but the app is
+answering a question with an action, and every `--` argument shares whatever the cause is)
+
+**Platform**: Mac · **Scope**: Production
+
+**Reported by the operator**: `--help` is passed through as though it were the name of a
+Markdown file rather than interpreted as a command-line switch. Every argument beginning
+`--` should be handled consistently, and idiomatically for a CLI.
+
+**NOT REPRODUCED ON LINUX, and both obvious paths were tried** (GTK 4.6.9, release build):
+- bare `--help` → prints usage, exit 0
+- `--help` while a primary instance is already running on the same display AND the same
+  session bus, which is the forwarding path that would most obviously turn an argument
+  into a file → still prints usage, exit 0; the primary opened no window for it
+- `--nonsense`, `-x` → `Unknown option`, exit 1
+- `--version` → `Unknown option --version`, exit 1
+
+**One measured cross-platform difference, and it is the thread to pull.** On macOS
+`--version` exits **0 with no output**; on Linux the same argument is rejected as an
+unknown option. The two platforms are not parsing arguments the same way, and the macOS
+side is where an argument can reach a different reader: this platform has no D-Bus session
+bus, so GIO cannot do single-instance activation and `platform/mac/single_instance.rs`
+substitutes its own election and argument handoff. Argument inspection there necessarily
+happens before GOption sees anything.
+
+⚠ **That is where to look, NOT a diagnosis.** Nobody has instrumented it. State the
+mechanism only after measuring it — a plausible account of this register's last two
+entries was wrong both times.
+
+**First step is a reproduction, not a theory**: on macOS, run `--help` in each of the
+distinguishable conditions — no instance running, an instance running, launched from a
+terminal, launched through the `.app` — and record which produce usage text and which open
+a document. The Linux results above are the control.
+
+**Mitigation options**:
+- Parse arguments in one place that both platforms' launch paths route through, so a
+  switch cannot be a switch on one platform and a filename on another.
+- At minimum, refuse any unrecognised leading-`--` argument rather than treating it as a
+  path, on every platform and every launch route.

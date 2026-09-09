@@ -361,6 +361,8 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 | 346 | Assuming every `U+FFFC` in the preview buffer is an anchored child | C |
 | 347 | A legibility gate measuring an ink against a surface its level can never show | C |
 | 348 | Placing a decoration after a text run by COMPUTING its end-of-text x | A |
+| 349 | Judging whether a cursor took from a screenshot — and letting an uncontrolled variable name the defect | A |
+| 350 | A comment that tells you NOT to do something — load-bearing in the direction nothing checks | A |
 
 ---
 
@@ -1939,3 +1941,13 @@ Severity: High
 **Scribobulate**: `renderer::emit::insert_heading_marker` inserts it as a Pango shape, so Pango places it past the final glyph run and onto a wrapped heading's LAST row. Cost: ScrAP-346.
 **See**: GTK4Rs/AP-324; kin ScrAP-105.
 
+## 349. Judging whether a cursor took from a screenshot — and letting an uncontrolled variable name the defect
+**Root cause**: pixels cannot NAME a cursor, so "sometimes the hover cursor does not take, on some elements" survived months and three hypotheses. It was neither intermittent nor per-element: ONE variable — whether the pointer was inside the window's frame when it MAPPED — decided the whole surface, and which runs fell either side of it produced the per-element table. Read identity by name (`probes/quartz-cursor-identity.m`; `XFixesGetCursorImage` on X11), and validate the reader against two genuinely different LIVE windows first — both seats built readers that answered "always arrow" for every input, which is indistinguishable from the defect under test.
+**Scribobulate**: `src/platform/mac/pointercrossing.rs` buys the crossing events GDK's Quartz backend never delivers. Load-bearing on GTK commit `f207402228`'s coupling of input regions to tracking areas, NOT a documented contract; nothing in-repo can pin it and `tests/MANUAL-TEST.md` 7.25m is the only cover. Scope is TOPLEVELS — popovers and text handles set their own regions, which is also the control.
+**Also**: a 20-point GRID scan is not 20 readings about the button — every point after the first re-enters an already-hovered region, so a grid reported the same affordance healthy on one platform and broken on another, both truthfully. A procedure that destroys the condition under test while looking thorough (TDD 2.3b, 7.25).
+**See**: GEP-13; `probes/macos-cursor-map-latch.c`; GTK issue #6134.
+
+## 350. A comment that tells you NOT to do something — load-bearing in the direction nothing checks
+**Root cause**: a wrong POSITIVE claim is caught the first time somebody relies on it. A wrong "you can skip this" is falsified only by someone independently deciding to do the thing anyway — and the comment exists to talk them out of exactly that. No code path fails, no test goes red, and nothing ever re-reads a comment. Both instances were prose discouraging the one investigation that would have found the bug.
+**Scribobulate**: `refresh_hover_for_scroll` (now `refresh_hover_after_paint`) carried "the cursor is wrong only briefly, which the next motion event corrects" — inside the very function that exists because a STATIONARY pointer produces no next motion event. Measured false and kept marked false rather than deleted, because someone reasoned there once and will again. Same week, same shape: `pointercrossing.rs`'s header claimed the input-region coupling was "pinned by the check named below" and named none, which tells a reader a guard exists and so stops them writing one.
+**See**: kin ScrAP-349; GEP-12.

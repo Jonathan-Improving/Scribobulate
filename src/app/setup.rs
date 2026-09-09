@@ -137,6 +137,13 @@ fn on_startup(app: &Application) {
     // that, a window already constructed would never be seen.
     #[cfg(target_os = "macos")]
     crate::platform::mac::fullscreen::track_transient_windows();
+    // Gives every toplevel a real NSTrackingArea, without which GDK's Quartz backend
+    // never learns the pointer is over the surface and DISCARDS every cursor the app
+    // sets — so the reader gets an arrow over links, over body text and over the
+    // editor. Subscribes to the same toplevel list as the line above and for the same
+    // reason: the defect is per GdkSurface, so each new window needs arming too.
+    #[cfg(target_os = "macos")]
+    crate::platform::mac::pointercrossing::track_pointer_crossing();
     #[cfg(windows)]
     crate::platform::win32::track_system_dark_mode();
     add_new_action(app);

@@ -271,6 +271,12 @@ mod imp {
         /// on purpose: sharing the slot would let a hover refresh cancel a pending
         /// programmatic scroll, which is a different operation with a different owner.
         pub(crate) hover_idle: RefCell<Option<glib::SourceId>>,
+        /// The preview-installed hook that re-decides the POINTER CURSOR at a given
+        /// widget position. Stored rather than called directly because the verdict needs
+        /// the render data (links, disclosure summaries) this view does not hold, and a
+        /// second copy of that data here is exactly the drift the one-resolver rule
+        /// exists to prevent. `None` until `wire_link_gestures` installs it.
+        pub(crate) cursor_refresh: RefCell<Option<super::CursorRefresh>>,
         /// The window-installed sink that performs an annotation mutation on the
         /// document source; `None` until the window wires it (then Edit/Remove show).
         pub(crate) annotation_sink: RefCell<Option<super::AnnotationSink>>,
@@ -355,6 +361,7 @@ mod imp {
                 render_generation: Cell::new(0),
                 checkbox_hitboxes: RefCell::new(Vec::new()),
                 hovered_checkbox: Cell::new(None),
+                cursor_refresh: RefCell::new(None),
                 annotation_sink: RefCell::new(None),
                 annotate_trigger: RefCell::new(None),
                 overlay_popover: RefCell::new(None),
@@ -684,6 +691,10 @@ glib::wrapper! {
         @implements gtk::Scrollable, gtk::Accessible, gtk::Buildable, gtk::ConstraintTarget;
 }
 
+/// Re-decide the pointer cursor at a widget position — installed by the preview, which
+/// owns the render data the verdict needs.
+pub(crate) type CursorRefresh = std::rc::Rc<dyn Fn(&CodePreviewView, f32, f32)>;
+
 impl CodePreviewView {
     /// Note that this view's content has just been (re-)rendered, and return the new
     /// generation. State derived from the rendered content keys on this — see
@@ -838,7 +849,7 @@ impl CodePreviewView {
                 // where the pointer is relative to the CONTENT, so it has to be re-derived
                 // whoever caused the movement (wheel, scrollbar, keyboard, or a
                 // programmatic scroll — all of them move content under a resting pointer).
-                o.refresh_hover_for_scroll();
+                o.refresh_hover_after_paint();
             }
         ));
         // Scrollbar thumb-drag / trough-click: a press on the vertical scrollbar
@@ -1008,16 +1019,43 @@ impl CodePreviewView {
         (bx as f32, by as f32)
     }
 
+    /// Install the hook that re-decides the pointer cursor. See
+    /// [`imp::CodePreviewView::cursor_refresh`][] for why it is a hook rather than a call.
+    pub(crate) fn set_cursor_refresh(&self, refresh: CursorRefresh) {
+        use gtk::subclass::prelude::*;
+        self.imp().cursor_refresh.replace(Some(refresh));
+    }
+
     /// Set which code block's copy button is revealed, and whether the pointer is on
     /// the button itself — repainting only when either identity actually changes, so
     /// ordinary pointer movement across the pane doesn't thrash `queue_draw`.
+    ///
+    /// **A change of `block` schedules a hover re-derivation, and that is a correctness
+    /// requirement rather than a refinement.** Revealing a block's copy button is what
+    /// CREATES that button's hit-box, and hit-boxes are written by the paint
+    /// (ScrAP-125) — so the very motion event that reveals the button hit-tested against
+    /// a list that did not contain it yet, and decided `copy_button: None`. Nothing
+    /// re-asks unless something makes it: MEASURED, a single move from outside a code
+    /// block straight onto its copy button leaves the I-beam in place indefinitely (still
+    /// wrong 2s later, on Linux and macOS alike), and only a further pointer move
+    /// corrects it. Scheduling here routes the reveal through the same post-paint
+    /// re-derivation a scroll already uses.
+    ///
+    /// Keyed on `block` alone, deliberately. `on_button` changing means the hit-box
+    /// already existed, so there is nothing new for a re-derivation to find — and since
+    /// the re-derivation cannot change `block` at a fixed pointer position, this cannot
+    /// re-arm itself.
     pub(crate) fn set_hovered_code_block(&self, block: Option<usize>, on_button: Option<usize>) {
         use gtk::subclass::prelude::*;
         let imp = self.imp();
-        if imp.hovered_code_block.get() != block || imp.pointer_on_copy_button.get() != on_button {
+        let revealed_block_changed = imp.hovered_code_block.get() != block;
+        if revealed_block_changed || imp.pointer_on_copy_button.get() != on_button {
             imp.hovered_code_block.set(block);
             imp.pointer_on_copy_button.set(on_button);
             self.queue_draw();
+        }
+        if revealed_block_changed {
+            self.refresh_hover_after_paint();
         }
     }
 
@@ -1049,7 +1087,7 @@ impl CodePreviewView {
     }
 
     /// Record where the pointer is (widget coordinates), or `None` when it leaves the
-    /// view. The motion handler is the only writer; [`Self::refresh_hover_for_scroll`]
+    /// view. The motion handler is the only writer; [`Self::refresh_hover_after_paint`]
     /// is the only reader.
     pub(crate) fn set_pointer_position(&self, pos: Option<(f32, f32)>) {
         use gtk::subclass::prelude::*;
@@ -1077,11 +1115,13 @@ impl CodePreviewView {
     /// Coalesced, weak-captured, slot cleared before the body, and cancelled in
     /// `unrealize` — the four rules `schedule_scroll_idle` documents at length.
     ///
-    /// The cursor is deliberately NOT refreshed here: it needs the render data this
-    /// module does not hold, and it is wrong only while the pointer sits exactly where a
-    /// button has just arrived — which the next motion event corrects, unlike the button,
-    /// which stays absent until the reader thinks to jiggle the mouse.
-    pub(crate) fn refresh_hover_for_scroll(&self) {
+    /// **The cursor is refreshed here too, through the installed hook.** This paragraph
+    /// used to say the opposite — that the cursor was wrong only while the pointer sat
+    /// where a button had just arrived, "which the next motion event corrects". That
+    /// reasoning was measured false: when the pointer is stationary there IS no next
+    /// motion event, which is the same premise the rest of this function rests on. The
+    /// cursor stayed an I-beam over a live button indefinitely.
+    pub(crate) fn refresh_hover_after_paint(&self) {
         use gtk::subclass::prelude::*;
         if self.imp().last_pointer.get().is_none() {
             return;
@@ -1101,6 +1141,12 @@ impl CodePreviewView {
                     return;
                 };
                 view.apply_hover(view.hover_at_point(x, y));
+                // After the hover, so the cursor is decided from the verdict this pass
+                // just applied rather than the one it replaced.
+                let refresh = view.imp().cursor_refresh.borrow().clone();
+                if let Some(refresh) = refresh {
+                    refresh(&view, x, y);
+                }
             }
         ));
         self.imp().hover_idle.replace(Some(id));
@@ -2207,5 +2253,71 @@ mod gate_tests {
         let view =
             crate::preview::view_of(&widget).expect("Overlay > ScrolledWindow > CodePreviewView");
         assert!(!has_anything_to_draw(view.imp()));
+    }
+}
+
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+mod revealtests {
+    use super::CodePreviewView;
+    use gtk::subclass::prelude::*;
+
+    /// Revealing a code block's copy button must SCHEDULE a hover re-derivation, because
+    /// the reveal is what creates the button's hit-box and the paint is what writes it —
+    /// so the motion event that caused the reveal hit-tested against a list that did not
+    /// contain the button yet, and decided the cursor from that.
+    ///
+    /// **The guard is on the ordering, not on the cursor, and that distinction is the
+    /// whole point.** Any check that moves the pointer twice passes on the broken code:
+    /// the second move hit-tests against the list the first move's paint populated. The
+    /// defect is only visible in the single-move case, so the property worth pinning is
+    /// "a change of revealed block schedules the re-derivation", which is decidable here
+    /// without a paint, a pointer or a display server.
+    ///
+    /// Mutation check: deleting the `refresh_hover_after_paint()` call in
+    /// `set_hovered_code_block` fails the first assertion.
+    #[gtktest::test]
+    fn revealing_a_block_schedules_the_re_derivation() {
+        let view = CodePreviewView::new();
+        // The re-derivation needs somewhere to re-derive AT; with no pointer recorded it
+        // returns early and the test would pass for the wrong reason.
+        view.set_pointer_position(Some((10.0, 10.0)));
+        assert!(
+            view.imp().hover_idle.borrow().is_none(),
+            "precondition: nothing scheduled yet"
+        );
+
+        view.set_hovered_code_block(Some(0), None);
+        assert!(
+            view.imp().hover_idle.borrow().is_some(),
+            "revealing block 0 must schedule a re-derivation — without it the copy button \
+             it just created is invisible to the hit test that already ran"
+        );
+    }
+
+    /// The pointer moving ONTO the button of an already-revealed block must NOT schedule
+    /// anything: that hit-box already existed, so a re-derivation has nothing new to find.
+    ///
+    /// This is also what makes the scheduling non-recursive — the re-derivation runs
+    /// `apply_hover`, which calls back into `set_hovered_code_block`, and at a fixed
+    /// pointer position it cannot change the revealed block. Keying the schedule on
+    /// `on_button` as well would let it re-arm itself.
+    ///
+    /// Mutation check: keying the schedule on `on_button` too fails this.
+    #[gtktest::test]
+    fn landing_on_the_button_of_a_revealed_block_schedules_nothing() {
+        let view = CodePreviewView::new();
+        view.set_pointer_position(Some((10.0, 10.0)));
+        view.set_hovered_code_block(Some(0), None);
+        // Drop whatever the reveal scheduled, so the next call is measured on its own.
+        if let Some(id) = view.imp().hover_idle.borrow_mut().take() {
+            id.remove();
+        }
+
+        view.set_hovered_code_block(Some(0), Some(0));
+        assert!(
+            view.imp().hover_idle.borrow().is_none(),
+            "the block did not change, so nothing new can be found and nothing should be \
+             scheduled"
+        );
     }
 }

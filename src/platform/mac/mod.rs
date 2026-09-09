@@ -6,5 +6,6 @@ pub(crate) mod appearance;
 pub(crate) mod bundle;
 pub(crate) mod fullscreen;
 pub(crate) mod menubar;
+pub(crate) mod pointercrossing;
 pub(crate) mod process;
 pub(crate) mod single_instance;

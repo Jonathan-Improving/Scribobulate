@@ -235,10 +235,9 @@ pub(super) fn wire_link_gestures(view: &CodePreviewView, render_data: &Rc<RefCel
             v.apply_hover(hover);
             // Remember where the pointer is, so the hover can be re-derived when the
             // DOCUMENT moves instead of the pointer — GTK emits no motion event for a
-            // scroll (`CodePreviewView::refresh_hover_for_scroll`).
+            // scroll (`CodePreviewView::refresh_hover_after_paint`).
             v.set_pointer_position(Some((x as f32, y as f32)));
-            let clickable = is_clickable_at(&v, &rd_m, x, y, over_marker, hover);
-            v.set_cursor_from_name(Some(if clickable { "pointer" } else { "text" }));
+            apply_pointer_cursor(&v, &rd_m, x, y, over_marker, hover);
         }
     ));
     // Clear any hover state when the pointer leaves the view entirely (no motion
@@ -254,6 +253,19 @@ pub(super) fn wire_link_gestures(view: &CodePreviewView, render_data: &Rc<RefCel
         }
     ));
     view.add_controller(motion);
+
+    // The same cursor decision, re-run after a paint that may have created a hit-box the
+    // motion event could not see — a code block reveals its copy button on hover, and
+    // hit-boxes are written by the paint, so the move that reveals the button hit-tested
+    // against a list without it. The view schedules this; it cannot decide a cursor
+    // itself, because the verdict needs the render data that lives here.
+    let rd_c = Rc::clone(render_data);
+    view.set_cursor_refresh(Rc::new(move |v: &CodePreviewView, x: f32, y: f32| {
+        let (x, y) = (x as f64, y as f64);
+        let over_marker = v.is_over_marker(x as f32, y as f32);
+        let hover = v.hover_at_point(x as f32, y as f32);
+        apply_pointer_cursor(v, &rd_c, x, y, over_marker, hover);
+    }));
 
     // Click: a link activates on a COMPLETE click — press and release on the same
     // link, without the pointer travelling far enough in between to be a drag.
@@ -291,6 +303,23 @@ pub(super) fn wire_link_gestures(view: &CodePreviewView, render_data: &Rc<RefCel
 /// that works while hovering as an I-beam reads as not being one. Extracted from the
 /// motion handler so the answer can be asserted at real coordinates instead of only
 /// through a synthesised motion event.
+/// Put the cursor that `(x, y)` earns on `view` — the pointer where something is
+/// clickable, the text beam everywhere else.
+///
+/// One writer for the cursor, called from the motion handler and from the post-paint
+/// re-derivation, so the two cannot answer differently for the same point.
+fn apply_pointer_cursor(
+    view: &CodePreviewView,
+    render_data: &Rc<RefCell<RenderData>>,
+    x: f64,
+    y: f64,
+    over_marker: bool,
+    hover: crate::affordance::Hover,
+) {
+    let clickable = is_clickable_at(view, render_data, x, y, over_marker, hover);
+    view.set_cursor_from_name(Some(if clickable { "pointer" } else { "text" }));
+}
+
 fn is_clickable_at(
     view: &CodePreviewView,
     render_data: &Rc<RefCell<RenderData>>,

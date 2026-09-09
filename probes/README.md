@@ -79,6 +79,12 @@ clang -ObjC -O1 -o /tmp/appkit-panel-control \
 clang -ObjC -O1 -o /tmp/middleclick-primary-paste \
    probes/middleclick-primary-paste.m $(pkg-config --cflags --libs gtk4) -framework AppKit
 
+# The cursor pair: a reader (no GTK — it interrogates the window server) and a subject.
+clang -fobjc-arc -framework Cocoa -o /tmp/cursorid \
+   probes/quartz-cursor-identity.m
+cc probes/macos-cursor-map-latch.c -o /tmp/cursor-map \
+   $(pkg-config --cflags --libs gtk4)
+
 cc probes/textview-anchored-toggle.c    -o /tmp/textview-anchored-toggle    $(pkg-config --cflags --libs gtk4)
 cc probes/textbuffer-selection-leak.c   -o /tmp/textbuffer-selection-leak   $(pkg-config --cflags --libs gtk4)
 cc probes/textview-primary-overwrite.c  -o /tmp/textview-primary-overwrite  $(pkg-config --cflags --libs gtk4)
@@ -941,3 +947,80 @@ different build on Homebrew and gvsbuild, so its presence is a per-platform ques
 the seats, not something this rig can settle. The application treats a missing or failing
 loader as a fall-back to the natural-size decode, never as a broken image, so the worst
 case there is a soft enlargement rather than an absent one.
+
+---
+
+## `quartz-cursor-identity.m` + `macos-cursor-map-latch.c` — the instrument came first
+
+**macOS only, and they are a pair**: a *reader* that names whatever cursor the window
+server is currently showing, and a *subject* that provokes the defect the reader was
+built to see. Neither is much use alone, and the reader is the more valuable of the two.
+
+**Question:** a hover cursor sometimes did not take over the preview's body text or its
+links, showing the default arrow while the drawn hover affordances beside it were always
+correct. It was recorded as INTERMITTENT and not reliably reproducible, with a table
+showing two hovered elements working and two not — and both mechanisms proposed against
+that table were refuted, in the order they were proposed.
+
+**Answer: it is neither intermittent nor per-element.** MEASURED 2026-09-09 on GTK 4.22.4
+(Homebrew) / Quartz. A cursor set with `gtk_widget_set_cursor_from_name` is never applied,
+for the whole life of a window that **mapped while the pointer was outside the rectangle
+it came up in**. Park the pointer inside that rectangle and every cursor applies, always.
+
+| Pointer at map time | This application | `gtk4-widget-factory` | `macos-cursor-map-latch` |
+|---|---|---|---|
+| outside the window's rect | 0/6 correct | 0/2 | 0/2 |
+| inside it | 6/6 correct | 2/2 | 2/2 |
+
+It is **upstream, not ours**: forty lines with one `GtkApplicationWindow`, one `GtkLabel`
+and one `set_cursor_from_name` reproduce it, and so does stock `gtk4-widget-factory`. In
+the broken state a `GtkEntry`, a `GtkTextView` and `GtkSourceView`'s own built-in text
+beam all read `arrow` too — code this project never touches.
+
+**The only thing that un-latches it is a mouse-down inside the window**, after which
+cursors work permanently. Tried on a fresh broken window and did NOT un-latch it:
+activating and reactivating the application, leaving the window and re-entering it, the
+scroll wheel, a keystroke, opening a native menu. Nor does layout churn, nor setting the
+cursor on the toplevel instead of the child.
+
+### Why the reader is the point
+
+**The defect was deterministic all along; the instrument was what varied.** Every earlier
+reading came off a screenshot, judged by eye once per trial, and the one variable that
+actually decides the outcome — where the pointer happened to be resting when the window
+appeared — was neither controlled nor recorded. That produces exactly the evidence
+reported: a genuine observation, a plausible table, and two mechanisms that each fit
+every data point and were each wrong. **A result that cannot be re-read cheaply gets read
+rarely, and a variable nobody is watching is a variable nobody controls.** The reader
+takes ~30 ms and answers in a word, which is what made twelve trials worth running, and
+twelve trials are what turned an anecdote into a split.
+
+Two corollaries worth carrying to the next cursor question:
+
+- **Prove the instrument before trusting a run of it.** The file's header carries three
+  validations — the menu bar reads `arrow`, Terminal's own custom I-beam reads as a
+  distinct unknown, and a healthy `gtk4-widget-factory` reads `text` and `pointer`. The
+  third is the one that matters: without a positive control on a *healthy* GTK window, a
+  column of `arrow` readings is equally consistent with a broken application and a broken
+  probe.
+- **Run the control that could embarrass you.** A mutation chain through this
+  application's own busy-cursor code "isolated a root cause" that was pure coincidence —
+  the surviving build looked fixed only because those launches happened to map under the
+  pointer. Restoring the untouched original and watching it *pass* is what caught it.
+  Broken → fixed → broken again is the three-state evidence; the middle state alone is
+  a story, not a measurement.
+
+⚠ **`CGSCurrentCursorSeed` is not an alternative** — it is worse than useless here.
+`screencapture -C` increments the seed itself, measured by running the identical sampling
+loop over blank space with no hover target and seeing the same climb: an instrument inside
+its own measurement, whose artefact happened to match the hypothesis under test.
+
+### What they do not answer
+
+Which GDK-macOS state a mouse-down initialises that a map-away-from-the-pointer never
+does. Two controls bound it: AppKit's *own* cursors on the same broken window still work
+(the frame-edge resize cursors appear normally), so neither the window server nor a
+synthetic-pointer-move harness is at fault; and motion events are delivered and handled
+throughout, since hover affordances light and repaint under the pointer while the cursor
+stays an arrow. So the break sits in GDK's per-surface cursor push, below GTK's widget
+layer — which is also why no application-side setting reaches it.

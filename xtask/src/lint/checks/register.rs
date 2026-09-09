@@ -218,8 +218,19 @@ pub fn stub_keeps_implementation_line(tree: &Tree) -> bool {
 /// six single-line fields) and the ratchet moved DOWN with it so the file cannot regrow to
 /// the size that was overloading every session's context. Tightening is the ratchet's
 /// intended direction; only a loosening needs the paragraph above.
+/// **Raised 2026-09-09 by operator decision — ceiling 260_000 -> 265_000, soft limit
+/// unchanged at 240_000.** Recorded in full because the paragraph above says a third raise
+/// should not happen before the migration relief is spent, and it has NOT been spent: the
+/// ~150_000B of A-tagged essays whose canonical text already lives in the `gtk4-rs` skill
+/// are still here in full. This raise buys room for two entries (ScrAP-349, ScrAP-350) that
+/// had nowhere to go, on the operator's explicit instruction to record them; it is not a
+/// judgement that the relief is unavailable. The soft limit deliberately did NOT move with
+/// the ceiling this time — the file is already past WARN, so the warning tier stays lit,
+/// which is the honest state and the opposite of the 2026-08-27 case where the two tiers had
+/// collapsed into one. Only 5_000B was added, so the ratchet still bites almost immediately:
+/// the next entry re-opens this decision rather than sliding under it.
 const REGISTER_WARN: u64 = 240_000;
-const REGISTER_FAIL: u64 = 260_000;
+const REGISTER_FAIL: u64 = 265_000;
 const ENTRY_WARN: u64 = 3_000;
 const ENTRY_FAIL: u64 = 4_000;
 
