@@ -385,6 +385,11 @@ pub(crate) struct Theme {
     /// The fill behind a disclosure's whole SUMMARY LINE (TDD 18.48); `None` ⇒ that
     /// line carries no band and the summary sits on the page, exactly as it did
     /// before this key existed (TDD 18.2).
+    /// A second stop, making the table's HEADER ROW a vertical gradient from
+    /// `table_head_bg`. Ignored where that fill is unstated — a gradient is a second
+    /// stop and needs a first one, the same precondition every other gradient key in
+    /// this vocabulary carries.
+    pub table_head_gradient_to: Option<gdk::RGBA>,
     pub disclosure_band_color: Option<gdk::RGBA>,
     /// A second stop, making the summary band a vertical gradient from
     /// [`Self::disclosure_band_color`]. Ignored where no fill is stated — a gradient
@@ -462,6 +467,13 @@ pub(crate) struct Sprites {
     /// — and by both export sinks, because the band is a fill of an extent rather
     /// than a picture standing in for a control.
     pub disclosure_band: Option<crate::sprite::SpriteRef>,
+    /// The table header's tile, laid behind each header CELL from that cell's own
+    /// origin (the extent all three renderings share; see `keys.rs`).
+    pub table_head: Option<crate::sprite::SpriteRef>,
+    /// The header row's single curated scene, drawn once at its right edge over the
+    /// fill — `heading_band_scene`'s twin, and the only scene in this struct that
+    /// reaches paper (the PDF draws a table row as one unit; see `keys.rs`).
+    pub table_head_scene: Option<crate::sprite::SpriteRef>,
 }
 
 #[cfg(test)]

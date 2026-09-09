@@ -4,11 +4,15 @@
 //! The two callers differ only in *what they iterate and how they resolve the
 //! decoration*: a heading's band is stated per level ([`super::bands`]), a
 //! disclosure's is flat ([`super::disclosurebands`]). Everything downstream of that
-//! — the visibility gate, the extent, the rect, the radius, and the sprite →
-//! gradient → flat precedence — is identical, and lived in two copies that had
-//! already diverged over sprite hoisting. It lives here once so the next correction
-//! to it (a GSK filter change, a `tile_texture` phase fix of the ScrAP-333 kind, a
-//! radius clamp) is found and applied in one place.
+//! — the visibility gate, the extent, the rect and the radius — is identical, and
+//! lived in two copies that had already diverged over sprite hoisting. It lives here
+//! once so the next correction to it is found and applied in one place.
+//!
+//! **The paint itself moved one level further out** when a THIRD caller appeared that
+//! is not a text-view pass at all: a table's header row (TDD 18.57) is the same band
+//! drawn by an anchored widget. So the clip, the sprite → gradient → flat precedence
+//! and the compositing scene are `crate::widgets::paint_band_into`, and what remains
+//! here is the span half — the part that genuinely needs a `GtkTextView`.
 //!
 //! Where each caller sits in the compositing order is stated once, in
 //! `decorplan::PAINT_ORDER`.
@@ -16,8 +20,7 @@
 use super::geometry::span_card_y_extent;
 use super::paint::PaintCtx;
 use crate::decorplan::band_corner_radius;
-use gtk::prelude::*;
-use gtk::{graphene, gsk};
+use gtk::graphene;
 
 /// Paint `span`'s band, or nothing when the span is empty, off-screen, or measures
 /// to no height.
@@ -74,51 +77,10 @@ pub(super) fn paint_band(
         ctx.card_w,
         bottom - top,
     );
-    if radius > 0.0 {
-        snapshot.push_rounded_clip(&gsk::RoundedRect::from_rect(rect, radius));
-    }
-    // The sprite first, then whatever the band would have been without it. A sprite
-    // that will not decode therefore falls through to the gradient, then to the flat
-    // fill — degrading rather than erasing the band, the same rule every other
-    // decoration in this vocabulary follows. An explicit branch rather than painting
-    // the fill under the tile: an opaque tile hides the difference and a transparent
-    // one lets the colour bleed through (SCHEMA § Key naming).
-    //
-    // A sprite TILES at its natural size rather than stretching to the band: 1:1
-    // pixels need no filter, and GSK 4.6's `append_texture` filters linearly with no
-    // choice (the variant that takes one is 4.10 — GTK4Rs/AP-114). Tiling also means
-    // one cached texture per path instead of one per band width, which a window
-    // resize would otherwise mint by the hundred. `tile_texture` anchors the grid at
-    // the DOCUMENT rather than at this viewport-clamped rect (ScrAP-333) — `rect.y`
-    // is viewport-clamped by `span_card_y_extent` once the banded line is above the
-    // visible range.
-    match tiled {
-        Some(tex) => crate::widgets::tile_texture(snapshot, &rect, tex),
-        None => match decor.without_sprite() {
-            Some(crate::theme::BandPaint::Gradient { from, to }) => snapshot
-                .append_linear_gradient(
-                    &rect,
-                    &graphene::Point::new(rect.x(), rect.y()),
-                    &graphene::Point::new(rect.x(), rect.y() + rect.height()),
-                    &[gsk::ColorStop::new(0.0, from), gsk::ColorStop::new(1.0, to)],
-                ),
-            Some(crate::theme::BandPaint::Flat(fill)) => snapshot.append_color(&fill, &rect),
-            None => {}
-        },
-    }
-    // The SCENE rides on top of whichever of those painted, because it composites
-    // rather than replaces (`theme::Band::scene`). It is deliberately outside the match:
-    // a theme may state a scene with a flat fill, with a gradient, with a tiled sprite,
-    // or with nothing at all — "a scene alone is a band" for the same reason a sprite
-    // alone is (`Band::is_present`), and each of those four combinations has to paint
-    // the scene exactly once.
-    //
-    // Inside the rounded clip pushed above, so a scene cannot square off the band's
-    // corners — the failure a caller drawing it after the `pop` would ship.
-    if let Some(scene) = decor.scene {
-        crate::widgets::draw_scene_into(snapshot, &rect, scene);
-    }
-    if radius > 0.0 {
-        snapshot.pop();
-    }
+    // Everything from here down — the clip, the sprite → gradient → flat precedence and
+    // the scene that composites over it — is `widgets::paint_band_into`, shared with the
+    // table header's band (TDD 18.57), which is a band drawn by an anchored widget
+    // rather than by this pass. What stays here is the half that is genuinely about a
+    // text view: which span, measured how, at what extent.
+    crate::widgets::paint_band_into(snapshot, &rect, decor, radius, tiled);
 }

@@ -202,7 +202,7 @@ Every module below runs on the GTK main thread; see [Concurrency model](#concurr
 | `widgets/tab/` | Owns the tab-strip widget: `TabBar`, its rows, and their drag, close and context-menu mechanics. Positions are *cached* (a resting slot plus an animated position) and derived from the running total of the handle widths to a tab's left, so it also owns the one funnel every width-changing mutation goes through to re-derive them — GTK's `queue_resize` re-runs the layout against the stale cache (ScrAP-290). |
 | `widgets/disclosure.rs` | Owns the disclosure toggle: the anchored `GtkToggleButton` a summary line carries, its indicator, and the CSS class by which a press that landed on the control is told apart from one that landed on the line around it. |
 | `widgets/rule.rs` | Owns `SpriteRule`, the anchored widget a horizontal rule becomes when — and only when — a theme fills it with a tiled sprite. The one decoration whose widget *identity* a theme key decides; the flat rule stays the `GtkSeparator` it has always been, so a theme that states no `rule_sprite` reaches none of this code. |
-| `widgets/table/` | Owns `ScribTableWidget`, the custom widget rendering Markdown tables inside the preview. |
+| `widgets/table/` | Owns `ScribTableWidget`, the custom widget rendering Markdown tables inside the preview — and, since the header cells became a themed band, the paint behind them: the one decoration whose fill moves between the stylesheet and a widget depending on what the theme states (`theme::decor::table_head_is_painted`). |
 | `widgets/table/linkcell.rs` | Owns a link in a table cell across **both widget shapes one renders in** — the pure-link cell's button and the read-back of its caption, the link markup a mixed cell's label carries, and the single activation both delegate to. Owning both is the point: the shapes are indistinguishable to a reader, so nothing may reach one without reaching the other. |
 | `preview/` | Owns construction of the read-only preview widget and its interaction, scroll and CSS wiring. |
 | `preview/splice/` | Owns changing a rendered preview **in place**: deleting one disclosure's region from the live buffer, writing its replacement there, and adopting the result — the widget survivors, the wholesale maps, and `ReaderAnchor`, the reader's own position carried across the edit. The route exists because the alternative rebuilds the whole buffer, which collapses the vadjustment and throws the reader to the top (TDD 2.26h/2.26i). Its refusals are a **typed** answer, not a `bool`: a `SpliceVerdict` says whether the buffer had already been mutated when the splice gave up, because a caller's obligation differs between "the pane is intact" and "the pane must be re-rendered to be correct". |
@@ -281,7 +281,7 @@ The rest of the app — toolbar, tab strip, outline sidebar, editor — stays on
 desktop GTK theme. Theming those is the window manager's job (POLICY scope
 decision), so the reading theme is **preview-only**.
 
-The rules themselves — resolution order, the themes-file search path, the three
+The rules themselves — resolution order, the themes-file search path, the four
 mechanisms a key reaches the screen by, untrusted-input handling, and where the
 change notification comes from on each platform — are long and consulted as a
 unit, so they live in [THEMING.md](THEMING.md). **That document also carries the

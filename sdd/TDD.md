@@ -2759,6 +2759,17 @@ appearance that predates the feature; `Sepia` is the book-like reading theme.
 - **And** it stays fixed to the quotation as the view scrolls — never anchored to the viewport's edge
 - **And** the same picture reaches the HTML artefact; the PDF sink draws the panel's fill only, for the reason 18.54 gives
 
+### 18.57 A theme can dress a table's HEADER ROW the way it dresses a heading band
+- **Given** a theme setting any of `table_head_sprite`, `table_head_scene` or `table_head_gradient_to_color` (the last needing `table_head_bg` beneath it, as every gradient key does)
+- **When** a document containing a table is rendered
+- **Then** each header CELL carries that decoration in its own box — one band per column heading, never one spanning the row, so the gaps between columns stay page-coloured and the three renderings share one extent (the HTML sink's unit is the `<th>` and can express no other)
+- **And** the precedence is the heading band's, because it is the same resolved shape: a sprite outranks the gradient and the flat `table_head_bg`, a scene composites OVER whichever of those painted, and a sprite that cannot be decoded falls to the next rung rather than erasing the header
+- **And** a tiled sprite tiles at its natural size from each cell's own origin
+- **And** a scene is drawn once per header cell, fitted to the cell's height and anchored to its RIGHT edge, clipped to it — so a narrow column clips it from the left rather than shrinking it
+- **And** the header text, its ink (`table_head_fg`) and the cell borders all draw ON TOP of it
+- **And** the same decoration reaches both artefacts: the HTML sink's `th` rule and the PDF sink's header cells — the scene included, which no other scene key manages, because the page draws a table cell as one box where it draws a band line by line
+- **And** a theme that states none of the three keys renders a header byte-identical to before they existed: the flat fill, carried by the cells' own generated CSS (TDD 18.2)
+
 ## 19. Local document-link navigation
 
 ### 19.1 A relative link to a Markdown sibling opens as a new tab

@@ -283,6 +283,76 @@ pub(crate) fn draw_sprite_into(
 /// unparent every child in its `dispose`. GTK does **not** do this automatically
 /// for custom widget subclasses; skipping it leaks the children and emits
 /// finalize-time warnings. Call this once from `dispose`.
+/// **Paint one band into `rect`** — the sprite → gradient → flat precedence, the
+/// rounded clip, and the scene that composites over whichever of those painted.
+///
+/// The rect-level core of the band, sited here beside [`tile_texture`] and
+/// [`draw_scene_into`] rather than in `codeview` because it now has a caller that is
+/// not a text-view pass at all: a table's header row is a band drawn by an anchored
+/// WIDGET (`widgets::table`), while a heading's and a disclosure summary's are drawn
+/// by `snapshot_layer`. Everything above this line differs between those callers (what
+/// is iterated, how the extent is measured, how the decoration is resolved); everything
+/// below it is identical, and was already once maintained in two copies that diverged
+/// (`codeview::bandpaint`'s own header records what that cost).
+///
+/// `radius` is a FINAL pixel radius — already scaled by zoom and clamped to the rect by
+/// `decorplan::band_corner_radius`. It is taken rather than derived so this function
+/// stays display-free arithmetic over a rect, and so a caller whose radius comes from a
+/// different key (a table cell's, not a band's) is not forced through a heading's.
+///
+/// `tiled` is the caller's already-decoded sprite, passed in so a caller with many
+/// bands decodes one texture for the whole pass instead of one per band.
+pub(crate) fn paint_band_into(
+    snapshot: &gtk::Snapshot,
+    rect: &gtk::graphene::Rect,
+    decor: &crate::theme::Band<'_>,
+    radius: f32,
+    tiled: Option<&gtk::gdk::Texture>,
+) {
+    use gtk::gsk;
+    if rect.width() <= 0.0 || rect.height() <= 0.0 {
+        return;
+    }
+    if radius > 0.0 {
+        snapshot.push_rounded_clip(&gsk::RoundedRect::from_rect(*rect, radius));
+    }
+    // The sprite first, then whatever the band would have been without it. A sprite
+    // that will not decode therefore falls through to the gradient, then to the flat
+    // fill — degrading rather than erasing the band, the same rule every other
+    // decoration in this vocabulary follows. An explicit branch rather than painting
+    // the fill under the tile: an opaque tile hides the difference and a transparent
+    // one lets the colour bleed through (SCHEMA § Key naming).
+    match tiled {
+        Some(tex) => tile_texture(snapshot, rect, tex),
+        None => match decor.without_sprite() {
+            Some(crate::theme::BandPaint::Gradient { from, to }) => snapshot
+                .append_linear_gradient(
+                    rect,
+                    &gtk::graphene::Point::new(rect.x(), rect.y()),
+                    &gtk::graphene::Point::new(rect.x(), rect.y() + rect.height()),
+                    &[gsk::ColorStop::new(0.0, from), gsk::ColorStop::new(1.0, to)],
+                ),
+            Some(crate::theme::BandPaint::Flat(fill)) => snapshot.append_color(&fill, rect),
+            None => {}
+        },
+    }
+    // The SCENE rides on top of whichever of those painted, because it composites
+    // rather than replaces (`theme::Band::scene`). Deliberately outside the match: a
+    // theme may state a scene with a flat fill, with a gradient, with a tiled sprite, or
+    // with nothing at all — "a scene alone is a band" for the same reason a sprite alone
+    // is (`Band::is_present`), and each of those four combinations must paint it exactly
+    // once.
+    //
+    // Inside the rounded clip pushed above, so a scene cannot square off the band's
+    // corners — the failure a caller drawing it after the `pop` would ship.
+    if let Some(scene) = decor.scene {
+        draw_scene_into(snapshot, rect, scene);
+    }
+    if radius > 0.0 {
+        snapshot.pop();
+    }
+}
+
 pub(crate) fn unparent_all_children(widget: &impl IsA<gtk::Widget>) {
     while let Some(child) = widget.first_child() {
         child.unparent();

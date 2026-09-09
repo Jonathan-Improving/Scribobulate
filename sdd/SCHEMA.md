@@ -518,6 +518,9 @@ are on.
 | `table_border_color` | colour | derived | Table border. |
 | `table_border_width` | `i32` | `1` | Clamped `0`–`400`. |
 | `table_head_bg` | colour | derived | Table header background. |
+| `table_head_gradient_to_color` | colour | — | A second stop, making the header row a vertical gradient from `table_head_bg`. **Ignored where that fill is unstated** — a gradient is a second stop and needs a first one. |
+| `table_head_sprite` | sprite path | — | A sprite tiled at natural size behind each header CELL, from that cell's own origin. **Outranks the fill and the gradient.** |
+| `table_head_scene` | sprite path | — | A single curated image drawn **once per header cell**, fitted to that cell's height with its width from the source's aspect, anchored to the cell's **right** edge and clipped to it. Composites **over** the fill/gradient/tile rather than replacing it, exactly as `heading_band_scene` does. ✅ **Unlike every other scene key, this one DOES reach the PDF page**: that sink draws a table row as one unit at a known height, where it draws a band line by line. |
 | `table_head_fg` | colour | `heading_color` | The header ROW's text colour. Omitted, the header takes the bare `heading_color` exactly as it always did, and omitting that too leaves it on the body ink. Stating it is what frees `table_head_bg` to be a fill of the theme's own choosing: while the header's ink was the heading's, a header fill had to be picked for legibility against a colour chosen for a different surface. |
 | `table_cell_padding_v` | `i32` | `4` | Clamped `0`–`400`. |
 | `table_cell_padding_h` | `i32` | `10` | Clamped `0`–`400`. |

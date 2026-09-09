@@ -94,6 +94,39 @@ mod imp {
         }
     }
 
+    impl ScribTableWidget {
+        /// Each HEADER cell's cached rectangle, in column order — the extents the
+        /// header's band is painted into.
+        ///
+        /// **Per cell, not per row** (operator's call, 2026-09-09): each column heading
+        /// is its own plate, so a scene appears once per heading rather than once at the
+        /// end of the table, and the gaps between columns stay page-coloured as they
+        /// were before this band existed. It also puts the preview, the HTML sink and
+        /// the PDF sink on one extent for free — a `<th>` IS the cell, so a row-wide
+        /// band was the one shape the artefact could not reproduce.
+        ///
+        /// Row 0 is the header by construction: `renderer::end` builds the widget from
+        /// the GFM header row first and marks its cells `cell-head` on the same pass.
+        pub(crate) fn head_cell_rects(&self) -> Vec<gtk::graphene::Rect> {
+            let cells = self.cells.borrow();
+            let layout = self.layout.borrow();
+            cells
+                .iter()
+                .zip(layout.rects.iter())
+                .filter(|(cell, _)| cell.row == 0)
+                .filter(|(_, r)| r.width() > 0 && r.height() > 0)
+                .map(|(_, r)| {
+                    gtk::graphene::Rect::new(
+                        r.x() as f32,
+                        r.y() as f32,
+                        r.width() as f32,
+                        r.height() as f32,
+                    )
+                })
+                .collect()
+        }
+    }
+
     impl ObjectImpl for ScribTableWidget {
         fn dispose(&self) {
             // Children are parented directly (no layout manager owns them).
@@ -117,6 +150,58 @@ mod imp {
                 h
             };
             (v, v, -1, -1) // min == nat ⇒ the TextView allocates exactly this
+        }
+
+        // The header cells' BAND (TDD 18.57), painted behind them.
+        //
+        // Why the widget and not the stylesheet, when `.cell-head` already carries a
+        // `background-color`: a built-in theme's sprite is compiled into the binary and
+        // has no path any CSS `url()` could name (ScrAP-324), so a header whose fill may
+        // be a tile or a scene cannot be carried by mechanism C at all. `theme::decor`
+        // owns the seam — `table_head_is_painted()` decides, and `preview/css.rs` reads
+        // the SAME predicate to drop the cells' fill when it is this widget's job.
+        // Neither side may re-derive that condition: a widget that paints while the CSS
+        // still fills is invisible (the fill covers the paint), and the reverse is a
+        // header with no fill at all.
+        //
+        // ONE BAND PER HEADER CELL, which is what keeps the three renderings on one
+        // extent: the HTML sink's unit is the `<th>` and cannot express a row-wide band
+        // at all, so painting the row here would have made the screen and the artefact
+        // disagree by construction rather than by mistake. It also keeps the column gaps
+        // page-coloured, exactly as they were before this band existed.
+        fn snapshot(&self, snapshot: &gtk::Snapshot) {
+            let theme = crate::theme::active();
+            if theme.table_head_is_painted() {
+                let decor = theme.table_head_decor();
+                // Decoded ONCE for the whole header, not once per cell.
+                let tiled = decor.sprite.and_then(crate::sprite::texture);
+                for rect in self.head_cell_rects() {
+                    // The cells' own corners are rounded by generated CSS, which is
+                    // applied at its DESIGN-TIME value and does not follow zoom
+                    // (THEMING § Pixel metrics and zoom — the theme's provider is
+                    // app-wide, zoom's is per-window). So the band behind them takes
+                    // the same unscaled radius, at zoom 1.0: a band rounded by the zoom
+                    // factor would part company with the very cell it sits under at
+                    // every step away from 100%. This is the one place in the tree
+                    // where passing 1.0 to `band_corner_radius` is correct rather than
+                    // a forgotten scale, hence this note.
+                    let radius = crate::decorplan::band_corner_radius(
+                        theme.metrics.table_cell_radius,
+                        1.0,
+                        rect.width(),
+                        rect.height(),
+                    );
+                    crate::widgets::paint_band_into(
+                        snapshot,
+                        &rect,
+                        &decor,
+                        radius,
+                        tiled.as_ref(),
+                    );
+                }
+            }
+            // Then the cells themselves, on top of it.
+            self.parent_snapshot(snapshot);
         }
 
         // (5) Reuse cached rects. At a steady bound width every validation pass lands
@@ -396,6 +481,75 @@ mod gtk_integration_tests {
              ink — the page's own `color` only INHERITS to a cell, and inheritance loses \
              to a rule that matches the label node"
         );
+    }
+
+    /// **The header band is painted per HEADER CELL, and reaches no other row**
+    /// (TDD 18.57).
+    ///
+    /// Two halves, and the second is the one worth a test: that every header cell has
+    /// its own extent (so a scene appears once per column heading and a tile starts
+    /// from each cell's own origin), and that NO body cell has one. A union taken over
+    /// every cell rather than over row 0 would band the entire table — a decoration
+    /// swallowing the document's own content, and it would look deliberate.
+    ///
+    /// A flat fill cannot see either half, which is why the oracle is the rect list
+    /// rather than a pixel: filling per cell and filling the row look identical until
+    /// the fill is a tile or a scene.
+    #[gtktest::test]
+    fn the_header_band_is_painted_once_per_header_cell() {
+        let cell = |text: &str| -> gtk::Widget {
+            gtk::Label::builder().label(text).build().upcast()
+        };
+        let table = ScribTableWidget::new(vec![
+            vec![cell("Head A"), cell("Head B"), cell("Head C")],
+            vec![cell("a"), cell("b"), cell("c")],
+            vec![cell("d"), cell("e"), cell("f")],
+        ]);
+        table.set_bound_width(600);
+
+        let bands = table.imp().head_cell_rects();
+        assert_eq!(bands.len(), 3, "one band per header cell, not one for the row");
+
+        let rects = table.imp().layout.borrow().rects.clone();
+        let cells = table.imp().cells.borrow();
+        let head: Vec<_> = cells
+            .iter()
+            .zip(rects.iter())
+            .filter(|(c, _)| c.row == 0)
+            .map(|(_, r)| *r)
+            .collect();
+        for (band, cell_rect) in bands.iter().zip(head.iter()) {
+            assert_eq!(
+                (band.x(), band.y(), band.width(), band.height()),
+                (
+                    cell_rect.x() as f32,
+                    cell_rect.y() as f32,
+                    cell_rect.width() as f32,
+                    cell_rect.height() as f32
+                ),
+                "a header band must be exactly its cell's box"
+            );
+        }
+        // Nothing below the header row is banded: every band's bottom stops at or above
+        // the first body row's top.
+        let body_top: i32 = cells
+            .iter()
+            .zip(rects.iter())
+            .filter(|(c, _)| c.row > 0)
+            .map(|(_, r)| r.y())
+            .min()
+            .expect("a body row");
+        for band in &bands {
+            assert!(
+                band.y() + band.height() <= body_top as f32,
+                "a header band runs into the body rows: {band:?} past {body_top}"
+            );
+        }
+
+        // A table with no rows at all asks for no band rather than a degenerate one.
+        let empty = ScribTableWidget::new(Vec::new());
+        empty.set_bound_width(600);
+        assert!(empty.imp().head_cell_rects().is_empty());
     }
 
     /// **The preview's link-cell rules reach the widget** — asserted on the colour the

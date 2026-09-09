@@ -538,13 +538,21 @@ keys! {
     // distort as the window resized. The right edge is the only part of a band whose
     // position is stable, and the left is where the text lives.
     //
-    // NOT ON PAPER, for the reason `heading_band_radius` gives one line below: the PDF
-    // sink draws a band line by line, so a wrapped heading is several abutting rects
-    // with no single right edge to anchor a scene to — it would repeat once per row.
-    HEADING_BAND_SCENE     = "heading_band_scene"      : Sprite Heading,
-                             Reach::not_on_paper("the page draws a band line by line, so a wrapped \
-                                                  heading has no single right edge to anchor one \
-                                                  scene to — it would repeat once per row", "");
+    // The PICTURE is not drawn on paper, for the reason `heading_band_radius` gives one
+    // line below: the PDF sink draws a band line by line, so a wrapped heading is
+    // several abutting rects with no single right edge to anchor a scene to — it would
+    // repeat once per row. SCHEMA's row states that limit to the theme author.
+    //
+    // ⚠️ It is nonetheless `Reach::ALL`, and the distinction is the point: **a scene
+    // alone is a band** (`Band::is_present`), so stating one makes the level banded on
+    // every surface — the page reserves `heading_band_padding` and paints the fill
+    // beneath it exactly as the screen does, and only the picture is missing. Declaring
+    // this `not_on_paper` says the key reaches nothing there, which is false and was
+    // caught the moment the sink sweep began covering sprite keys: the PDF's output
+    // moves when this key is stated. What is true is narrower than either flag can
+    // express — the EXTENT reaches paper, the PICTURE does not — so the flag takes the
+    // measurable half and this comment carries the rest.
+    HEADING_BAND_SCENE     = "heading_band_scene"      : Sprite Heading;
     // No heading carries a band until a theme states a fill for its level, so the
     // radius is only ever consulted for a band that exists.
     HEADING_BAND_RADIUS    = "heading_band_radius"     : Int    Heading | int(&[0], METRIC),
@@ -653,6 +661,38 @@ keys! {
     TABLE_BORDER_WIDTH     = "table_border_width"      : Int    | int(&[1], METRIC);
     TABLE_HEAD_BG          = "table_head_bg"           : Color;
     TABLE_HEAD_FG          = "table_head_fg"           : Color;
+    // ── the header row is a BAND ─────────────────────────────────────────────
+    // The three keys below give the header row the same appearance vocabulary a
+    // heading band has, with `table_head_bg` above standing in for
+    // `heading_band_color` as the flat rung. They resolve through the same
+    // `theme::Band` shape and therefore inherit its rules for free: a sprite outranks
+    // the fill and the gradient, a gradient needs a fill to start from, a scene
+    // composites over whichever of those painted, and a sprite that will not decode
+    // degrades to the next rung instead of erasing the header.
+    //
+    // ON PAPER, unlike the heading band's scene and the quote panel's — and the
+    // difference is the PDF's own geometry, not a policy choice. That sink draws a
+    // banded heading LINE BY LINE, so a wrapped one has no single right edge to anchor
+    // a scene to; but it draws a table's cells as whole boxes (`ink::draw_table_row`
+    // fills each column rect at a known `box_height`), so a header cell has exactly the
+    // stable extent a scene needs. Reach::ALL is therefore correct here and would be
+    // wrong one construct over.
+    TABLE_HEAD_GRADIENT_TO_COLOR
+                           = "table_head_gradient_to_color" : Color,
+                             Reach::gated_on("table_head_bg = \"#123456\"\n");
+    // ⚠️ Both of the keys below apply PER HEADER CELL, not per header row — a tile
+    // starts from each cell's own origin and a scene is drawn once in each. That is the
+    // operator's design call, and it is also the only shape all three renderings can
+    // share: the HTML sink's unit is the `<th>`, so a row-wide band is not expressible
+    // there at all, and a preview that painted one would disagree with the artefact by
+    // construction rather than by mistake.
+    TABLE_HEAD_SPRITE      = "table_head_sprite"       : Sprite;
+    // A single curated image drawn ONCE at each header cell's right edge, over whatever
+    // the cell is filled with — `heading_band_scene`'s twin, and anchored for the same
+    // reason: a header cell's height is fixed by its text while its width tracks the
+    // column, so the right edge is the only stable place to hang a picture and the left
+    // is where the label sits.
+    TABLE_HEAD_SCENE       = "table_head_scene"        : Sprite;
     TABLE_CELL_PADDING_V   = "table_cell_padding_v"    : Int    | int(&[4], METRIC);
     TABLE_CELL_PADDING_H   = "table_cell_padding_h"    : Int    | int(&[10], METRIC);
     TABLE_CELL_RADIUS      = "table_cell_radius"       : Int    | int(&[0], METRIC),
@@ -732,7 +772,16 @@ keys! {
     ANNOTATION_HL_COLOR    = "annotation_hl_color"     : Color  | color("#FFD133_61");
     ANNOTATION_CHIP_BG     = "annotation_chip_bg"      : Color;
     ANNOTATION_CHIP_FG     = "annotation_chip_fg"      : Color;
-    ANNOTATION_CHIP_SPRITE = "annotation_chip_sprite"  : Sprite;
+    // NOT ON PAPER, and this key CLAIMED to be until the sink sweep started covering
+    // sprite keys (2026-09-09). The sink and SCHEMA already agreed — `export::markup`
+    // states the limit at the write site and SCHEMA's row states it to the theme author
+    // — and only the registry disagreed with both, which is precisely the shape of
+    // declaration nothing checks. The PDF's chip is inline Pango markup on the note, and
+    // Pango markup carries no image, so there is nowhere for a sprite to go.
+    ANNOTATION_CHIP_SPRITE = "annotation_chip_sprite"  : Sprite,
+                             Reach::not_on_paper("the page's chip is inline Pango markup on the \
+                                                  note, and Pango markup carries no image, so a \
+                                                  sprite has nowhere to go (TDD 18.19)", "");
     FIND_HL_ALL_COLOR      = "find_hl_all_color"       : Color  | color("#f6d32d"),
                              Reach::preview_only("find is a live feature; an artefact carries no matches");
     FIND_HL_CURRENT_COLOR  = "find_hl_current_color"   : Color  | color("#ff7800"),

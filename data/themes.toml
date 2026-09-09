@@ -932,14 +932,63 @@ rule_space           = 6
 # brighter header is reachable only past L≈0.24 (the sprite's #3a9d3a, near-black ink at
 # 4.73:1), and that means giving up the gold. Lightening this key is therefore not a
 # one-line change; it is a change of header ink.
-table_border_color   = "#744a25"   # the grass-platform sprite's own soil brown, sampled
-                                    # from the file — the border ties the table to the
-                                    # rule and to the quote bars' copper rather than
-                                    # outlining it in a blue that matches nothing since
-                                    # the page went pale (it was #274665). A border
-                                    # carries no text, so no floor governs it
+table_border_color   = "#93aed3"   # STONE BLUE — a shade of the page itself, so the
+                                    # grid RECEDES and the evergreen header carries the
+                                    # table's structure on its own. It was the sprite's
+                                    # sampled soil brown #744a25 (and, for one afternoon,
+                                    # a lightened sand #c69a6a) until 2026-09-09. Both
+                                    # were correct that the border should tie to the
+                                    # rule and the quote bars' copper, and wrong about
+                                    # what a border is FOR here: on a pale sky page a
+                                    # warm dark grid is the loudest thing in the table
+                                    # and it carries no information. Rendered side by
+                                    # side, the brown outshouted the header and the sand
+                                    # still competed with it. ⚠️ The cost is real and was
+                                    # accepted with eyes open (operator's call, seen in a
+                                    # render): body-row separation is the weakest of the
+                                    # four candidates, because the border is now barely
+                                    # distinguishable from the page. That is affordable
+                                    # ONLY while the header stays visually dominant — if
+                                    # the header's fill is ever lightened, this key has to
+                                    # be re-tuned with it or the table loses its grid
+                                    # altogether. A border carries no text, so no contrast
+                                    # floor governs it; nothing but this note does.
 table_head_bg        = "#22603a"
 table_head_fg        = "#ffd400"   # the theme's collectible gold, reused — 5.23:1 on the fill
+# The header row is a BAND, and this theme states its SCENE (TDD 18.57) — the same
+# vocabulary the h1/h2/h3 bands above speak, one construct over: `table_head_bg` is the
+# flat rung, and a curated picture is drawn once at the row's right edge over it.
+#
+# A gentle grassy BANK rather than another of the nocturnal scenes above, and the reason
+# is the surface rather than the subject: those three sit behind heading TEXT and are
+# weighted to their right third to keep the left quiet. A header cell is one label wide,
+# so there is no quiet third to weight toward — which is why this one is a horizon
+# rather than a scene with anything happening in it. It reads at a glance, it survives
+# being clipped from the left as its column narrows (the anchor is the right edge), and
+# it says nothing a reader would be annoyed to lose behind a long column heading. It was
+# a rounded knoll for one afternoon; a mound reads as an OBJECT at this size and wants
+# somewhere to sit, where a slope just leaves the cell.
+#
+# PER HEADER CELL: each column heading gets its own bank at its own right edge, so a
+# three-column table shows three. Operator's call — and the extent every renderer can
+# agree on, since the HTML sink's unit is the `<th>`.
+#
+# ONE SHADE, unlike the three heading scenes above, which build depth by stacking
+# tones. Operator's call, and the reason generalises: those scenes are 56px tall and sit
+# behind a heading, where a second tone reads as distance; a header row is half that and
+# sits behind a table's column labels, where the same second tone reads as noise. A
+# silhouette is a SHAPE — if this one ever stops reading, make the shape better rather
+# than adding a colour to it.
+#
+# ⚠️ Drawn to the header row's own height (240×32 for a row that lands near 30px), not
+# to the 420×56 the heading-band scenes take. A band scene is fitted by HEIGHT, so art
+# drawn much taller than its row is downsampled and the pixel edges soften — the one
+# thing this idiom cannot afford. If the cell padding or the body face changes enough to
+# move the row height, redraw it rather than letting it resample.
+#
+# Original art, as every sprite here is: no franchise names, no reproduced character,
+# block or tile art (POLICY "Bundled decoration art").
+table_head_scene     = "sprites/scene-knoll.png"
 table_cell_radius    = 6
 table_border_width   = 2
 table_cell_padding_v = 6

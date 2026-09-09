@@ -107,6 +107,18 @@ impl Theme {
                  to start from"
             );
         }
+        // And the table header row's, for the third time and the same reason. Three
+        // copies of one diagnostic is worth noting: they differ only in the pair of
+        // key names, and a fourth gradient key should generalise them rather than add
+        // a fourth copy.
+        if src.color(&keys::TABLE_HEAD_GRADIENT_TO_COLOR).is_some()
+            && src.color(&keys::TABLE_HEAD_BG).is_none()
+        {
+            log::warn!(
+                "theme {id:?}: table_head_gradient_to_color is ignored — a gradient is a \
+                 second stop, and this theme states no table_head_bg for it to start from"
+            );
+        }
 
         Theme {
             id: id.to_string(),
@@ -199,6 +211,7 @@ impl Theme {
                 .color(&keys::DISCLOSURE_MARKER_COLOR)
                 .or_else(|| src.color(&keys::FOREGROUND)),
             disclosure_preview_fg: src.color(&keys::DISCLOSURE_PREVIEW_FG),
+            table_head_gradient_to: src.color(&keys::TABLE_HEAD_GRADIENT_TO_COLOR),
             disclosure_band_color: src.color(&keys::DISCLOSURE_BAND_COLOR),
             disclosure_band_gradient_to: src.color(&keys::DISCLOSURE_BAND_GRADIENT_TO_COLOR),
             disclosure_fg: src.color(&keys::DISCLOSURE_FG),
@@ -254,6 +267,8 @@ impl Theme {
                 disclosure: src.sprite(&keys::DISCLOSURE_SPRITE),
                 disclosure_expanded: src.sprite(&keys::DISCLOSURE_EXPANDED_SPRITE),
                 disclosure_band: src.sprite(&keys::DISCLOSURE_BAND_SPRITE),
+                table_head: src.sprite(&keys::TABLE_HEAD_SPRITE),
+                table_head_scene: src.sprite(&keys::TABLE_HEAD_SCENE),
             },
         }
     }

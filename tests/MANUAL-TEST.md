@@ -138,6 +138,79 @@ line contains the pattern you just typed. It returns that shell, every later
 failure. Prefer the PID the launch gives you (`$!` when backgrounding the binary directly) or
 a before/after `pgrep -x` diff. Same hazard, stated per-case, in items 8.2m and §1.10.
 
+### 1.2a Where a run reads its config and writes its state
+
+**A `cargo`-launched run does not read `~/.config`, and a directly-launched binary
+does.** `.cargo/config.toml`'s `[env]` table redirects both XDG directories for every
+process `cargo` starts — `cargo test` and `cargo run` alike — so which route you launch
+by decides which files the app answers to. Neither is wrong; picking one and typing the
+other route's paths is.
+
+| Launch | `XDG_CONFIG_HOME` | `XDG_STATE_HOME` | `XDG_DATA_HOME` |
+|---|---|---|---|
+| `cargo run -- -n …` | `target/test-config` | `target/test-state` | ambient (`~/.local/share`) |
+| `./target/release/scribobulate -n …` | ambient (`~/.config`) | ambient (`~/.local/state`) | ambient (`~/.local/share`) |
+
+⚠️ **`XDG_DATA_HOME` is NOT redirected, and that is what makes a built-in theme edit
+appear not to work.** If this app has ever been installed from source, `install.sh` leaves
+a copy of `data/themes.toml` at `~/.local/share/scribobulate/themes.toml` — search-path
+**row 2**, which a cargo-launched run reads like any other. A themes file found on the path
+is merged over the compiled-in built-ins **per key**, so that stale copy silently supplies
+every shipped theme's every key and your rebuilt binary renders the old value. MEASURED,
+and it reads as "the build did not pick up my change": the binary is correct (`grep -a`
+the new value in `target/debug/scribobulate` to prove it) and is being overruled by a file
+nobody remembers installing. Refresh it (`cp data/themes.toml ~/.local/share/scribobulate/themes.toml`)
+or move it aside for the duration. **Do not** reach for `XDG_DATA_HOME=$(mktemp -d)`
+instead — that redirect breaks gdk-pixbuf's loader resolution and degrades every theme
+sprite to its fallback glyph in silence (§18.48).
+
+The consequence that costs time: **a user themes file must sit under whichever config
+dir the launch route actually uses.** Under `cargo run`, search-path row 1 is
+`target/test-config/scribobulate/themes.toml`; a file at `~/.config/scribobulate/themes.toml`
+is not on the path at all and is silently ignored — which looks exactly like the
+user-file merge being broken (the defect 18.13a exists to catch), so the false positive
+is indistinguishable from the real one. The same applies to `config.toml` and to
+`gtk-4.0/settings.ini`.
+
+⚠️ **Clean up an override you dropped into `target/test-config/`.** It is row 1 for every
+later `cargo test` run too, so a leftover themes file quietly re-themes the integration
+suite.
+
+**Seeding a scratch session — a session file needs a `[[windows]]` table.** Pointing a
+run at a fresh `XDG_STATE_HOME` and writing a one-line
+`$XDG_STATE_HOME/scribobulate/session.toml` to preselect a theme does not work:
+`session::parse` reads a file with no `[[windows]]` array as a **legacy v1** file and
+migrates it, and that migration resets `preview_theme` to **System** by design (a
+pre-theming file restores the appearance it was saved under). The app then starts on
+System having read your file, so the theme you asked for is simply not the one on screen
+— and every capture is of the wrong theme while looking perfectly healthy. MEASURED
+2026-09-09: four screenshots of four different candidate colours came back
+byte-identical, which reads as "the override is not being applied" and is not.
+
+Write both parts, and pass the document on the command line rather than restoring it:
+
+```toml
+preview_theme = "pixelquest"
+
+[[windows]]
+width = 1400
+height = 900
+zoom_level = 1.0
+active_tab = 0
+```
+
+⚠️ **Do not seed it by copying `target/test-state/scribobulate/session.toml`** — any
+`cargo test` run rewrites that file (that is what the redirect is FOR), so a copy taken
+before a test run and used after it is a different file than you think.
+
+For the direct-binary route, set both explicitly rather than inheriting them — the
+`XDG_STATE_HOME` warning in §1.2 above is why:
+
+```bash
+XDG_CONFIG_HOME=target/test-config XDG_STATE_HOME=$(mktemp -d) \
+    ./target/release/scribobulate -n tests/fixtures/table-test.md &
+```
+
 ### 1.3 Find the toplevel window
 
 ```bash
@@ -1053,6 +1126,12 @@ GTK's bundled Default paints the `text` node opaque (GTK4Rs/AP-100).
 `XDG_STATE_HOME` at a scratch dir per run or you will inherit the last run's theme
 and misread a "wrong theme on launch" as a defect.
 
+**Where the themes file goes:** every `~/.config/scribobulate/themes.toml` written below
+means **search-path row 1**, and which directory that is depends on how you launched —
+`target/test-config/scribobulate/themes.toml` under `cargo run`, `~/.config/…` for a
+directly-launched binary. See §1.2a. Typing the other route's path gets you a file the
+app never reads, which reads as a broken user-file merge rather than as a wrong path.
+
 - [ ] **18.1** Open `themes.md` → View ▸ Reading Theme lists **System** and **Sepia**, System ticked. The toolbar's theme button (view section, palette icon) opens the **same** list with the **same** item ticked. Change the theme from one surface → the *other* surface's tick moves too, with no interaction (they are one action, not two mirrors)
 - [ ] **18.2** **The regression bar — do this FIRST and keep the screenshot.** Under System, screenshot `themes.md`. This must be indistinguishable from the pre-theming build: page, body text, link/code colours, blockquote bar, table borders/header fill, list indents, annotation amber, find yellow. **Exception — heading sizes:** the Issue-H fix deliberately changed the default heading ramp to five tiers `[2.2, 1.8, 1.48, 1.2, 1.0]` (h1 larger, an explicit h5, h6 folding onto h5), so heading sizes will *not* match the pre-theming build and that is expected — verify them against §18.13 instead, not against the old baseline. Compare all other surfaces against `git stash`-ing the change if in any doubt. **Any visible difference under System, headings aside, is a FAIL**, however pretty
 - [ ] **18.13** **Heading hierarchy.** In `themes.md` under System, the six heading lines read as a clean descending ramp h1 > h2 > h3 > h4 > h5, each visibly larger than the next (~15–18% steps), h5 at body size but bold. **`###### Heading 6` is pixel-identical to `##### Heading 5`** — h6 folds onto the deepest tier on purpose. Cross-check the outline sidebar: it shows the same fold (no distinct h6 row; h6 entries take the h5 style)
@@ -1113,6 +1192,8 @@ and misread a "wrong theme on launch" as a defect.
 - [ ] **18.50** **A disclosure's band and its summary colour are set independently.** Set `disclosure_band_color` and **no** `disclosure_fg` → the band paints and the label keeps the ordinary body ink. Then the reverse: `disclosure_fg` and **no** band → the label is re-coloured and no band appears behind it. Neither key drags the other in
 - [ ] **18.51** **A disclosure's band and summary colour reach an exported document.** With both keys set, Export ▸ HTML → the artefact carries a `summary` rule and the browser shows the same band and label colour. Export ▸ PDF (put the keys in `[themes.system]`, which is what the PDF resolves against) → the label line sits on the same band, continuous under a wrapped label, in the same colour. **Square corners on the page are a stated limit, not a defect** — no drawn corner rounding reaches an exported page. Finally switch to **System** → no band and no re-colouring on any of the three surfaces, the summary exactly as it looked before these keys existed
 - [ ] **18.52** **A themed page does not change when the window loses focus.** Under **Synthwave** (or any theme but System), open `table-test.md` and `disclosure.md`. Take the window in, then click another application's window so this one is drawn unfocused — do **not** minimise it — and read the document again: **body cells, header cells, cell links and the disclosure indicator must be exactly the colours they were**, and so must the prose. Only the title bar and the window chrome may change. ⚠️ **The prose is the decoy**: it is styled on the view's own node and never moves, so a page can look fine while every widget-borne mark on it has quietly re-inked — compare the *cells against the paragraph above them*, not the page against your memory of it. Under Synthwave the failure reads as cell text going pale grey-white and the magenta ▶ going white. Then switch to **System** and repeat → the whole page may follow the desktop's unfocused ink, prose and cells **together**; one dimming without the other is the failure there (TDD 18.52)
+- [ ] **18.57** **A theme can dress a table's HEADER ROW like a heading band.** Add to a scratch theme (row 1 — see §1.2a) `table_head_bg = "#22603a"` plus `table_head_gradient_to_color = "#0f3a22"` and render `table-test.md` → **each header cell** is its own vertical gradient, with the header text, its ink and the cell borders all drawn **on top** of it and the gaps between columns still page-coloured. ⚠️ **A row-wide band is the failure to look for, and a flat colour cannot show it** — check that the gaps between columns are NOT filled. Swap the gradient for `table_head_sprite` pointing at a tile → it tiles at natural size **from each cell's own origin**. Add `table_head_scene` beside it → the scene is drawn **once per header cell at that cell's right edge**, fitted to the cell's height, **over** the tile rather than replacing it; narrow the window until the columns shrink → each scene is clipped from its **left**, never squashed. Now point the scene at a file that does not exist → the row keeps the tile (or the gradient, or the flat fill) and nothing is erased — degrade, never erase. Then Export ▸ HTML → view source: the `th` rule carries the same layers in one `background:` declaration, scene first. Export ▸ PDF (keys in `[themes.system]`, which is what the PDF resolves against) → ✅ **the scene is on the page too** — the one scene key that reaches paper, because that sink draws a table row as one unit where it draws a band line by line; compare against `heading_band_scene`, which must still be absent there. Finally remove all three keys, leaving only `table_head_bg` → the header is **byte-identical** to before this rubric existed, its fill carried by the cells' own CSS (TDD 18.57, 18.2)
+- [ ] **18.57·shipped** **Pixel Quest's header knoll.** No scratch file — this checks what ships. Under **Pixel Quest**, open `table-test.md` → **every header cell** shows a **gentle grassy bank rising to its right edge** — ONE shade of green on the header's evergreen, a shape rather than a scene — with the gold column label unobscured at the left. Three columns means three banks, not one at the end of the table. Two regressions to watch for, both of which look deliberate: a bank drawn in **two or more tones** (a 30px cell is too small a surface for depth) and a band **spanning the row** instead of sitting in each cell. Operator's calls, 2026-09-09. ⚠️ **Run this on a FRESH-INSTALL host first** (`XDG_DATA_HOME` and `XDG_CONFIG_HOME` at empty temp dirs), for the reason 18.28 gives: the scene is compiled into the binary, and an installed `themes.toml` on the search path is a different source entirely. A header row with a flat green fill and no knoll in that condition is the defect this line exists for. Then narrow the window until the columns wrap → the knoll stays anchored at the right edge and is clipped from the left; it never repeats and never appears once per column
 - [ ] **18.52·shipped** **The undressed themes ink their indicator too, and Terminal dresses its fold as a BBS.** Open `disclosure.md` and walk **Sepia**, **Bedtime** and **Terminal**. Sepia and Bedtime state nothing about the fold beyond the indicator's colour, so each must show the **stock chevron in that theme's own furniture colour** — Sepia's accent brown, Bedtime's sand-gold — with no band and no re-coloured summary; a grey or blue-ish chevron that matches neither page is the failure, and it means the marker fell through to the desktop theme. Terminal instead shows the **old bulletin-board dressing**: `[+]` / `[-]` in ANSI bright green on the DOS-blue bar the table header already uses, a bright-yellow summary label and a cyan body preview. Then click another window on each of the three and read the indicator again → unchanged (TDD 18.52, 18.53)
 - [ ] **18.47** **One document, every decoration, in the right order.** Under a theme stating `blockquote_bg`, `blockquote_bar_color`, `heading_band_color_h1`/`_h2` and `list_marker_color` (Synthwave with a `blockquote_bg` added is enough), render a blockquote holding an **h2, a fenced code block and a nested list**, plus — outside the quote — a list item whose first line is a heading (`- # Item heading`), an item whose first line is a code fence, and an annotated line. Hover a code block so its copy button appears. Then read the screen top to bottom: the quote's panel is the ground and the band, the card, the bar and the markers all sit **on** it; the accent bar runs unbroken **across** the band and the card rather than being interrupted by them; the `- # Item heading` row shows its bullet **on** the band, and the fenced item its bullet **on** the card; the copy button is visible **over** its card's first line. ⚠️ **Each of these is a decoration DISAPPEARING, not shifting** — a wrong order paints one thing over another and the covered one is simply gone, so look for absence, not misalignment. The annotation chip is the control: it lives in the reserved right margin, two pixels clear of the content column, so it must be unaffected by everything above and is the one thing on the page that cannot be covered. Scroll the quote so it straddles the top and bottom edges → every layer still agrees at the clamped ends (TDD 18.47)
 - [ ] **18.48·shipped** **The three dressed themes dress the whole fold.** No scratch `themes.toml` — this checks what ships. Open `disclosure.md` and walk **Synthwave**, **Candy** and **Pixel Quest** in turn, reading one collapsed block and the `<details open>` beside it. Each fold must show, on both states: a **band** behind the whole summary line as wide as a banded heading, a **label** in that theme's own title ink, a **body preview** in a quieter ink beside it on the collapsed one only, and an **indicator that changes between the two states** — Synthwave ▶/▼ in magenta, Candy ⊕/⊖ in hot pink, Pixel Quest a **gold arrow sign plate** with two rivets, pointing right when shut and down when open. ⚠️ **Read the Pixel Quest indicator closely: a plain flat triangle there is a FAILURE, not the theme.** Its plate is a sprite and its ▶/▼ is only the rung beneath — a plate that will not decode falls to that glyph, which is a perfectly reasonable-looking arrow, so the degradation is invisible unless you know what the plate looks like. MEASURED while these themes were dressed: a harness that redirected `XDG_DATA_HOME` broke gdk-pixbuf's loader resolution, every plate in every theme silently became its glyph, and only a `RUST_LOG=scribobulate=warn` run naming *"could not be read as an image"* said so. Run with that variable set and expect **no** sprite line. ⚠️ **Candy's fold band is the one band in the file that does NOT fade to the page** — deep raspberry running to deep lime, a wrapper rather than a shelf, ending on a deliberate hard edge against the indigo. Operator-directed; a Candy fold that dissolves into the page like its heading bands do is a REGRESSION here, not a repair. Its lemon label and cotton-pink preview must stay legible at both ends of that run, the lime end being the tighter one. Finally switch to **System** → no band, no re-colouring, the stock chevron back (TDD 18.2)

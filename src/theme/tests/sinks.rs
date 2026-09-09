@@ -46,7 +46,15 @@ fn probe(kind: Kind) -> &'static str {
         Kind::Font => "\"Probe Face, monospace\"",
         Kind::Text => "\"probe-sentinel\"",
         Kind::Glyph => "\"\u{2739}\"",
-        // Unreached by this sweep — see the skip in the loop below.
+        // A COMPILED-IN reference, and that is what makes sprite keys measurable here at
+        // all: it resolves through `sprite::BUILTIN_SPRITES` and produces a real texture
+        // and a real cairo surface, so a sink that reads it emits something a sink that
+        // ignores it does not. This sweep skipped `Kind::Sprite` entirely until
+        // 2026-09-09, on the belief that the probe resolved to nothing — it does not, and
+        // the skip was hiding three live declaration defects (a key claiming a surface it
+        // never reached, a key declared unreachable on a surface its extent does reach,
+        // and a decoration this file's own preview digest could not see). Never restore
+        // the skip; if a sprite key cannot be probed, give it a `needs` instead.
         Kind::Sprite => "\"sprites/copper-plate.png\"",
         Kind::Line => "\"double\"",
         // Far from every shipped value and inside every clamp range in the registry.
@@ -356,10 +364,17 @@ fn decoration_digest(t: &Theme) -> String {
     let _ = std::fmt::Write::write_fmt(
         &mut out,
         format_args!(
-            "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
+            "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
             t.blockquote_bar_decor(),
             t.rule_decor(),
             t.annotation_chip_decor(),
+            // The quote panel's SCENE and the table header's whole band. Both are
+            // painted by the preview — `codeview::quotes` and `widgets::table` — and
+            // neither is reachable through any other member of this digest, so without
+            // these two lines each reported its keys as reaching nothing. `blockquote_scene`
+            // did exactly that the moment sprite keys entered this sweep.
+            t.sprites.blockquote_scene,
+            t.table_head_decor(),
             t.annotation_chip_fg,
             t.blockquote_bg,
             t.blockquote_fg,
@@ -411,13 +426,6 @@ fn every_declared_key_reaches_every_surface_it_claims() {
     let mut unreached: Vec<String> = Vec::new();
     let mut spuriously_reached: Vec<String> = Vec::new();
     for key in KEYS {
-        // A sprite key's probe names a file that resolves to nothing beside the
-        // compiled-in themes, so `Some(sprite)` would be indistinguishable from the
-        // baseline's `None`. Its family is guarded by `theme::tests::sprites`, which
-        // resolves every built-in reference against the embedded table.
-        if key.kind == Kind::Sprite {
-            continue;
-        }
         let base = baseline_for(key);
         let t = stating(key);
         for (surface, claimed, now, before) in [

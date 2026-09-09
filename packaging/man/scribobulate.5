@@ -468,6 +468,20 @@ Integer, default 1. Clamped 0\-400.
 .B table_head_bg
 Colour. Header-row background.
 .TP
+.B table_head_gradient_to_color
+Colour. A second stop, making the header row a vertical gradient from
+.BR table_head_bg .
+Ignored where that fill is unstated.
+.TP
+.B table_head_sprite
+Sprite path. Tiled at natural size behind each header cell, from that cell's own
+origin. Outranks the fill and the gradient.
+.TP
+.B table_head_scene
+Sprite path. A single curated image drawn once per header cell, fitted to that cell's
+height, anchored to its right edge and clipped to it. Composites over whatever the row is
+filled with. Unlike the other scene keys, this one also reaches the PDF page.
+.TP
 .B table_head_fg
 Colour. Header-row ink. Omitted, it takes the bare
 .BR heading_color ;

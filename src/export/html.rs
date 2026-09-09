@@ -511,7 +511,7 @@ blockquote {{ border-left: {bar_w}px solid {bar}; margin-left: 0;
 {rule_sprite_css}table {{ border-collapse: collapse; }}
 th, td {{ border: {tbw}px solid {tb}; padding: {cell_pv}px {cell_ph}px;
   border-radius: {radius}px; }}
-th {{ background: {thead};{thead_fg}{thead_face} font-weight: {thead_weight}; }}
+th {{{thead}{thead_fg}{thead_face} font-weight: {thead_weight}; }}
 td.a-l, th.a-l {{ text-align: left; }}
 td.a-c, th.a-c {{ text-align: center; }}
 td.a-r, th.a-r {{ text-align: right; }}
@@ -529,7 +529,18 @@ td.a-r, th.a-r {{ text-align: right; }}
         rule_sprite_css = rule_sprite_css(t),
         tb = to_hex_rgba(p.table_border),
         tbw = m.table_border_width,
-        thead = to_hex_rgba(p.table_head_bg),
+        // The header row's FILL, through the SAME `band_css` the heading band and the
+        // summary band emit (TDD 18.57) — so a tile, a gradient and a scene reach the
+        // artefact in one declaration with the layering already decided, rather than in
+        // a third hand-written copy of the precedence. Radius `0`: the shared `th, td`
+        // rule above already rounds the cell, and rounding it twice would clip the fill
+        // inside its own border.
+        //
+        // `p.table_head_bg` rather than `t.table_head_bg` is what the flat rung must
+        // stay: the palette's value is the DERIVED one a theme that states no header
+        // fill still gets (a blend off the page), and dropping to the theme's `Option`
+        // here would silently un-fill every such theme's header.
+        thead = table_head_css(t, p, uris),
         // The header row's own ink (TDD 18.30), already folded with `heading_color` by
         // `Theme::resolve` — the same value `preview/css.rs` puts on `.cell-head`, so the
         // artefact and the screen cannot answer different keys.
@@ -777,6 +788,22 @@ fn band_css(decor: &crate::theme::Band<'_>, radius_design_px: i32, uris: &Sprite
         let _ = write!(out, " border-radius: {radius_design_px}px;");
     }
     out
+}
+
+/// The table HEADER ROW's fill (TDD 18.57) — `band_css` with the header's own
+/// decoration, or the derived flat fill when the theme states nothing beyond it.
+///
+/// The one wrinkle over its two siblings is the fallback: a heading band and a summary
+/// band are ABSENT unless a theme asks for them, so their emitters return an empty
+/// string. A table header is not — every theme has one, derived off the page where it
+/// is unstated — so this always emits a `background`, and the `Band`'s flat rung is
+/// filled in from the palette rather than from the theme's `Option`.
+fn table_head_css(t: &Theme, p: &Palette, uris: &SpriteUris) -> String {
+    let mut decor = t.table_head_decor();
+    if decor.flat.is_none() {
+        decor.flat = Some(p.table_head_bg);
+    }
+    band_css(&decor, 0, uris)
 }
 
 fn heading_band_css(t: &Theme, level_index: usize, uris: &SpriteUris) -> String {

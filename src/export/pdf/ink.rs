@@ -111,6 +111,45 @@ fn paint_wash(
     }
 }
 
+/// Draw a curated scene once at the RIGHT edge of a rect, fitted to its height and
+/// clipped to it — the cairo half of `widgets::draw_scene_into`, and the same fit the
+/// HTML sink declares as `right center / auto 100% no-repeat`.
+///
+/// Fitted by HEIGHT and anchored RIGHT for the reason the key states: a header row's
+/// height is fixed by its text while its width tracks the column, so the right edge is
+/// the only stable place to hang a picture and the left is where the labels are.
+///
+/// A scene that cannot be decoded draws NOTHING and leaves the fill beneath it intact —
+/// degrade, never erase, the rule every decoration in this vocabulary follows.
+fn paint_scene_right(
+    cr: &cairo::Context,
+    scene: &crate::sprite::SpriteRef,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+) {
+    let Some((surface, nat_w, nat_h)) = crate::sprite::surface(scene) else {
+        return;
+    };
+    if nat_w <= 0.0 || nat_h <= 0.0 || width <= 0.0 || height <= 0.0 {
+        return;
+    }
+    let scale = height / nat_h;
+    let drawn_w = nat_w * scale;
+    cr.save().ok();
+    cr.rectangle(x, y, width, height);
+    cr.clip();
+    // Right-anchored: a scene wider than the row is clipped on its LEFT, keeping the
+    // part that was drawn to sit at the edge.
+    cr.translate(x + width - drawn_w, y);
+    cr.scale(scale, scale);
+    if cr.set_source_surface(&surface, 0.0, 0.0).is_ok() {
+        cr.paint().ok();
+    }
+    cr.restore().ok();
+}
+
 /// Draw one page's fragments onto `cr`, in points.
 pub(crate) fn draw_page(
     cr: &cairo::Context,
@@ -476,7 +515,6 @@ fn draw_table_row(
     theme: &Theme,
 ) {
     let border_rgba = theme.table_border_color.unwrap_or(palette.table_border);
-    let head_bg = theme.table_head_bg.unwrap_or(palette.table_head_bg);
     let fg = palette.body_fg;
     // The header row's ink (TDD 18.30), already folded with `heading_color` by
     // `Theme::resolve` — one resolved value, the same one the preview's `.cell-head` rule
@@ -503,12 +541,41 @@ fn draw_table_row(
     }
 
     // The header's fill goes down first, so the borders and text sit on top of it.
+    //
+    // ONE BAND PER HEADER CELL (TDD 18.57), matching the preview's own extent and the
+    // `<th>` the HTML sink styles: a scene appears once per column heading, and a tile
+    // starts from each cell's own origin. The row-wide alternative is expressible here
+    // and on screen but NOT in HTML, where the unit is the cell — so painting the row
+    // would have made this sink disagree with the artefact by construction.
     if row.is_head {
-        set_ink(cr, head_bg);
-        for column in row.columns {
-            cr.rectangle(column.x, 0.0, column.box_width, row.box_height);
+        let decor = theme.table_head_decor();
+        // `sprite::surface` memoises per reference, so this decodes once for the
+        // document however many tables (or repeated header rows) reach it.
+        let mut wash = super::decide::band_wash(&decor, |r| {
+            crate::sprite::surface(r).map(|(surface, _, _)| surface)
+        });
+        // A table header always HAS a fill — derived off the page where the theme
+        // states none — unlike a heading band, which is absent unless asked for. So the
+        // one rung `band_wash` can return as `None` is filled in here rather than left
+        // unpainted, which is what keeps a theme that states nothing byte-identical to
+        // before this band existed (TDD 18.2).
+        if matches!(wash, super::decide::Wash::None) {
+            wash = super::decide::Wash::Flat(palette.table_head_bg);
         }
-        cr.fill().ok();
+        for column in row.columns {
+            paint_wash(cr, &wash, column.x, 0.0, column.box_width, row.box_height);
+            // The SCENE composites over whichever of those painted, exactly as it does
+            // on screen (`widgets::paint_band_into`) and in the HTML sink's `th` rule.
+            //
+            // This is the only scene that reaches paper, and the reason is geometry, not
+            // policy: `heading_band_scene` and `blockquote_scene` are `not_on_paper`
+            // because this sink draws those decorations LINE BY LINE, so a wrapped one
+            // has no single right edge to anchor a picture to. A table's header cell is
+            // drawn as one unit at a known `box_height`, so it does.
+            if let Some(scene) = decor.scene {
+                paint_scene_right(cr, scene, column.x, 0.0, column.box_width, row.box_height);
+            }
+        }
     }
 
     // One stroked box per cell. Adjacent cells share an edge, so a reader sees a

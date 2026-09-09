@@ -392,10 +392,26 @@ pub(crate) fn theme_css(theme: &Theme, palette: &Palette) -> String {
     // three surfaces and for the table header on none: this rule said `bold`, the HTML
     // sink said nothing, and the PDF sink wrapped the cell in `<b>` — three independent
     // hardcodings of one key that `Typography::bold_attr` already owns (F-BOLD-001).
+    // The header row's FILL is this rule's only when the theme states a flat one and
+    // nothing more (TDD 18.57). A tile, a scene or a gradient is painted by the table
+    // WIDGET instead — a compiled-in sprite has no path a CSS `url()` could name
+    // (ScrAP-324) — and an opaque `background-color` here would sit on top of that
+    // paint, since the cells are children drawn after their parent's snapshot. So the
+    // declaration steps aside, leaving the cells transparent over the band.
+    //
+    // ⚠️ The predicate is `theme::decor`'s, read and never re-derived. This side and
+    // `widgets::table`'s `snapshot` must answer it identically or the header loses its
+    // fill in one of the two directions — both silently, and one of them only for
+    // themes that state a sprite.
+    let head_bg = if theme.table_head_is_painted() {
+        String::new()
+    } else {
+        format!(" background-color: {};", to_hex_opaque(palette.table_head_bg))
+    };
     out.push_str(&format!(
-        "scribtable .cell-head {{ font-weight: {}; background-color: {};{}{} }}\n",
+        "scribtable .cell-head {{ font-weight: {};{}{}{} }}\n",
         theme.typography.bold_weight,
-        to_hex_opaque(palette.table_head_bg),
+        head_bg,
         head_fg,
         head_font
     ));
@@ -925,6 +941,83 @@ mod tests {
             !c.contains("@theme_"),
             "a generated rule still binds to @theme_*"
         );
+    }
+
+    /// TDD 18.57 / 18.2 — the seam between the two mechanisms that can fill a table
+    /// header: the CELLS' generated CSS, and the table WIDGET's own paint.
+    ///
+    /// **Both sides read one predicate (`table_head_is_painted`) and this pins the CSS
+    /// side of it.** The failure it exists for is silent in both directions and neither
+    /// direction is visible from inside this file: a rule that keeps its opaque
+    /// `background-color` while the widget paints hides a themed sprite completely (the
+    /// cells are children, drawn after their parent), and a rule that drops it while the
+    /// widget paints nothing leaves the header with no fill at all. Only one of those is
+    /// reachable by a theme that ships today, which is why the flat case is asserted
+    /// beside it rather than assumed.
+    #[test]
+    fn the_header_fill_is_the_cells_only_until_the_widget_takes_it_over() {
+        let head_rule = |fragment: &str| {
+            let mut themes = Themes::builtin();
+            themes.merge_over_for_test(fragment);
+            let theme = themes.resolve("hdr");
+            let palette = Palette::from_base(
+                theme.background.unwrap_or(PROBE_BG),
+                theme.foreground.unwrap_or_else(probe_fg),
+                theme.foreground.unwrap_or_else(probe_chrome_fg),
+                theme.accent_color.unwrap_or_else(probe_accent),
+                &theme,
+            );
+            let css = theme_css(&theme, &palette);
+            let rule = css
+                .lines()
+                .find(|l| l.starts_with("scribtable .cell-head"))
+                .expect("the header rule is generated for every theme")
+                .to_string();
+            (rule, theme.table_head_is_painted())
+        };
+
+        // Flat, and every theme that shipped before this band existed: the cells carry
+        // the fill, exactly as they always did.
+        let (flat, painted) = head_rule("[themes.hdr]\ntable_head_bg = \"#22603a\"\n");
+        assert!(!painted, "a flat fill needs no widget paint");
+        assert!(
+            flat.contains("background-color: #22603a"),
+            "the cells lost the flat header fill: {flat}"
+        );
+
+        // A theme that states NOTHING about its header still gets one, derived off the
+        // page — so the declaration must be there for it too.
+        let (derived, painted) = head_rule("[themes.hdr]\nbackground = \"#101820\"\n");
+        assert!(!painted);
+        assert!(
+            derived.contains("background-color:"),
+            "a theme with no header key lost its derived fill: {derived}"
+        );
+
+        // Each of the three decorations the cells cannot carry, one at a time — a
+        // gradient because the widget owns the whole band as soon as any rung of it is
+        // stated (two providers filling one box is not a thing to arbitrate), a sprite
+        // and a scene because a compiled-in image has no path a `url()` could name
+        // (ScrAP-324).
+        for fragment in [
+            "table_head_gradient_to_color = \"#0f3a22\"",
+            "table_head_sprite = \"sprites/copper-plate.png\"",
+            "table_head_scene = \"sprites/copper-plate.png\"",
+        ] {
+            let (rule, painted) = head_rule(&format!(
+                "[themes.hdr]\ntable_head_bg = \"#22603a\"\n{fragment}\n"
+            ));
+            assert!(painted, "{fragment}: the widget must take this fill over");
+            assert!(
+                !rule.contains("background-color"),
+                "{fragment}: the cells still paint over the widget's band: {rule}"
+            );
+            // The rest of the rule is untouched — this drops a fill, not a header.
+            assert!(
+                rule.contains("font-weight"),
+                "{fragment}: the header rule lost more than its fill: {rule}"
+            );
+        }
     }
 
     /// TDD 18.30 / 18.2 — the table header's ink is its own key, and falls back to

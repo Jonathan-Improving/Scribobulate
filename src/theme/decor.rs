@@ -335,6 +335,44 @@ impl Theme {
         }
     }
 
+    /// The band behind a table's HEADER ROW (TDD 18.57).
+    ///
+    /// The third consumer of [`Band`], and the first that is neither a heading nor a
+    /// line of buffer text: a table is an anchored widget, so this band is painted by
+    /// `widgets::table` rather than by `snapshot_layer`. The shape does not care —
+    /// which is the point of it being a shape. `table_head_bg` is the flat rung, so a
+    /// theme that states only that key resolves to exactly the header it had before
+    /// these keys existed (TDD 18.2).
+    ///
+    /// Flat rather than per level, as the disclosure band is: a table has one header.
+    pub(crate) fn table_head_decor(&self) -> Band<'_> {
+        let flat = self.table_head_bg;
+        Band {
+            sprite: self.sprites.table_head.as_ref(),
+            scene: self.sprites.table_head_scene.as_ref(),
+            gradient: flat.zip(self.table_head_gradient_to),
+            flat,
+        }
+    }
+
+    /// Whether the header row carries anything the CELLS' own CSS cannot paint — a
+    /// tile, a scene, or a gradient.
+    ///
+    /// This is the seam between mechanism C and mechanism B for one decoration, and it
+    /// exists because a compiled-in sprite has no path a CSS `url()` could name
+    /// (ScrAP-324). When it answers `true` the table widget paints each header cell and
+    /// `preview/css.rs` omits the cells' `background-color` so the paint is not covered
+    /// by the very thing it replaces; when it answers `false` nothing is painted and the
+    /// CSS rule is byte-for-byte the one that shipped before this band existed.
+    ///
+    /// ⚠️ **Both callers must read THIS**, never re-derive the condition: a widget that
+    /// paints while the CSS still fills, or a CSS rule that steps aside while the widget
+    /// paints nothing, are both a header row that silently loses its fill.
+    pub(crate) fn table_head_is_painted(&self) -> bool {
+        let decor = self.table_head_decor();
+        decor.sprite.is_some() || decor.scene.is_some() || decor.gradient.is_some()
+    }
+
     /// What the disclosure indicator may be painted as, in the state `expanded`.
     ///
     /// A [`MarkerChoice`] — sprite → glyph → the stock icon — because it is the same
@@ -413,6 +451,8 @@ static NO_SPRITES: Sprites = Sprites {
     blockquote_bar: None,
     blockquote_scene: None,
     rule: None,
+    table_head: None,
+    table_head_scene: None,
 };
 
 /// Just the SPRITE a marker of `kind` at `depth` reads.
