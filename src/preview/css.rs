@@ -406,14 +406,14 @@ pub(crate) fn theme_css(theme: &Theme, palette: &Palette) -> String {
     let head_bg = if theme.table_head_is_painted() {
         String::new()
     } else {
-        format!(" background-color: {};", to_hex_opaque(palette.table_head_bg))
+        format!(
+            " background-color: {};",
+            to_hex_opaque(palette.table_head_bg)
+        )
     };
     out.push_str(&format!(
         "scribtable .cell-head {{ font-weight: {};{}{}{} }}\n",
-        theme.typography.bold_weight,
-        head_bg,
-        head_fg,
-        head_font
+        theme.typography.bold_weight, head_bg, head_fg, head_font
     ));
 
     // A link inside a table cell takes the reading theme's link colour, from the SAME

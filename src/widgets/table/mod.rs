@@ -497,9 +497,8 @@ mod gtk_integration_tests {
     /// the fill is a tile or a scene.
     #[gtktest::test]
     fn the_header_band_is_painted_once_per_header_cell() {
-        let cell = |text: &str| -> gtk::Widget {
-            gtk::Label::builder().label(text).build().upcast()
-        };
+        let cell =
+            |text: &str| -> gtk::Widget { gtk::Label::builder().label(text).build().upcast() };
         let table = ScribTableWidget::new(vec![
             vec![cell("Head A"), cell("Head B"), cell("Head C")],
             vec![cell("a"), cell("b"), cell("c")],
@@ -508,7 +507,11 @@ mod gtk_integration_tests {
         table.set_bound_width(600);
 
         let bands = table.imp().head_cell_rects();
-        assert_eq!(bands.len(), 3, "one band per header cell, not one for the row");
+        assert_eq!(
+            bands.len(),
+            3,
+            "one band per header cell, not one for the row"
+        );
 
         let rects = table.imp().layout.borrow().rects.clone();
         let cells = table.imp().cells.borrow();

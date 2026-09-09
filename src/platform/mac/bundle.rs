@@ -28,8 +28,28 @@ const LOADER_CACHE_NAME: &str = "scribobulate-loaders.cache";
 /// The test is the layout Apple defines — the executable lives in `Contents/MacOS/` — and
 /// not the presence of `Info.plist`, which a developer could plausibly have beside a
 /// binary for other reasons.
+///
+/// **The path is canonicalised first, and that is what makes the test survive a symlink.**
+/// `install.sh` puts `scribobulate` on `PATH` as a link into the bundle, and on macOS
+/// `std::env::current_exe` reports the path the process was LAUNCHED by — the link — not
+/// its target: `/opt/homebrew/bin/scribobulate`, whose parent is `bin`. Every check below
+/// then fails, `configure_paths` takes its early return, and the app runs a bundle's
+/// binary with none of the bundle's data. It starts and looks broadly right, which is why
+/// this went unnoticed: what it actually loses is the staged gdk-pixbuf `loaders.cache`,
+/// so image decodes return NULL and GTK walks on with it — the startup slough of
+/// `GDK_IS_PIXBUF`/`GDK_IS_TEXTURE` assertion failures. A terminal launch through the link
+/// is the normal way to run this app, so the failing spelling is the common one.
 fn contents_dir() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
+    contents_for_exe(&std::env::current_exe().ok()?)
+}
+
+/// [`contents_dir`]'s decision, over an executable path given rather than discovered — the
+/// whole of it, so the launch path is the only thing the caller supplies and the only
+/// thing a test has to stand in for.
+fn contents_for_exe(exe: &Path) -> Option<PathBuf> {
+    // A path that cannot be canonicalised is still tested as it stands: only a symlink
+    // needs resolving, and a failure here must not cost a direct launch its bundle.
+    let exe = std::fs::canonicalize(exe).unwrap_or_else(|_| exe.to_path_buf());
     let macos = exe.parent()?;
     if macos.file_name()? != "MacOS" {
         return None;
@@ -196,8 +216,74 @@ pub(crate) fn configure_language_path() {
 
 #[cfg(test)]
 mod tests {
-    use super::{absolutize_loader_cache, module_basename};
+    use super::{absolutize_loader_cache, contents_for_exe, module_basename};
     use std::path::Path;
+
+    /// A `Scribobulate.app/Contents/MacOS/scribobulate` under `root`, returning the
+    /// executable's path and the `Contents` its detection must report.
+    fn staged_bundle(root: &Path) -> (std::path::PathBuf, std::path::PathBuf) {
+        let contents = root.join("Scribobulate.app").join("Contents");
+        let macos = contents.join("MacOS");
+        std::fs::create_dir_all(&macos).expect("stage a bundle");
+        let exe = macos.join("scribobulate");
+        std::fs::write(&exe, b"#!/bin/sh\n").expect("stage an executable");
+        (exe, contents)
+    }
+
+    #[test]
+    fn a_launch_through_the_path_symlink_still_finds_the_bundle() {
+        // The shape `packaging/macos/install.sh` creates: the .app in ~/Applications and
+        // a symlink to its executable in Homebrew's bin/. `current_exe` reports the LINK
+        // on macOS, so a detection that does not resolve it runs a bundled binary with
+        // none of the bundle's staged data — no `loaders.cache`, so image decodes hand
+        // GTK a NULL pixbuf and the startup log fills with `GDK_IS_PIXBUF` /
+        // `GDK_IS_TEXTURE` assertion failures.
+        let dir = tempfile::tempdir().unwrap();
+        let (exe, contents) = staged_bundle(dir.path());
+        let bin = dir.path().join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let link = bin.join("scribobulate");
+        if crate::testsymlink::symlink_or_skip(
+            &exe,
+            &link,
+            "macOS bundle detection through the PATH symlink",
+        )
+        .is_err()
+        {
+            return;
+        }
+        assert_eq!(
+            contents_for_exe(&link),
+            Some(std::fs::canonicalize(&contents).unwrap()),
+            "a launch through the PATH symlink must resolve to the bundle it points into"
+        );
+    }
+
+    #[test]
+    fn a_direct_launch_out_of_the_bundle_finds_it_too() {
+        let dir = tempfile::tempdir().unwrap();
+        let (exe, contents) = staged_bundle(dir.path());
+        assert_eq!(
+            contents_for_exe(&exe),
+            Some(std::fs::canonicalize(&contents).unwrap())
+        );
+    }
+
+    #[test]
+    fn a_binary_outside_any_bundle_is_not_mistaken_for_one() {
+        // `cargo run` and every test binary land here, and must leave the developer's
+        // Homebrew search paths alone.
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("scribobulate");
+        std::fs::write(&exe, b"#!/bin/sh\n").unwrap();
+        assert_eq!(contents_for_exe(&exe), None);
+        // A `MacOS` directory that is not under a `Contents` is not a bundle either.
+        let stray = dir.path().join("MacOS");
+        std::fs::create_dir_all(&stray).unwrap();
+        let exe = stray.join("scribobulate");
+        std::fs::write(&exe, b"#!/bin/sh\n").unwrap();
+        assert_eq!(contents_for_exe(&exe), None);
+    }
 
     #[test]
     fn a_module_line_is_rewritten_to_an_absolute_path() {
