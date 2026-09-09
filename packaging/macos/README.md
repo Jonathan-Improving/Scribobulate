@@ -197,9 +197,54 @@ duti -s com.extollit.scribobulate net.daringfireball.markdown all
 
 ```bash
 ./install.sh                 # -> ~/Applications/Scribobulate.app, plus a symlink on PATH
+sudo ./install.sh            # -> /Applications/Scribobulate.app, same symlink on PATH
 scribobulate path/to/document.md
-./uninstall.sh               # removes both
+./uninstall.sh               # removes what the matching mode installed
+sudo ./uninstall.sh          # ditto, for a global install
 ```
+
+**The mode is the invoking UID, and it decides where everything goes.**
+
+| | app | CLI | manual pages |
+|---|---|---|---|
+| `./install.sh` | `~/Applications` | `~/.local/bin` | `~/.local/share/man` |
+| `sudo ./install.sh` | `/Applications` | `/usr/local/bin` | `/usr/local/share/man` |
+
+**Nothing is installed into Homebrew's prefix.** It used to be — the symlinks went into
+`$(brew --prefix)/bin` and `share/man`, justified as the one directory already writable
+and already on PATH. That justification died with the global mode, and the cost was
+always real: files Homebrew did not install, inside the prefix it manages, are unbrewed
+files `brew doctor` reports, and they tie this project's install to a package manager you
+may relocate or remove. Homebrew stays a **build** dependency — `bundle.sh` copies the
+GTK closure out of `/opt/homebrew` — and a build dependency is not an install
+destination.
+
+`/usr/local/bin` is on the stock search path and this was measured, not assumed:
+`/etc/paths` ships it as its *first* line, ahead of `/usr/bin`, and `path_helper`
+composes it into `PATH` before any shell profile runs. `/etc/manpaths` ships
+`/usr/local/share/man` likewise. Both hold on Apple silicon. Note `manpath` omits
+directories that do not exist, so `/usr/local/share/man` is absent from its output until
+the install creates it.
+
+`~/.local/*` is a judgement call, not a convention — macOS defines no per-user `bin`
+directory at all. It matches `packaging/linux/install.sh`, which is one fewer difference
+between the platforms. Neither per-user directory is searched by default, so the
+per-user install **says so and prints the line to add**. That note is the honest option;
+writing into another project's prefix to avoid printing it was not.
+
+**Which `Applications` folder matters more than it sounds.**
+Use `sudo` when you want the app in the `Applications` that Finder's sidebar shows —
+that is `/Applications`, and only `/Applications`. `~/Applications` is a different
+folder, reachable only through your home directory, and this trips people up: a per-user
+install succeeds, registers with Launch Services, works from Spotlight and the Dock, and
+still reads as having silently done nothing, because the folder you go and look in is not
+the folder it installed to. Both anchors are otherwise equivalent — same Dock tile, same
+Cmd-Tab entry, same `scribobulate` on PATH.
+
+**Uninstall in the mode you installed with.** `packaging/macos/mode.sh` resolves the
+anchor for both scripts from that single rule, so they cannot disagree about where the
+bundle went; but a per-user uninstall does not go looking in `/Applications`, and each
+run names the other mode's bundle and the exact command that removes it.
 
 `./install.sh` at the repository root is the canonical entry point on every
 platform — a `uname -s` router holding no install logic, which dispatches here.
@@ -208,11 +253,9 @@ when you are already working inside this directory. The router is named first
 deliberately: documenting the direct path as primary is how the router came to be
 unmentioned in every README that existed.
 
-Builds the bundle (via `bundle.sh`), copies it to `~/Applications/Scribobulate.app`,
-and symlinks that copy's own executable — `Scribobulate.app/Contents/MacOS/scribobulate`
-— into Homebrew's `bin/` directory, which this project already requires for its GTK4
-dependencies and which is therefore already writable with no `sudo` and already on PATH.
-The symlink stays inside `Contents/MacOS/`, so a terminal launch runs the identical
+Builds the bundle (via `bundle.sh`), copies it to the mode's anchor, and symlinks that
+copy's own executable — `Scribobulate.app/Contents/MacOS/scribobulate`
+— into that mode's `bin` directory. The symlink stays inside `Contents/MacOS/`, so a terminal launch runs the identical
 executable Finder or the Dock would, Dock/Cmd-Tab identity included — a copy
 made outside the bundle would not carry that.
 
@@ -220,9 +263,8 @@ made outside the bundle would not carry that.
 the build directory, so `cargo clean` — or a Finder drag to `/Applications`, which within
 one volume is a move rather than a copy — left them dangling. A dangling symlink is not
 an error the shell reports: it skips the entry and keeps walking PATH, so the next
-`scribobulate` down the line runs instead, silently. `~/Applications` is per-user, needs
-no `sudo`, and is scanned by Launch Services, so the anchored copy has a real Dock tile
-and Cmd-Tab entry. The build copy is removed once the anchor is verified, because Launch
+`scribobulate` down the line runs instead, silently. Launch Services scans both anchors,
+so either way the copy has a real Dock tile and Cmd-Tab entry. The build copy is removed once the anchor is verified, because Launch
 Services registers a bundle in a build directory like any other and two registrations for
 one `CFBundleIdentifier` is the state these scripts exist to prevent.
 
@@ -230,9 +272,14 @@ one `CFBundleIdentifier` is the state these scripts exist to prevent.
 build it checks that no other `Scribobulate.app` is installed and that nothing earlier on
 PATH already answers to `scribobulate`; either one is a hard error naming the path and
 the exact command to clear it. It reports and refuses — it never deletes a bundle it did
-not install. So on a machine with a copy dragged to `/Applications`, choose one: keep
-that copy and launch from the Dock, or remove it and let the developer install own
-`~/Applications`.
+not install. Each mode treats the OTHER mode's anchor as foreign, so running both is
+refused rather than silently producing two bundles under one `CFBundleIdentifier`; the
+refusal names the other mode's `uninstall.sh` as the fix, which is one command and also
+clears the Launch Services registration that a bare `rm -rf` would strand.
+
+The one thing it does replace is its own anchor, because overwriting the destination is
+what installing means — and it says so when something was already there, since in global
+mode that something is plausibly a copy you dragged from the `.dmg`.
 
 This is the developer-convenience counterpart to `packaging/linux/install.sh` on Linux,
 not the redistributable installer — that is `dmg.sh` above.
@@ -242,15 +289,32 @@ the bundle, and it is idempotent, so a second run reports what is already gone i
 failing. Two behaviours are worth knowing before you need them:
 
 - **The symlink goes only if the path really is a symlink.** `install.sh` never creates
-  anything else there, so a regular file sitting at `$(brew --prefix)/bin/scribobulate`
-  came from somewhere else; it is left alone with a warning rather than deleted.
-- **A copy dragged to `/Applications` is reported, never removed.** That copy comes from
-  the `.dmg`, installed by the user rather than by this script. The run says it is there
-  and how to remove it, because an uninstaller that prints success while a working copy
-  of the app is still installed is worse than one that fails.
+  anything else there, so a regular file sitting at that path came from somewhere else;
+  it is left alone with a warning rather than deleted.
+- **A link is removed only if it resolves into this mode's bundle**, and there are three
+  answers, not two. Into the anchor: ours, removed. Into the other mode's bundle: left,
+  with that mode's `uninstall.sh` named. Into *neither* — typically a leftover from when
+  the install linked into `target/` — no uninstall owns it, so the run prints `rm -f`.
+  Handing over a command that runs, succeeds and removes nothing is worse than handing
+  over none.
+- **The other mode's bundle is reported, never removed.** It belongs to a different run,
+  and the uninstall says it is there and gives the command that removes it, because an
+  uninstaller that prints success while a working copy of the app is still installed is
+  worse than one that fails.
+- **In global mode, `/Applications/Scribobulate.app` is removed only if the PATH symlink
+  resolves into it.** This used to be free: while the developer install could only anchor
+  at `~/Applications` and the `.dmg` only landed in `/Applications`, the location alone
+  said who put a bundle there. Global mode ends that, so authorship is *tested* instead —
+  `install.sh` creates that symlink and nothing else does, so a link aimed into the bundle
+  is proof rather than inference, and a `.dmg` copy has none aimed at it and survives.
+  Not proven means not removed.
+- **Every removal is verified, not just attempted.** The run re-tests each path afterwards
+  and fails loudly if it is still there, rather than printing `:: Removing …` and exiting
+  `0` on a removal that did not happen.
 
 **Both halves of the install live outside the repository**, and that is the part nobody
-guesses: the symlink in `$(brew --prefix)/bin` and the bundle in `~/Applications`.
+guesses: the symlink in the mode's `bin` directory and the bundle in its `Applications`
+folder.
 Deleting the checkout removes neither, so run `./uninstall.sh` before you remove the
 clone or both outlive it — the bundle keeps its Dock and `Open With` entries, and the
 symlink goes on resolving into it. (It no longer *dangles* when the checkout goes, which

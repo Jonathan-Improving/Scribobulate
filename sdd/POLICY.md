@@ -59,7 +59,8 @@
 ## Build pipeline
 
 **The pipeline is executable, and `scripts/pipeline.steps` is the contract.** Run
-`scripts/pipeline.sh` (Windows: `packaging/windows/pipeline.ps1`) rather than working
+`scripts/pipeline.sh` (macOS: `packaging/macos/pipeline.sh`; Windows:
+`packaging/windows/pipeline.ps1`) rather than working
 through the list below by hand. Each runner *derives* its step list from that contract
 instead of restating it, and `--list-steps` prints the derived list so the ports can be
 diffed against each other — comparison proves the ports agree, derivation proves they
@@ -725,6 +726,32 @@ control doing its job, not a defect: a locked screen has no active toplevel. Do 
 do not "fix" it by relaxing the precondition, and do not report the suite as passing on a
 locked machine. Unlock and re-run.
 
+**A locked session does NOT make a live UI harness red — it silently zeroes it, which is
+worse.** The rule above is about `cargo test`, where a positive control panics. One layer
+out, a harness that drives a real window gets no error at all: `System Events` returns a
+window count of 0, geometry reads come back EMPTY STRINGS, and an empty string in shell
+arithmetic (`$((X + 300))`) is **0** — so every trial dutifully samples the desktop at a
+corner of the screen and returns a confident, identical reading for every arm, including the
+control. MEASURED: five arms of a cursor comparison all returned `arrow`, the remedy and the
+control alike, on a machine where nothing had mapped a window at all.
+
+One cause, opposite shapes: under a lock `cargo test` goes RED (the a11y precondition above
+fails correctly) while a driven pointer rig goes SILENT. The silent one is why this
+paragraph exists.
+
+So: check `CGSSessionScreenIsLocked` at the START of any driven run, not when results start
+looking odd. Give the harness a control whose FAILURE is the abort condition — the run above
+was stopped only because its control was required to read `pointer` and did not, and without
+it five agreeing arms would have been reported as "the remedy does not work". A driven
+result from a locked screen is not a weak measurement, it is a measurement of the desktop.
+
+⚠ **That key is ABSENT when unlocked, not false**, so a naive read-and-test-truthiness check
+cannot tell "unlocked" from "the read failed" and reports unlocked for both — the same
+absent-vs-empty collapse the run above died of, reappearing inside the check meant to catch
+it. Log WHICH of the two was seen. (MEASURED both ways: the key is present and true on a locked
+machine, and ABSENT — not present-and-false — when unlocked, confirmed against
+`CGSessionCopyCurrentDictionary` directly rather than by asking whoever was at the keyboard.)
+
 **Before filing a defect as macOS-specific, have the Linux counterpart try to
 reproduce it.** Behaviour found here is not platform-specific until a peer fails
 to reproduce it — an idle CPU spin found during this port reproduced on Linux and
@@ -1376,6 +1403,9 @@ caught it, which is the gate working, not friction to route around.
 - Do not use `sudo` in build, test, or run commands — the agent cannot enter a
   password and the command will hang. If a system development library is
   missing, ask the human to install it (e.g. via a `!`-prefixed session command).
+  This constrains the commands an agent runs, not what a script may support: an
+  installer a human invokes as `sudo ./install.sh` is not covered, and may branch
+  on `EUID` to choose a system-wide destination.
 - Do not block the GTK main thread with synchronous file I/O on large files;
   keep the window responsive (TDD §1.4).
 

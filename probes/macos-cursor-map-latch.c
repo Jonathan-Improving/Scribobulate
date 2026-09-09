@@ -40,11 +40,37 @@
  *   # -> the label shows the pointing hand immediately, and keeps it.
  *   # CURSOR_ON=window puts the cursor on the toplevel instead: no difference.
  *
+ * EVERY RUN PRINTS ITS OWN CONFIGURATION FIRST, per probes/README.md's "a probe that
+ * cannot name its own arm is not an instrument":
+ *
+ *   CONFIG cursor_on=label CURSOR_ON=<unset>
+ *
+ * Both the resolved behaviour and the raw variable, because neither determines the
+ * other. `<unset>` and `""` print differently on purpose: whether an empty value
+ * disarms a switch depends on how that switch is TESTED, which the caller cannot see
+ * from the command line. Here CURSOR_ON is compared by content, so `CURSOR_ON=` is
+ * disarmed; a presence-tested switch would be ARMED by the same keystroke. Read the
+ * CONFIG line rather than the command you typed.
+ *
  * READ THE CURSOR BY NAME, not off a screenshot — probes/quartz-cursor-identity.m
  * does that, and judging this by eye is precisely how the defect got recorded as
  * intermittent when it is deterministic.
  */
 #include <gtk/gtk.h>
+
+/* Render an environment switch for the CONFIG line. THREE outcomes, not two, because
+ * `g_getenv` reports PRESENCE and the empty string is present: `<unset>` is a disarmed
+ * arm, `""` is a LIVE arm carrying no value, and they are the same keystroke apart.
+ * A run that cannot tell you which one it had is the failure probes/README.md's
+ * "cannot name its own arm" section exists to stop. */
+static const char *envshow(const char *name) {
+  const char *v = g_getenv(name);
+  if (!v)
+    return "<unset>";
+  if (!*v)
+    return "\"\"";
+  return v;
+}
 
 static void on_activate(GtkApplication *app, gpointer user_data) {
   GtkWidget *win = gtk_application_window_new(app);
@@ -58,10 +84,20 @@ static void on_activate(GtkApplication *app, gpointer user_data) {
    * CURSOR_ON=window puts it on the toplevel instead of the label, to ask whether
    * the toplevel is reachable when a descendant is not. */
   const char *on = g_getenv("CURSOR_ON");
-  if (on && g_str_equal(on, "window"))
+  gboolean on_window = on && g_str_equal(on, "window");
+  if (on_window)
     gtk_widget_set_cursor_from_name(win, "pointer");
   else
     gtk_widget_set_cursor_from_name(label, "pointer");
+
+  /* The one arm this probe has, named on stdout before it can mislead anyone. BOTH
+   * the resolved behaviour and the raw variable, because they do not determine each
+   * other: CURSOR_ON is tested by CONTENT above (g_str_equal), so `CURSOR_ON=` is
+   * disarmed and reads `cursor_on=label` — whereas a PRESENCE-tested switch
+   * (`g_getenv(x) ? ...`) would be ARMED by that same empty value. The caller cannot
+   * see which discipline a switch uses, so the program has to say. */
+  g_print("CONFIG cursor_on=%s CURSOR_ON=%s\n", on_window ? "window" : "label",
+          envshow("CURSOR_ON"));
 
   gtk_window_set_child(GTK_WINDOW(win), label);
   gtk_window_present(GTK_WINDOW(win));

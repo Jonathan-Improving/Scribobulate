@@ -198,29 +198,39 @@ packaging/macos/bundle.sh          # -> target/macos/Scribobulate.app
 open target/macos/Scribobulate.app --args path/to/document.md
 ```
 
-Or `./install.sh` to also get a `scribobulate` command on PATH (symlinked into
-Homebrew's `bin/`, so it needs no `sudo`):
+Or `./install.sh` to also get a `scribobulate` command on PATH:
 
 ```bash
-./install.sh
+./install.sh          # app -> ~/Applications,  CLI -> ~/.local/bin
+sudo ./install.sh     # app -> /Applications,   CLI -> /usr/local/bin
 scribobulate path/to/document.md
 ./uninstall.sh        # removes the app, the symlink and the manual pages
 ```
 
-It installs the app to `~/Applications`, points the `scribobulate` command and the
-manual pages at it, and then removes the build copy — so `cargo clean` cannot
-quietly break your install, and the machine is left holding exactly one copy.
+`/usr/local/bin` is on the stock macOS search path; `~/.local/bin` is not, and the
+per-user install prints the line to add if it is missing from yours. Nothing is written
+into Homebrew's prefix — Homebrew is a build dependency here, not an install location.
 
-**It refuses to run while another copy is already installed**, which normally means
-one dragged to `/Applications` from a `.dmg`. Both carry the same bundle identifier,
-so macOS would let the Dock and the terminal launch different copies with nothing to
-tell you they had diverged. Remove that copy, or skip the developer install and use
-it instead.
+**Use `sudo` if you want the app in the `Applications` folder Finder shows you.** That
+folder is `/Applications`; `~/Applications` is a separate one inside your home
+directory. Without `sudo` the install succeeds, registers, and works from Spotlight
+and the Dock — and still looks like it did nothing, because the folder you go and
+look in is not the folder it installed to. Uninstall in the mode you installed with.
+
+Either way it points the `scribobulate` command and the manual pages at that copy and
+then removes the build copy — so `cargo clean` cannot quietly break your install, and
+the machine is left holding exactly one copy.
+
+**It refuses to run while another copy is already installed**, including one put
+there by the other mode, or dragged to `/Applications` from a `.dmg`. All carry the
+same bundle identifier, so macOS would let the Dock and the terminal launch different
+copies with nothing to tell you they had diverged. The refusal names the command that
+clears the other copy.
 
 `./install.sh` dispatches to `packaging/macos/install.sh`; running that directly
 is equivalent. Use `bundle.sh` above when you want the `.app` and nothing on your
-PATH. `./uninstall.sh` removes what it installed, and **reports — never deletes —**
-a copy in `/Applications` that it did not put there.
+PATH. `./uninstall.sh` removes what it installed, verifies each removal actually
+happened, and **reports — never deletes —** a copy it did not put there.
 
 Not a self-contained redistributable — the built app still links these
 Homebrew libraries at runtime. More: [`packaging/macos/README.md`](packaging/macos/README.md).

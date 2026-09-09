@@ -8,7 +8,7 @@
 | 4 | Editing & saving | 4.1 – 4.9 |
 | 5 | Reconciliation (conflict handling) | 5.1 – 5.4 |
 | 6 | Resource footprint (viability gate) | 6.1 – 6.5 |
-| 7 | Window & layout | 7.0b – 7.23 |
+| 7 | Window & layout | 7.0b – 7.25 |
 | 8 | Single-instance lifecycle | 8.1 – 8.7 |
 | 9 | Menu bar, toolbar, and actions | 9.1 – 9.36 |
 | 10 | Markdown formatting commands | 10.1 – 10.20 |
@@ -27,6 +27,7 @@
 | 23 | Back / Forward navigation history | 23.1 – 23.14 |
 | 24 | Renaming an open document | 24.1 – 24.14 |
 | 25 | Exporting a document | 25.1 – 25.24 |
+| 26 | Self-contained macOS bundle | 26.1 – 26.10 |
 
 ---
 
@@ -257,6 +258,7 @@
 - **Given** a rendered fenced (or indented) code block
 - **When** the pointer rests anywhere over the block
 - **Then** a small copy button is revealed in the block's top-right corner, inside the card and clear of the code's right edge; it takes an accent border and the pointer cursor when the pointer is on the button itself, and it disappears again when the pointer leaves the block
+- **And** that cursor is correct on the **first** pointer movement that reaches the button — arriving in a single motion from outside the block, with no further movement, shows the pointer cursor, not the text cursor it would show if the answer were computed before the button existed
 - **And when** the button is clicked
 - **Then** the clipboard holds **exactly that block's code** — every line of it, including any scrolled off screen, with **no** ```` ``` ```` fences, no container `> `/indent markers, and no trailing blank line (deliberately *not* 2.8h's selection→source mapping: a selection is mapped back to Markdown, whereas this answers "give me the code")
 - **And** the button shows a checkmark in place of the copy glyph for about a second, then returns to the copy glyph, leaving no selection and no caret movement behind
@@ -956,40 +958,19 @@
 - **And** the strip scrolls far enough to show the new tab **in full**: it is the active tab, so it must be visible, not clipped past the right-hand edge
 - **And** the tabs that were already there stay evenly spaced, whatever changed their widths earlier in the session
 
-### 7.21 Every install route delivers the same payload, attribution included
-- **Given** any of the three Linux install routes — the `.deb`, the `.rpm`, or the from-source install into `~/.local`
-- **When** the install completes
-- **Then** every file the payload defines is present: the binary, the desktop entry, the application icon, the reading-themes file, the sprites those themes name, **both** manual pages (`scribobulate.1` and `scribobulate.5`), and `THIRD-PARTY-LICENSES.md` — stated as a list rather than a count, because a count is the one fact about a payload guaranteed to be wrong by the next addition, and this one already was
-- **And** `THIRD-PARTY-LICENSES.md` is not optional documentation — the syntax-highlighting grammars are statically linked into the binary under licences that require their notices to accompany a binary distribution, so an install lacking it is a licence violation rather than a cosmetic gap
-- **And** the rpm marks that file as a licence, so `--excludedocs` cannot drop it
-- **And** the routes cannot diverge on *what* an install consists of: the payload is defined once and every route reads that definition
-- **And** the from-source route pins the desktop entry's `Exec`/`TryExec` to the absolute binary path, because its bin directory is frequently absent from the launcher's `PATH`
-- **And** installing does not widen permissions on directories it did not create — a user-private directory under the install prefix keeps the mode the user gave it
-- **And given** the macOS route — `packaging/macos/install.sh`, backed by the `.app` that `bundle.sh` produces
-- **Then** both manual pages are present inside the bundle at `Contents/Resources/man/man{1,5}/scribobulate.{1,5}.gz`, and are reachable **by name** from a man directory the platform actually searches
-- **And** that directory is established by **measurement** (`manpath`) rather than by carrying the Linux XDG location across: macOS searches no per-user man directory at all, so `~/.local/share/man` would be a directory nothing reads and an install into it is indistinguishable from a successful one until someone runs `man`
-- **And** the pages are staged by the same shared helper every other route uses, so the substitutions, the date policy and the compression cannot drift per platform
-- **And** the bundle holds the only copy — what the install places is a link into it, as it already is for the executable — so the `.dmg` route carries the pages too, present and readable by path even though a bundle is not on MANPATH
-- **And** uninstalling removes them **including when the bundle was deleted first**: the links dangle at that point, and a guard that tests for existence rather than for a link reports success while leaving them behind
-
----
-
 ### 7.22 A freshly opened document puts the working position at its beginning
 - **Given** a document is opened, restored from the previous session, or reloaded from disk
 - **When** it is first shown in the editor — by the view-mode action, the toolbar button, or session restore
 - **Then** the caret sits at the beginning of the document, and the footer's line/column indicator reads the first line
 - **And** the outline sidebar highlights the document's first section, not its last
 
-### 7.23 An install leaves exactly one Scribobulate, and says so when it cannot
-- **Given** a machine that may already carry a Scribobulate — a copy installed from the `.dmg`, a distro package, or residue from another platform's install route
-- **When** the developer install runs
-- **Then** it never silently produces a second copy that competes with the first
-- **And** on macOS it refuses before building, naming what it found and how to remove it, because two bundles sharing one identifier let the Dock and the terminal launch different copies with nothing to signal the divergence
-- **And** on Linux it warns and proceeds, because a distro package alongside a user-local build is an ordinary supported arrangement
-- **And** it reports what it found and never deletes a copy another route installed
-- **And** what it puts on PATH is the artefact it just built, never one it merely found
-- **And** nothing it installs resolves into the build directory, so emptying that directory cannot silently break the install
-- **And** a dangling link is reported as a hazard rather than treated as absent
+### 7.25 A window shows hover cursors however it was opened
+
+- **Given** a window is opened while the pointer is somewhere else entirely — a second document opened from an already-running application, or a launch that puts the window somewhere the pointer is not
+- **When** the pointer is moved onto text, a link, a task checkbox or a code block's copy button in that window
+- **Then** each shows its own cursor on the first hover, with no click needed anywhere first to make cursors start working
+- **And** leaving the window and returning keeps them working
+- **And** this holds independently for every window the application opens — one window's behaviour never decides another's
 
 ## 8. Single-instance lifecycle
 
@@ -3570,3 +3551,40 @@ up doing.
 - **When** it produces a `.dmg` that is zero-byte, carries no GTK runtime, or disagrees with `Cargo.toml` on the version
 - **Then** the step fails
 - **And** that is established by mutation — each gate is shown failing on a subject known to be bad, never inferred from a green run
+
+### 26.8 An installed launch finds the bundle's own data, not the machine's
+
+- **Given** the application is installed by the macOS developer install, whose command on the user's PATH is a link into the installed app rather than a copy of the program
+- **When** it is started by typing `scribobulate` rather than by opening the app directly
+- **Then** it uses the same bundled supporting data that opening the app directly would — its icons, its settings schemas, its syntax definitions and its image loaders
+- **And** the run reports no image or icon failures, and an image that genuinely cannot be decoded is reported as an error rather than silently rendered as nothing
+- **And** a copy of the program running outside any installed app is unaffected, keeping whatever supporting data the developer's own machine provides
+
+### 26.9 Every install route delivers the same payload, attribution included
+- **Given** any of the three Linux install routes — the `.deb`, the `.rpm`, or the from-source install into `~/.local`
+- **When** the install completes
+- **Then** every file the payload defines is present: the binary, the desktop entry, the application icon, the reading-themes file, the sprites those themes name, **both** manual pages (`scribobulate.1` and `scribobulate.5`), and `THIRD-PARTY-LICENSES.md` — stated as a list rather than a count, because a count is the one fact about a payload guaranteed to be wrong by the next addition, and this one already was
+- **And** `THIRD-PARTY-LICENSES.md` is not optional documentation — the syntax-highlighting grammars are statically linked into the binary under licences that require their notices to accompany a binary distribution, so an install lacking it is a licence violation rather than a cosmetic gap
+- **And** the rpm marks that file as a licence, so `--excludedocs` cannot drop it
+- **And** the routes cannot diverge on *what* an install consists of: the payload is defined once and every route reads that definition
+- **And** the from-source route pins the desktop entry's `Exec`/`TryExec` to the absolute binary path, because its bin directory is frequently absent from the launcher's `PATH`
+- **And** installing does not widen permissions on directories it did not create — a user-private directory under the install prefix keeps the mode the user gave it
+- **And given** the macOS route — `packaging/macos/install.sh`, backed by the `.app` that `bundle.sh` produces
+- **Then** both manual pages are present inside the bundle at `Contents/Resources/man/man{1,5}/scribobulate.{1,5}.gz`, and are reachable **by name** from a man directory the platform actually searches
+- **And** that directory is established by **measurement** (`manpath`) rather than by carrying the Linux XDG location across: macOS searches no per-user man directory at all, so `~/.local/share/man` would be a directory nothing reads and an install into it is indistinguishable from a successful one until someone runs `man`
+- **And** the pages are staged by the same shared helper every other route uses, so the substitutions, the date policy and the compression cannot drift per platform
+- **And** the bundle holds the only copy — what the install places is a link into it, as it already is for the executable — so the `.dmg` route carries the pages too, present and readable by path even though a bundle is not on MANPATH
+- **And** uninstalling removes them **including when the bundle was deleted first**: the links dangle at that point, and a guard that tests for existence rather than for a link reports success while leaving them behind
+
+---
+
+### 26.10 An install leaves exactly one Scribobulate, and says so when it cannot
+- **Given** a machine that may already carry a Scribobulate — a copy installed from the `.dmg`, a distro package, or residue from another platform's install route
+- **When** the developer install runs
+- **Then** it never silently produces a second copy that competes with the first
+- **And** on macOS it refuses before building, naming what it found and how to remove it, because two bundles sharing one identifier let the Dock and the terminal launch different copies with nothing to signal the divergence
+- **And** on Linux it warns and proceeds, because a distro package alongside a user-local build is an ordinary supported arrangement
+- **And** it reports what it found and never deletes a copy another route installed
+- **And** what it puts on PATH is the artefact it just built, never one it merely found
+- **And** nothing it installs resolves into the build directory, so emptying that directory cannot silently break the install
+- **And** a dangling link is reported as a hazard rather than treated as absent

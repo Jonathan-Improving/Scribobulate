@@ -30,6 +30,52 @@ must not read as a Scribobulate regression. Its `Cargo.lock` is committed: the
 measurement is about a specific binding version's marshalling, so a floating lock
 would change the subject.
 
+## A probe that cannot name its own arm is not an instrument
+
+**A probe that reads an environment switch MUST print its own configuration at startup**,
+so a run states which arm it ran rather than leaving it inferred from the command line that
+was typed. Two of the twenty probes here read switches at all; the other eighteen read none
+and the rule is vacuous for them. This is a
+convention with a cost, and it is paid because it has now caught two failures in this
+directory that nothing else would have:
+
+- **A switch the binary never had.** A cursor-map comparison's two `INPUT_REGION` arms
+  returned the same reading, including the arm carrying the remedy — read as "the remedy
+  does not work", one step from filing a committed probe as defective. The branch existed
+  only in a scratchpad copy that had drifted from the committed file, so `g_getenv` was
+  never called and both arms were the same configuration.
+- **A control that was secretly a second treatment.** The same comparison run with
+  `INPUT_REGION=` as its control: empty-but-set is a non-NULL empty string to `g_getenv`,
+  which tests presence and not content, so it is truthy in C and the control ran the
+  remedy too.
+
+Those are opposite mistakes — one arm missing a switch it never had, one arm secretly
+holding a switch believed cleared — and **both produce agreement between the arms**. An
+env-var arm fails silently and favourably: no error, no warning, no missing output, just
+two internally consistent readings. Agreement is the symptom, which is why neither is
+visible from the result.
+
+So: **assignment to empty disarms nothing RELIABLY**, because whether it disarms depends on
+how the switch is TESTED — and the caller cannot see that from the command line. A
+presence-tested switch (`if (g_getenv("X"))`) is ARMED by `X=`; a content-tested one
+(`g_str_equal(g_getenv("X"), "window")`) is disarmed by it. Both spellings exist inside one
+probe here — `macos-cursor-map-latch.c` presence-tests `INPUT_REGION` and content-tests
+`CURSOR_ON`, so the same keystroke means opposite things in one binary. **`env -u FOO` is
+the only disarm that means the same thing for every switch**, and it is what to reach for
+by default. This is also the real argument for the echo: the caller cannot know which
+discipline a given switch follows, so **the program is the only party that knows, and it
+has to say.** And before believing any env-switched comparison, confirm the switch is
+reachable in the source that produced the binary *in hand*, not the source you remember.
+
+**Print the RESOLVED value beside the raw one, for any switch with a fallback — not only
+converted ones.** The raw value reports the operator's INTENTION; the resolved value
+reports what the program will act on, and they part company silently wherever a switch has
+a default. `PROBE_SELECT=fisrt` becomes row `0` through `atoi`; `CURSOR_ON=typo` falls back
+to `label` through a string comparison. Neither errors, and only the resolved field
+distinguishes "I asked for this" from "this is what happens".
+Printing the configuration makes that visible instead of inferred, which is the whole
+reason it is a rule here rather than a habit.
+
 ## Why these exist
 
 Most were written on the macOS seat during the lone-carriage-return work, to

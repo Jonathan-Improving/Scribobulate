@@ -93,11 +93,22 @@ pub fn number_immutability(tree: &Tree) -> bool {
             &[],
         );
     }
-    // INFO, not a failure: a new entry is legitimate work in progress until the commit that
-    // carries it also appends to the manifest.
+    // WARN, not INFO, and not a failure either — operator decision 2026-09-09.
+    //
+    // It was INFO on the reasoning that a new entry is legitimate work in progress until the
+    // commit carrying it also appends to the manifest. True, and it made the gate SILENT about
+    // the one state the manifest exists to prevent: a number that is allocated in the register
+    // but absent from the file that freezes it. MEASURED — ScrAP-349 and ScrAP-350 were added,
+    // this check saw both, said so at a volume nobody reads, and passed. A later renumber of
+    // either would then have been invisible to check 9, because immutability is enforced against
+    // the manifest and neither number was in it.
+    //
+    // WARN keeps the work-in-progress case unblocked (still not a failure, so a half-done entry
+    // does not stop a build) while making the omission loud enough to act on. Do not promote it
+    // to a failure without deciding what a legitimately-mid-edit register should do.
     if !added.is_empty() {
         println!(
-            "  INFO — new number(s) not yet in the manifest: {}",
+            "  WARN — new number(s) not yet in the manifest: {}",
             added.join(" ")
         );
         println!("    Append them to {MANIFEST} in the same commit that adds the entry.");

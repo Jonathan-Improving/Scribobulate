@@ -25,6 +25,12 @@
 # happens to be the first incompatible one.
 #
 # Arguments pass through, which is what gives the macOS script its optional OUTPUT_DIR.
+#
+# `sudo ./install.sh` WORKS AND MEANS SOMETHING ON macOS, and it reaches the platform
+# script intact: `exec` replaces this process without dropping privilege, so the EUID the
+# macOS script tests is the one you invoked with. There it selects /Applications — the
+# folder Finder's sidebar shows — over the per-user ~/Applications. This router still
+# holds no policy about that; it only declines to get in the way of it.
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

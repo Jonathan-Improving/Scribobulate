@@ -235,9 +235,44 @@ static void activate(GtkApplication *app, gpointer u) {
   gtk_window_present(GTK_WINDOW(win));
 }
 
+/* Every switch this probe reads, echoed before it runs.
+ *
+ * An env-var arm fails SILENTLY AND FAVOURABLY: a typo'd or unset switch produces no
+ * error and no missing output, just a clean run of the wrong arm — and a comparison whose
+ * two arms are secretly one arm agrees with itself perfectly, which reads as a result.
+ * `<unset>` and `""` are printed differently ON PURPOSE: g_getenv tests PRESENCE, not
+ * content, so a set-but-empty variable is truthy here and an arm "disarmed" with
+ * PROBE_X= is a second treatment. Disarm with `env -u PROBE_X`, never assignment.
+ *
+ * See probes/README.md, "A probe that cannot name its own arm is not an instrument". */
+static void echo_config(void) {
+  static const char *const switches[] = {"PROBE_START",      "PROBE_SELECT",
+                                         "PROBE_WRAP_BOX",   "PROBE_NO_KINETIC",
+                                         "PROBE_AUTO",       "PROBE_COUNT"};
+  printf("CONFIG mode=%s rows=%d", mode, n_rows);
+  for (gsize i = 0; i < G_N_ELEMENTS(switches); i++) {
+    const char *v = g_getenv(switches[i]);
+    printf(" %s=%s", switches[i], v == NULL ? "<unset>" : (*v == '\0' ? "\"\"" : v));
+  }
+  /* AND WHAT THE PARSE MADE OF THEM. The raw value alone is not the configuration: the
+   * numeric switches go straight to atoi/g_ascii_strtod with no validity check, so a
+   * typo'd PROBE_SELECT=fisrt becomes 0 — a real row index — with no error anywhere.
+   * Echoing the value the program ACTUALLY USES is what closes that; echoing only what
+   * was handed to it reports the operator's intention back to them. */
+  if (g_getenv("PROBE_SELECT"))
+    printf(" [parsed PROBE_SELECT=%d]", atoi(g_getenv("PROBE_SELECT")));
+  if (g_getenv("PROBE_AUTO"))
+    printf(" [parsed PROBE_AUTO=%g]", g_ascii_strtod(g_getenv("PROBE_AUTO"), NULL));
+  if (g_getenv("PROBE_COUNT"))
+    printf(" [parsed PROBE_COUNT=%d]", atoi(g_getenv("PROBE_COUNT")));
+  printf("\n");
+  fflush(stdout);
+}
+
 int main(int argc, char **argv) {
   if (argc > 1) mode = argv[1];
   if (argc > 2) n_rows = atoi(argv[2]);
+  echo_config();
   GtkApplication *app = gtk_application_new("org.scribobulate.probe.listviewscrollsnap",
                                             G_APPLICATION_NON_UNIQUE);
   g_signal_connect(app, "activate", G_CALLBACK(activate), NULL);
