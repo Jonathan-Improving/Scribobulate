@@ -2122,4 +2122,282 @@ mod gtk_integration_tests {
         );
         window.destroy();
     }
+
+    /// Two collapsed blocks: find's target sits in the first, the reader's click
+    /// lands on the second.
+    const MD_TWO_BLOCKS: &str = concat!(
+        "Visible prose with no match.\n\n",
+        "<details>\n<summary>First closed block</summary>\n\n",
+        "pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad a hidden needle in here\n\n",
+        "</details>\n\n",
+        "Middle prose.\n\n",
+        "<details>\n<summary>Second closed block</summary>\n\n",
+        "pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad pad the second body marker\n\n",
+        "</details>\n\n",
+        "Trailing prose.\n"
+    );
+
+    /// **Operator report, 2026-09-08** — an external reload, then a theme switch with
+    /// the find bar open, then a find step, and a collapsed disclosure would no longer
+    /// expand. Drives that exact order through the production paths.
+    #[gtktest::test]
+    fn a_disclosure_still_expands_after_reload_theme_switch_and_find_step() {
+        let logs = crate::testlog::capture();
+        let app = crate::window::testkit::test_app(
+            "com.extollit.scribobulate.integrationtest.reloadthemefind",
+        );
+        let window = crate::window::new_window(&app, "IT", MD_TWO_BLOCKS, None);
+
+        // 1. Another process rewrote the file: the inserted line above moves every
+        //    source offset, so every fold key is re-minted.
+        let modified = format!("Inserted by another process.\n\n{MD_TWO_BLOCKS}");
+        crate::window::reload::apply_external_reload(&window, &modified);
+
+        // 2. The reader opens Find and searches.
+        let st = crate::winstate::state(&window).expect("the window has an active tab");
+        let chrome = crate::winstate::chrome(&window).expect("window chrome");
+        chrome.find_bar_revealer.set_reveal_child(true);
+        chrome.find_entry.set_text("needle");
+        let view = super::find_target(&window).expect_preview();
+        super::highlight_preview_matches(&st.preview_find, &view, "needle");
+
+        // 3. A theme switch while the find bar is open.
+        crate::app::re_render_all_windows(&app);
+
+        // 4. Find next — the match is inside the FIRST block, which is expanded.
+        let view = super::find_target(&window).expect_preview();
+        super::preview_find_step(&window, &view, "needle", super::SearchDir::Forward);
+        assert!(
+            crate::testpump::until_or_for(
+                crate::testpump::Clock::Idle,
+                std::time::Duration::from_secs(3),
+                || {
+                    let view = match super::find_target(&window) {
+                        super::FindTarget::Preview(v) => v,
+                        _ => return false,
+                    };
+                    let buf = view.buffer();
+                    buf.slice(&buf.start_iter(), &buf.end_iter(), true)
+                        .contains("a hidden needle in here")
+                }
+            ),
+            "precondition: the find step expanded the first block onto its match"
+        );
+
+        // 5. The reader clicks the SECOND block's control.
+        let view = super::find_target(&window).expect_preview();
+        let rd = crate::preview::scrib_render_data(&view).expect("the preview has render data");
+        let lines = rd.borrow().disclosure_lines.clone();
+        assert_eq!(
+            lines.len(),
+            2,
+            "precondition: both controls are in the live map"
+        );
+        let toggle = lines[1].1.clone();
+        toggle.set_active(!toggle.is_active());
+        let expanded = crate::testpump::until_or_for(
+            crate::testpump::Clock::Idle,
+            std::time::Duration::from_secs(3),
+            || {
+                let view = match super::find_target(&window) {
+                    super::FindTarget::Preview(v) => v,
+                    _ => return false,
+                };
+                let buf = view.buffer();
+                buf.slice(&buf.start_iter(), &buf.end_iter(), true)
+                    .contains("the second body marker")
+            },
+        );
+        assert!(
+            !logs.logged(log::Level::Debug, "discarding a disclosure toggle"),
+            "the control was minted against a stale source generation"
+        );
+        assert!(
+            expanded,
+            "the second block must expand when its control is activated"
+        );
+        window.destroy();
+    }
+
+    /// Variant: the reader COLLAPSES the block find just revealed, then tries to
+    /// expand it again — the transition pair the report describes.
+    #[gtktest::test]
+    fn the_find_revealed_block_can_be_collapsed_and_expanded_again() {
+        let logs = crate::testlog::capture();
+        let app = crate::window::testkit::test_app(
+            "com.extollit.scribobulate.integrationtest.reloadthemefind2",
+        );
+        let window = crate::window::new_window(&app, "IT", MD_TWO_BLOCKS, None);
+
+        let modified = format!("Inserted by another process.\n\n{MD_TWO_BLOCKS}");
+        crate::window::reload::apply_external_reload(&window, &modified);
+
+        let st = crate::winstate::state(&window).expect("the window has an active tab");
+        let chrome = crate::winstate::chrome(&window).expect("window chrome");
+        chrome.find_bar_revealer.set_reveal_child(true);
+        chrome.find_entry.set_text("needle");
+        let view = super::find_target(&window).expect_preview();
+        super::highlight_preview_matches(&st.preview_find, &view, "needle");
+
+        crate::app::re_render_all_windows(&app);
+
+        let view = super::find_target(&window).expect_preview();
+        super::preview_find_step(&window, &view, "needle", super::SearchDir::Forward);
+        assert!(
+            settled_contains(&window, "a hidden needle in here", true),
+            "precondition: the find step expanded the first block onto its match"
+        );
+
+        // Backwards and forwards again, as the reader did.
+        let view = super::find_target(&window).expect_preview();
+        super::preview_find_step(&window, &view, "needle", super::SearchDir::Backward);
+        crate::testpump::drain_for(
+            crate::testpump::Clock::Idle,
+            std::time::Duration::from_millis(200),
+        );
+
+        // Collapse the revealed block, then expand it again.
+        activate_disclosure(&window, 0);
+        assert!(
+            settled_contains(&window, "a hidden needle in here", false),
+            "the reader's click collapsed the block"
+        );
+        activate_disclosure(&window, 0);
+        let reopened = settled_contains(&window, "a hidden needle in here", true);
+        assert!(
+            !logs.logged(log::Level::Debug, "discarding a disclosure toggle"),
+            "the control was minted against a stale source generation"
+        );
+        assert!(
+            reopened,
+            "the block must expand again when its control is activated"
+        );
+        window.destroy();
+    }
+
+    /// Activate the `nth` disclosure control in the live preview, as a click does.
+    fn activate_disclosure(window: &gtk::ApplicationWindow, nth: usize) {
+        let view = super::find_target(window).expect_preview();
+        let rd = crate::preview::scrib_render_data(&view).expect("the preview has render data");
+        let toggle = rd.borrow().disclosure_lines[nth].1.clone();
+        toggle.set_active(!toggle.is_active());
+    }
+
+    /// Pump until the live preview buffer's containment of `needle` equals `want`.
+    fn settled_contains(window: &gtk::ApplicationWindow, needle: &str, want: bool) -> bool {
+        crate::testpump::until_or_for(
+            crate::testpump::Clock::Idle,
+            std::time::Duration::from_secs(3),
+            || {
+                let view = match super::find_target(window) {
+                    super::FindTarget::Preview(v) => v,
+                    _ => return false,
+                };
+                let buf = view.buffer();
+                buf.slice(&buf.start_iter(), &buf.end_iter(), true)
+                    .contains(needle)
+                    == want
+            },
+        )
+    }
+
+    /// The live line→toggle map must still name the lines the summaries are actually
+    /// on after the whole sequence — a stale index makes a click on the summary LINE
+    /// resolve to the wrong control, or to none.
+    #[gtktest::test]
+    fn the_summary_line_map_survives_reload_theme_switch_and_find() {
+        let app = crate::window::testkit::test_app(
+            "com.extollit.scribobulate.integrationtest.reloadthemefind3",
+        );
+        let window = crate::window::new_window(&app, "IT", MD_TWO_BLOCKS, None);
+        let modified = format!("Inserted by another process.\n\n{MD_TWO_BLOCKS}");
+        crate::window::reload::apply_external_reload(&window, &modified);
+
+        let st = crate::winstate::state(&window).expect("the window has an active tab");
+        let chrome = crate::winstate::chrome(&window).expect("window chrome");
+        chrome.find_bar_revealer.set_reveal_child(true);
+        chrome.find_entry.set_text("needle");
+        let view = super::find_target(&window).expect_preview();
+        super::highlight_preview_matches(&st.preview_find, &view, "needle");
+        crate::app::re_render_all_windows(&app);
+        let view = super::find_target(&window).expect_preview();
+        super::preview_find_step(&window, &view, "needle", super::SearchDir::Forward);
+        assert!(
+            settled_contains(&window, "a hidden needle in here", true),
+            "precondition"
+        );
+
+        let view = super::find_target(&window).expect_preview();
+        let rd = crate::preview::scrib_render_data(&view).expect("render data");
+        let lines = rd.borrow().disclosure_lines.clone();
+        let buf = view.buffer();
+        let texts: Vec<String> = lines
+            .iter()
+            .map(|(l, _)| {
+                let start = buf.iter_at_line(*l).expect("a line in the buffer");
+                let mut end = start;
+                end.forward_to_line_end();
+                buf.slice(&start, &end, true).to_string()
+            })
+            .collect();
+        assert!(
+            texts.iter().any(|t| t.contains("First closed block")),
+            "the map must name the first summary's OWN line: {texts:?}"
+        );
+        assert!(
+            texts.iter().any(|t| t.contains("Second closed block")),
+            "the map must name the second summary's OWN line: {texts:?}"
+        );
+        window.destroy();
+    }
+
+    /// The same sequence in SPLIT mode, where the editor buffer is the authoritative
+    /// source and the live-preview debounce owns the fold epoch.
+    #[gtktest::test]
+    fn a_disclosure_still_expands_in_split_mode_after_reload_theme_and_find() {
+        let logs = crate::testlog::capture();
+        let app = crate::window::testkit::test_app(
+            "com.extollit.scribobulate.integrationtest.reloadthemefind4",
+        );
+        let window = crate::window::new_window(&app, "IT", MD_TWO_BLOCKS, None);
+        crate::window::change_action_state(&window, "view-mode", &"split".to_variant());
+
+        let modified = format!("Inserted by another process.\n\n{MD_TWO_BLOCKS}");
+        crate::window::reload::apply_external_reload(&window, &modified);
+
+        let st = crate::winstate::state(&window).expect("the window has an active tab");
+        let chrome = crate::winstate::chrome(&window).expect("window chrome");
+        chrome.find_bar_revealer.set_reveal_child(true);
+        chrome.find_entry.set_text("needle");
+        crate::app::re_render_all_windows(&app);
+        crate::testpump::drain_for(
+            crate::testpump::Clock::Idle,
+            std::time::Duration::from_millis(500),
+        );
+
+        let view = crate::winstate::state(&window)
+            .and_then(|st| st.split.preview_scroller())
+            .and_then(|sw| sw.child())
+            .and_then(|c| c.downcast::<crate::codeview::CodePreviewView>().ok())
+            .expect("a preview view in split mode");
+        let rd = crate::preview::scrib_render_data(&view).expect("render data");
+        let toggle = rd.borrow().disclosure_lines[1].1.clone();
+        toggle.set_active(!toggle.is_active());
+        let expanded = crate::testpump::until_or_for(
+            crate::testpump::Clock::Idle,
+            std::time::Duration::from_secs(3),
+            || {
+                let buf = view.buffer();
+                buf.slice(&buf.start_iter(), &buf.end_iter(), true)
+                    .contains("the second body marker")
+            },
+        );
+        assert!(
+            !logs.logged(log::Level::Debug, "discarding a disclosure toggle"),
+            "the control was minted against a stale source generation"
+        );
+        assert!(expanded, "the second block must expand in split mode too");
+        let _ = st;
+        window.destroy();
+    }
 }
