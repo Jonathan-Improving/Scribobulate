@@ -135,6 +135,7 @@ cc probes/textview-anchored-toggle.c    -o /tmp/textview-anchored-toggle    $(pk
 cc probes/textbuffer-selection-leak.c   -o /tmp/textbuffer-selection-leak   $(pkg-config --cflags --libs gtk4)
 cc probes/textview-primary-overwrite.c  -o /tmp/textview-primary-overwrite  $(pkg-config --cflags --libs gtk4)
 cc probes/textview-selection-clipboard.c -o /tmp/textview-selection-clipboard $(pkg-config --cflags --libs gtk4)
+cc probes/webp-loader-routes.c          -o /tmp/webp-loader-routes          $(pkg-config --cflags --libs gtk4)
 
 # the Rust ones build and run themselves
 cargo run --manifest-path probes/binding-shape-rs/Cargo.toml

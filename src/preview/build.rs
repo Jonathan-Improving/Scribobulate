@@ -3460,9 +3460,17 @@ mod gtk_integration_tests {
     /// TDD 2.23 (graceful-degradation, deterministic on any machine): a byte string
     /// that is not a decodable WebP never crashes and never leaks as text — whether
     /// or not a WebP loader is installed, `Texture::from_file` returns Err on invalid
-    /// data, so exactly one anchored child results (the broken-image marker). Guards
-    /// that an undecodable image aborts nothing (cf. ScrAP-146 — WebP renders
-    /// via `Texture::from_file`'s own loader chain when the loader is registered).
+    /// data, so exactly one anchored child results (the broken-image marker).
+    ///
+    /// The SIGSEGV this also covers (`PixbufAnimation::static_image` on
+    /// `RIFF….WEBPVP8 ` with no payload) is only reachable where
+    /// `webp-pixbuf-loader` is registered. A pass on macOS or gvsbuild Windows
+    /// is vacuous for that crash: no loader claims the bytes, so the animation
+    /// API is never entered and the test would stay green if decode reverted to
+    /// `static_image`. Linux is the only detector. The graceful-degradation
+    /// half (one anchored child, src not leaked) still holds on every host.
+    /// (ScrAP-146 — WebP renders via `Texture::from_file`'s own loader chain
+    /// when the loader is registered.)
     #[gtktest::test]
     fn undecodable_webp_degrades_to_one_anchored_child() {
         let dir = tempfile::tempdir().unwrap();

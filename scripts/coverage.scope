@@ -106,6 +106,8 @@ src/lineendings.rs
 src/links.rs
 src/macwordnav.rs
 src/mdtable.rs
+src/memgate/footprint.rs
+src/memgate/slope.rs
 src/notices.rs
 src/outline/expansion.rs
 src/outline/mod.rs

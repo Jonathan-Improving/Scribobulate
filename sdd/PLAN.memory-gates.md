@@ -41,19 +41,24 @@ the leak itself is the other half.
 
 ### Root cause
 
-A local image is decoded once per render and the decode is retained.
+A local image was decoded once per render and the decode was retained.
 
-`renderer/start.rs` decodes a local image on every render — `Texture::from_file` at
-natural size, `Pixbuf::from_file_at_scale` when zoomed. `imagecache` is URL-keyed for
-**remote** images only, by design, so no local decode is cached, bounded, or reused.
+`renderer/start.rs` used to decode a local image on every render — `Texture::from_file` at
+natural size, `Pixbuf::from_file_at_scale` when zoomed. `imagecache` was URL-keyed for
+**remote** images only, so no local decode was cached, bounded, or reused. That is
+the shipped shape now: local keys are `local:{path}:{mtime}:{size}`, sharing the
+existing LRU.
 
 The growth is **retention, not allocator churn**: forcing aggressive glibc trimming
 (`MALLOC_TRIM_THRESHOLD_`, `M_ARENA_MAX`) recovered only ~9 MB of an 80 MB step, and
 growth stays linear across 98 renders. Nearly all of it sits in a single `[heap]`
 mapping (680 MB of the operator's 836 MB at rest).
 
-**Where the retention lives is not yet established**, and that is the first task — it is
-also why caching is not the first fix (approach 1).
+**Where the retention lives:** `webp-pixbuf-loader`'s animated branch.
+`Pixbuf::file_info` ~2.3 MB/call, `Texture::from_file` ~12 MB/call, together
+~22 MB/render. No GTK decode route is flat on a valid animated WebP
+(`static_image` leaks the same and SIGSEGVs on truncated WebP). The cache is
+what makes a re-render flat; a first unique decode still pays the leak.
 
 Two properties shape the fix:
 
@@ -237,9 +242,10 @@ coverage ratchet, and a mandatory pipeline step with no opt-in or opt-out.
 
 Two kinds of assertion, catching disjoint failures:
 
-1. **Finalization (deterministic).** Weak-ref the per-render decoded object, drive N
-   re-renders, assert the previous generation finalizes. No thresholds, no sampling.
-   Fails loudly on exactly this defect class. ⚠ **Not yet safe to make mandatory** — see
+1. **Finalization (deterministic).** Weak-ref the per-render decoded object, including
+   the cache, and assert it finalizes with no main-loop pump. No thresholds, no
+   sampling. Sound only under Cairo; the gate asserts `NativeExt::renderer()` is
+   `gsk::CairoRenderer` (None panics) because `$GSK_RENDERER` is defeatable. See
    the GSK precondition below.
 2. **Per-render growth slope.** Drive a render loop over a fixture and assert growth per
    render stays under a per-platform bound. Catches leaks nobody predicted — including
@@ -481,21 +487,19 @@ regression fixture should be a WebP, and the GIF is a useful negative control.
 
 ## Open decisions
 
-- **Whether ❌3 should be reopened.** Decoding only frame 0 was rejected because it would
-  drop animation; the application does not animate images at all (measured — see
-  *Diagnosis*). With the premise gone the rejection may not survive, and on the current
-  route table it is close to the fix: it is the difference between entering the module's
-  leaking animated branch and not. **Operator's call — the rejection was theirs and it is
-  not to be quietly reversed by the implementing session.**
-- **The per-render growth bound's value.** Now firmly a *shape*, not a byte count, on all
-  three seats: Windows heap retains freed blocks and macOS malloc keeps freed pages in the
-  zone, so absolute bytes/render is not comparable across platforms. Gate second-half vs
-  first-half slope after discarding warm-up (Windows measured the entire 1.09 MB of its
-  warm-up arriving at iteration 2; discard ≥2). Per-platform tolerance constants, never one
-  shared number.
-- **How to avoid the leaking routes.** The route table names a flat path for dimensions;
-  the decode side needs one. Whether route avoidance alone suffices, or wants caching (💡2)
-  alongside it, is for the implementing session to measure rather than assume.
+- **Whether ❌3 should be reopened.** ✅ Operator confirmed frame 0. TDD 2.23 already
+  specified it; `Texture::from_file` already returns `STATIC_CONTENTS`. Tried
+  `PixbufAnimation::static_image` as the decode: same leak on a valid animated WebP,
+  and **SIGSEGV** on truncated WebP (`undecodable_webp_degrades_to_one_anchored_child`).
+  Raster decode stays `from_file`; the cache is what makes re-renders flat.
+- **The per-render growth bound's value.** ✅ Shape, not a byte count.
+  `memgate::footprint::TOLERANCE_BYTES` is 2 MiB on Linux and 4 MiB on macOS/Windows;
+  warm-up is 3 samples; 10 samples after that, five per half.
+- **How to avoid the leaking routes.** ✅ Dimensions via
+  `gdk_pixbuf_animation_new_from_file` (flat after warm-up). No GTK decode route is
+  flat on animated WebP (measured: `from_file`, `from_bytes`, one-shot `PixbufLoader`,
+  `static_image` all leak). Cache (💡2) ships with the route change so a re-render
+  does not invoke the loader again. SVG second load: 234 ms → 22 µs.
 
 ### Routing an anti-pattern from this
 

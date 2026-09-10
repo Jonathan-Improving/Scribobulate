@@ -814,73 +814,130 @@ impl Renderer {
     }
 }
 
-/// Load a `GdkTexture` for a resolved image. `GdkTexture::from_file` already tries
-/// its native loaders (PNG/JPEG/TIFF), then falls back to gdk-pixbuf's INSTALLED
-/// runtime loaders (`gdk_texture_new_from_bytes` → `gdk_pixbuf_new_from_stream`,
-/// verified in GTK 4.6.9), so WebP/AVIF/etc. render iff the user has the loader AND
-/// it is registered in the process's `loaders.cache` — no manual `Pixbuf` fallback
-/// is needed. Deliberately NOT re-tried through `Pixbuf::from_file`: that is *less*
-/// capable than `from_file` here — it errors "Cannot create WebP decoder" on an
-/// animated WebP that `Texture::from_file` (via the stream path) decodes fine (a
-/// format failing despite an installed loader is a REGISTRATION problem, cf.
-/// ScrAP-146 / GTK4Rs/AP-66, not a `GdkTexture` limitation). `Refused`/
-/// `Missing` never load. Remote fetches block the main thread for the request
-/// (accepted for the opt-in "Show Unsafe Images" path, ScrAP-34, its 34a half).
+/// Load a `GdkTexture` for a resolved image.
 ///
-/// **A remote image is fetched by [`crate::imagefetch`], not by GIO** — a
-/// `gio::File::for_uri("https://…")` needs a GVfs backend that claims the scheme,
+/// **Local images** go through [`load_local`]: a path+mtime+size cache so a
+/// re-render does not decode again; dimensions for a zoomed SVG from
+/// `gdk_pixbuf_animation_new_from_file` (flat after warm-up; `Pixbuf::file_info`
+/// leaks ~2.3 MB/call on animated WebP). Raster decode stays
+/// `Texture::from_file` — it leaks ~12 MB/call on a valid animated WebP (the
+/// cache absorbs that) but returns `Err` on truncated WebP, where the
+/// animation API SIGSEGVs. `Pixbuf::from_file` errors outright on animated WebP
+/// ("Cannot create WebP decoder") and is not a fallback (ScrAP-146 / GTK4Rs/AP-66).
+///
+/// **Remote images** are fetched by [`crate::imagefetch`], not by GIO — a
+/// `gio::File::for_uri("https://…")` needs a GVfs http backend that claims the scheme,
 /// which exists on the Linux desktop and nowhere else, so that route rendered
 /// nothing at all on macOS (ScrAP-292). The bytes then go through
-/// `Texture::from_bytes`, which reaches the same loader chain `from_file` would
-/// have, so decoding is unchanged.
-pub(super) fn load_texture(resolution: &ImageResolution, zoom: f64) -> Option<LoadedImage> {
+/// `Texture::from_bytes`. `Refused`/`Missing` never load. Remote fetches block
+/// the main thread for the request (accepted for the opt-in "Show Unsafe Images"
+/// path, ScrAP-34, its 34a half).
+pub(crate) fn load_texture(resolution: &ImageResolution, zoom: f64) -> Option<LoadedImage> {
     match resolution {
-        ImageResolution::Local(path) => {
-            // The same bound as the remote arm, by the one probe a PATH admits.
-            // `gdk_pixbuf_get_file_info` reads the header and stops; it is equivalent
-            // to the byte probe (measured in `sprite`) and takes a path, which is what
-            // this arm has. The objection recorded at `sprite::probe_pixel_size` — that
-            // re-opening a file already read and validated reintroduces a
-            // check-then-use seam — does not apply here, because nothing has read this
-            // file yet: `Texture::from_file` below opens it for the first time.
-            let info = gtk::gdk_pixbuf::Pixbuf::file_info(path);
-            if let Some((_, w, h)) = &info {
-                if !crate::limits::image_pixels_within_cap(*w, *h) {
-                    log::warn!(
-                        "image {} decodes to {w}×{h} pixels (cap {}) — not loaded",
-                        path.display(),
-                        crate::limits::MAX_IMAGE_PIXELS
-                    );
-                    return None;
-                }
-            }
-            // A VECTOR source is re-rendered at the zoomed size instead of being
-            // enlarged from its natural-size raster. The same header probe already
-            // taken above answers both halves of the question — is it scalable, and
-            // what is its size at zoom 1.0 — so this costs no extra read.
-            if let Some((format, w, h)) = &info {
-                if format.is_scalable() {
-                    let intrinsic = super::image::Extent {
-                        w: (*w).max(1),
-                        h: (*h).max(1),
-                    };
-                    if let Some(texture) = rasterize_vector(path, intrinsic, zoom) {
-                        return Some(LoadedImage { texture, intrinsic });
-                    }
-                }
-            }
-            let file = gtk::gio::File::for_path(path);
-            match gtk::gdk::Texture::from_file(&file) {
-                Ok(texture) => Some(LoadedImage::at_natural_size(texture)),
-                Err(err) => {
-                    log::warn!("image not loaded: {} ({err})", path.display());
-                    None
-                }
-            }
-        }
+        ImageResolution::Local(path) => load_local(path, zoom),
         ImageResolution::Remote(uri) => load_remote_texture(uri).map(LoadedImage::at_natural_size),
         ImageResolution::Refused | ImageResolution::Missing => None,
     }
+}
+
+/// Decode a contained local image, reusing a cached texture when the file and
+/// the size it is drawn at have not changed (TDD 6.8).
+fn load_local(path: &std::path::Path, zoom: f64) -> Option<LoadedImage> {
+    let mtime = file_mtime_nanos(path);
+    // Identity zoom needs no dimension probe. `animation_new_from_file` on an
+    // SVG parses the whole document, so probing before the cache made a hit
+    // cost tens of milliseconds — the stall the cache exists to remove.
+    let zoom_changes_size = super::image::zoomed_extent(8, 8, zoom).w != 8;
+    if zoom_changes_size && pixbuf_format_for_path(path).is_some_and(|f| f.is_scalable()) {
+        if let Some(loaded) = load_local_vector(path, zoom, mtime) {
+            return Some(loaded);
+        }
+    }
+    let key = local_cache_key(path, mtime, "natural");
+    crate::imagecache::get_or_fetch(&key, || decode_local_raster(path))
+        .map(LoadedImage::at_natural_size)
+}
+
+fn load_local_vector(path: &std::path::Path, zoom: f64, mtime: u128) -> Option<LoadedImage> {
+    let (w, h) = local_dimensions(path)?;
+    if !crate::limits::image_pixels_within_cap(w, h) {
+        log::warn!(
+            "image {} decodes to {w}×{h} pixels (cap {}) — not loaded",
+            path.display(),
+            crate::limits::MAX_IMAGE_PIXELS
+        );
+        return None;
+    }
+    let intrinsic = super::image::Extent {
+        w: w.max(1),
+        h: h.max(1),
+    };
+    let zoomed = super::image::zoomed_extent(intrinsic.w, intrinsic.h, zoom);
+    if zoomed == intrinsic {
+        return None;
+    }
+    let target = super::image::cap_raster(zoomed);
+    let key = local_cache_key(path, mtime, &format!("{}x{}", target.w, target.h));
+    let texture =
+        crate::imagecache::get_or_fetch(&key, || rasterize_vector(path, intrinsic, zoom))?;
+    Some(LoadedImage { texture, intrinsic })
+}
+
+/// `gdk_pixbuf_animation_new_from_file` reading width/height only. Measured flat
+/// after warm-up on the animated WebP that `Pixbuf::file_info` leaks ~2.3 MB/call on.
+fn local_dimensions(path: &std::path::Path) -> Option<(i32, i32)> {
+    use gtk::gdk_pixbuf::prelude::PixbufAnimationExt;
+    let anim = gtk::gdk_pixbuf::PixbufAnimation::from_file(path).ok()?;
+    Some((anim.width(), anim.height()))
+}
+
+/// Raster decode. `Texture::from_file` still leaks ~12 MB/call on an animated
+/// WebP; the cache in [`load_local`] is what stops a re-render from paying it.
+/// The animation API (`static_image`) leaks the same on a valid file and
+/// **SIGSEGVs** on truncated WebP (`RIFF….WEBPVP8 ` with no payload) — the
+/// incremental loader returns `Err` on that input, which is why this stays
+/// `from_file` rather than the frame-0 path. PNG/GIF/SVG plateau (measured).
+fn decode_local_raster(path: &std::path::Path) -> Option<gtk::gdk::Texture> {
+    let file = gtk::gio::File::for_path(path);
+    match gtk::gdk::Texture::from_file(&file) {
+        Ok(texture) => {
+            let w = texture.width();
+            let h = texture.height();
+            if !crate::limits::image_pixels_within_cap(w, h) {
+                log::warn!(
+                    "image {} decodes to {w}×{h} pixels (cap {}) — not loaded",
+                    path.display(),
+                    crate::limits::MAX_IMAGE_PIXELS
+                );
+                return None;
+            }
+            Some(texture)
+        }
+        Err(err) => {
+            log::warn!("image not loaded: {} ({err})", path.display());
+            None
+        }
+    }
+}
+
+fn pixbuf_format_for_path(path: &std::path::Path) -> Option<gtk::gdk_pixbuf::PixbufFormat> {
+    let ext = path.extension()?.to_str()?;
+    gtk::gdk_pixbuf::Pixbuf::formats()
+        .into_iter()
+        .find(|f| f.extensions().iter().any(|e| e.eq_ignore_ascii_case(ext)))
+}
+
+fn file_mtime_nanos(path: &std::path::Path) -> u128 {
+    std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_nanos())
+        .unwrap_or(0)
+}
+
+fn local_cache_key(path: &std::path::Path, mtime: u128, size: &str) -> String {
+    format!("local:{}:{mtime}:{size}", path.display())
 }
 
 /// A loaded image, plus the size it occupies **at zoom 1.0**.
@@ -891,9 +948,9 @@ pub(super) fn load_texture(resolution: &ImageResolution, zoom: f64) -> Option<Lo
 /// so reading the size back off it and scaling again would compound the factor — a
 /// 3× render laid out at 9×. The renderer needs the size at zoom 1.0 and the loader is
 /// the only party that still knows it.
-pub(super) struct LoadedImage {
-    pub(super) texture: gtk::gdk::Texture,
-    pub(super) intrinsic: super::image::Extent,
+pub(crate) struct LoadedImage {
+    pub(crate) texture: gtk::gdk::Texture,
+    pub(crate) intrinsic: super::image::Extent,
 }
 
 impl LoadedImage {

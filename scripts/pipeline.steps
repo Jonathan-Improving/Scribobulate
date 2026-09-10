@@ -177,12 +177,12 @@ cmd.windows fmt  cargo fmt --check
 # outside the gate protects nothing (ScrAP-124).
 # ---------------------------------------------------------------------------
 step   2  clippy
-intent clippy  The tree lints clean with zero warnings, with the GTK integration suite compiled in
+intent clippy  The tree lints clean with zero warnings, with the GTK integration suite and the memory-gates class compiled in
 verdict clippy  exit
 class  clippy  required
-cmd.linux   clippy  cargo clippy --all-targets --features gtk-integration-tests -- -D warnings
-cmd.macos   clippy  cargo clippy --all-targets --features gtk-integration-tests -- -D warnings
-cmd.windows clippy  cargo clippy --all-targets --features gtk-integration-tests -- -D warnings
+cmd.linux   clippy  cargo clippy --all-targets --features gtk-integration-tests,memory-gates -- -D warnings
+cmd.macos   clippy  cargo clippy --all-targets --features gtk-integration-tests,memory-gates -- -D warnings
+cmd.windows clippy  cargo clippy --all-targets --features gtk-integration-tests,memory-gates -- -D warnings
 
 # ---------------------------------------------------------------------------
 # Step 3 — release build
@@ -300,6 +300,25 @@ cmd.linux   integration  scripts/run-integration.sh
 cmd.macos   integration  cargo test --features gtk-integration-tests --test gtk_suite --test icon_resolution --test macos_dark_mode --test popover_deferred_focus
 cmd.windows integration  G_DEBUG=fatal-criticals cargo test --features gtk-integration-tests -- --test-threads=1
 disarm.macos integration  permanent  G_DEBUG=fatal-criticals is absent from the macOS command above, and this line is why: GDK's Quartz backend freezes a surface once per CONSTRUCTION and thaws once per MAP, and gdk_macos_surface_hide never freezes, so the second map thaws at zero and the suite emits gdk_surface_thaw_updates assertions on every popover open or dismiss. Present 4.22.4 through main; the freeze/thaw pair is private and absent from the gdk4 bindings, so no application-side fix exists. Do NOT arm it by masking Gdk-CRITICAL: that would also silence ScrAP-318, a leaked update-freeze that stops a surface repainting, which is the only signal anybody would get if it happened. See also ScrAP-268 before reaching for a g_log_set_writer_func allowlist.
+
+# ---------------------------------------------------------------------------
+# Step 5b — per-render memory-growth class
+#
+# A third class beside unit and integration, outside the coverage ratchet, no
+# opt-in. Insertion without renumbering follows the 4b precedent. Two halves:
+# growth-slope after warm-up (catches leaks nobody predicted) and texture
+# finalization (catches app-side retention). The WebP fixture skips at runtime
+# where the host has no WebP loader (gvsbuild ships SVG only); the PNG control
+# still runs. Do NOT fold this into step 5 — a separate step can be disabled
+# independently later.
+# ---------------------------------------------------------------------------
+step   5b  memory
+intent memory  Per-render memory growth after warm-up stays under the per-platform slope bound, and a decoded picture finalizes once every application reference is dropped
+verdict memory  exit
+class  memory  required
+cmd.linux   memory  scripts/run-memory-gates.sh
+cmd.macos   memory  cargo test --release --features memory-gates --test gtk_suite memgate
+cmd.windows memory  cargo test --release --features memory-gates --test gtk_suite memgate
 
 # ---------------------------------------------------------------------------
 # Step 6 — coverage ratchet

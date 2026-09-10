@@ -176,6 +176,11 @@ tempfile = "3"
 # It also enables the two test-only dependencies the main-thread suite needs, so
 # they are absent from every build that does not ask for the suite.
 gtk-integration-tests = ["gtktest", "inventory"]
+# Third test class (TDD 6.6–6.8): per-render growth-slope and finalization.
+# Empty of extra deps; implies the GTK suite so the bodies can use
+# `#[gtktest::test]`. Pipeline step 5 does NOT pass this feature, so those
+# bodies never run as integration tests. The dedicated step does.
+memory-gates = ["gtk-integration-tests"]
 
 [build-dependencies]
 # Same version and features as the normal dependency above, deliberately: on a native

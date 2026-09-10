@@ -7,7 +7,7 @@
 | 3 | Live reload (external edits) | 3.1 – 3.4 |
 | 4 | Editing & saving | 4.1 – 4.9 |
 | 5 | Reconciliation (conflict handling) | 5.1 – 5.4 |
-| 6 | Resource footprint (viability gate) | 6.1 – 6.5 |
+| 6 | Resource footprint (viability gate) | 6.1 – 6.8 |
 | 7 | Window & layout | 7.0b – 7.25 |
 | 8 | Single-instance lifecycle | 8.1 – 8.8 |
 | 9 | Menu bar, toolbar, and actions | 9.1 – 9.36 |
@@ -766,6 +766,27 @@
 - **When** the process's dedicated GPU memory and GPU engine utilisation are measured, first while the window is resized between small and maximised, and then with documents of very different sizes at a fixed window size
 - **Then** the reading stays far below 6.1's 50 MiB ceiling, **does not grow with window area**, **does not grow with document size or complexity**, and GPU engine utilisation for the process stays at or near zero throughout — while system RAM (6.3) *does* rise with document size, confirming the document is rendered on the CPU
 - **And** a reading that scales with either dimension, or sustained GPU engine activity, means software compositing is not active and **fails** this gate — that, not a non-zero byte count, is the Windows signal that 6.2 has been violated
+
+### 6.6 A re-render does not grow memory without bound
+- **Given** a document with a local image open in a release build (an animated WebP where the host can decode it; a large PNG where it cannot)
+- **When** the preview is re-rendered many times — theme switch, zoom, or live reload — after a few warm-up renders are discarded
+- **Then** process memory does not climb from the first half of the remaining renders to the second half, beyond a per-platform tolerance taken from a measured clean baseline
+- **And** a document with no images stays similarly flat
+- **And** this is a slope, not a ceiling: a large document may sit high; it must not keep growing
+
+### 6.7 The previous render’s decoded picture is gone
+- **Given** a document whose preview has decoded an image
+- **When** the preview is re-rendered and the application has dropped every reference to the previous picture, including the render node tree
+- **Then** that previous decoded object is gone (a weak reference to it is empty), with no main-loop pump and no forced frame count
+- **And** this is only asserted under the Cairo renderer this project pins — the GL renderer at our GTK floor never releases the texture
+
+### 6.8 A local image is decoded once until the file or its displayed size changes
+- **Given** a contained local image that has already been shown
+- **When** the preview re-renders for a theme switch or a live reload that does not change that file or the size it is drawn at
+- **Then** the already-decoded picture is reused — the file is not decoded again
+- **And** when the file’s contents change on disk, or zoom/fit changes the size it is drawn at, the next render shows the new decode
+- **And** the cache cannot grow past a stated byte budget (least-recently-used entries leave)
+- **And** a local SVG still re-rasterises at each zoom step rather than stretching a natural-size bitmap (13.11)
 
 ---
 

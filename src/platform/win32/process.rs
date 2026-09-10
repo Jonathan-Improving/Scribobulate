@@ -64,6 +64,71 @@ use std::ffi::c_void;
 
 use super::CloseHandle;
 
+/// This process's working set in bytes — the Windows body of
+/// [`crate::memgate::footprint::current`]. `WorkingSetSize`, never named RSS.
+/// The FFI it needs is test-only so a production Windows build does not carry
+/// an unused `psapi` import (clippy `-D warnings`).
+#[cfg(test)]
+#[repr(C)]
+struct ProcessMemoryCounters {
+    cb: u32,
+    page_fault_count: u32,
+    peak_working_set_size: usize,
+    working_set_size: usize,
+    quota_peak_paged_pool_usage: usize,
+    quota_paged_pool_usage: usize,
+    quota_peak_non_paged_pool_usage: usize,
+    quota_non_paged_pool_usage: usize,
+    pagefile_usage: usize,
+    peak_pagefile_usage: usize,
+}
+
+#[cfg(test)]
+#[link(name = "kernel32")]
+extern "system" {
+    fn GetCurrentProcess() -> *mut c_void;
+}
+
+#[cfg(test)]
+#[link(name = "psapi")]
+extern "system" {
+    fn GetProcessMemoryInfo(
+        process: *mut c_void,
+        counters: *mut ProcessMemoryCounters,
+        cb: u32,
+    ) -> i32;
+}
+
+#[cfg(test)]
+pub(crate) fn current_working_set_bytes() -> Option<u64> {
+    let mut counters = ProcessMemoryCounters {
+        cb: std::mem::size_of::<ProcessMemoryCounters>() as u32,
+        page_fault_count: 0,
+        peak_working_set_size: 0,
+        working_set_size: 0,
+        quota_peak_paged_pool_usage: 0,
+        quota_paged_pool_usage: 0,
+        quota_peak_non_paged_pool_usage: 0,
+        quota_non_paged_pool_usage: 0,
+        pagefile_usage: 0,
+        peak_pagefile_usage: 0,
+    };
+    // SAFETY: `GetCurrentProcess` returns a pseudo-handle that must not be closed;
+    // `counters.cb` is the size of this struct, which is what the API reads first.
+    let ok = unsafe {
+        GetProcessMemoryInfo(
+            GetCurrentProcess(),
+            std::ptr::addr_of_mut!(counters),
+            counters.cb,
+        )
+    };
+    if ok == 0 {
+        None
+    } else {
+        Some(counters.working_set_size as u64)
+    }
+}
+
 /// `PROCESS_QUERY_LIMITED_INFORMATION` — see the module doc for why not the full right.
 const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x0000_1000;
 /// `SYNCHRONIZE`, required to wait on the handle at all. Without it the liveness gate
