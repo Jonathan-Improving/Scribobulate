@@ -87,17 +87,60 @@
 //!
 //! # Why `realize`, and why the whole surface
 //!
-//! At `realize` the surface exists and the window is not yet on screen. That ordering
-//! matters: `-addTrackingArea:` is called without `NSTrackingAssumeInside`, so an area
-//! installed while the pointer is *already* inside it may not post `mouseEntered:` until
-//! the pointer next crosses in. Installing before the window is shown means that case
-//! cannot arise.
+//! At `realize` the surface exists and the window is not yet on screen. That ordering was
+//! chosen because `-addTrackingArea:` is called without `NSTrackingAssumeInside`, so an
+//! area installed while the pointer is *already* inside it may not post `mouseEntered:`
+//! until the pointer next crosses in, and installing before the window is shown was meant
+//! to keep that case from arising.
+//!
+//! ⚠ **That argument does not actually hold, and the seam does not depend on it.** The
+//! region installed at `realize` is a 100×100 corner (next section); the one that matters
+//! is installed by the first `layout`, which is not before the window is shown. So the
+//! resident-pointer case is *not* dodged by ordering. Measured instead: with the full
+//! remedy armed and the pointer parked INSIDE the map rect, the cursor applies, 3 of 3.
+//! **That is a non-regression result and not proof of the mechanism** — the same
+//! configuration also works with no input region at all, via the synthetic map-time enter,
+//! so it cannot distinguish a tracking area that posted an enter from one that did not.
+//! Whether `mouseEntered:` fires for a pointer already resident when the real region lands
+//! is UNMEASURED; nothing here relies on it, because the map-time enter covers exactly
+//! that case and it is the pointer-outside case that needs this module at all.
 //!
 //! The region is the surface's full extent because this seam is buying crossing events,
-//! not shaping input — a smaller region would carve real holes in the window. It is
-//! refreshed from `GdkSurface::layout` because the tracking area must keep matching the
-//! surface; `gdk_surface_set_input_region` early-returns on an unchanged region
-//! (`gdksurface.c:2062`), so a same-size layout pass costs nothing.
+//! not shaping input — a smaller region would carve real holes in the window.
+//!
+//! # The `layout` re-application is LOAD-BEARING, not maintenance
+//!
+//! ⚠ **Deleting [`gdk::Surface::connect_layout`] below does not degrade this seam, it
+//! DEFEATS it** — and the reason is not obvious from the code, which is why it is written
+//! here. **At `realize` the surface has not been sized yet and reports a 100×100
+//! placeholder**, measured in this application (`REALIZE surface=100x100`, then
+//! `LAYOUT 1233x720`, then `LAYOUT 1292x720`) and reproduced in
+//! `probes/macos-cursor-map-latch.c`. So the `realize`-time call installs a real tracking
+//! area covering only the surface's top-left **100×100 corner**. The first `layout` pass
+//! is what replaces it with one that covers the window.
+//!
+//! Measured on GTK 4.22.4 / Quartz with the pointer parked outside the map rect, three
+//! trials per arm, hovering the middle of the window:
+//!
+//! ```text
+//! no input region at all                     arrow    3 of 3
+//! realize + layout (what this module does)   pointer  3 of 3
+//! realize only, layout re-application cut    arrow    3 of 3
+//! no input region at all, re-run             arrow    3 of 3
+//! ```
+//!
+//! The corner is genuinely live, which is what makes the failure mode dangerous rather
+//! than merely wrong. With the `layout` half cut, hovering **inside** that 100×100 corner
+//! still yields `pointer` (2 of 2) while hovering outside it yields `arrow` (2 of 2) — same
+//! binary, same arm, only the hover position differing. So a regression here produces a
+//! window whose cursor works in one corner and nowhere else, and **any check that happens
+//! to sample near the top-left origin passes**. `tests/MANUAL-TEST.md` 7.25m hovers body
+//! text and a link well away from that corner, so it does catch this; a future check
+//! written more conveniently might not.
+//!
+//! `gdk_surface_set_input_region` early-returns on an unchanged region
+//! (`gdksurface.c:2062`), so the steady-state layout passes after the first cost nothing.
+//! That cheapness is why the call is harmless to keep, NOT why it is there.
 
 use gtk::prelude::*;
 use gtk::{cairo, gdk};

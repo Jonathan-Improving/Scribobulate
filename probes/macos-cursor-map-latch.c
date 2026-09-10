@@ -52,6 +52,24 @@
  * disarmed; a presence-tested switch would be ARMED by the same keystroke. Read the
  * CONFIG line rather than the command you typed.
  *
+ * INPUT_REGION=1 ARMS THE REMEDY the application ships, and REALIZE_ONLY=1 arms only its
+ * first half. Measured here, pointer parked outside the map rect, hovering the middle of
+ * the window, three trials per arm:
+ *
+ *   (none)                        arrow    3 of 3
+ *   INPUT_REGION=1                pointer  3 of 3
+ *   INPUT_REGION=1 REALIZE_ONLY=1 arrow    3 of 3
+ *   (none), re-run                arrow    3 of 3
+ *
+ * THE LAYOUT RE-APPLICATION IS LOAD-BEARING, and the reason is worth carrying: at
+ * `realize` the surface is not yet sized and reports a 100×100 PLACEHOLDER, so the
+ * realize-time call installs a tracking area over the surface's top-left corner only.
+ * The first `layout` is what replaces it with one covering the window. The corner is
+ * genuinely live — with REALIZE_ONLY=1, hovering inside it gives `pointer` (2 of 2) and
+ * outside it gives `arrow` (2 of 2), same binary, same arm, only the hover point moving.
+ * So a regression in that half yields a window whose cursor works in one corner and
+ * nowhere else, and any check sampling near the origin passes it.
+ *
  * READ THE CURSOR BY NAME, not off a screenshot — probes/quartz-cursor-identity.m
  * does that, and judging this by eye is precisely how the defect got recorded as
  * intermittent when it is deterministic.
@@ -70,6 +88,39 @@ static const char *envshow(const char *name) {
   if (!*v)
     return "\"\"";
   return v;
+}
+
+/* Claim the whole surface as its input area. gdk_surface_set_input_region() is the only
+ * public route to GdkMacosBaseView's -setInputArea:, which REPLACES the 0x0
+ * NSTrackingArea the view is created with, after which the window gets real
+ * mouseEntered:/mouseExited: and GDK maintains surface_under_pointer in both directions
+ * instead of depending on the map-time NSPointInRect test. */
+static void apply_region(GdkSurface *surface, int width, int height) {
+  if (width <= 0 || height <= 0)
+    return;
+  cairo_rectangle_int_t r = {0, 0, width, height};
+  cairo_region_t *region = cairo_region_create_rectangle(&r);
+  gdk_surface_set_input_region(surface, region);
+  cairo_region_destroy(region);
+}
+
+static void on_layout(GdkSurface *surface, int width, int height, gpointer user_data) {
+  (void)user_data;
+  apply_region(surface, width, height);
+}
+
+/* INPUT_REGION arms the remedy the application ships (src/platform/mac/pointercrossing.rs):
+ * claim the region at realize, and RE-claim it on every layout. REALIZE_ONLY arms only the
+ * first half, which is the arm that answers whether the layout re-application is
+ * load-bearing or decorative. Measured answers are in the header. */
+static void on_realize(GtkWidget *widget, gpointer user_data) {
+  (void)user_data;
+  GdkSurface *surface = gtk_native_get_surface(GTK_NATIVE(widget));
+  if (!surface)
+    return;
+  apply_region(surface, gdk_surface_get_width(surface), gdk_surface_get_height(surface));
+  if (!g_getenv("REALIZE_ONLY"))
+    g_signal_connect(surface, "layout", G_CALLBACK(on_layout), NULL);
 }
 
 static void on_activate(GtkApplication *app, gpointer user_data) {
@@ -96,10 +147,16 @@ static void on_activate(GtkApplication *app, gpointer user_data) {
    * disarmed and reads `cursor_on=label` — whereas a PRESENCE-tested switch
    * (`g_getenv(x) ? ...`) would be ARMED by that same empty value. The caller cannot
    * see which discipline a switch uses, so the program has to say. */
-  g_print("CONFIG cursor_on=%s CURSOR_ON=%s\n", on_window ? "window" : "label",
-          envshow("CURSOR_ON"));
+  g_print("CONFIG cursor_on=%s input_region=%s layout_reapply=%s "
+          "CURSOR_ON=%s INPUT_REGION=%s REALIZE_ONLY=%s\n",
+          on_window ? "window" : "label",
+          g_getenv("INPUT_REGION") ? "on" : "off",
+          (g_getenv("INPUT_REGION") && !g_getenv("REALIZE_ONLY")) ? "on" : "off",
+          envshow("CURSOR_ON"), envshow("INPUT_REGION"), envshow("REALIZE_ONLY"));
 
   gtk_window_set_child(GTK_WINDOW(win), label);
+  if (g_getenv("INPUT_REGION"))
+    g_signal_connect(win, "realize", G_CALLBACK(on_realize), NULL);
   gtk_window_present(GTK_WINDOW(win));
 }
 
