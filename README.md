@@ -170,10 +170,12 @@ Markdown handler so a double-click in your file manager opens it:
 ./uninstall.sh        # removes what it installed
 ```
 
-`./install.sh` and `./uninstall.sh` are the entry points on every platform. They
-hold no install logic — each is a `uname -s` router that dispatches to
-`packaging/<os>/`, so the same two commands work wherever you are and each
-platform's answer lives in one place. Details:
+`./install.sh` and `./uninstall.sh` are the entry points for the platforms that
+install **from source** — Linux and macOS. They hold no install logic: each is a
+`uname -s` router that dispatches to `packaging/<os>/`, so the same two commands
+work on both and each platform's answer lives in one place. (Windows installs
+from a prebuilt installer instead, and both scripts refuse there by design — see
+[Windows](#windows) below.) Details:
 [`packaging/linux/README.md`](packaging/linux/README.md).
 
 To build the packages yourself, `packaging/linux/build-deb.sh` and
@@ -237,20 +239,35 @@ Homebrew libraries at runtime. More: [`packaging/macos/README.md`](packaging/mac
 
 ### Windows
 
-Run the installer (`Scribobulate-<version>-x64-setup.exe`) — per-user, no admin
-prompt, GTK runtime included. **Uninstall through Settings ▸ Apps**, or the Start
-menu's *Uninstall Scribobulate* shortcut; `./uninstall.sh` is for the platforms
-that install from source and refuses here rather than half-removing an install it
-did not create. Building from source, and what an uninstall does and does not
-take with it: [`packaging/windows/README.md`](packaging/windows/README.md).
+Build from source. The GTK runtime comes from
+[gvsbuild](https://github.com/wingtk/gvsbuild) and takes about 14 minutes once
+per machine; after that `build.bat` sets the whole toolchain environment for
+you:
 
-**Microsoft's Visual C++ runtime is a separate prerequisite** and the installer
-does not ship it. Scribobulate and the bundled GTK libraries import
-`VCRUNTIME140.dll`, which Windows does not include — the UCRT that *is* part of
-Windows 10 and later is a different runtime. Most machines already have it from
-some other application, so if the install completes and the app then fails to
-start, install [Microsoft's Visual C++ Redistributable
-(x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe) and launch it again.
+```powershell
+.\packaging\windows\build.bat release
+.\packaging\windows\build.bat run path\to\document.md
+```
+
+Or build the per-user installer, which puts Scribobulate on the Start menu
+instead of in `target\release`:
+
+```powershell
+.\packaging\windows\package.ps1     # -> build\installer\Scribobulate-<version>-x64-setup.exe
+```
+
+It installs to `%LOCALAPPDATA%\Programs\Scribobulate` with no administrator
+password and writes nothing outside `HKCU`, carrying the GTK runtime inside it.
+Scribobulate and those GTK libraries import `VCRUNTIME140.dll`, which Windows
+does not include — the UCRT that *is* part of Windows 10 and later is a
+different runtime — so the installer also carries Microsoft's own
+redistributable and runs it on the machines that need it. **Uninstall through
+Settings ▸ Apps**, or the Start menu's *Uninstall Scribobulate* shortcut;
+`./uninstall.sh` is for the platforms that install from source and refuses here
+rather than half-removing an install it did not create.
+
+The prerequisites, the one-time gvsbuild step and what to do when a build fails:
+[`packaging/windows/README.md`](packaging/windows/README.md).
 
 ### Tips (all platforms)
 

@@ -181,7 +181,7 @@ Filename: "{app}\bin\{#AppExeName}"; Description: "Launch {#AppName}"; \
 ;  The Microsoft C runtime, installed by Microsoft's own redistributable.
 ;
 ;  WHY THIS EXISTS. Every binary we ship imports vcruntime140.dll -- MEASURED,
-;  37 of 38 staged binaries -- and we used to satisfy that by copying the DLL
+;  all 36 staged binaries -- and we used to satisfy that by copying the DLL
 ;  app-local. That made us a redistributor of Microsoft's Distributable Code,
 ;  whose terms require the distributor to make end users AGREE to protective
 ;  terms. Running Microsoft's installer instead means Microsoft's terms travel
