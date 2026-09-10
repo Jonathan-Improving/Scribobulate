@@ -21,7 +21,12 @@
 //! indistinguishable from a theme that stated none.
 //!
 //! Three decoded forms are cached, all thread-local (GTK4 is single-threaded, so no
-//! lock is needed and every unit test gets its own):
+//! lock is needed and every unit test gets its own). **They live only while the
+//! theme that named them is active:** [`clear_cache`] runs from [`crate::theme::set_active`],
+//! so switching Pixel Quest → System drops every decoded raster rather than keeping
+//! it for the rest of the process (TDD 18.58). The compiled-in PNG *bytes* stay in
+//! the binary — that is the built-in-theme-with-nothing-on-disk promise, a few
+//! kilobytes the OS can page out — and are not what this cache holds.
 //! - [`texture`] — the sprite at its natural size, for a caller that scales it itself
 //!   (the HTML export sink, which lets CSS do the scaling).
 //! - [`scaled`] — the sprite pre-resampled to an exact pixel size with
@@ -758,10 +763,28 @@ pub(crate) fn scaled(r: &SpriteRef, w: i32, h: i32) -> Option<gdk::Texture> {
 /// a theme swap does not keep the previous theme's sprites resident for the rest of
 /// the process, and so a texture keyed on a path a theme no longer resolves to
 /// cannot be served to a caller that thinks it is asking about the new one.
+///
+/// **Necessary, not sufficient.** Widgets that cloned a texture out of the cache —
+/// a heading-marker paintable in the buffer, a [`crate::widgets::rule::SpriteRule`],
+/// a disclosure `GtkPicture` — keep that GObject alive until the theme-change
+/// re-render destroys them. The cache going empty is the first half; those holders
+/// dropping is the second, and both are asserted.
 pub(crate) fn clear_cache() {
     NATURAL.with(|c| c.borrow_mut().clear());
     RESAMPLED.with(|c| c.borrow_mut().clear());
     SURFACES.with(|c| c.borrow_mut().clear());
+}
+
+/// How many decoded forms the three caches currently hold, including memoised
+/// failures. Test seam for TDD 18.58: a theme switch that claims to unload sprites
+/// is only as good as this going to zero (and a WeakRef proving the GObject
+/// actually finalized, rather than remaining reachable from a widget the cache
+/// no longer names).
+#[cfg(test)]
+pub(crate) fn occupancy() -> usize {
+    NATURAL.with(|c| c.borrow().len())
+        + RESAMPLED.with(|c| c.borrow().len())
+        + SURFACES.with(|c| c.borrow().len())
 }
 
 #[cfg(test)]
@@ -1362,5 +1385,126 @@ mod tests {
         let resolved = SpriteRef::File(resolve(dir.path(), "chip.png").unwrap());
         assert!(scaled(&resolved, 0, 10).is_none());
         assert!(scaled(&resolved, 10, -1).is_none());
+    }
+
+    /// TDD 18.58 — switching the active theme drops every decoded form, and
+    /// selecting the sprite theme again still decodes. The occupancy going to
+    /// zero is the cache half; the WeakRef test below is the GObject half.
+    #[test]
+    fn switching_the_active_theme_drops_decoded_sprites_and_they_reload() {
+        clear_cache();
+        let (key, _) = BUILTIN_SPRITES[0];
+        let r = SpriteRef::Compiled(key);
+        assert!(texture(&r).is_some());
+        assert!(scaled(&r, 8, 8).is_some());
+        assert!(surface(&r).is_some());
+        let n = occupancy();
+        assert!(
+            n >= 3,
+            "positive control: a decode of all three forms must occupy the cache, got {n}"
+        );
+
+        crate::theme::set_active(crate::theme::SYSTEM_ID);
+        assert_eq!(
+            occupancy(),
+            0,
+            "System names no sprite; the previous theme's rasters must not stay resident"
+        );
+
+        crate::theme::set_active("pixelquest");
+        assert!(
+            texture(&r).is_some(),
+            "unload is not a one-way loss: the same sprite must decode again"
+        );
+        crate::theme::set_active(crate::theme::SYSTEM_ID);
+        assert_eq!(occupancy(), 0);
+    }
+
+    /// Clearing the cache is what DROPS the GObject, not merely what forgets the
+    /// key. Occupancy going to zero while a WeakRef still upgrades would mean the
+    /// raster is still resident under a different name.
+    #[test]
+    fn clearing_the_cache_finalizes_a_texture_the_cache_alone_held() {
+        use gtk::glib::clone::Downgrade;
+        clear_cache();
+        let (key, _) = BUILTIN_SPRITES[0];
+        let r = SpriteRef::Compiled(key);
+        let tex = texture(&r).expect("decodes");
+        let weak = tex.downgrade();
+        drop(tex);
+        assert!(
+            weak.upgrade().is_some(),
+            "positive control: the cache is still holding the texture"
+        );
+        clear_cache();
+        assert!(
+            weak.upgrade().is_none(),
+            "the cache was the last holder; clearing it must finalize the GObject"
+        );
+    }
+}
+
+/// Holders OUTSIDE the cache — a heading-marker paintable, a `SpriteRule` tile —
+/// keep a texture alive after [`clear_cache`]. The theme-change re-render is what
+/// drops those, and these tests pin that the holders actually release rather than
+/// leaking the raster for the rest of the process (TDD 18.58, second half).
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+mod gtk_integration_tests {
+    use super::*;
+    use gtk::prelude::*;
+
+    fn compiled_texture() -> (gdk::Texture, glib::WeakRef<gdk::Texture>) {
+        clear_cache();
+        let (key, _) = BUILTIN_SPRITES[0];
+        let tex = texture(&SpriteRef::Compiled(key)).expect("decodes");
+        // `ObjectExt` vs `clone::Downgrade` both apply to `Texture` once gtk's
+        // prelude is in scope; name the GObject one, which is what `WeakRef` is.
+        let weak = gtk::glib::object::ObjectExt::downgrade(&tex);
+        (tex, weak)
+    }
+
+    /// A heading marker is `insert_paintable` of a resampled texture. Clearing the
+    /// cache must NOT finalize it while the run is still in the buffer — and
+    /// deleting the run must. No selection: GtkTextBufferContent leaks a buffer
+    /// ref per select→deselect (GTK4Rs/AP-318), which would pin the texture and
+    /// make this look like our holder.
+    #[gtktest::test]
+    fn a_buffer_paintable_releases_its_texture_when_the_run_is_deleted() {
+        let (tex, weak) = compiled_texture();
+        let buf = gtk::TextBuffer::new(None);
+        let mut iter = buf.start_iter();
+        buf.insert_paintable(&mut iter, &tex);
+        drop(tex);
+        clear_cache();
+        assert!(
+            weak.upgrade().is_some(),
+            "the buffer is still holding the paintable after the cache dropped its clone"
+        );
+        buf.delete(&mut buf.start_iter(), &mut buf.end_iter());
+        assert!(
+            weak.upgrade().is_none(),
+            "deleting the paintable run must finalize the texture — this is the \
+             drop the theme-change re-render relies on"
+        );
+    }
+
+    /// `SpriteRule` clones the tile into its own cell. Dropping the widget is
+    /// what the theme-change sweep does when it replaces a tiled rule with a
+    /// `GtkSeparator` (or with nothing, on a theme that states no sprite).
+    #[gtktest::test]
+    fn a_sprite_rule_releases_its_tile_when_the_widget_is_dropped() {
+        let (tex, weak) = compiled_texture();
+        let rule = crate::widgets::rule::SpriteRule::new(tex.clone());
+        drop(tex);
+        clear_cache();
+        assert!(
+            weak.upgrade().is_some(),
+            "the rule widget is still holding the tile after the cache dropped its clone"
+        );
+        drop(rule);
+        assert!(
+            weak.upgrade().is_none(),
+            "destroying the rule widget must finalize the tile"
+        );
     }
 }
