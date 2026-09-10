@@ -21,6 +21,7 @@ use gtk::{gdk, gsk};
 /// does NOT honour the object's teardown contract, and on a build with GLib
 /// assertions compiled in that is a hard abort rather than a leak (GTK4Rs/AP-272).
 pub(super) fn framebuffer_of(view: &CodePreviewView, w: f64, h: f64) -> Vec<u8> {
+    until_painted(view);
     let paintable = gtk::WidgetPaintable::new(Some(view));
     let snapshot = gtk::Snapshot::new();
     paintable.snapshot(snapshot.upcast_ref::<gdk::Snapshot>(), w, h);
@@ -92,4 +93,52 @@ pub(super) fn present_for_paint_sized(view: &CodePreviewView, w: i32, h: i32) ->
         view.width() > 0
     });
     window
+}
+
+/// Pump until `view` has actually been **painted** — not merely allocated.
+///
+/// The fixtures here stop at `view.width() > 0`, and that reports *allocation*. A
+/// `GtkWidgetPaintable` records nothing at all until its widget has a render node, and
+/// a widget gets one only once the frame clock reaches a paint. Snapshot in the gap and
+/// `Snapshot::to_node()` returns `None`, which arrives as [`framebuffer_of`]'s "the
+/// preview snapshots to something" and reads as a paint bug in the code under test
+/// rather than as a fixture that asked too early.
+///
+/// **Called from [`framebuffer_of`] rather than from [`present_for_paint_sized`], and
+/// that placement is the fix.** Waiting once at present time is not enough: painted is
+/// not a latch. MEASURED — with the wait at present time the fixture got past it and
+/// then failed anyway, because `set_blockquotes` and a scroll invalidated the render
+/// node again before the snapshot. A widget is unpainted afresh after every
+/// invalidation, so the wait belongs at the one place that consumes the node, which
+/// also means every fixture inherits it without a line of its own.
+///
+/// **Only Windows has ever landed in that gap.** MEASURED on GTK 4.22.4/gvsbuild, at
+/// the moment of the failure: the view was 400x161, `mapped`, `realized`, `visible`,
+/// its paintable's intrinsic size was the allocation — and the SCROLLER and the
+/// WINDOW recorded nothing either, so it was never about the view or about being
+/// nested in a scroller. The whole surface had yet to paint. X11 and Quartz reach
+/// that first paint inside the pumping a fixture already does for its own reasons; a
+/// GDK-Win32 surface takes longer, and a fixture that pumps less than its neighbours
+/// falls in the hole.
+///
+/// **Do not weaken this to "wait for N frames".** MEASURED at that same failure:
+/// `frame_clock.frame_counter()` was already 7 and climbing while nothing in the
+/// hierarchy had a render node. A frame-clock tick is not a paint, so any counter- or
+/// duration-based proxy is a guess that will rot on a slower runner. This waits on
+/// the render node the oracle actually consumes, so it cannot be satisfied by
+/// anything short of the real precondition — and `until`'s watchdog turns a genuine
+/// never-paints into a named timeout instead of a bare `None`.
+pub(super) fn until_painted(view: &CodePreviewView) {
+    crate::testpump::until(crate::testpump::Clock::Frame, "the preview paints", || {
+        if view.width() <= 0 || view.height() <= 0 {
+            return false;
+        }
+        let snapshot = gtk::Snapshot::new();
+        gtk::WidgetPaintable::new(Some(view)).snapshot(
+            snapshot.upcast_ref::<gdk::Snapshot>(),
+            f64::from(view.width()),
+            f64::from(view.height()),
+        );
+        snapshot.to_node().is_some()
+    });
 }
