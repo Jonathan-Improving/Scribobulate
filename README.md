@@ -56,11 +56,12 @@ most when working with an agent.
 
 ## Why I built it
 
-I run my models locally. [Ollama](https://ollama.com/), on my own hardware, and I want that option to stay
-open, because freedom from cloud computing and cloud providers should always be
-available to a developer. That is the first reason Scribobulate renders on the CPU
-and holds 0 MiB of VRAM: every megabyte of GPU memory it leaves alone is a megabyte
-your models get to use.
+I run models locally. [Ollama](https://ollama.com/), on my own hardware. I use Claude too, and this
+project was built with it, which [AI-DILIGENCE.md](AI-DILIGENCE.md) accounts for in
+full. What I want is for the local option to stay open, because freedom from cloud
+computing and cloud providers should always be available to a developer. That is the
+first reason Scribobulate renders on the CPU and holds 0 MiB of VRAM: every megabyte
+of GPU memory it leaves alone is a megabyte your models get to use.
 
 The second reason is that I wanted it to look beautiful. A tool for humans working
 with AI should be a pleasant place for the human to sit, so the reading themes
@@ -120,7 +121,7 @@ see Help ▸ Keyboard Shortcuts in the app for the exact mapping.)*
   - Outline sidebar jumps to any heading (F9)
 - **Comfortable reading**
   - Reading themes: **Sepia**, **Bedtime**, **Synthwave**, **Terminal**,
-    **Candy**, or match your desktop (**System**) — and you can adjust one, or
+    **Candy**, **Pixel Quest**, or match your desktop (**System**) — and you can adjust one, or
     write your own, in `themes.toml` (`man 5 scribobulate`)
   - Zoom the preview from 50% to 300% — on Ctrl+wheel, as anywhere else — and
     it is remembered across sessions. **Images zoom too**, and a diagram in SVG
