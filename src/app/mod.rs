@@ -58,6 +58,144 @@ pub(crate) fn new_instance_argv(args: Vec<String>) -> (bool, Vec<String>) {
     (force_new, rest)
 }
 
+/// Does argv carry an argument shaped like an option?
+///
+/// **This is the whole fix for a `--` switch being opened as a document.** On macOS the
+/// single-instance substitute forwards its arguments to a running primary, which treats
+/// what it receives as file paths — so `scribobulate --help` against a running instance
+/// asked that instance to open a document named `--help`, and the launching process exited
+/// 0 having printed nothing. The reporter saw a switch silently do nothing; the primary saw
+/// a file it could not open. Linux never showed it, because GIO parses options before it
+/// forwards, so the two platforms disagreed about what an argument even IS.
+///
+/// So: if anything option-shaped is present, the caller must NOT forward and must let
+/// GOption answer in this process — where `--help` prints help and an unknown option is
+/// refused, identically on every platform.
+///
+/// The rules are POSIX's, not ours: a bare `--` ends option parsing (everything after it is
+/// a path, however it is spelled), and a lone `-` is a path, not an option. Both matter to
+/// anyone whose document is genuinely called `--help`, who can still open it as
+/// `scribobulate -- --help`.
+///
+/// Deliberately NOT `#[cfg(target_os = "macos")]` even though the handoff is: the decision is
+/// about argv, not about a platform, and cfg-ing it would take its tests out of the build on
+/// every other machine — which POLICY forbids for exactly the reason that a deleted test and
+/// a passing one are indistinguishable. The allow is therefore scoped to the platforms with
+/// no production caller, and the tests below still run everywhere.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn carries_option_argument(args: &[String]) -> bool {
+    args.iter()
+        .skip(1)
+        .take_while(|a| a.as_str() != "--")
+        .any(|a| a.starts_with('-') && a.as_str() != "-")
+}
+
+/// Is this a `--version` / `-V` invocation?
+pub(crate) fn is_version_request(args: &[String]) -> bool {
+    args.iter()
+        .skip(1)
+        .take_while(|a| a.as_str() != "--")
+        .any(|a| a == "--version" || a == "-V")
+}
+
+/// What `--version` prints: the name a user typed and the version they have.
+///
+/// Pure so the format is asserted without running the binary, and taken from Cargo rather
+/// than restated, so it cannot drift from the package it describes.
+pub(crate) fn version_line() -> String {
+    format!("scribobulate {}", env!("CARGO_PKG_VERSION"))
+}
+
+#[cfg(test)]
+mod option_argument_tests {
+    use super::{carries_option_argument, is_version_request, version_line};
+
+    fn argv(rest: &[&str]) -> Vec<String> {
+        std::iter::once("scribobulate")
+            .chain(rest.iter().copied())
+            .map(String::from)
+            .collect()
+    }
+
+    /// The reported defect: a switch must never look like a document.
+    ///
+    /// Mutation check: dropping the `starts_with('-')` test makes every one of these false.
+    #[test]
+    fn an_option_shaped_argument_is_recognised_as_one() {
+        for a in [
+            "--help",
+            "--version",
+            "--nonsense",
+            "-h",
+            "-n",
+            "--gtk-debug=all",
+        ] {
+            assert!(carries_option_argument(&argv(&[a])), "{a} reads as a path");
+        }
+    }
+
+    /// argv[0] is the program, not an argument — and a program invoked by a path beginning
+    /// with a dash would otherwise make every launch look like an option.
+    #[test]
+    fn the_program_name_is_not_an_argument() {
+        assert!(!carries_option_argument(&["-weird-name".into()]));
+    }
+
+    /// POSIX, and the escape hatch for a document genuinely named like a switch.
+    ///
+    /// Mutation check: removing the `take_while` makes both of these true, which would
+    /// leave no way to open such a file at all.
+    #[test]
+    fn a_bare_double_dash_ends_option_parsing() {
+        assert!(!carries_option_argument(&argv(&["--", "--help"])));
+        assert!(!carries_option_argument(&argv(&["--", "-n"])));
+        assert!(!is_version_request(&argv(&["--", "--version"])));
+    }
+
+    /// A lone `-` is a filename by convention, not an option.
+    #[test]
+    fn a_lone_dash_is_a_path() {
+        assert!(!carries_option_argument(&argv(&["-"])));
+    }
+
+    #[test]
+    fn ordinary_paths_carry_no_option() {
+        assert!(!carries_option_argument(&argv(&["notes.md", "a/b.md"])));
+        assert!(!carries_option_argument(&argv(&[])));
+    }
+
+    #[test]
+    fn version_is_recognised_in_both_spellings_and_nowhere_else() {
+        assert!(is_version_request(&argv(&["--version"])));
+        assert!(is_version_request(&argv(&["-V"])));
+        assert!(!is_version_request(&argv(&["--versionx"])));
+        assert!(!is_version_request(&argv(&["-v"])), "-v is not --version");
+        assert!(!is_version_request(&argv(&["notes.md"])));
+    }
+
+    /// The version string is taken from Cargo, never restated.
+    #[test]
+    fn the_version_line_names_the_package_version() {
+        let line = version_line();
+        assert!(line.starts_with("scribobulate "), "{line}");
+        assert!(line.ends_with(env!("CARGO_PKG_VERSION")), "{line}");
+    }
+
+    /// Every option this binary answers itself must be option-shaped, or it would be routed
+    /// to the primary as a filename instead of reaching the parser. GTK's own `--help*`
+    /// family is deliberately absent: GOption owns those, and restating them here would be a
+    /// second copy of somebody else's table.
+    #[test]
+    fn every_own_option_is_option_shaped() {
+        for opt in ["--new-instance", "-n", "--probe-startup", "--version", "-V"] {
+            assert!(
+                carries_option_argument(&argv(&[opt])),
+                "{opt} would never reach the parser"
+            );
+        }
+    }
+}
+
 /// The marker `--probe-startup` prints. **A CONTRACT WITH THE macOS PACKAGING GATE** —
 /// `packaging/macos/verify-selfcontained.sh` greps for exactly this text, so it is a
 /// published interface and not a log line. Change it and that gate goes red.

@@ -9,7 +9,7 @@
 | 5 | Reconciliation (conflict handling) | 5.1 – 5.4 |
 | 6 | Resource footprint (viability gate) | 6.1 – 6.5 |
 | 7 | Window & layout | 7.0b – 7.25 |
-| 8 | Single-instance lifecycle | 8.1 – 8.7 |
+| 8 | Single-instance lifecycle | 8.1 – 8.8 |
 | 9 | Menu bar, toolbar, and actions | 9.1 – 9.36 |
 | 10 | Markdown formatting commands | 10.1 – 10.20 |
 | 11 | Find & replace | 11.1 – 11.10 |
@@ -1013,6 +1013,15 @@
 - *(This rubric exists because a hand-rolled rendezvous can strand state in a way GIO's D-Bus registration cannot: a bus name vanishes with its process, whereas a lock file and socket outlive theirs. It is numbered 8.7 rather than 8.6 because `tests/MANUAL-TEST.md` already uses 8.6 for the per-window memory-reclamation gate.)*
 
 ---
+
+### 8.8 A command-line switch is never opened as a document
+
+- **Given** the application is launched from a terminal with an argument that begins with a dash — whether one it understands, one it does not, or one belonging to the toolkit
+- **When** that launch happens, with or without an instance of the application already running
+- **Then** the argument is answered as a switch in the process that was launched: `--help` prints usage, `--version` prints the version, and an unrecognised switch is refused with a non-zero exit
+- **And** it is never handed to a running instance as a file to open, on any platform — a switch and a filename are not interchangeable, and the answer does not depend on whether something was already running
+- **And** every platform gives the same answer to the same argument
+- **And** a document whose name genuinely begins with a dash can still be opened, by ending option parsing with a bare `--` first
 
 ## 9. Menu bar, toolbar, and actions
 

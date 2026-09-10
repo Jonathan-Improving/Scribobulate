@@ -38,7 +38,6 @@ described from a different vantage point.
 | J | Any | Upstream | A paragraph that mixes fonts (any inline-code span) can lay out a few pixels wider than the wrap width it was given, summoning the preview's Automatic horizontal scrollbar and intermittently blanking the pane until a resize | Closed |
 | M | Windows | Production | On a machine with no Visual C++ runtime the app installs and then fails to start; the installer's bootstrapper for it has landed but has never been verified against that condition | Medium |
 | N | Any | Production | A document embedding a large SVG stalls the main thread for a fifth of a second on EVERY preview render — the decode is synchronous and uncached, so a zoom step, a disclosure toggle and each debounced keystroke in split mode all pay it again | Medium |
-| S | Mac | Production | A `--` switch is not always interpreted as one — the operator reports `--help` being taken as a document to open. Reproduced on neither Linux path; macOS answers `--version` differently from Linux, which is where to look | Medium |
 
 
 ## A. Tables are selection islands
@@ -666,47 +665,3 @@ the main thread is the larger fix and the loader permits it: the SVG loader decl
 parses the whole document and merely skips the render (researcher-measured at 27 ms on a
 6000-element file, against 0.078 ms for a raster header sniff), so it is not the free
 question its raster behaviour suggests.
-
-
-## S. A `--` switch is not reliably interpreted as a switch
-
-**Severity**: Medium (an operator running `scribobulate --help` gets a window opening a
-document named `--help` instead of usage text. Nothing is damaged, but the app is
-answering a question with an action, and every `--` argument shares whatever the cause is)
-
-**Platform**: Mac · **Scope**: Production
-
-**Reported by the operator**: `--help` is passed through as though it were the name of a
-Markdown file rather than interpreted as a command-line switch. Every argument beginning
-`--` should be handled consistently, and idiomatically for a CLI.
-
-**NOT REPRODUCED ON LINUX, and both obvious paths were tried** (GTK 4.6.9, release build):
-- bare `--help` → prints usage, exit 0
-- `--help` while a primary instance is already running on the same display AND the same
-  session bus, which is the forwarding path that would most obviously turn an argument
-  into a file → still prints usage, exit 0; the primary opened no window for it
-- `--nonsense`, `-x` → `Unknown option`, exit 1
-- `--version` → `Unknown option --version`, exit 1
-
-**One measured cross-platform difference, and it is the thread to pull.** On macOS
-`--version` exits **0 with no output**; on Linux the same argument is rejected as an
-unknown option. The two platforms are not parsing arguments the same way, and the macOS
-side is where an argument can reach a different reader: this platform has no D-Bus session
-bus, so GIO cannot do single-instance activation and `platform/mac/single_instance.rs`
-substitutes its own election and argument handoff. Argument inspection there necessarily
-happens before GOption sees anything.
-
-⚠ **That is where to look, NOT a diagnosis.** Nobody has instrumented it. State the
-mechanism only after measuring it — a plausible account of this register's last two
-entries was wrong both times.
-
-**First step is a reproduction, not a theory**: on macOS, run `--help` in each of the
-distinguishable conditions — no instance running, an instance running, launched from a
-terminal, launched through the `.app` — and record which produce usage text and which open
-a document. The Linux results above are the control.
-
-**Mitigation options**:
-- Parse arguments in one place that both platforms' launch paths route through, so a
-  switch cannot be a switch on one platform and a filename on another.
-- At minimum, refuse any unrecognised leading-`--` argument rather than treating it as a
-  path, on every platform and every launch route.

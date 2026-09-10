@@ -198,6 +198,18 @@ pub fn run() -> glib::ExitCode {
         return glib::ExitCode::SUCCESS;
     }
 
+    // `--version`, answered here for the same reason `--probe-startup` is: before any
+    // window, any GTK initialisation, and — on macOS — before the single-instance handoff
+    // that would otherwise forward it to a running primary as a FILE PATH. That forwarding
+    // is what made `scribobulate --help` open a document named `--help` and exit 0 silently
+    // on that platform while behaving correctly on Linux; see `app::carries_option_argument`.
+    //
+    // Returns rather than `process::exit`, so no destructor is skipped.
+    if app::is_version_request(&argv) {
+        println!("{}", app::version_line());
+        return glib::ExitCode::SUCCESS;
+    }
+
     // Point GTK at the data staged inside the .app, when running from one. Must precede
     // GTK init, and precedes the renderer pin only because both are env writes and this
     // one reads no state. Inert outside a bundle, so `cargo run` and the suites are
@@ -303,8 +315,15 @@ pub fn run() -> glib::ExitCode {
     //
     // The guard must outlive `run_with_args` — dropping it releases the lock and
     // unlinks the socket — so it is bound to a local that lives to the end of `run`.
+    //
+    // AND NEVER WHEN argv CARRIES AN OPTION. The handoff sends its arguments to the primary,
+    // which opens what it receives as documents, so an unrecognised switch became a file
+    // named `--whatever` and the launching process exited 0 having printed nothing. GOption
+    // must answer those, in THIS process, which is what skipping the election achieves —
+    // and it is why the two platforms disagreed at all, since GIO parses options before it
+    // forwards and Linux therefore never showed the defect.
     #[cfg(target_os = "macos")]
-    let _single_instance = if force_new {
+    let _single_instance = if force_new || app::carries_option_argument(&argv) {
         None
     } else {
         use crate::platform::mac::single_instance::{elect, Launch};
