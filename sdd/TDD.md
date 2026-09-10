@@ -19,7 +19,7 @@
 | 15 | Tabbed documents | 15.1 – 15.22 |
 | 16 | Keyboard-shortcuts help & status surfaces | 16.1 – 16.9 |
 | 17 | Annotation & review (CriticMarkup) | 17.1 – 17.53 |
-| 18 | Preview reading themes | 18.1 – 18.53 |
+| 18 | Preview reading themes | 18.1 – 18.58 |
 | 19 | Local document-link navigation | 19.1 – 19.13 |
 | 20 | Annotations viewer | 20.1 – 20.18 |
 | 21 | Crash forensics | 21.1 – 21.12 |
@@ -2780,6 +2780,14 @@ appearance that predates the feature; `Sepia` is the book-like reading theme.
 - **And** the header text, its ink (`table_head_fg`) and the cell borders all draw ON TOP of it
 - **And** the same decoration reaches both artefacts: the HTML sink's `th` rule and the PDF sink's header cells — the scene included, which no other scene key manages, because the page draws a table cell as one box where it draws a band line by line
 - **And** a theme that states none of the three keys renders a header byte-identical to before they existed: the flat fill, carried by the cells' own generated CSS (TDD 18.2)
+
+### 18.58 A theme's decoded assets do not outlive it
+- **Given** a reading theme that names decoded assets (sprites) is selected, and a document that uses those decorations is on screen
+- **When** the reader selects a different theme that does not name those assets
+- **Then** the previous theme's decoded rasters are no longer held: switching away is what frees them, without restarting the app
+- **And** selecting the first theme again still draws them: they reload on the first paint that needs them
+- **And** the switch itself does not freeze the window (TDD 1.7)
+- *(Limitation, stated rather than promised: compiled-in PNG bytes stay in the binary — that is the built-in-theme-with-nothing-on-disk promise, a few kilobytes the OS can page out — and system fonts a theme names stay in Pango/fontconfig. This rubric frees decoded rasters, which is the cost that scales with a user-supplied sprite.)*
 
 ## 19. Local document-link navigation
 
