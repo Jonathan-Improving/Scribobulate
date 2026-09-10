@@ -164,6 +164,12 @@ Second, **T3 is an ordered ladder, not a menu** — RSS slope across *scaled* cy
 counts first, because it is free and it is the step that decides whether there is
 anything to attribute at all; the interposer last, because it is a tool to write.
 
+**The C4 gate rung has shipped** in pipeline step 5b (TDD 6.6–6.8). This plan's
+remaining work is C1/C2 (turn latency, idle CPU) plus T3 as a *diagnostic* ladder
+for attributing a leak that gate has already caught — not as the thing that
+catches it. The measured defect, the rejected approaches, and the gate's
+construction stay in [PLAN.memory-gates.md](PLAN.memory-gates.md).
+
 Approach 3 stays recorded and unrecommended as a *standing* tier. If the spin
 investigation exhausts sampling without naming the driver, it becomes the next step
 for that investigation alone — and the researcher question below should be answered

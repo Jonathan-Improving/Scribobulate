@@ -77,13 +77,15 @@ where the pipeline's user cannot see it.
 Before any change is considered valid, run these steps in order:
 
 1. `cargo fmt --check` — formatting must be clean
-2. `cargo clippy --all-targets --features gtk-integration-tests -- -D warnings` —
-   zero warnings permitted. **The feature flag is not optional here.** Without it
-   the `gtk-integration-tests` modules are not compiled at all, so neither clippy
-   nor `cargo test` sees them and they rot unnoticed — they reached the point of
-   **not compiling** (a `BufferSpan` refactor changed a type they destructure) while
-   every gate stayed green, because a suite outside the gate protects nothing.
-   ScrAP-124.
+2. `cargo clippy --all-targets --features gtk-integration-tests,memory-gates -- -D warnings` —
+   zero warnings permitted. **The feature flags are not optional here.** Without
+   them the `gtk-integration-tests` modules and the memory-gates class are not
+   compiled at all, so neither clippy nor `cargo test` sees them and they rot
+   unnoticed — they reached the point of **not compiling** (a `BufferSpan`
+   refactor changed a type they destructure) while every gate stayed green,
+   because a suite outside the gate protects nothing. ScrAP-124. The
+   `memory-gates` flag is the same rule applied to step 5b: compiling it here
+   is what keeps that class from rotting between pipeline runs.
 3. `cargo build --release` — must compile cleanly
 4. `cargo test` — all tests must pass
 5. `scripts/run-integration.sh` — all tests must pass. That helper IS the step; the
@@ -142,6 +144,17 @@ Before any change is considered valid, run these steps in order:
    once after a nested `dbus-run-session` in a test rig unlinked
    `/run/user/1000/at-spi/bus_0` on teardown: a rig that claims that path takes the
    operator's session down with it.
+5b. **Per-render memory-growth class** (TDD 6.6–6.8). A third class beside unit and
+    integration tests, deterministic, **outside the coverage ratchet**
+    (`scripts/coverage.scope` is not the place that records it), and a mandatory
+    pipeline step with no opt-in. It bounds **per-render growth after warm-up**,
+    not absolute RSS — a large document may sit high; it must not keep climbing.
+    Never write a single-shot "render, free, assert the number came back": freed
+    pages stay with the allocator on every platform this project ships, so that
+    shape cannot pass on a correct implementation. The contract owns the command;
+    Linux runs it through `scripts/run-memory-gates.sh` so the throwaway GTK
+    session is the same one step 5 uses. The `memory-gates` feature is what keeps
+    these bodies out of step 5.
 6. **Coverage gate** — `scripts/coverage.sh` must pass. Scoped line coverage is a
    no-regression **ratchet**, not a target: the script owns the floors (`FLOOR`,
    `FLOOR_FULL`) and the scope (`IGNORE`), and is the only place any of them is written
@@ -553,6 +566,33 @@ silently returning in a future change.
   worst when the hijacked state is *diagnostic* machinery: it does not fail silently, it
   manufactures authoritative-looking evidence about the wrong subject — ScrAP-265, where
   the artefact was a full crash report naming an application that had not crashed.
+
+### Per-render memory-growth class
+
+A third class beside unit tests and GTK-object integration tests. It is
+**not** folded into step 5: a separate pipeline step (5b) can be disabled
+independently later. Bodies live under `src/memgate/`, compiled only with
+`--features memory-gates`, and run on the process main thread through
+`--test gtk_suite memgate`. They are excluded from the coverage ratchet by
+construction (the feature is not passed to `scripts/coverage.sh`). The
+decision cores — slope arithmetic, the footprint sampler — are ordinary unit
+tests in the same module and stay inside the ratchet.
+
+Two assertions, catching disjoint failures:
+
+1. **Growth slope** after discarding warm-up renders. Per-platform tolerance
+   constants, never one shared number; the sampled field is named `footprint`,
+   never `rss`.
+2. **Finalization** of the decoded picture once every application reference
+   is dropped, including the image cache, with no main-loop pump. Sound
+   because this project pins `GSK_RENDERER=cairo`, and because the gate
+   asserts the realized native's renderer is `GskCairoRenderer` (`$GSK_RENDERER`
+   is defeatable). At our GTK floor the GL renderer never releases the texture
+   (6.7 would false-red). At 4.22.4 it does (6.7 would false-green on the wrong
+   arm). The object-type assertion is what catches both.
+
+A WebP fixture that the host cannot decode prints `SKIPPED [TDD 6.6]: …` and
+the PNG control still runs. Never `#[cfg(platform)]` the body away.
 
 ### GTK-object integration tests
 

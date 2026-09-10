@@ -79,6 +79,7 @@ mod logging;
 mod macwordnav;
 mod mdtable;
 // Test-only in `lib.rs` (`#[cfg(test)]`); this root is always built `--cfg test`.
+mod memgate;
 mod notices;
 mod outline;
 mod outline_view;

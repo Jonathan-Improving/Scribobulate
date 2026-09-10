@@ -1,19 +1,18 @@
-//! Process-wide, URL-keyed cache for decoded remote-image textures.
+//! Process-wide cache for decoded image textures.
 //!
 //! ## Why this exists
 //!
-//! `renderer::start::load_remote_texture` fetches and decodes a remote image
-//! synchronously on the GTK main thread (accepted for the opt-in "Show Unsafe
-//! Images" path, ScrAP-34a). A disclosure fold-toggle re-renders its document
-//! into a scratch buffer to rebuild its offset maps, which walks every image tag
-//! again — so without a cache, toggling a fold would re-fetch every remote image
-//! in the document on every toggle, freezing the UI each time. This module is
-//! the fix: a hit returns the already-decoded texture with no network call at
-//! all, and a cached failure returns `None` immediately instead of re-issuing a
-//! doomed request. The eviction/TTL policy itself is pure and lives in
-//! [`policy`], display-free and unit-tested there; this module is the thin GTK
-//! wiring over it — the process-wide singleton, decoded-byte accounting, and the
-//! entry point [`get_or_fetch`] that `renderer::start` calls.
+//! A render is no longer a rare event — a disclosure fold-toggle, a theme
+//! switch, or a live reload re-walks every image tag. Remote images would be
+//! re-fetched synchronously on the main thread (ScrAP-34a). Local images would
+//! be re-decoded, and on an animated WebP that decode leaks (~12 MB per call
+//! through the gdk-pixbuf incremental path). This module is the fix for both:
+//! a hit returns the already-decoded texture with no network call and no
+//! second decode. Keys are URLs for remote images and `local:{path}:{mtime}:{size}`
+//! for local ones, sharing one LRU byte budget. The eviction/TTL policy itself
+//! is pure and lives in [`policy`]; this module is the thin GTK wiring — the
+//! process-wide singleton, decoded-byte accounting, and the entry point
+//! [`get_or_fetch`] that `renderer::start` calls.
 //!
 //! ## Shape
 //!

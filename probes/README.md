@@ -135,6 +135,7 @@ cc probes/textview-anchored-toggle.c    -o /tmp/textview-anchored-toggle    $(pk
 cc probes/textbuffer-selection-leak.c   -o /tmp/textbuffer-selection-leak   $(pkg-config --cflags --libs gtk4)
 cc probes/textview-primary-overwrite.c  -o /tmp/textview-primary-overwrite  $(pkg-config --cflags --libs gtk4)
 cc probes/textview-selection-clipboard.c -o /tmp/textview-selection-clipboard $(pkg-config --cflags --libs gtk4)
+cc probes/webp-loader-routes.c          -o /tmp/webp-loader-routes          $(pkg-config --cflags --libs gtk4)
 
 # the Rust ones build and run themselves
 cargo run --manifest-path probes/binding-shape-rs/Cargo.toml
@@ -893,6 +894,72 @@ verdict without needing either.
 
 **Do not de-duplicate the two ObjC rigs' boilerplate.** `accessory-view-dealloc.m` rests its
 conclusion on the two probes sharing no code path — the duplication is load-bearing.
+
+## `gsk-texture-ref-ownership.c` — the prediction that split by renderer
+
+**Question:** does anything inside GSK hold a strong reference to a `GdkTexture` after it
+has been rendered? The answer decides whether a memory gate may assert
+*"the previous generation finalized"* — because if GSK retains it, that assertion reddens
+on healthy code, and **a false RED in a mandatory gate is worse than a missed leak: it
+gets the gate switched off, and then it protects nothing.**
+
+**Answer: it depends on the renderer, and that was not the expected shape.** Under
+**cairo** nothing retains it, on both versions measured. Under **GL at 4.6.9** something
+does — beyond both the caller's reference *and* the render node tree.
+
+| Seat | Version | `GskCairoRenderer` | `GskGLRenderer` |
+|---|---|---|---|
+| `mac`, Quartz/aarch64 | 4.22.4 | finalizes, 0 loop iterations | finalizes, 0 loop iterations |
+| `linux`, X11/**Xvfb** | 4.6.9 | finalizes, 0 loop iterations | **never finalizes** — *software* GL (Phase A and B both fail) |
+
+```sh
+gcc -o /tmp/gsktro probes/gsk-texture-ref-ownership.c $(pkg-config --cflags --libs gtk4)
+/tmp/gsktro          # ~35s: two renderers, each with a 17s sleep
+```
+
+Exit `0` = sound, `2` = an assertion failed, `1` = no renderer realized and **the run
+measured nothing** — that third code exists so an empty run cannot be read as a pass.
+
+### Why it has two phases
+
+**Phase A** measures ownership, behind two negative controls (alive while the probe holds
+a ref; alive after the node alone is released) so the probe is able to fail. **Phase B**
+plants the leak: retain the node tree, drop the texture ref, and require the texture to
+*survive* 500 idle iterations and 17 s of wall clock — outlasting 4.22.4's
+`CACHE_TIMEOUT` of 15 s — then die the instant the node is released. Phase B is the one
+worth having: it shows the gate reddens on the real defect shape, and it excludes the
+timing hypothesis rather than not mentioning it.
+
+### What the split means
+
+The finalization assertion is safe **because this project pins `GSK_RENDERER=cairo`
+unconditionally** (`lib.rs`), not because GSK is generally well-behaved. That distinction
+is load-bearing and it was recorded backwards first: the forced renderer was written up as
+"belt-and-braces… cairo is NOT what makes the gate safe". At the 4.6 floor it is exactly
+what makes it safe. **Any future proposal to let the renderer vary re-opens this
+question**, and the gate must be re-measured before it does.
+
+The GL result carries a caveat the cairo result does not, and it is a **confound neither
+seat can break**: the two runs differ in *two* variables at once, 4.22.4 against 4.6.9 and
+real GL against software GL under Xvfb. The honest cell is therefore **"4.6.9 plus software
+GL retains"**, and the caveat must keep naming the GL *implementation* and not only the
+version. This tree already knows software GL under Xvfb to be odd (`GTK4Rs/AP-129` — a GL
+texture cache misbehaving there badly enough to abort at teardown). Real GL at 4.6 is
+**unmeasured**: the macOS seat has no 4.6 and no llvmpipe, so it can hold neither variable
+fixed. Nothing here should be read as claiming real GL retains.
+
+### Provenance, because the disagreement is the point
+
+The researcher's source trace predicted 4.6.9 would be **identical** to 4.22.4 on both
+renderers, and stated that prediction in advance specifically so the run could falsify it.
+It did, for GL. That is the value of executing a source trace on the version that governs
+rather than inheriting it: the reading was right for cairo, right for 4.22.4 entirely, and
+wrong at the floor for the one renderer nobody was going to run — which is precisely the
+combination that survives review unchallenged.
+
+Written on the `mac` seat and run unchanged on `linux` apart from one 4.6 portability fix,
+kept deliberately non-semantic so both seats ran the same experiment: `gsk_gl_renderer_new`
+is declared in `gsk/gl/gskglrenderer.h` at 4.6 and is not reachable through `gtk.h`.
 
 ## `listview-scroll-snap.c`
 

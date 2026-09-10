@@ -66,6 +66,11 @@ pub(crate) mod limits;
 pub(crate) mod lineendings;
 pub(crate) mod links;
 pub(crate) mod logging;
+/// Test-only. Per-render memory-growth gating (TDD 6.6–6.8): the slope
+/// arithmetic, the footprint sampler, and the GTK driver under `memory-gates`.
+/// Not shipped: a production build has no reader for these numbers.
+#[cfg(test)]
+pub(crate) mod memgate;
 // Option+Left/Right word navigation in the editor — a macOS-only convention GTK
 // itself does not bind on any backend (see the module doc comment). Top-level rather
 // than under `platform/mac/`: that directory's contract (below) is narrow plumbing,

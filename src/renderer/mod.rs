@@ -25,7 +25,8 @@
 //!   * [`emit`] — buffer-emission helpers (`insert`/`newline`/`block_sep`/
 //!     `apply_tag_per_line`/`insert_code_block`) + trivial accessors.
 //!   * [`events`] — `process`, the `Event` dispatcher.
-//!   * [`start`] — `start_tag` (block/inline opens, incl. image resolution).
+//!   * [`start`] — `start_tag` (block/inline opens, incl. image resolution and
+//!     the local-image cache).
 //!   * [`end`] — `end_tag` (block/inline closes, incl. table-cell widget build).
 //!
 //! The `Renderer`/`TableState` structs live here so every impl submodule (a
@@ -53,7 +54,7 @@ pub(crate) mod picture;
 pub(crate) mod rawhtml;
 mod scan;
 pub(crate) mod segments;
-mod start;
+pub(crate) mod start;
 
 pub(crate) use image::image_placeholder_tooltip;
 pub(crate) use normalize::{md_options, NormalizedMd};

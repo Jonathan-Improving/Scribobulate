@@ -26,6 +26,7 @@ each would hold half an invariant; so it is stated once, here.
 | [Untrusted input](#untrusted-input) | A theme is data from disk |
 | [Syntax palette: page luminance vs desktop luminance](#syntax-palette-page-luminance-vs-desktop-luminance) | Which lightness each surface follows |
 | [Theme change detection and re-render](#theme-change-detection-and-re-render) | Where the change notification comes from per platform |
+| [Decoded sprites live with the active theme](#decoded-sprites-live-with-the-active-theme) | When a theme's rasters leave memory |
 
 ---
 
@@ -263,6 +264,30 @@ theme's own directory. The export HTML sink re-checks its OWN embed size cap
 independently rather than trusting `resolve`'s, since a base64 embed inflates by
 roughly a third on top of the decoded size and the two caps protect different
 budgets.
+
+## Decoded sprites live with the active theme
+
+A sprite is decoded lazily, on the first paint (or export) that needs it, into three
+process-global caches in `sprite.rs` (natural texture, resampled texture, cairo
+surface). **Those rasters are dropped when the active theme changes**
+(`theme::set_active` → `sprite::clear_cache`), so a theme that named them no longer
+keeps them resident once the reader has left it (TDD 18.58). Selecting that theme
+again decodes them on the next paint; the unload is not a one-way loss. Pixel Quest
+→ System is one instance of the same rule, not a special case.
+
+The cache going empty is the first half. Widgets that cloned a texture out of it — a
+heading-marker paintable in the buffer, a `SpriteRule`, a disclosure `GtkPicture` —
+keep that GObject alive until the theme-change re-render destroys them (the active
+tab is rebuilt in place; a background tab drops its preview and is marked deferred).
+Both halves have to happen: emptying the cache while those holders still point at
+the rasters would free nothing a memory counter can see.
+
+**What this does not unload.** Compiled-in PNG bytes stay in the binary — that is
+the built-in-theme-with-nothing-on-disk promise (ScrAP-324), a few kilobytes the OS
+can page out, not the decoded cost that scales with a user-supplied sprite. System
+fonts a theme names stay in Pango/fontconfig; those are the desktop's cache, not
+this engine's. GSK's last-frame nodes last until the next paint of the new theme,
+which the re-render already triggers.
 
 ## Syntax palette: page luminance vs desktop luminance
 

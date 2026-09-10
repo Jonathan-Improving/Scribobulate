@@ -375,6 +375,14 @@ grep VmRSS /proc/<PID>/status                 # sum across all app processes
 Never `pkill` a helper process in the same command that captures output — a
 child core-dump silently discards stdout (POLICY.md).
 
+**Per-render growth (6.6–6.8) is a pipeline step, not this hand procedure.** The
+standing gate drives a re-render loop, discards warm-up, and asserts the second
+half of samples does not climb past the first. Do not substitute a one-shot
+"render, free, check the number came back" — freed pages stay with the allocator
+on every platform this project ships, so that shape cannot pass on a correct
+implementation. The live check that remains here is 6.3's unbounded-climb watch
+across live-reload cycles; 6.6 is the same quantity asked as a slope.
+
 ### 1.9 Detecting a wedged or crashed run (for unattended / orchestrated runs)
 
 Recovery is cheap — `kill` the tracked PID and relaunch with `-n` — but you must
@@ -843,6 +851,9 @@ gtk4-rs skill's dev-loop doc on why geometry/rendering bugs leave no warning.
   > **Read `IOSurface` as context, never as the gate.** It is the window-server handoff that every macOS window has, Cairo-rendered or not, and it dominates the GPU-mapped total (tens of MiB against IOAccelerator's hundreds of KiB). It is area-*invariant* — measured constant across a 4x window-area range — but its large backing buffers appear and disappear **in pairs** over a process's life, so its total can halve or double for no application reason. A run that gates on the IOSurface total will read that as a regression. Report it, do not gate on it.
   > **GPU engine utilisation is only available system-wide without `sudo`** (`ioreg -r -d 1 -c IOAccelerator`, field `"Device Utilization %"`). It therefore includes every other window on the desktop. Take a baseline with the app closed and compare against it; a single absolute reading proves nothing on its own.
 - [ ] **6.5** *(Windows only)* Measure dedicated GPU memory and GPU engine utilisation for the PID (`Get-Counter "\GPU Process Memory(*)\Dedicated Usage"` and `"\GPU Engine(*)\Utilization Percentage"`, matched on `pid_<PID>_`). A non-zero reading is **expected and not a failure** — Windows composites every window through the GPU. What must hold: the figure stays far under 50 MiB, engine utilisation stays ~0%, and — the actual gate — the figure **does not grow** when the window is maximised (try ~9x the area) or when a much larger document is opened at a fixed window size, while RSS *does* grow with the document. Growth in either dimension means software compositing is not active (TDD 6.5)
+- [ ] **6.6** *(all platforms; the pipeline step is the gate)* Open a document that embeds a local image — animated WebP where the host can decode it, otherwise the large PNG — and drive a dozen theme switches (or zoom steps, or live reloads of unchanged content) after a couple of warm-up renders. Process memory must not keep climbing from the first half of those remaining renders to the second. A document with no images is the control and stays flat. This is a slope, not a ceiling (TDD 6.6). **Do not** free an image and assert the number came back — it will not, on a correct build.
+- [ ] **6.7** Covered by the same pipeline step as 6.6: the previous render's decoded picture is gone once the application has dropped it, including the render node tree, with no extra main-loop pump. Cairo renderer only (TDD 6.7).
+- [ ] **6.8** Open a document with a local image, switch theme (same size, same file) → the picture is unchanged and the second render is not a fresh decode from disk. Then replace the image file on disk and reload → the new picture shows. Zoom a local SVG → it stays sharp (13.11), not a stretched bitmap (TDD 6.8).
 
 ### §7 Window & layout
 - [ ] **7.0** *(Windows only, release build)* Launch the **installed** app from its Start-menu shortcut or by double-clicking a `.md` file — not from a terminal. **No console/CMD window may appear**, either in front or behind the app window, and none may show in the taskbar. Regression shape to watch for: a console-subsystem build allocates a console that owns the process, so closing that window kills the app with no save prompt. Verify with `Get-CimInstance Win32_Process -Filter "ParentProcessId = <PID>"` → no `conhost.exe`. A **debug** build is expected to keep its console (that is deliberate, so `RUST_LOG` still reaches the terminal during development) — test this against a release build only
