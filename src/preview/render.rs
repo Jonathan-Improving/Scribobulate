@@ -207,6 +207,12 @@ pub(crate) fn render(
     // which — unlike the view's, not yet propagated — exists now) so a later zoom
     // re-anchors there (ScrAP-65).
     view.wire_scroll_position_tracking(&scroller);
+    // Ctrl+wheel (Cmd+wheel on macOS) steps the zoom ladder instead of scrolling.
+    // Wired HERE, at the one place a preview scroller is built, so no render path
+    // can produce a preview the gesture does not reach. It must be added AFTER the
+    // scroller exists — its capture-phase controller only beats GtkScrolledWindow's
+    // own by being the later of the two; see `window::zoomwheel`.
+    crate::window::install_zoom_wheel(&scroller);
 
     // Wrap the preview scroller in a per-preview GtkOverlay so the CriticMarkup
     // "Annotate" bar (the preview create card) floats IN-SURFACE over the selection

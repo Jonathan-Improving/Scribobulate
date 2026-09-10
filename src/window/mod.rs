@@ -142,6 +142,7 @@ mod toolbar;
 pub(crate) mod undo;
 mod viewactions;
 mod wheelcoalesce;
+mod zoomwheel;
 
 use chrome::*;
 use copylink::*;
@@ -163,6 +164,7 @@ use tabs::*;
 pub(crate) use crate::widgets::tab::TabView;
 use toolbar::*;
 use viewactions::*;
+pub(crate) use zoomwheel::install as install_zoom_wheel;
 
 /// Match the editor's GtkSourceView style scheme to the desktop dark/light theme. The
 /// scheme system is independent of the GTK theme, so without this the editor pane stays

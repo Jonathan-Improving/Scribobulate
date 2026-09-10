@@ -167,6 +167,28 @@ pub(crate) fn for_host(accel: &str) -> Cow<'_, str> {
     map(accel, host())
 }
 
+/// The modifier `<Primary>` denotes on `platform`, as an event mask.
+///
+/// The same fact [`map`] expresses about accelerator *strings*, asked for by a
+/// caller that has no string to re-spell: a pointer gesture carries a
+/// [`gdk::ModifierType`], not an accelerator. It lives here, beside the swap,
+/// because the two must agree — a Ctrl+wheel on a platform whose menus all read ⌘
+/// is a command the user cannot find. `mask_matches_the_respelled_accelerator`
+/// pins them together against GTK's own parse.
+pub(crate) const fn primary_modifier(platform: Platform) -> gtk::gdk::ModifierType {
+    match platform {
+        // GTK spells macOS's Command `<Meta>`, and the Quartz backend reports it as
+        // `GDK_META_MASK` in an event's modifier state.
+        Platform::Mac => gtk::gdk::ModifierType::META_MASK,
+        Platform::Other => gtk::gdk::ModifierType::CONTROL_MASK,
+    }
+}
+
+/// [`primary_modifier`] for the platform this binary runs on.
+pub(crate) const fn primary_modifier_for_host() -> gtk::gdk::ModifierType {
+    primary_modifier(host())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -414,5 +436,37 @@ mod tests {
         linux.sort();
         mac.sort();
         assert_eq!(linux, mac);
+    }
+}
+
+/// GTK-object tests (`gtk::accelerator_parse` needs an initialised GTK, hence the
+/// `gtk-integration-tests` feature and `#[gtktest::test]`).
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+mod gtk_integration_tests {
+    use super::*;
+
+    /// The mask a pointer gesture tests must be the modifier GTK actually parses out
+    /// of `<Primary>` **as this platform spells it**. The two are separate statements
+    /// of one fact — [`map`] re-spells a string, [`primary_modifier`] answers with a
+    /// mask — and nothing but this connects them, so a swap corrected in one and not
+    /// the other would leave Ctrl+wheel live on a Mac whose every menu reads ⌘.
+    ///
+    /// Both platforms are checked from either host: the masks are compared against
+    /// GTK's parse of the string `map` produces for that platform, which is a pure
+    /// transform of a literal rather than a `cfg`.
+    ///
+    /// MUTATION-CHECKED: `primary_modifier(Platform::Other)` → `ALT_MASK` fails it.
+    #[gtktest::test]
+    fn mask_matches_the_respelled_accelerator() {
+        for platform in [Platform::Mac, Platform::Other] {
+            let spelled = map("<Primary>a", platform);
+            let (_key, modifiers) = gtk::accelerator_parse(spelled.as_ref())
+                .expect("<Primary>a re-spells to something GTK can parse");
+            assert_eq!(
+                modifiers,
+                primary_modifier(platform),
+                "{platform:?}: the gesture mask disagrees with the accelerator {spelled:?}"
+            );
+        }
     }
 }

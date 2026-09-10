@@ -107,6 +107,7 @@ src/links.rs
 src/macwordnav.rs
 src/mdtable.rs
 src/notices.rs
+src/outline/expansion.rs
 src/outline/mod.rs
 src/outline/tree.rs
 src/palette/mod.rs

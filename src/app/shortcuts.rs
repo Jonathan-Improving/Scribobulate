@@ -62,6 +62,64 @@ fn shortcut_xml(title: &str, accel: &str) -> String {
     )
 }
 
+/// A shortcut that is a **pointer gesture held under a key** — the modifier is a
+/// real keystroke this window is the right place to advertise, the motion is not.
+///
+/// It carries no `action`, and that is the point of it being a separate table:
+/// nothing here is bound by `register_accelerators`, because a wheel is not
+/// expressible as an accelerator string. A row states the modifier as a **declared**
+/// accelerator so it is re-spelled for the host like every other row (⌘ on macOS),
+/// and names the motion in a subtitle.
+struct PointerCmd {
+    /// The shortcuts-window group heading this row appears under.
+    group: &'static str,
+    /// Human label — what the gesture does.
+    label: &'static str,
+    /// The modifier held, as a **declared, modifier-only** accelerator. GTK parses
+    /// one of these to `keyval 0` with the modifier mask set, which
+    /// `GtkShortcutLabel` renders as the bare modifier keycap and nothing else.
+    accel: &'static str,
+    /// The motion, in words, since GTK's accelerator vocabulary has none for a
+    /// wheel: `gtkshortcutlabel.c` understands only `...`, `+` and `&`, and hands
+    /// everything else to `gtk_accelerator_parse`.
+    subtitle: &'static str,
+}
+
+/// The pointer gestures worth advertising here. **A gesture with no key in it is
+/// deliberately absent** — the Back/Forward thumb buttons are pointer buttons 8
+/// and 9 with no keystroke at all, and this window describes keys (TDD 23.6).
+const POINTER_CMDS: &[PointerCmd] = &[PointerCmd {
+    group: "View",
+    label: "Zoom Preview In / Out",
+    // The same `<Primary>` the zoom accelerators declare, so the keycap drawn here
+    // and the modifier `window::zoomwheel` tests for are one platform decision, not
+    // two. `pointer_row_modifier_matches_the_gesture_mask` below is what holds them
+    // together.
+    accel: "<Primary>",
+    subtitle: "With the mouse wheel",
+}];
+
+/// One `<GtkShortcutsShortcut>` for a [`PointerCmd`].
+///
+/// An **accelerator** row, not `shortcut-type="gesture"`: that type draws a
+/// `GtkImage` from an icon GTK derives from the type, and derives none for a plain
+/// gesture (`gtkshortcutsshortcut.c:206-260`), so the row would render a visible
+/// empty image at the default 64px and no words at all. `subtitle` displays on an
+/// accelerator row — the explicit setter controls its visibility on its own and is
+/// conditioned on nothing (`:132-133`, `:201`).
+fn pointer_shortcut_xml(cmd: &PointerCmd) -> String {
+    format!(
+        "<child><object class=\"GtkShortcutsShortcut\">\
+           <property name=\"title\">{}</property>\
+           <property name=\"accelerator\">{}</property>\
+           <property name=\"subtitle\">{}</property>\
+         </object></child>",
+        xml_escape(cmd.label),
+        xml_escape(&crate::accel::for_host(cmd.accel)),
+        xml_escape(cmd.subtitle),
+    )
+}
+
 /// One `<GtkShortcutsGroup>` with a title and its accumulated shortcut children.
 fn group_xml(title: &str, rows: &str) -> String {
     format!(
@@ -75,9 +133,10 @@ fn group_xml(title: &str, rows: &str) -> String {
 
 /// Collect the `(title, accelerator)` rows for one group: every Cmd-table entry
 /// with a non-empty accel, then any [`crate::app::INLINE_ACCEL_CMDS`] tagged with
-/// this group. Inline commands show their CANONICAL (first) accelerator — the same
-/// one the menu hint / tooltip show — while `register_accelerators` binds all of
-/// its aliases, both from the one table (QA M-4).
+/// this group, then any [`POINTER_CMDS`] tagged with it. Inline commands show their
+/// CANONICAL (first) accelerator — the same one the menu hint / tooltip show —
+/// while `register_accelerators` binds all of its aliases, both from the one table
+/// (QA M-4).
 fn rows_for(group: &str, cmd_rows: &[(&str, &str)]) -> String {
     let mut out = String::new();
     for (title, accel) in cmd_rows {
@@ -87,6 +146,10 @@ fn rows_for(group: &str, cmd_rows: &[(&str, &str)]) -> String {
     }
     for cmd in INLINE_ACCEL_CMDS.iter().filter(|c| c.group == group) {
         out += &shortcut_xml(cmd.label, cmd.accels[0]);
+    }
+    // Last in the group: a gesture is a footnote to the keys above it, not a peer.
+    for cmd in POINTER_CMDS.iter().filter(|c| c.group == group) {
+        out += &pointer_shortcut_xml(cmd);
     }
     out
 }
@@ -223,6 +286,36 @@ mod tests {
             );
         }
     }
+
+    /// The same coverage guard for [`POINTER_CMDS`], and it needs its own: those
+    /// rows are bound by nothing, so the bind↔display equality test below cannot
+    /// see them, and a row tagged with a group heading `interface_xml` does not
+    /// render would silently vanish with no other symptom. The **subtitle** is
+    /// asserted too — it is the only part of the row that says *wheel*, so a row
+    /// that lost it would advertise a bare modifier as though it were a shortcut.
+    ///
+    /// MUTATION-CHECKED: deleting the `POINTER_CMDS` loop from [`rows_for`] fails it.
+    #[test]
+    fn every_pointer_cmd_is_displayed_with_its_subtitle() {
+        let xml = interface_xml();
+        for cmd in POINTER_CMDS {
+            for part in [cmd.label, cmd.subtitle] {
+                assert!(
+                    xml.contains(&xml_escape(part)),
+                    "POINTER_CMDS {:?} (group {:?}) is missing {part:?} — is its \
+                     group a rendered heading?",
+                    cmd.label,
+                    cmd.group,
+                );
+            }
+            let shown = crate::accel::for_host(cmd.accel);
+            assert!(
+                xml.contains(&xml_escape(&shown)),
+                "POINTER_CMDS {:?} modifier {shown:?} is not shown",
+                cmd.label,
+            );
+        }
+    }
 }
 
 /// GTK-object tests (need `gtk::init`, hence the `gtk-integration-tests` feature
@@ -297,6 +390,49 @@ mod gtk_integration_tests {
                 bound, expected,
                 "binding for {:?} drifted from its INLINE_ACCEL_CMDS row",
                 cmd.action
+            );
+        }
+    }
+
+    /// A [`POINTER_CMDS`] row's modifier and the mask `window::zoomwheel` tests an
+    /// event's state against must be the same platform decision. Nothing else
+    /// connects them: the row is bound by no accelerator, so no bind↔display guard
+    /// covers it, and the failure it prevents is silent and platform-specific —
+    /// a window advertising ⌘ beside a gesture that answers only to Ctrl.
+    ///
+    /// Also proves the modifier-only accelerator PARSES. GTK's shortcut label hands
+    /// anything it does not recognise straight to `gtk_accelerator_parse`, and a
+    /// parse failure takes the whole label down rather than degrading, so the row
+    /// would render blank with nothing logged.
+    ///
+    /// MUTATION-CHECKED: `primary_modifier(Platform::Other)` → `ALT_MASK` fails it (and
+    /// `accel`'s own sibling guard) — the two are the pair that would have to agree for
+    /// a wrong modifier to ship silently.
+    #[gtktest::test]
+    fn pointer_row_modifier_matches_the_gesture_mask() {
+        for cmd in POINTER_CMDS {
+            let shown = crate::accel::for_host(cmd.accel);
+            let (keyval, modifiers) = gtk::accelerator_parse(shown.as_ref())
+                .unwrap_or_else(|| panic!("POINTER_CMDS {shown:?} does not parse"));
+            assert_eq!(
+                glib::translate::IntoGlib::into_glib(keyval),
+                0,
+                "POINTER_CMDS {shown:?} names a key — it must be modifiers only, or \
+                 the row advertises a keystroke that is bound to nothing"
+            );
+            // The half of the rendering the source trace could only infer: with no
+            // keyval, `GtkShortcutLabel`'s `default:` arm appends `gdk_keyval_name(0)`,
+            // and the row draws as a bare modifier keycap only because that is NULL.
+            assert!(
+                keyval.name().is_none(),
+                "keyval 0 has a name, so the row would draw a spurious keycap after \
+                 the modifier"
+            );
+            assert_eq!(
+                modifiers,
+                crate::accel::primary_modifier_for_host(),
+                "POINTER_CMDS {:?} advertises a modifier the gesture does not test for",
+                cmd.label,
             );
         }
     }

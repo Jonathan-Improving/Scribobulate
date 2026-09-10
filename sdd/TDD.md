@@ -14,7 +14,7 @@
 | 10 | Markdown formatting commands | 10.1 – 10.20 |
 | 11 | Find & replace | 11.1 – 11.10 |
 | 12 | Document outline | 12.1 – 12.24 |
-| 13 | Preview zoom | 13.1 – 13.10 |
+| 13 | Preview zoom | 13.1 – 13.12 |
 | 14 | Show Unsafe Images | 14.1 – 14.10 |
 | 15 | Tabbed documents | 15.1 – 15.22 |
 | 16 | Keyboard-shortcuts help & status surfaces | 16.1 – 16.9 |
@@ -1804,6 +1804,15 @@
 - **And** zooming in never makes an image disappear or shrink. Where the scaled size would cost more to rasterise than `limits::MAX_VECTOR_RASTER_PIXELS` allows, the image is still **drawn at the size zoom asked for** and only its raster is bounded — so it goes soft rather than small, and the reader who zoomed in is never answered with less than they had. (Distinct from §14's `MAX_IMAGE_PIXELS`, which refuses a hostile *input* outright; this one bounds an allocation the application chooses on the reader's behalf.)
 - **And** the broken-image placeholder (2.5) scales on the same terms, so a document of blocked images does not stop responding to zoom
 
+### 13.12 The zoom ladder is reachable from the mouse wheel
+- **Given** the window is in preview or split mode
+- **When** the reader holds the platform's own command modifier — **Ctrl** on Linux and Windows, **⌘** on macOS (9.36) — and turns the wheel over the **preview** pane
+- **Then** wheeling up steps one rung *in* and wheeling down steps one rung *out*, one rung per wheel click, and the pane does **not** scroll while that modifier is held
+- **And** it is the same command as every other zoom surface, so it stops at the ladder's ends (13.4), is inert in pure-edit mode (13.5), and keeps the reading position (13.7) — a wheel zoom is an extra input to Zoom In / Zoom Out, never a second implementation of them
+- **And** a touchpad steps once per wheel-notch of *travel* rather than once per event, so one flick does not run the ladder end to end; travel that reverses inside a rung cancels instead of stepping twice
+- **And** with the modifier released, the wheel scrolls that pane exactly as before
+- **And** over the **editor** pane in split mode the gesture does nothing — zoom scales the preview, so that is where it is offered
+
 ### 12.11 The outline panel has a labelled header
 - **Given** the outline sidebar is shown
 - **Then** a fixed caption reading "Outline" sits at the top of the panel and does not scroll with the heading list
@@ -2045,6 +2054,7 @@
 - **Given** the keyboard-shortcuts window is open
 - **When** the user reads it
 - **Then** every command that has a keyboard shortcut is listed, grouped by area (File, Edit, Format, View, Windows & Tabs), each showing its command name and its actual, platform-correct key combination — and a shortcut shown there really triggers that command
+- **And** a pointer gesture the reader performs **under a held key** is listed in its area too — Ctrl+wheel zoom (13.12) — showing the modifier as a keycap and naming the motion in words, because GTK's accelerator vocabulary has none for a wheel. A gesture with **no** key in it stays out (the Back/Forward thumb buttons, 23.6): the key is what makes it this window's business
 
 ### 16.3 A clean auto-reload is announced in the status bar
 - **Given** the editor has no unsaved edits and auto-reload is enabled
