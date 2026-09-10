@@ -699,18 +699,37 @@ mod close_semantics_tests {
         }
     }
 
-    /// The contrast that makes the test above meaningful: a **plain** close does promote.    /// A **plain** close finalises the file — which the snapshot path *does* still rely
-    /// on, because it closes the temp before renaming it.
+    /// The contrast that makes the test above meaningful: a **plain** close finalises
+    /// the file — which the snapshot path *does* still rely on, because it closes the
+    /// temp before renaming it.
     ///
     /// So this one is not merely characterisation: if `close()` stopped flushing, our
     /// temp would be promoted incomplete. It also gives the cancelled-close test above
     /// its meaning, since an assertion about an absence is satisfied by a mechanism that
     /// does nothing at all.
+    ///
+    /// **The destination deliberately does not pre-exist**, and that is a fix rather
+    /// than a simplification. It used to be seeded with previous contents so the
+    /// promotion was visibly *over* something, which made this a `REPLACE_DESTINATION`
+    /// open on a live file — and on Windows GLib's close finishes that with
+    /// `MoveFileEx(MOVEFILE_REPLACE_EXISTING)`, which fails `ERROR_ACCESS_DENIED`
+    /// (surfacing as `G_IO_ERROR_PERMISSION_DENIED`, "Error renaming temporary file")
+    /// whenever **any** other process holds the destination open. MEASURED on
+    /// GTK 4.22.4/gvsbuild: every share mask fails, `FILE_SHARE_READ|WRITE|DELETE`
+    /// included, so there is no share mode a well-behaved file scanner could have used
+    /// that would have let this pass. A scanner opening a just-created file is enough,
+    /// which is what made it flake on CI and nowhere else.
+    ///
+    /// What the removal costs is nothing this test was for: GLib still promotes its own
+    /// `.goutputstream-` temp into place, so a close that stopped flushing still fails
+    /// here, and the stray check proves the promotion happened rather than the bytes
+    /// arriving some other way. Promotion over *previous contents* is covered — through
+    /// the production path, whose rename is ours and not GLib's — by
+    /// `a_successful_write_is_promoted_over_the_previous_snapshot`.
     #[test]
-    fn a_plain_close_promotes_the_temp_over_the_destination() {
+    fn a_plain_close_finalises_and_promotes_the_temp() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("snapshot.dat");
-        std::fs::write(&path, b"PREVIOUS").unwrap();
 
         let file = gio::File::for_path(&path);
         let stream = file
@@ -727,6 +746,17 @@ mod close_semantics_tests {
         stream.close(gio::Cancellable::NONE).expect("closes");
 
         assert_eq!(std::fs::read(&path).unwrap(), b"NEW SNAPSHOT");
+        let strays: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n != "snapshot.dat")
+            .collect();
+        assert!(
+            strays.is_empty(),
+            "close must consume GLib's temp by promoting it, not leave it beside the \
+             destination: {strays:?}"
+        );
     }
 }
 
