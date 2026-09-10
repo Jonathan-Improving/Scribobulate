@@ -51,6 +51,13 @@
  */
 
 #include <gtk/gtk.h>
+/* GTK 4.6 declares gsk_gl_renderer_new here and does not reach it from gtk.h, so without
+ * this the probe will not build on the floor. Guarded because at 4.14+ the same header is
+ * only a deprecation shim whose body is a #warning (the declaration moved to
+ * gsk/gpu/gskglrenderer.h and arrives via gtk.h) -- measured firing on macOS 4.22.4. */
+#if !GTK_CHECK_VERSION(4, 14, 0)
+# include <gsk/gl/gskglrenderer.h>
+#endif
 
 #define TEX_DIM 128
 #define CACHE_TIMEOUT_OUTLAST_SECS 17   /* 4.22.4 CACHE_TIMEOUT is 15s */

@@ -38,6 +38,7 @@ described from a different vantage point.
 | J | Any | Upstream | A paragraph that mixes fonts (any inline-code span) can lay out a few pixels wider than the wrap width it was given, summoning the preview's Automatic horizontal scrollbar and intermittently blanking the pane until a resize | Closed |
 | M | Windows | Production | On a machine with no Visual C++ runtime the app installs and then fails to start; the installer's bootstrapper for it has landed but has never been verified against that condition | Medium |
 | N | Any | Production | A document embedding a large SVG stalls the main thread for a fifth of a second on EVERY preview render — the decode is synchronous and uncached, so a zoom step, a disclosure toggle and each debounced keystroke in split mode all pay it again | Medium |
+| R | Linux | Upstream | An animated WebP leaks ~22 MB of heap on EVERY preview render and never returns it — a third-party gdk-pixbuf loader over-references its animation object through an iterator it never releases. Unbounded: measured 104 MB to 2.7 GB across 98 re-renders, and live reload fires it unattended | High |
 
 
 ## A. Tables are selection islands
@@ -665,3 +666,86 @@ the main thread is the larger fix and the loader permits it: the SVG loader decl
 parses the whole document and merely skips the render (researcher-measured at 27 ms on a
 6000-element file, against 0.078 ms for a raster header sniff), so it is not the free
 question its raster behaviour suggests.
+
+## R. An animated WebP leaks ~22 MB of heap on every render
+
+**Severity**: High (unbounded, and reached without user action)
+
+**The defect is not in this codebase.** `webp-pixbuf-loader` (Ubuntu
+`0.0.5-5~22.04.1`, `/usr/lib/x86_64-linux-gnu/gdk-pixbuf-2.0/2.10.0/loaders/libpixbufloader-webp.so`,
+stripped) over-references its `GdkPixbufWebpAnim` through a `GdkPixbufWebpAnimIter` that it
+creates and never releases. The anim then keeps its decoded frame **and the whole file
+buffer** alive for the life of the process. Measured refcount on the anim is **2 where the
+GIF loader's equivalent is 1**, and the surplus reference is never dropped.
+
+Two independent leaks in that one module sit on `renderer::start::load_texture`:
+
+| Call site | Route | Leak |
+|---|---|---|
+| `Pixbuf::file_info` (the header probe) | `gdk_pixbuf_get_file_info` | 2.31 MB/call |
+| `Texture::from_file` | `new_from_stream` → `GdkPixbufLoader` **incremental** path | 11.7–12.9 MB/call |
+
+They are **super-additive in sequence**: 2.31 + ~12.2 measured separately, **22.0 measured
+together**. Heap fragmentation from interleaved leaked blocks is the likely reason and is
+*inferred*, not measured.
+
+**Impact is not theoretical.** Every re-render pays it — theme switch, zoom, and **live
+reload, which fires unattended while an agent rewrites a file**, i.e. this application's
+core use case. Measured headlessly on a release build: 104 MB → **2708 MB across 98 theme
+switches**, dead linear, no plateau. The operator's own session reached 1 GB in ordinary
+use. Nothing is lost or corrupted, but the process grows without bound.
+
+**MEASURED**, Linux reference host, `gdk-pixbuf` 2.42.8. The proof that it is upstream is a
+20-line C program making exactly the two calls above — no widget, no buffer, no code from
+this tree — leaking 22.27 / 22.04 / 21.96 MB per iteration at n = 5 / 13 / 40, against the
+application's 22.17 and 22.01 MB per theme switch on a one-line
+`<img src="assets/splash.webp">` document. **The probe and the application agree to 1%.**
+
+**It is the loader module, not the format family, and not animation in general.** The GIF
+loader takes no surplus reference and finalises every time. A *static* WebP of identical
+dimensions is flat. The trigger is specifically the animated branch of this one module.
+
+Route sensitivity on the same asset — this is what any fix has to work with:
+
+| Entry point | Result |
+|---|---|
+| `gdk_pixbuf_new_from_file` | errors outright ("Cannot create WebP decoder") |
+| `new_from_stream` / `GdkPixbufLoader` | **leaks** — and is what `Texture::from_file` uses |
+| `gdk_pixbuf_animation_new_from_file`, reading width/height only | **flat** |
+| `gdk_pixbuf_get_file_info` | **leaks** |
+
+**Platform reach — Linux only, and both other platforms are now measured.** Windows and
+macOS are **structurally immune** because neither ships a WebP pixbuf loader at all: the
+gvsbuild prefix carries exactly one (SVG), and Homebrew's gdk-pixbuf enumerates
+`ani bmp gif icns ico pnm qtif tga tiff xbm legacy-xpm svg png jpeg` with no webp module and
+zero mentions in `loaders.cache` (`gdk_texture_new_from_bytes` on WebP bytes also fails
+outright there). Homebrew's `webp` formula is libwebp the codec and is easy to misread as
+loader support. The over-referencing therefore cannot occur off Linux.
+
+⚠ **This is the `<picture>` fallback working as designed, not a second defect.** TDD 2.23
+already specifies that a candidate whose format has no decoder is skipped for the next in
+its group, so the README hero renders its GIF fallback on those platforms. A **bare**
+`<img>` pointing at a WebP is the case with no fallback to take, and that shows the
+broken-image placeholder with its `src` in the tooltip — also specified.
+
+⚠ **A related premise worth checking before choosing a fix**: the application does not
+animate images at all. `gdk_paintable_get_flags` on the texture `Texture::from_file`
+returns is `STATIC_SIZE | STATIC_CONTENTS`, and nothing in `src/` handles animation — every
+frame is decoded and discarded, and only frame 0 is ever displayed.
+
+**Mitigation options**:
+- **Avoid the leaking routes.** The route table above shows a flat path already exists for
+  dimensions; the decode side needs an equivalent. Best available fix, since it removes the
+  cost rather than amortising it, and it is entirely within this tree.
+- **Do not enter the animated branch** — decode a single frame. Close to a cure given
+  nothing renders animation today, but it is a rendering-behaviour change and so an
+  operator decision, not an implementation detail.
+- **Cache local decodes** keyed on path, mtime and quantised target width. This is the same
+  cache issue N proposes and the two compose — but note it only reduces how often an
+  unfixable leak is invoked. A mitigation, not a cure: a reader stepping through zoom levels
+  still pays it once per distinct size.
+- **Patch or vendor the loader** — rejected. It is a distribution package on the user's
+  machine; nothing this project ships replaces it, and vendoring a pixbuf module to override
+  a system one is far out of proportion to the problem.
+- **Accept it**, and let a long-lived session grow without bound. Not viable: a conservative
+  memory footprint is this project's reason to exist.

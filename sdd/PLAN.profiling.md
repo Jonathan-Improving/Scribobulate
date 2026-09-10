@@ -164,6 +164,12 @@ Second, **T3 is an ordered ladder, not a menu** — RSS slope across *scaled* cy
 counts first, because it is free and it is the step that decides whether there is
 anything to attribute at all; the interposer last, because it is a tool to write.
 
+**The C4 gate rung is now owned by [PLAN.memory-gates.md](PLAN.memory-gates.md)**, which
+carries a diagnosed per-render retention defect and builds the standing leak gate as a
+third test class with its own pipeline step. It consumes this plan's T3 ladder and
+comparability rules rather than restating them; nothing here needs to change to
+accommodate it, and C1/C2 remain this plan's.
+
 Approach 3 stays recorded and unrecommended as a *standing* tier. If the spin
 investigation exhausts sampling without naming the driver, it becomes the next step
 for that investigation alone — and the researcher question below should be answered
