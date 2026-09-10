@@ -105,8 +105,11 @@ Copy-Item $exeSrc "$OutDir\bin\"
 #
 # A DEVELOPER BOX CANNOT NOTICE IF THIS IS WRONG. Every machine that can build
 # this software already has the runtime, so the app starts either way and the
-# green tells you nothing -- see packaging/windows/README.md for what an honest
-# verification of this requires.
+# green tells you nothing. What an honest verification needs is the PAIR --
+# runtime absent with the bootstrapper disabled must FAIL to start, runtime
+# absent with it enabled must succeed -- and that needs a clean Windows image.
+# The reasoning, and what has and has not actually been verified, is in the
+# commented [Code] block of scribobulate.iss beside this file.
 # ---------------------------------------------------------------------------
 
 # GLib's helper executables. These are NOT optional tooling -- gdbus.exe is a

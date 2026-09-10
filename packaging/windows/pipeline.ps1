@@ -6,10 +6,10 @@
 .DESCRIPTION
     This is the LOCAL developer entry point, and it stays one now that CI exists.
     .github/workflows/pipeline.yml does not reimplement it: the workflow's Windows job
-    invokes THIS script for -SelfTest and -ListSteps, so there is still exactly one
-    Windows runner and CI is a caller of it rather than a second port. Executing the
-    full pipeline on a hosted Windows runner is not yet solved (it needs a gvsbuild GTK);
-    see packaging/windows/README.md "Windows and CI".
+    invokes THIS script -- for -SelfTest and -ListSteps in the contract job, and for the
+    full run (with -Package on a release) in execute-windows, which gets its GTK from
+    gvsbuild's PUBLISHED archive rather than by building one. So there is still exactly
+    one Windows runner and CI is a caller of it rather than a second port.
 
     IT DERIVES, IT DOES NOT RESTATE. Every step, its ordinal, class, intent, verdict
     rule and command come from scripts/pipeline.steps. This file previously carried its

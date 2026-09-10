@@ -46,9 +46,9 @@ if (-not $StageDir) { $StageDir = Join-Path $repo 'build\stage\Scribobulate' }
 
 # Locate Inno Setup's compiler. Probed rather than hardcoded because the two supported
 # install scopes put it in different places and BOTH are normal: `winget install --id
-# JRSoftware.InnoSetup` defaults to USER scope (%LOCALAPPDATA%\Programs), which is what
-# packaging/windows/README.md documents, while a machine-scope install lands under Program
-# Files. Hardcoding either one makes the other look like "Inno Setup is not installed".
+# JRSoftware.InnoSetup` defaults to USER scope (%LOCALAPPDATA%\Programs), while a
+# machine-scope install lands under Program Files. Hardcoding either one makes the other
+# look like "Inno Setup is not installed".
 function Find-Iscc {
     # `-First 1` is load-bearing, not tidiness. Get-Command returns EVERY match on PATH,
     # so on a machine carrying two Inno installs `$onPath.Source` is an ARRAY, and a

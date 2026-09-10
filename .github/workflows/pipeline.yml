@@ -400,10 +400,11 @@ jobs:
   # artefact at exit 0 (ScrAP-276). Contract-parsing evidence never had a chance of seeing
   # either.
   #
-  # GTK COMES PREBUILT, and this is the one place this job departs from what
-  # packaging/windows/README.md derived for CI. That file assumed provisioning meant
-  # RUNNING gvsbuild -- a multi-gigabyte source build of the whole dependency chain, plus
-  # MSYS2, plus the ~6.5 GB tree its cache note is about. gvsbuild also PUBLISHES the
+  # GTK COMES PREBUILT, and this is the one place this job departs from the local build
+  # packaging/windows/README.md documents. Locally, provisioning means RUNNING gvsbuild --
+  # a multi-gigabyte source build of the whole dependency chain, plus MSYS2, plus a
+  # ~6.5 GB intermediate tree, which is not something to do on a hosted runner every time
+  # the cache misses. gvsbuild also PUBLISHES the
   # result: GTK4_Gvsbuild_<version>_x64.zip, built by their CI from
   # `gtk4 libadwaita gtksourceview5 pygobject protobuf-c adwaita-icon-theme gtkmm`, which
   # is a superset of what this project needs (gtk4, gtksourceview5, and the icon theme
