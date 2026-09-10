@@ -44,11 +44,12 @@ pub(crate) mod textfield;
 ///
 /// # The anchor, and why it is not a parameter
 ///
-/// The tile grid is anchored at `(rect.x(), 0.0)` — x from the rect, y from the DOCUMENT
-/// origin — and every tiling site in the tree wants that pair, so it is baked in rather
-/// than chosen per call. It replaced a `TileOrigin` enum whose two answers were "the
-/// rect's own top-left" and `(0, 0)`; both were wrong, in different ways, and the enum's
-/// own documentation asserted the opposite of what each did.
+/// The tile grid is anchored at `(rect.x(), N * tile_h)` — x from the rect, y at the
+/// DOCUMENT-origin grid line at or above the rect — and every tiling site in the tree
+/// wants that pair, so it is baked in rather than chosen per call. It replaced a
+/// `TileOrigin` enum whose two answers were "the rect's own top-left" and `(0, 0)`; both
+/// were wrong, in different ways, and the enum's own documentation asserted the opposite
+/// of what each did.
 ///
 /// **What the anchor actually means** (researcher-verified against GTK 4.6.9):
 /// `gtk_snapshot_push_repeat` (`gtksnapshot.c:787-807`) `ensure_affine`-bakes the current
@@ -59,11 +60,12 @@ pub(crate) mod textfield;
 /// `(P - child_origin) mod tile`. "Anchored relative to the decoration" is not a mode the
 /// API offers — it is only what you get by choosing `child_origin == bounds.origin`.
 ///
-/// **Why y must be the document origin, not the rect's top.** Inside a `GtkTextView`'s
+/// **Why y must be the document's grid, not the rect's top.** Inside a `GtkTextView`'s
 /// `snapshot_layer` the current transform is already `translate(-xoffset, -yoffset)`
 /// (`gtktextview.c:5871-5873`), and a pure translate bakes into the rects rather than
-/// wrapping a transform node — so `y = 0` bakes to `-yoffset`, putting plate row
-/// `yoffset % tile_h` at the top of the viewport, a phase that travels with the text.
+/// wrapping a transform node — so a `y` congruent to `0` modulo `tile_h` bakes to
+/// `-yoffset` modulo `tile_h`, putting plate row `yoffset % tile_h` at the top of the
+/// viewport, a phase that travels with the text.
 /// Anchoring at the rect cannot do this, because `codeview::geometry::span_card_y_extent`
 /// returns `top = vtop` whenever a span begins above the visible range — the normal case
 /// for anything taller than the pane. The anchor then *is* the viewport, and the pattern
@@ -83,8 +85,30 @@ pub(crate) mod textfield;
 ///
 /// Grid alignment to each decoration's own top is deliberately NOT offered: it needs
 /// `decoration_top % tile_h`, and for a viewport-clamped span that remainder is exactly
-/// the off-screen unvalidated-iter read ScrAP-22 bans. `0` is a coordinate, not an iter,
-/// so this anchor needs no such read.
+/// the off-screen unvalidated-iter read ScrAP-22 bans. A grid line is a coordinate, not
+/// an iter, so this anchor needs no such read.
+///
+/// **Why the anchor is the nearest grid line and not the literal `0`.** The phase half of
+/// this anchor is GTK4Rs/AP-315, whose prescribed `child_origin = (rect.x(), 0.0)` is what
+/// this tree shipped and what the ceiling below breaks; that entry does not yet carry the
+/// ceiling, so nothing here cites it for one. Same grid — a
+/// multiple of `tile_h` is congruent to `0`, so the phase is bit-identical — but the
+/// literal `0` puts `child_bounds` an unbounded distance from `bounds`, and past
+/// **32768 px of separation the Cairo renderer draws the repeat node as NOTHING**. The
+/// decoration does not degrade to its flat sibling and emits no warning; it simply is
+/// not there, on every tiled decoration at once, from one scroll position onward.
+/// MEASURED (GTK 4.6.9, `GSK_RENDERER=cairo`, this tree): a bar at buffer y 32670 tiles,
+/// the same bar at 32724 does not; `append_color`, `append_texture` and
+/// `append_linear_gradient` at the same coordinates are all unaffected, so this is
+/// specific to the repeat node. 32768 is `2^15` — the ceiling of pixman's 16.16
+/// `pixman_fixed_t`, which the repeating source pattern's offset is converted to.
+/// A rendered `sdd/TDD.md` is ~107,000 px tall at a 1000 px pane, so roughly two thirds
+/// of it lost every sprite; the reported symptom was a blockquote plate that "stops
+/// partway down the file", and the boundary moves with pane width and preview zoom
+/// because those are what decide the buffer y of any given line.
+///
+/// `floor` and not `round`: the anchor must be at or ABOVE the rect, so the tile row the
+/// rect's top samples is the one the grid actually places there.
 ///
 /// Natural size, not stretched: 1:1 pixels need no filter, and GSK 4.6's
 /// `append_texture` filters linearly with no choice (the variant that takes one is 4.10,
@@ -108,7 +132,12 @@ pub(crate) fn tile_texture(
     if rect.width() <= 0.0 || rect.height() <= 0.0 || tw <= 0 || th <= 0 {
         return;
     }
-    let tile = gtk::graphene::Rect::new(rect.x(), 0.0, tw as f32, th as f32);
+    // The DOCUMENT-origin grid line at or above the rect: congruent to 0 modulo the
+    // tile height, so the phase is the document's, but never more than one tile from
+    // `rect`. See "Why the anchor is the nearest grid line" above — the literal 0
+    // silently paints nothing once the two are 32768 px apart.
+    let anchor_y = (rect.y() / th as f32).floor() * th as f32;
+    let tile = gtk::graphene::Rect::new(rect.x(), anchor_y, tw as f32, th as f32);
     snapshot.push_repeat(rect, Some(&tile));
     snapshot.append_texture(tex, &tile);
     snapshot.pop();
@@ -409,7 +438,8 @@ mod tile_tests {
         assert!(snapshot.to_node().is_some());
     }
 
-    /// **The tile grid is anchored at `(rect.x(), 0)`, and BOTH halves are load-bearing.**
+    /// **The tile grid is anchored at `(rect.x(), a document grid line)`, and BOTH halves
+    /// are load-bearing.**
     ///
     /// This test used to assert the opposite of the truth. It drove a `TileOrigin` enum
     /// and asserted that the `codeview` sites' choice — the rect's own top-left — was
@@ -419,22 +449,31 @@ mod tile_tests {
     /// bar as a bar column that stayed pixel-identical (AE=0) across a 176px scroll while
     /// the text scrolled under it. The enum is gone; this asserts the one anchor left.
     ///
-    /// Two assertions, because the two axes fail differently and independently:
-    /// y must be the document origin (what survives the viewport clamp and keeps the
-    /// phase travelling with the text), and x must be the rect's own (a `0` there samples
-    /// the tile at `rect.x() % tile_w` and slices the sprite horizontally at every
-    /// decoration that does not begin on a tile boundary — the bug a fix for the y half
-    /// alone introduces, and one that is visible in a screenshot).
+    /// Three assertions, because the axes fail differently and independently:
+    /// y must be ON the document's own grid (a multiple of the tile height — what
+    /// survives the viewport clamp and keeps the phase travelling with the text), y must
+    /// also be WITHIN one tile of the rect (the literal `0` is on the grid but paints
+    /// nothing once it is 32768 px away — see `tile_texture`'s docs), and x must be the
+    /// rect's own (a `0` there samples the tile at `rect.x() % tile_w` and slices the
+    /// sprite horizontally at every decoration that does not begin on a tile boundary —
+    /// the bug a fix for the y half alone introduces, and one that is visible in a
+    /// screenshot).
     ///
-    /// **Mutation check (both killed, singly):** `(0.0, 0.0)` fails the x assertion;
-    /// `(rect.x(), rect.y())` fails the y assertion. Neither is visible in `RenderNode`'s
-    /// `Debug`, which prints only the node's OWN bounds — identical under every anchor,
-    /// so a formatted comparison would pass whatever this code did (ScrAP-325).
+    /// **Mutation check (all killed, singly):** `(0.0, 0.0)` fails the x assertion;
+    /// `(rect.x(), rect.y())` fails the on-grid assertion; `(rect.x(), 0.0)` fails the
+    /// proximity assertion. None is visible in `RenderNode`'s `Debug`, which prints only
+    /// the node's OWN bounds — identical under every anchor, so a formatted comparison
+    /// would pass whatever this code did (ScrAP-325).
     #[gtktest::test]
-    fn the_tile_grid_is_anchored_at_the_rects_x_and_the_document_origin() {
+    fn the_tile_grid_is_anchored_at_the_rects_x_and_a_document_grid_line() {
         let t = tex();
-        // A rect at neither axis' origin, or an assertion below passes by coincidence.
-        let rect = graphene::Rect::new(3.0, 7.0, 10.0, 10.0);
+        let tile_h = {
+            use gtk::gdk::prelude::TextureExt;
+            t.height() as f32
+        };
+        // A rect at neither axis' origin, and a y far enough down that the on-grid and
+        // proximity assertions cannot both be satisfied by the literal 0.
+        let rect = graphene::Rect::new(3.0, 40007.0, 10.0, 10.0);
         let (x, y) = {
             use gtk::prelude::SnapshotExt;
             let snapshot = gtk::Snapshot::new();
@@ -448,10 +487,19 @@ mod tile_tests {
             (child.x(), child.y())
         };
         assert_eq!(
-            y, 0.0,
-            "the tile grid must anchor y at the DOCUMENT origin: that is what survives \
-             span_card_y_extent's viewport clamp and keeps the phase travelling with the \
-             text as the reader scrolls (got {y})"
+            y % tile_h,
+            0.0,
+            "the tile grid must anchor y on the DOCUMENT's own grid — a multiple of the \
+             tile height: that is what survives span_card_y_extent's viewport clamp and \
+             keeps the phase travelling with the text as the reader scrolls (got {y})"
+        );
+        assert!(
+            y <= rect.y() && rect.y() - y < tile_h,
+            "the tile grid must anchor y WITHIN ONE TILE at or above the rect: the Cairo \
+             renderer draws a repeat node as nothing once its child bounds sit 32768 px \
+             from its bounds, so a decoration far down a long document vanishes with no \
+             warning (got {y} for a rect at {})",
+            rect.y()
         );
         assert_eq!(
             x,

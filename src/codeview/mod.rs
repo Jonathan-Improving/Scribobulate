@@ -1720,6 +1720,130 @@ mod gtk_integration_tests {
         crate::sprite::clear_cache();
     }
 
+    /// **A bar sprite still tiles when the quote sits far down a long document.**
+    ///
+    /// The defect this pins shipped, and it is the shape a presence test cannot see: the
+    /// tile grid was anchored at the literal document origin, `y = 0`, so a quote's
+    /// repeat node sat as far from its own child bounds as the quote sat down the
+    /// document. Past **32768 px** — `2^15`, pixman's `pixman_fixed_t` ceiling — the
+    /// Cairo renderer draws such a node as NOTHING. No warning, no fallback to the flat
+    /// bar: every tiled decoration simply stopped existing from one scroll position
+    /// onward, which is why it was reported as a plate that "stops partway down the
+    /// file". Every sibling primitive (`append_color`, `append_texture`,
+    /// `append_linear_gradient`) is unaffected at the same coordinates, so nothing but a
+    /// tiled decoration measured deep in a document can catch it.
+    ///
+    /// **Both halves are the oracle.** The shallow quote is the control: it renders
+    /// identically before and after the fix, so a failure that took the sprite away
+    /// everywhere reads as a broken fixture rather than as this regression. Only the deep
+    /// half moves.
+    ///
+    /// The buffer is built tall rather than the y faked, because the coordinate that
+    /// overflows is the one GTK bakes from the view's own scroll transform — a synthetic
+    /// rect handed straight to `tile_texture` reproduces it too, but not through the path
+    /// the decoration actually takes.
+    #[gtktest::test]
+    fn a_bar_sprite_still_tiles_far_down_a_long_document() {
+        /// Comfortably past the 32768 px ceiling, and past it by more than one viewport
+        /// so the quote cannot straddle the boundary.
+        const DEEP_Y: i32 = 40_000;
+        const TILE: (u8, u8, u8) = (0xff, 0x00, 0xff);
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("tile.png");
+        write_half_clear_tile(&path, 0xff_00_ff_ff);
+
+        let mut themes = crate::theme::themes();
+        themes.merge_over_for_test(
+            "[themes.barred]\nbackground = \"#ffffff\"\nforeground = \"#000000\"\n\
+             blockquote_bar_color = \"#00ff00\"\nblockquote_bar_width = 8\n",
+        );
+        let mut theme = themes.resolve("barred");
+        theme.sprites.blockquote_bar = Some(crate::sprite::SpriteRef::File(path.clone()));
+        let _theme = crate::theme::activate_for_test(theme);
+        crate::sprite::clear_cache();
+
+        let view = CodePreviewView::new();
+        let buffer = view.buffer();
+        // Long enough that DEEP_Y is reachable at any plausible line height, and NOT so
+        // long that the view's natural height is asked of the X server: the view goes in
+        // a scroller, so the window is sized by the viewport rather than by the document.
+        let lines = 4000;
+        buffer.set_text(
+            &(0..lines)
+                .map(|i| format!("line {i}\n"))
+                .collect::<String>(),
+        );
+        let scroller = gtk::ScrolledWindow::new();
+        scroller.set_child(Some(&view));
+        let window = gtk::Window::new();
+        window.set_default_size(400, 200);
+        window.set_child(Some(&scroller));
+        window.present();
+        crate::testpump::until(crate::testpump::Clock::Frame, "the preview maps", || {
+            view.width() > 0
+        });
+
+        // GTK validates line heights incrementally, so every geometry read before the
+        // frontier reaches the end of the buffer reports the frontier's guess rather than
+        // the document — which on a 4000-line buffer is a y two orders of magnitude short
+        // of DEEP_Y (`farscroll`'s contract). Pump until the last line's y is real.
+        crate::testpump::until(
+            crate::testpump::Clock::Frame,
+            "line heights validate",
+            || view.line_yrange(&buffer.end_iter()).0 >= DEEP_Y,
+        );
+
+        // Scan forward for the first line past DEEP_Y rather than assuming a line height.
+        let deep_line = (0..lines)
+            .find(|&l| {
+                let iter = buffer.iter_at_line(l).expect("a line inside the buffer");
+                view.line_yrange(&iter).0 >= DEEP_Y
+            })
+            .expect("a tall buffer reaches DEEP_Y");
+
+        let tiles_at = |first_line: i32| -> bool {
+            let start = buffer.iter_at_line(first_line).unwrap();
+            let end = buffer.iter_at_line(first_line + 3).unwrap();
+            view.set_blockquotes(
+                vec![crate::span::QuoteSpan {
+                    span: crate::span::BufferSpan::new(start.offset(), end.offset()),
+                    depth: 1,
+                }],
+                gdk::RGBA::new(0.0, 1.0, 0.0, 1.0),
+            );
+            crate::saferizer::scrollpos::jump(
+                &view
+                    .vadjustment()
+                    .expect("a scrolled view carries a vadjustment"),
+                f64::from(view.line_yrange(&start).0) - 20.0,
+            );
+            crate::testpump::drain_for(
+                crate::testpump::Clock::Frame,
+                std::time::Duration::from_millis(50),
+            );
+            contains_rgb(&framebuffer_of(&view, 400.0, 200.0), TILE)
+        };
+
+        let shallow = tiles_at(1);
+        let deep = tiles_at(deep_line);
+        window.destroy();
+        crate::sprite::clear_cache();
+
+        assert!(
+            shallow,
+            "the control failed: the bar sprite never reached the framebuffer even at the \
+             top of the document, so this fixture proves nothing about depth"
+        );
+        assert!(
+            deep,
+            "the bar sprite vanished at buffer y >= {DEEP_Y}: the tile grid must anchor \
+             within one tile of the rect, not at the literal document origin — the Cairo \
+             renderer draws a repeat node whose child bounds sit 32768 px from its bounds \
+             as nothing at all"
+        );
+    }
+
     /// TDD 18.29 regression — the quote panel is ONE continuous fill over the whole
     /// blockquote, covering exactly the rows its accent bar covers.
     ///
