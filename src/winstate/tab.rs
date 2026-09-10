@@ -90,6 +90,25 @@ pub(crate) struct TabState {
     /// the rebuilt tree re-select the same heading (without re-navigating) so the
     /// panel keeps its position across a view-mode switch.
     pub(crate) outline_selected: Cell<Option<usize>>,
+    /// Which outline nodes this document's reader has collapsed, and the title paths of
+    /// the headings the current build shows.
+    ///
+    /// Beside `outline_selected` for the same reason it exists — `refresh_outline` destroys
+    /// the tree widget on every rebuild, and GTK remembers no expansion of its own
+    /// (ScrAP-84), so anything the reader folded is lost unless it is held here. Per tab,
+    /// which is the whole point: the outline scroller is window chrome shared by every
+    /// document, so this state cannot live on the widget without one document's folds
+    /// following the reader into another's.
+    ///
+    /// `outline_paths` is the current build's `doc_index` → path map, cached where
+    /// `heading_src_offsets` is and for the same reason: it is derived from the same parse,
+    /// and the capture site would otherwise have to re-parse the document to name a row.
+    ///
+    /// NOT round-tripped through `session.rs`, matching `folds` below — see
+    /// `outline::expansion` for why a key that outlives the document it names is worse than
+    /// no key at all.
+    pub(crate) outline_collapsed: RefCell<crate::outline::expansion::OutlineExpansion>,
+    pub(crate) outline_paths: RefCell<Vec<crate::outline::expansion::HeadingPath>>,
     /// Which disclosure blocks this document's reader has collapsed.
     ///
     /// Per-tab and NOT round-tripped through `session.rs`: the keys are source byte
@@ -481,6 +500,8 @@ impl TabState {
             split,
             content_box,
             outline_selected: Cell::new(None),
+            outline_collapsed: RefCell::default(),
+            outline_paths: RefCell::default(),
             folds: RefCell::new(crate::fold::FoldState::default()),
             heading_src_offsets: RefCell::new(Vec::new()),
             annotations_selected: Cell::new(None),

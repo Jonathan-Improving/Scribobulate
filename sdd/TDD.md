@@ -13,7 +13,7 @@
 | 9 | Menu bar, toolbar, and actions | 9.1 – 9.36 |
 | 10 | Markdown formatting commands | 10.1 – 10.20 |
 | 11 | Find & replace | 11.1 – 11.10 |
-| 12 | Document outline | 12.1 – 12.22 |
+| 12 | Document outline | 12.1 – 12.24 |
 | 13 | Preview zoom | 13.1 – 13.10 |
 | 14 | Show Unsafe Images | 14.1 – 14.10 |
 | 15 | Tabbed documents | 15.1 – 15.22 |
@@ -1718,6 +1718,17 @@
 - **Then** the outline still highlights the correct section for tab A (12.16) **and** that selected row is scrolled into view in the outline list — the highlight is never left correct-but-off-screen under a stale scroller position from the previous tab
 - **And** this reveal runs only after the scroll-spy has settled the selection for the newly active tab (not on every document `value-changed`), so a user who scrolled the outline by hand while reading is not fought mid-scroll
 - **And** the reveal does not re-fire outline navigation (spy guards stay quiet — ScrAP-89)
+
+### 12.24 Collapsed outline sections stay collapsed across tabs and edits
+
+- **Given** a document whose outline has nested headings, with some sections collapsed and others left open
+- **When** the reader switches to another tab and back, switches view mode, or edits the document
+- **Then** the outline comes back folded the way they left it — the sections they collapsed are still collapsed, and the ones they left open are still open
+- **And** each document remembers its own folding: collapsing a section in one tab never folds anything in another, even though both share the one outline panel
+- **And** a heading nobody has touched is shown expanded, so a newly typed heading appears open rather than hidden (12.17's fully-open default still governs anything unremembered)
+- **And** inserting, deleting or reordering *other* headings does not disturb what is folded
+- **And** renaming a heading re-expands that heading and anything nested under it, which is the accepted cost of never collapsing the wrong section by mistake
+- **And** none of this survives a restart — a reopened document starts fully expanded, because the folding describes a document that may since have changed
 
 ## 13. Preview zoom
 

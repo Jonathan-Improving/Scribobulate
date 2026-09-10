@@ -15,6 +15,7 @@ use crate::outline::HeadingNode;
 use crate::span::OriginalByteOffset;
 use gtk::prelude::*;
 use gtk::{gio, glib, pango};
+use std::collections::BTreeSet;
 use std::rc::Rc;
 
 mod imp {
@@ -128,13 +129,61 @@ fn level_class(level: u8) -> &'static str {
 /// freshly-revealed child in turn, reaching full depth one level per step.
 /// Already-expanded rows are a cheap no-op. See GTK4Rs/AP-111.
 pub(crate) fn expand_all_rows(model: &gtk::TreeListModel) {
+    expand_rows_except(model, &BTreeSet::new());
+}
+
+/// The same forward walk, leaving the headings in `keep_collapsed` shut.
+///
+/// **Descending past a collapsed row still works**, which is the property that makes one
+/// walk serve both cases: a row left collapsed simply never inserts its children, so the
+/// walk continues with whatever the model does hold, and everything below that node keeps
+/// the default. That is also why the remembered state cannot describe a node underneath a
+/// collapsed one — GTK frees that subtree (ScrAP-84), so there is nothing there to be in
+/// any state. Re-opening the parent reveals its children collapsed, which is the behaviour
+/// TDD 12.17 already pins.
+///
+/// `keep_collapsed` holds `doc_index`es, resolved from durable title paths by
+/// `outline::expansion` before the build — see that module for why an index is only ever a
+/// within-one-build handle.
+pub(crate) fn expand_rows_except(model: &gtk::TreeListModel, keep_collapsed: &BTreeSet<usize>) {
     let mut i = 0;
     while i < model.n_items() {
         if let Some(row) = model.item(i).and_downcast::<gtk::TreeListRow>() {
-            row.set_expanded(true);
+            let collapse = row
+                .item()
+                .and_downcast::<HeadingObject>()
+                .is_some_and(|h| keep_collapsed.contains(&h.doc_index()));
+            if !collapse {
+                row.set_expanded(true);
+            }
         }
         i += 1;
     }
+}
+
+/// Every currently-materialised row's `(doc_index, expanded)`, in model order.
+///
+/// The read side of expansion persistence: taken while the reader's outline is still on
+/// screen, because after a rebuild there is nothing left to ask (ScrAP-84). Rows under a
+/// collapsed node are absent by construction — GTK freed them — and their absence is
+/// correct, not a gap: nothing under a closed node has a state to report.
+///
+/// Only rows that CAN be expanded are reported. A leaf heading is neither open nor shut, and
+/// reporting it as "not expanded" would record every leaf as collapsed.
+pub(crate) fn row_expansion_states(model: &gtk::TreeListModel) -> Vec<(usize, bool)> {
+    let mut out = Vec::new();
+    for i in 0..model.n_items() {
+        let Some(row) = model.item(i).and_downcast::<gtk::TreeListRow>() else {
+            continue;
+        };
+        if !row.is_expandable() {
+            continue;
+        }
+        if let Some(heading) = row.item().and_downcast::<HeadingObject>() {
+            out.push((heading.doc_index(), row.is_expanded()));
+        }
+    }
+    out
 }
 
 /// Build the outline content widget for `roots`.
@@ -146,10 +195,14 @@ pub(crate) fn expand_all_rows(model: &gtk::TreeListModel) {
 /// `initial_selected`, when `Some(doc_index)`, pre-selects the row for that heading
 /// *before* the selection-change navigation handler is connected — so restoring the
 /// selection across a rebuild does not re-fire a scroll.
+///
+/// `keep_collapsed` names the headings to leave shut, so a rebuild restores what the reader
+/// had folded rather than springing the whole tree open (TDD 12.24).
 pub(crate) fn build_outline_content(
     roots: &[HeadingNode],
     on_activate: Rc<dyn Fn(usize, OriginalByteOffset)>,
     initial_selected: Option<usize>,
+    keep_collapsed: &BTreeSet<usize>,
 ) -> gtk::Widget {
     if roots.is_empty() {
         let placeholder = gtk::Label::builder()
@@ -194,8 +247,12 @@ pub(crate) fn build_outline_content(
 
     // Default outline is fully open (TDD 12.17). autoexpand=false builds only the
     // root rows, so open every level explicitly here — the same forward walk the
-    // runtime "Expand all" button uses, shared as `expand_all_rows` (QA M-3).
-    expand_all_rows(&tree_model);
+    // runtime "Expand all" button uses, shared as `expand_rows_except` (QA M-3).
+    //
+    // `keep_collapsed` re-applies what the reader had shut before this rebuild (TDD 12.24).
+    // Empty on a first build and for any heading nobody has touched, so the default is
+    // still "fully open" and this is the same call it always was.
+    expand_rows_except(&tree_model, keep_collapsed);
 
     let selection = gtk::SingleSelection::builder()
         .model(&tree_model)

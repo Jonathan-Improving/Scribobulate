@@ -20,12 +20,26 @@ pub(crate) fn refresh_outline(window: &ApplicationWindow) {
     // re-parsing the document (U-3) — see `heading_src_offsets`'s doc comment.
     *st.heading_src_offsets.borrow_mut() = headings.iter().map(|h| h.src_offset).collect();
     let roots = build_tree(&headings);
+    // The durable name of every heading this build shows, cached beside the offsets above
+    // and for the same reason — it comes from this same parse, and the capture hook below
+    // would otherwise have to re-parse the document just to name a row it is looking at.
+    let paths = crate::outline::expansion::paths_in_document_order(&roots);
+    // What the reader had folded, translated from those durable names into the transient
+    // indexes this build uses (TDD 12.24). Empty for a document nobody has folded, which is
+    // the fully-open default of TDD 12.17.
+    let keep_collapsed = st.outline_collapsed.borrow().collapsed_indexes(&paths);
+    *st.outline_paths.borrow_mut() = paths;
     // Re-select the previously activated heading (if it still exists) so the panel
     // keeps its position across the rebuild; the initial selection is applied
     // inside build_outline_content *before* the navigation handler is connected,
     // so restoring it does not re-fire a scroll.
     let selected = st.outline_selected.get();
-    let content = build_outline_content(&roots, make_outline_activate(window), selected);
+    let content = build_outline_content(
+        &roots,
+        make_outline_activate(window),
+        selected,
+        &keep_collapsed,
+    );
     st.chrome().outline_scroller.set_child(Some(&content));
 
     // Keep the scroll-spy correct across expand/collapse. Any expand or collapse —
@@ -52,12 +66,44 @@ pub(crate) fn refresh_outline(window: &ApplicationWindow) {
             glib::idle_add_local_once(move || {
                 pending.set(false);
                 if let Some(w) = win_weak.upgrade() {
+                    capture_outline_expansion(&w);
                     apply_scroll_spy(&w);
                 }
             });
         });
     }
 }
+/// Record what the reader has folded, so the next rebuild can restore it (TDD 12.24).
+///
+/// **Captured when the reader acts, never at teardown**, and that is the load-bearing
+/// choice. A tab switch sets the active tab BEFORE it refreshes the outline, so a snapshot
+/// taken during the rebuild would read the outgoing tab's widgets and write them onto the
+/// incoming tab's state — one document's folds silently becoming another's. Recording at
+/// mutation time sidesteps that entirely: whoever is active when a chevron turns is the
+/// document that chevron belongs to, so the outgoing tab needs no farewell snapshot and
+/// nothing is lost when its widgets are destroyed.
+///
+/// Rides the same `items-changed` hook as the scroll-spy for the same reason it does: every
+/// route into expansion — a chevron, the ←/→ keys, Expand all, Collapse all — mutates the
+/// flat model, so one hook covers them all and no future entry point can forget to report.
+/// Re-entrancy is not a concern: this only reads rows and writes plain data.
+fn capture_outline_expansion(window: &ApplicationWindow) {
+    let Some(st) = state(window) else { return };
+    let Some(model) = outline_tree_model(window) else {
+        return;
+    };
+    let paths = st.outline_paths.borrow();
+    let mut collapsed = st.outline_collapsed.borrow_mut();
+    for (doc_index, expanded) in crate::outline_view::row_expansion_states(&model) {
+        // A row whose index is past the cached paths belongs to a build newer than the
+        // cache — skip rather than guess, since naming it wrongly is exactly the silent
+        // mis-collapse this key design exists to prevent.
+        if let Some(path) = paths.get(doc_index) {
+            collapsed.note(path, expanded);
+        }
+    }
+}
+
 /// Build the row-activated callback for the outline: it scrolls the relevant pane
 /// to the chosen heading. The closure captures only a weak window ref and resolves
 /// the current mode / live widgets at click time, so it stays correct across

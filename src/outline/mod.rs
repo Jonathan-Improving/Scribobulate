@@ -12,6 +12,7 @@
 //! trivially to the editor buffer, and the preview maps it through its existing
 //! `source_map` — so one extraction drives navigation in every mode.
 
+pub(crate) mod expansion;
 mod tree;
 
 pub(crate) use tree::{ancestor_chain, build_tree, HeadingNode};
