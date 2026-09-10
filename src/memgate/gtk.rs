@@ -28,10 +28,11 @@ fn load_local_cached(path: &Path) -> Option<LoadedImage> {
 /// `CairoRenderer` we constructed, and not `$GSK_RENDERER`.
 ///
 /// `.cargo/config.toml`'s plain `GSK_RENDERER = "cairo"` only applies when the
-/// variable is unset; an ambient `GSK_RENDERER=gl` wins, and at our GTK floor
-/// GL never releases a texture. A 6.7 failure under that arm is a false red.
-/// Reading the env would repeat the same mistake. `None` is an unrealized
-/// native: refuse, do not skip.
+/// variable is unset; an ambient `GSK_RENDERER=gl` wins. The two seats then
+/// fail in opposite directions, measured: at the 4.6 floor GL never releases
+/// a texture (6.7 false red), and at 4.22.4 GL does finalize (6.7 false green,
+/// having measured the wrong renderer). Reading the env would repeat the same
+/// mistake. `None` is an unrealized native: refuse, do not skip.
 fn realized_gsk_renderer() -> Option<gtk::gsk::Renderer> {
     let win = gtk::Window::new();
     win.set_default_size(8, 8);

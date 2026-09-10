@@ -585,8 +585,11 @@ Two assertions, catching disjoint failures:
    never `rss`.
 2. **Finalization** of the decoded picture once every application reference
    is dropped, including the image cache, with no main-loop pump. Sound
-   because this project pins `GSK_RENDERER=cairo`; at our GTK floor the GL
-   renderer never releases the texture.
+   because this project pins `GSK_RENDERER=cairo`, and because the gate
+   asserts the realized native's renderer is `GskCairoRenderer` (`$GSK_RENDERER`
+   is defeatable). At our GTK floor the GL renderer never releases the texture
+   (6.7 would false-red). At 4.22.4 it does (6.7 would false-green on the wrong
+   arm). The object-type assertion is what catches both.
 
 A WebP fixture that the host cannot decode prints `SKIPPED [TDD 6.6]: …` and
 the PNG control still runs. Never `#[cfg(platform)]` the body away.

@@ -287,9 +287,14 @@ Measured with one probe run on two seats (`probes/gsk-texture-ref-ownership.c`):
 | **4.6.9 floor**, `linux` | finalizes, 0 iterations | **never finalizes** |
 
 So the assertion is safe **because this project pins `GSK_RENDERER=cairo` unconditionally**
-(`lib.rs`) — not because GSK is generally well-behaved. At our floor, GL never releases the
-texture at all, through either the caller's ref or the node tree. **The forced renderer is
-load-bearing, and any proposal to let it vary re-opens this and must re-measure first.**
+(`lib.rs`) and because the gate asserts `NativeExt::renderer()` is `gsk::CairoRenderer`.
+`$GSK_RENDERER` is defeatable: `.cargo/config.toml`'s `[env]` only applies when the
+variable is unset. Mutation-tested on macOS 4.22.4: `GSK_RENDERER=gl` fails the cairo-arm
+check with exit 1, and 6.7 itself still *passes* under that arm (GL finalizes there).
+Without the arm check a macOS wrong-arm run greens 6.7 having measured GL. At the 4.6
+floor the same mutation makes 6.7 fail. The guard therefore prevents a false red at the
+floor and a false green on macOS. **The forced renderer is load-bearing, and any proposal
+to let it vary re-opens this and must re-measure first.**
 
 The contract is therefore: drop every app-side ref *including the render node tree*, then
 assert the `GWeakRef` is NULL. **No main-loop pump, no forced frame count** — a
