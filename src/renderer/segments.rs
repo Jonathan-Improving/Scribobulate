@@ -386,21 +386,33 @@ impl BlockAcc {
         (pos < c.stitch + c.len).then_some(c)
     }
 
-    /// Whether each delimiter shares its `Text` event with the content it
-    /// delimits.
+    /// Whether both delimiters, and the first/last byte of the content between
+    /// them, each land in a REAL `Text` chunk — never in filler.
     ///
-    /// `` ~~`code` x~~ `` opens its fence in an event that renders nothing else, so
-    /// the `~~` would belong to no run and `copymap` would have no node to hang its
-    /// source on — the delimiter would then vanish from a copy. Such a fence is
-    /// refused and stays literal, which is what it already did.
+    /// `` ~~`code` x~~ `` opens its fence right up against a code span, which
+    /// contributes [`OPAQUE_FILLER`] rather than a chunk: the fence's content
+    /// starts in filler, `chunk_at` answers `None`, and the fence is refused —
+    /// the outcome that was always intended.
+    ///
+    /// Earlier this also required the OPENING delimiter and the start of the
+    /// content to share the SAME chunk (and likewise at the close), which was
+    /// stricter than that: a delimiter immediately followed by an inline
+    /// construct's own opening — `~~[label](url)~~`, `~~**bold**~~`, no
+    /// surrounding text — puts the `~~` in ITS OWN `Text` event (`"~~"`, a real
+    /// chunk, not filler) and the content in the construct's *separate* `Text`
+    /// event. That is a DIFFERENT chunk, not a MISSING one: the delimiter's own
+    /// chunk is exactly the node `copymap` hangs its source on (a single marker
+    /// `Seg` spanning it), so requiring it to match the content's chunk too
+    /// rejected a fence that nests cleanly for no reason this module's own
+    /// invariants need — `nests_cleanly` already refuses the shapes that
+    /// actually break (interleaving), and filler is caught below, per-byte,
+    /// independently of which chunk the delimiter landed in.
     fn markers_abut_content(&self, span: &super::scan::ScriptSpan) -> bool {
-        let same = |a: usize, b: usize| match (self.chunk_at(a), self.chunk_at(b)) {
-            (Some(x), Some(y)) => x.stitch == y.stitch,
-            _ => false,
-        };
         span.inner.end > span.inner.start
-            && same(span.outer.start, span.inner.start)
-            && same(span.inner.end - 1, span.outer.end - 1)
+            && self.chunk_at(span.outer.start).is_some()
+            && self.chunk_at(span.inner.start).is_some()
+            && self.chunk_at(span.inner.end - 1).is_some()
+            && self.chunk_at(span.outer.end - 1).is_some()
     }
 
     /// Whether `span` is properly nested with every inline construct in the block

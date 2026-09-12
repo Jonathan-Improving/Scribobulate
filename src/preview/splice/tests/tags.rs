@@ -236,3 +236,61 @@ fn a_spliced_region_carries_the_same_container_tags_a_full_render_does() {
         );
     }
 }
+
+// ── strikethrough over/inside a link (real render path) ─────────────────────
+
+/// `[~~label~~](url)`: the fence is wholly inside the link's label, one `Text`
+/// event, so the real render gives "label" BOTH the `link` and `strike` tags over
+/// the identical range. This nesting always worked; it is the control for the one
+/// below.
+#[gtktest::test]
+fn strike_inside_a_link_label_carries_both_tags() {
+    let md = "[~~label~~](http://x/y)\n";
+    let rp = crate::preview::build::build_render_products_with_theme(
+        md,
+        None,
+        1.0,
+        false,
+        crate::theme::active(),
+        &FoldState::default(),
+    );
+    let link = tag_ranges(&rp.buf, "link");
+    let strike = tag_ranges(&rp.buf, "strike");
+    assert_eq!(
+        link,
+        vec![(0, 5)],
+        "link should cover the whole rendered label"
+    );
+    assert_eq!(
+        strike,
+        vec![(0, 5)],
+        "strike must cover the SAME range as link for the strikethrough to show"
+    );
+}
+
+/// `~~[label](url)~~`: the fence WRAPS the link, opening/closing delimiters each
+/// their own `Text` event. Fixed in `segments::markers_abut_content`: the delimiters
+/// are no longer required to share a chunk with the content they delimit, only to
+/// each land in a real (non-filler) chunk.
+#[gtktest::test]
+fn strike_wrapping_a_bare_link_carries_both_tags() {
+    let md = "~~[label](http://x/y)~~\n";
+    let rp = crate::preview::build::build_render_products_with_theme(
+        md,
+        None,
+        1.0,
+        false,
+        crate::theme::active(),
+        &FoldState::default(),
+    );
+    let link = tag_ranges(&rp.buf, "link");
+    let strike = tag_ranges(&rp.buf, "strike");
+    // The `~~` delimiters are now recognised as markers and dropped from the
+    // rendered buffer, so the label alone remains, struck.
+    assert_eq!(link, vec![(0, 5)], "link covers the whole rendered label");
+    assert_eq!(
+        strike,
+        vec![(0, 5)],
+        "FIXED: strike now covers the same range as link"
+    );
+}

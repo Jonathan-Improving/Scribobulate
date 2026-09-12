@@ -159,6 +159,40 @@ fn a_fence_inside_markup_is_accepted() {
     );
 }
 
+#[test]
+fn a_fence_wrapping_a_bare_link_is_accepted() {
+    // Minimal repro: `~~[label](url)~~` with NOTHING else in the paragraph, so
+    // the opening `~~` is its own Text event, distinct from the link's label.
+    assert_eq!(
+        rendered_runs("~~[label](http://x/y)~~\n"),
+        vec![("label".into(), Script::Strikethrough)],
+    );
+    assert_eq!(
+        outer_sources("~~[label](http://x/y)~~\n"),
+        vec!["~~[label](http://x/y)~~"]
+    );
+}
+
+#[test]
+fn a_fence_wrapping_bold_alone_is_accepted() {
+    // Same shape as the bare-link wrap, swapping Link for Strong: confirms the
+    // fix is general — "delimiter alone in its own Text event" is not link-specific.
+    assert_eq!(
+        rendered_runs("~~**bold**~~\n"),
+        vec![("bold".into(), Script::Strikethrough)],
+    );
+}
+
+#[test]
+fn a_fence_inside_a_link_label_is_accepted() {
+    // `[~~label~~](url)`: the whole label, delimiters included, is ONE Text
+    // event inside the Link, so it should behave like `a_fence_inside_markup_is_accepted`.
+    assert_eq!(
+        rendered_runs("[~~label~~](http://x/y)\n"),
+        vec![("label".into(), Script::Strikethrough)],
+    );
+}
+
 // ── segment partitioning ──────────────────────────────────────────────────────
 
 #[test]

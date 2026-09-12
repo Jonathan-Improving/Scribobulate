@@ -1470,6 +1470,7 @@
 - **When** it is rendered in the preview
 - **Then** the whole run is struck (or highlighted) **including the nested markup**, which keeps its own formatting, and the `~~`/`==` markers are removed — the fence is recognised across the inline markup it wraps, not only within one unbroken run
 - **And** the same run copies back as its original source with both delimiters intact, exports struck, and reads without markers in the outline; annotating any part of it wraps the **whole** fence rather than landing `{==…==}` between its halves
+- **And** this holds when the fence wraps the markup with **nothing else in the paragraph** — `~~[label](url)~~`, `~~**bold**~~` — which is the shape that puts each delimiter alone in its own parser event, in a *different* chunk from the content it delimits; a delimiter is required to land in a real chunk, never to share one with its content
 - **And** a fence that *interleaves* with the markup rather than nesting inside or around it (`~~a **b~~ c**`, whose closing `~~` sits inside a `**` that opened inside the fence) stays **literal** — it describes no tree, so it is refused rather than rendered as a guess; likewise a `~~`/`==` that would have to span a **block** boundary (two table cells, two paragraphs) or that is really the content of a code span
 
 ### 10.11 Insert Link / Image / Table prompt for fields and splice once
