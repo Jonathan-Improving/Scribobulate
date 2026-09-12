@@ -78,6 +78,21 @@ mod imp {
     use gtk::subclass::prelude::*;
     use std::cell::{Cell, RefCell};
 
+    thread_local! {
+        /// Hands out `instance_serial`. Thread-local rather than atomic because every
+        /// `CodePreviewView` is built on the GTK main thread, and a serial only ever has
+        /// to be unique among the views one thread can compare.
+        static NEXT_INSTANCE_SERIAL: Cell<u64> = const { Cell::new(1) };
+    }
+
+    fn next_instance_serial() -> u64 {
+        NEXT_INSTANCE_SERIAL.with(|n| {
+            let v = n.get();
+            n.set(v.wrapping_add(1));
+            v
+        })
+    }
+
     pub(crate) struct CodePreviewView {
         /// (first-char offset, exclusive end offset) per fenced code block.
         pub(crate) blocks: RefCell<Vec<crate::span::BufferSpan>>,
@@ -218,6 +233,26 @@ mod imp {
         /// a different buffer object", which was only ever a proxy for "is this a
         /// different render".
         pub(crate) render_generation: Cell<u64>,
+        /// This view INSTANCE's serial, handed out once at construction and never
+        /// reused for the lifetime of the process.
+        ///
+        /// `render_generation` above counts renders WITHIN one view and starts at 0 on
+        /// every fresh one, so it cannot tell two independently built views apart: a
+        /// Preview-mode external reload swaps in a brand-new `CodePreviewView` rather
+        /// than re-rendering in place, and the old and the new both sit at generation 1
+        /// the first time each has rendered once. Anything caching per-render state
+        /// keyed on the generation alone then reads the new view's key as the old
+        /// view's and serves the stale entry (the find hit list did exactly this).
+        /// Pairing the serial with the generation answers both halves: WHICH view, and
+        /// WHICH render of it.
+        ///
+        /// A counter rather than the buffer's address, deliberately. An address is only
+        /// unique among LIVE objects, so it is safe here solely because the reload
+        /// happens to build the replacement while the old view is still parented; if
+        /// that ordering ever changed, a freed buffer's address could be handed to its
+        /// successor and the collision would come back silently. The counter does not
+        /// depend on that ordering holding.
+        pub(crate) instance_serial: Cell<u64>,
         /// Widget-coordinate hit-boxes for the interactive TASK checkboxes only,
         /// each `(rect, index into list_markers)`. Recorded in
         /// the SAME convention as `marker_hitboxes` — buffer-x, y shifted by the scroll
@@ -359,6 +394,7 @@ mod imp {
                 pending_marker_open: RefCell::new(None),
                 nav_generation: Cell::new(0),
                 render_generation: Cell::new(0),
+                instance_serial: Cell::new(next_instance_serial()),
                 checkbox_hitboxes: RefCell::new(Vec::new()),
                 hovered_checkbox: Cell::new(None),
                 cursor_refresh: RefCell::new(None),
@@ -723,6 +759,12 @@ impl CodePreviewView {
     pub(crate) fn restore_generation(&self) -> u64 {
         use gtk::subclass::prelude::*;
         self.imp().restore_generation.get()
+    }
+
+    /// This view instance's serial (see `imp::CodePreviewView::instance_serial`).
+    pub(crate) fn instance_serial(&self) -> u64 {
+        use gtk::subclass::prelude::*;
+        self.imp().instance_serial.get()
     }
 
     /// The current render generation (see [`Self::bump_render_generation`]).

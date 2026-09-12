@@ -438,18 +438,33 @@ pub(crate) struct PreviewFindCache {
     builds: Cell<u64>,
 }
 
-/// What a cached hit list is valid for: the render it was derived from, and the query
-/// it answers. Pure and display-free on purpose — the whole invalidation rule is this
-/// comparison, so it is decidable (and testable) without a widget.
+/// What a cached hit list is valid for: the view it was derived from, the render it
+/// was derived from, and the query it answers.
+///
+/// `view_serial` was added after a MEASURED collision: `generation` alone is
+/// instance-local (`CodePreviewView::render_generation` starts at 0 on every fresh
+/// widget), so two INDEPENDENTLY BUILT widgets — the ordinary case for a Preview-mode
+/// external reload, which swaps in a brand-new `CodePreviewView` rather than
+/// `re_render`-ing the old one in place — collide on the same bare number the first
+/// time each has rendered once (both land on generation 1). The query alone cannot
+/// break the tie either, since the reload does not change what the user is searching
+/// for. `view_serial` is the view's own construction serial
+/// (`CodePreviewView::instance_serial`), which differs across a widget swap and is
+/// unchanged across an in-place `re_render` (same view object, bumped generation) —
+/// so it adds exactly the discrimination the generation number is missing, without
+/// weakening the existing generation/query invalidation `re_render` already relies
+/// on. See that field's own doc for why it counts rather than reading an address.
 #[derive(PartialEq, Eq, Debug, Clone)]
 struct HitsKey {
+    view_serial: u64,
     generation: u64,
     query: String,
 }
 
 impl HitsKey {
-    fn new(generation: u64, query: &str) -> Self {
+    fn new(view_serial: u64, generation: u64, query: &str) -> Self {
         Self {
+            view_serial,
             generation,
             query: query.to_string(),
         }
@@ -473,7 +488,7 @@ impl PreviewFindCache {
         query: &str,
         f: impl FnOnce(&[(i32, Label)], &[PreviewHit]) -> R,
     ) -> R {
-        let key = HitsKey::new(view.render_generation(), query);
+        let key = HitsKey::new(view.instance_serial(), view.render_generation(), query);
         // TAKEN, not borrowed, for the duration of `f`: `f` applies highlights, which
         // calls back into GTK (`set_attributes`/`set_markup` on anchored children, plus a
         // scroll), and holding a `RefCell` borrow across a GTK call that can re-enter is a
@@ -1137,27 +1152,38 @@ mod tests {
     /// fatal — `preview::build::build_render_products_into`). Identity would now compare
     /// EQUAL across a re-render and serve hits indexing content that no longer exists.
     ///
-    /// Mutation check: dropping either field from the comparison fails one of the two
-    /// stale cases below.
+    /// Mutation check: dropping any of the three fields from the comparison fails one
+    /// of the stale cases below — including `view_serial`, added after a MEASURED
+    /// collision: two independently built widgets can share the same bare
+    /// `render_generation` (both land on 1 after their own first render), so it alone
+    /// under-discriminates a widget SWAP (a fresh `CodePreviewView`, the Preview-mode
+    /// external-reload shape) the way it correctly does NOT for an in-place `re_render`
+    /// (same view object, bumped generation).
     #[test]
-    fn a_cached_hit_list_answers_only_for_its_own_render_and_query() {
-        let key = HitsKey::new(4, "cell");
+    fn a_cached_hit_list_answers_only_for_its_own_view_render_and_query() {
+        let key = HitsKey::new(1, 4, "cell");
         assert_eq!(
             key,
-            HitsKey::new(4, "cell"),
-            "same render, same query: current"
+            HitsKey::new(1, 4, "cell"),
+            "same view, same render, same query: current"
         );
         assert_ne!(
             key,
-            HitsKey::new(5, "cell"),
+            HitsKey::new(1, 5, "cell"),
             "a re-render bumps the generation, so the same query must rebuild"
         );
         assert_ne!(
             key,
-            HitsKey::new(4, "feature"),
+            HitsKey::new(1, 4, "feature"),
             "a new query must rebuild even within one render"
         );
-        assert_ne!(key, HitsKey::new(5, "feature"));
+        assert_ne!(
+            key,
+            HitsKey::new(2, 4, "cell"),
+            "a different buffer (a widget swap, not a re-render) must rebuild even when \
+             the generation number happens to coincide"
+        );
+        assert_ne!(key, HitsKey::new(2, 5, "feature"));
     }
 
     /// A find cursor never reports the OTHER list's index. The editor's occurrence list
@@ -1650,6 +1676,105 @@ mod gtk_integration_tests {
             cache.builds(),
             3,
             "a preview re-render invalidates even when the query is unchanged"
+        );
+    }
+
+    /// Regression guard for the diagnosed defect (operator report, 2026-09-11): an
+    /// external reload in **Preview mode** does not `re_render` the existing view in
+    /// place — it builds a **brand-new** `CodePreviewView` via `preview::render` and
+    /// swaps it into the split (`apply_external_reload`'s `ViewMode::Preview` arm;
+    /// `reload.rs`'s own `scroll_spy_rewired_after_external_reload_swaps_the_preview_widget`
+    /// names this exact path). Before this fix, `PreviewFindCache`'s key was
+    /// `(view.render_generation(), query)` — a bare `u64` plus the query string, with no
+    /// view/buffer identity in it — and every fresh `CodePreviewView` starts its
+    /// generation at 0 and reaches 1 after its first `install_content`/
+    /// `install_annotations` pass. So a tab that had rendered its preview exactly once
+    /// (open a document, search it, no other re-render yet — the ordinary case) sat at
+    /// generation 1 both BEFORE and immediately AFTER an external reload swapped in the
+    /// new widget: the two numbers collided even though the widgets, buffers and cell
+    /// `GtkLabel`s were entirely different objects, and the cache replayed the OLD hit
+    /// list onto the new view — stale buffer offsets against the new content, and
+    /// `Label` references into the destroyed old widget tree for table cells.
+    ///
+    /// MEASURED (pre-fix): with only `(generation, query)` as the key, this reproduction
+    /// read `total2 == 2` (the stale MD1 hit list, replayed unchanged) instead of the
+    /// correct `0`, with the OLD (destroyed) cell label still carrying the highlight
+    /// overlay while every LIVE cell in the NEW table carried none — the exact
+    /// in-table/out-of-table divergence the report describes: the body highlight lands
+    /// on the wrong text in the new buffer (silently clamped/wrong position, since
+    /// `TextBuffer::iter_at_offset` clamps rather than erroring), while the cell
+    /// highlight lands on no *visible* widget at all. `HitsKey` now also carries the
+    /// view's construction serial (`view_serial`), which differs across a widget swap and is
+    /// unchanged across an in-place `re_render`, so it discriminates exactly the case
+    /// the bare generation number could not.
+    ///
+    /// This reproduces it directly at the `preview::render`/`PreviewFindCache` layer
+    /// (no window/tab plumbing needed): render MD1 (one body match, one table-cell
+    /// match), search it, then render MD2 as an *entirely separate fresh widget* — the
+    /// same shape `apply_external_reload`'s Preview arm produces — with the search term
+    /// **absent** from MD2. Mutation check: reverting `HitsKey`/`with_hits` to drop
+    /// `view_serial` fails this (serves the stale MD1 hits again).
+    #[gtktest::test]
+    fn stale_generation_collision_serves_old_hits_after_fresh_preview_widget_reload() {
+        const MD1: &str = "Zone alpha here.\n\n| Head |\n|---|\n| alpha token cell |\n";
+        const MD2: &str = "Extra prelude line shifts every offset.\n\n\
+             Zone beta moved elsewhere.\n\n| Head |\n|---|\n| beta swapped cell |\n";
+
+        let cache = super::PreviewFindCache::default();
+
+        let view1 = view_of(crate::preview::render(
+            MD1,
+            None,
+            1.0,
+            false,
+            &crate::fold::FoldState::default(),
+            0,
+        ));
+        let total1 = super::highlight_preview_matches(&cache, &view1, "alpha");
+        assert_eq!(total1, 2, "sanity: one body match, one cell match in MD1");
+        let old_targets = cell_search_targets(&view1);
+        assert_eq!(
+            old_targets.len(),
+            2,
+            "sanity: header cell + one data cell in MD1's table"
+        );
+        assert!(
+            old_targets.iter().any(|(_, l)| l.attributes().is_some()),
+            "sanity: the old data cell carries the highlight overlay"
+        );
+
+        // A SEPARATE, freshly built widget — never `re_render`'d from view1 — exactly
+        // the shape `apply_external_reload`'s Preview-mode arm produces. Both `view1`
+        // and `view2` are first-ever renders of their own buffer, so both sit at
+        // render_generation 1.
+        let view2 = view_of(crate::preview::render(
+            MD2,
+            None,
+            1.0,
+            false,
+            &crate::fold::FoldState::default(),
+            0,
+        ));
+        assert_eq!(
+            view1.render_generation(),
+            view2.render_generation(),
+            "the defect's precondition: two independently-built widgets collide on the \
+             same bare generation number"
+        );
+
+        let total2 = super::highlight_preview_matches(&cache, &view2, "alpha");
+        let new_targets = cell_search_targets(&view2);
+        assert_eq!(
+            total2, 0,
+            "MD2 contains no 'alpha' at all — a correct re-scan must report zero \
+             matches; a nonzero count here means the cache served view1's stale hit \
+             list to view2 (ROOT CAUSE: PreviewFindCache::HitsKey has no view/buffer \
+             identity, only a generation number that a fresh widget can collide on)"
+        );
+        assert!(
+            new_targets.iter().all(|(_, l)| l.attributes().is_none()),
+            "no LIVE cell in the new table should carry a highlight overlay when the \
+             new content has no match"
         );
     }
 

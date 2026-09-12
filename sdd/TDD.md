@@ -1617,6 +1617,13 @@
 - **And** the match **counter counts it before it is reached**: what a document contains is not what the viewport shows, and reporting "No matches" for text plainly in the document is the failure 11.8 already names as worse than not acting
 - **And** a match inside a disclosure nested in another collapsed disclosure is reached by the same single step — expanding the outer block reveals only the inner block's summary, so one gesture opens as many levels as stand in the way
 
+### 11.11 Find results never survive the document being reloaded underneath them
+- **Given** the find bar open on the preview with a live match count, and the document is **reloaded from disk in the background** (an external change the file monitor picks up) with content that **drifts** — text inserted above the matches, matches removed entirely
+- **When** the reload lands
+- **Then** the count and the highlights describe the **new** content: a term the new content no longer has counts zero, and every highlight sits on text that actually matches, with the user needing no close-and-reopen of the find bar to get an honest answer
+- **And** this holds identically for a match **inside a table cell** and one in body text — the two are carried by different mechanisms (a buffer offset against the preview buffer, a reference to the cell's own label widget), and stale state fails them in opposite directions, the body highlight landing on the wrong text while the cell highlight lands on a destroyed widget and shows nothing at all, so a fix proven on one proves nothing about the other
+- **And** the cached hit list keys on the **view instance** as well as the render generation and the query: a preview-mode reload swaps in a brand-new preview view whose generation restarts, so a generation alone collides with the outgoing view's and serves its hits
+
 ## 12. Document outline
 
 > A collapsible sidebar lists the document's headings and navigates to them.
