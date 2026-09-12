@@ -37,6 +37,7 @@ described from a different vantage point.
 | I | Mac | Upstream | macOS only: every native file-chooser invocation (Open, Save, Export) grows RSS by ~1.1 MB and does not give it back. Roughly four fifths is AppKit's own price for presenting an `NSSavePanel` — reproduced with no GTK in the process — with about a fifth GTK-attributable. Caching the panel upstream would recover ~95% | Medium |
 | J | Any | Upstream | A paragraph that mixes fonts (any inline-code span) can lay out a few pixels wider than the wrap width it was given, summoning the preview's Automatic horizontal scrollbar and intermittently blanking the pane until a resize | Closed |
 | M | Windows | Production | On a machine with no Visual C++ runtime the app installs and then fails to start; the installer's bootstrapper for it has landed but has never been verified against that condition | Medium |
+| R | Any | Production | Pane swap is remembered per TAB, so a new tab opens with the panes back the way they were and the arrangement has to be set again; tabs are short-lived and the setting is not | Low |
 
 
 ## A. Tables are selection islands
@@ -620,3 +621,52 @@ verification remains.
 
 ---
 
+## R. Pane swap is remembered per tab, so every new tab forgets it
+
+**Severity**: Low (a repeated manual correction, no data at risk; it costs one menu
+item or accelerator each time, and the count of times is the whole complaint)
+
+`Swap Panes` (`win.split-swap`) writes its state to `TabState.split_swap`
+(`src/winstate/tab.rs`), alongside `split_vertical`. That was a deliberate scoping
+decision when it was made, and `src/winstate/mod.rs`'s state-scope table still records
+split arrangement as tab-scoped. What has changed since is how tabs are used: they are
+opened and closed constantly, and a preference about *where the editor sits on screen*
+outlives any one of them. So the user flips the panes, closes the tab, opens another,
+and the panes are back the way they were.
+
+**Measured, in a real GTK harness** (`create_tab_in_window`, the path `File ▸ New
+Document` takes): a new tab's `split_swap` comes back `false` regardless of what the
+currently-active tab is showing. It inherits nothing; it starts from the type's
+construction default. Restart survival is *not* the broken half: `TabSession.split_swap`
+is written per tab and replayed through the real actions on restore, so a relaunch does
+restore each tab's own arrangement. The gap is entirely new-tab-within-a-live-session.
+
+**Mitigation options**:
+
+- **Promote it to window scope**, the way zoom already works (`WindowChrome.zoom_level`).
+  Every choke point this needs is built: `window::inherit_from` already threads zoom into
+  a new window's `WindowInit`, `resync_tab_action_state` already re-reads window state on
+  a tab switch, and `wire_tab_arrival` already adopts the destination window's zoom when a
+  tab is dragged across, which is exactly where a moved tab would adopt the destination's
+  arrangement instead of carrying its own. Two windows stay free to differ. This is the
+  recommendation, and it is medium effort: one struct field moved, five or six call sites
+  re-pointed, a session migration, and three rubrics rewritten (TDD 15.8 is made false by
+  it and 15.10 partly so).
+- **Promote it to application scope**, one arrangement shared by every open window, so a
+  flip in one window re-lays-out the others live. Nothing in the report asks for that, it
+  has no precedent in this codebase beyond the single shared preview-theme CSS provider,
+  and it means rebuilding every open tab's `SplitView` on a single toggle. It is the
+  larger and riskier of the two, and worth doing only if the operator says the preference
+  is about the application rather than about a window.
+- **Seed a new tab from the active one and leave the storage alone**. Cheapest by far, and
+  it fixes the reported symptom. It also leaves two tabs in one window free to disagree
+  about where the editor sits, which is the incoherence underneath the complaint rather
+  than the complaint itself.
+
+Existing `session.toml` files carry the per-tab key, so either promotion needs a
+migration in the shape of `migrate_v2_app_wide_chrome` (`src/session.rs`), reading each
+window's arrangement from **the tab that was active when the session was saved**. A
+majority vote or a last-writer rule would both sometimes restore an arrangement the user
+was not looking at.
+
+---
