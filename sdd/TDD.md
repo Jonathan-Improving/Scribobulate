@@ -7,7 +7,7 @@
 | 3 | Live reload (external edits) | 3.1 – 3.4 |
 | 4 | Editing & saving | 4.1 – 4.9 |
 | 5 | Reconciliation (conflict handling) | 5.1 – 5.4 |
-| 6 | Resource footprint (viability gate) | 6.1 – 6.8 |
+| 6 | Resource footprint (viability gate) | 6.1 – 6.10 |
 | 7 | Window & layout | 7.0b – 7.25 |
 | 8 | Single-instance lifecycle | 8.1 – 8.8 |
 | 9 | Menu bar, toolbar, and actions | 9.1 – 9.36 |
@@ -28,6 +28,7 @@
 | 24 | Renaming an open document | 24.1 – 24.14 |
 | 25 | Exporting a document | 25.1 – 25.24 |
 | 26 | Self-contained macOS bundle | 26.1 – 26.10 |
+| 27 | Animated images | 27.1 – 27.9 |
 
 ---
 
@@ -314,9 +315,23 @@
 - **Then** a `<picture>` shows as a **single** inline image — the first candidate the app can actually decode (its `<source>`s in order, then the `<img>` fallback) — using the same display machinery as a Markdown image (fits the pane per 2.21, selectable/tinted per 2.18, broken-image placeholder per 2.5); the raw HTML fragments are **not** shown as literal text. This holds whether the `<picture>` is written across multiple lines or on a single line
 - **And** the fallback grouping is established **only** by an enclosing `<picture>`: a `<source>` and an `<img>` (or several `<img>`s) that are **not** wrapped in a `<picture>` render as **independent** images — an ungrouped `<source>` never suppresses a sibling `<img>`
 - **And** each candidate `src` is subject to the **same** "Show Unsafe Images" / document-containment gate as a Markdown image (2.5, 2.7, §14): a remote, escaping, or other-scheme `src` is blocked, and an `onerror`/script attribute is never executed
-- **And** a candidate whose image format the system has no decoder for (e.g. WebP with no WebP loader installed) is skipped in favour of the next candidate in its `<picture>`; when a format's decoder **is** installed, that candidate renders; if nothing in the group can be decoded, the broken-image placeholder is shown (with the `<img>` fallback's `src` in its tooltip)
+- **And** a candidate whose image format the system has no decoder for (e.g. AVIF with no AVIF loader installed) is skipped in favour of the next candidate in its `<picture>`; when a format's decoder **is** installed, that candidate renders; if nothing in the group can be decoded, the broken-image placeholder is shown (with the `<img>` fallback's `src` in its tooltip). WebP, GIF and PNG always decode (2.23a)
 - **And** raw HTML outside the rendered allowlist — `<picture>`/`<source>`/`<img>` plus `<details>`/`<summary>` (2.26) — (e.g. `<script>`, `<iframe>`, `<div>`) continues to be dropped entirely — neither rendered nor shown as literal text (sanitize-by-omission is unchanged)
-- **And** an animated GIF/WebP shows its **static first frame** (frame animation is out of scope)
+- **And** an animated WebP, GIF or APNG plays, per §27
+
+### 2.23a A WebP, GIF or PNG shows on every platform
+- **Given** a document with a WebP (lossy, lossless or transparent), a GIF, or a PNG — still or animated
+- **When** it is rendered on Linux, macOS or Windows
+- **Then** it shows with the same pixels on all three, with its transparency kept, whether or not the system has an image loader for that format
+- **And** the format is recognised from the file's contents, so a WebP saved with a `.png` name still shows
+- **And** the same holds for remote images and theme sprites, and for PDF export, which uses the first frame (⚠ the remote limb is UNVERIFIED — no driven harness on any seat has had outbound network; every other limb is measured, PDF export by decompressing the embedded streams)
+
+### 2.23b A damaged, hostile or oversized image never crashes or hangs the app
+- **Given** an image that is cut off, malformed, crafted to crash a decoder, claims a size beyond the pixel limit, is bigger than the file size limit, or is not a regular file (such as a named pipe)
+- **When** it is rendered
+- **Then** the broken-image placeholder shows (or the next `<picture>` candidate), and the window stays responsive
+- **And** an image over the pixel limit is refused before any memory is set aside for its pixels
+- **And** the file size limit can be changed in the configuration file
 
 ### 2.25 A Markdown construct the renderer cannot render is visible, never silently dropped
 - **Given** a document containing constructs from parser extensions this build does not handle — math (`$E=mc^2$`, `$$…$$`), footnotes (`[^1]` and its definition), a definition list, a wikilink, and YAML or TOML front matter
@@ -532,7 +547,6 @@
 - **Then** **both** fences are reconstructed around the selected code, the closing fence on a line of its own, so the paste is a complete code block (2.8b/2.8e) — never an unclosed ```` ``` ````
 - **And** an **indented** (4-space) code block behaves the same, its continuation indent preserved so the copy re-parses as the same block, and a code block inside a blockquote or list item excludes that container's `> `/indent markers within (2.8g)
 - **And** annotating (`{==…==}`) a selection inside a code block still wraps the **whole** block — a copy may be divided at a character; an annotation may not
-
 
 ### 2.8i Copying across a collapsed disclosure includes its body
 - **Given** a selection that spans a collapsed disclosure block
@@ -768,7 +782,7 @@
 - **And** a reading that scales with either dimension, or sustained GPU engine activity, means software compositing is not active and **fails** this gate — that, not a non-zero byte count, is the Windows signal that 6.2 has been violated
 
 ### 6.6 A re-render does not grow memory without bound
-- **Given** a document with a local image open in a release build (an animated WebP where the host can decode it; a large PNG where it cannot)
+- **Given** a document with a local image open in a release build (an animated WebP)
 - **When** the preview is re-rendered many times — theme switch, zoom, or live reload — after a few warm-up renders are discarded
 - **Then** process memory does not climb from the first half of the remaining renders to the second half, beyond a per-platform tolerance taken from a measured clean baseline
 - **And** a document with no images stays similarly flat
@@ -787,6 +801,17 @@
 - **And** when the file’s contents change on disk, or zoom/fit changes the size it is drawn at, the next render shows the new decode
 - **And** the cache cannot grow past a stated byte budget (least-recently-used entries leave)
 - **And** a local SVG still re-rasterises at each zoom step rather than stretching a natural-size bitmap (13.11)
+
+### 6.9 Decoding an image again leaves nothing behind
+- **Given** an animated WebP
+- **When** it is decoded many times with the image cache emptied each time, as happens when the cache drops it or the file changes
+- **Then** process memory does not keep climbing, by the same measure as 6.6
+- **Evidence, recorded here rather than in a commit message because it is what makes this rubric trustworthy**: this gate was written RED, against the decode path it now forbids, and measured at **+1.05 MB per iteration** on Linux with `tests/fixtures/anim.webp` (the same leak is ~12 MB per iteration on the 900×670 `assets/splash.webp`). It turned green only when the decode moved off the gdk-pixbuf route. Restoring that route reddens it again at ~10 MB per iteration while the cold-cache PNG control stays flat — so the gate is known to be able to fail, in both directions, rather than assumed to be
+
+### 6.10 A playing animation does not grow memory
+- **Given** an animation playing through many loops
+- **When** its memory is sampled across those loops, after warm-up
+- **Then** it does not climb from the first half of the loops to the second, by the same measure as 6.6
 
 ---
 
@@ -1846,7 +1871,6 @@
 - **Given** the outline sidebar is shown
 - **Then** a fixed caption reading "Outline" sits at the top of the panel and does not scroll with the heading list
 - **And** the header carries a close (×) button that hides the sidebar (sharing the same `win.outline` toggle as the toolbar button / View menu / F9)
-
 
 ### 12.23 Fast wheel-scrolling the outline never jumps the list
 - **Given** a document with enough headings that the outline list scrolls over many screens (this file is the reference case), positioned somewhere below the top
@@ -3655,3 +3679,70 @@ up doing.
 - **And** what it puts on PATH is the artefact it just built, never one it merely found
 - **And** nothing it installs resolves into the build directory, so emptying that directory cannot silently break the install
 - **And** a dangling link is reported as a hazard rather than treated as absent
+
+---
+
+## 27. Animated images
+
+### 27.1 An animated image plays by itself
+- **Given** an animated WebP, GIF or APNG in view, with View ▸ Play Animations on and the system's "reduce animations" setting off
+- **When** the document is rendered
+- **Then** it plays with its own frame timing and number of loops, and every frame matches a reference renderer's
+- **And** once its loops are finished it stays on its last frame and uses no more CPU
+
+### 27.2 Frames with very short delays play at a sane speed
+- **Given** an animation whose frames declare a delay under 20 ms
+- **When** it plays
+- **Then** each of those frames is shown for 50 ms
+- **And** that duration can be changed in the configuration file
+
+### 27.3 An animation nobody can see costs nothing
+- **Given** a playing animation
+- **When** it is scrolled out of view, inside a collapsed `<details>` block, on a background tab, in a hidden preview pane, or in a minimized or hidden window
+- **Then** it uses no CPU at all and holds no more memory than its file
+- **And** when it comes back into view it plays again from its first frame
+
+### 27.4 A large or fast animation never slows the window down
+- **Given** an animation whose frames take longer to decode than their display time
+- **When** it plays
+- **Then** scrolling, typing and other windows stay responsive
+- **And** late frames are skipped rather than shown late
+
+### 27.5 View ▸ Play Animations pauses and resumes every animation
+- **Given** one or more windows showing animations
+- **When** the reader switches View ▸ Play Animations off
+- **Then** every animation in every window freezes on its current frame and shows the paused badge (27.8), and switching it on again resumes them
+- **And** the item sits beside Show Unsafe Images, every window's menu shows the same state, it is not on the toolbar, and it has no keyboard shortcut
+
+### 27.6 Play Animations is on by default and remembered
+- **Given** a first launch, or the reader's last choice
+- **When** the application starts
+- **Then** Play Animations is on for a first launch, and otherwise is whatever the reader last chose
+
+### 27.7 The system's "reduce animations" setting wins
+- **Given** the system's "reduce animations" setting is on
+- **When** a document with animations is shown
+- **Then** every animation shows its first frame with the paused badge and does not play, whatever Play Animations says
+- **And** once the setting is switched off — while the application runs, or before its next launch — animations follow the reader's Play Animations choice again, and the system setting never changes that choice
+- **Per platform, because "the system's setting" is not one thing and the evidence differs**:
+  - **Linux**: GTK's own `gtk-enable-animations`, which the desktop sets. Verified.
+  - **Windows**: `gtk-enable-animations` is hardcoded `TRUE` by the GTK backend, so the OS preference is read directly (`SPI_GETCLIENTAREAANIMATION` — see 27.10). Operator-paced: it needs the reader to toggle Windows' own Animation effects, so it is a manual check rather than an automated one.
+  - **macOS**: **UNVERIFIED, and deliberately so.** The source exists (`NSWorkspace.accessibilityDisplayShouldReduceMotion`) but wiring it needs Objective-C runtime FFI no seat can currently compile or verify, so the platform façade answers "no opinion" there and this rubric's behaviour does not yet hold on macOS. Tracked in `sdd/PLAN.accessibility.md`. Stated here rather than only in the plan, because a rubric that asserts unconditionally is read as verified everywhere
+
+### 27.8 A paused animation carries a pause badge
+- **Given** a paused animation
+- **When** it is shown
+- **Then** a small pause symbol sits in its bottom corner
+- **And** still images and playing animations never show it, an image under 48 pixels on a side does not show it, and clicking it does nothing
+
+### 27.9 Animated theme sprites play
+- **Given** a reading theme with an animated sprite
+- **When** the sprite is shown
+- **Then** it plays under the same rules as any animation: only while visible, and subject to Play Animations and "reduce animations"
+
+### 27.10 The reduced-motion platform seam answers for the host, or abstains
+- **Given** the cross-platform reduced-motion façade (`src/platform`)
+- **When** it is asked whether the OS is requesting reduced motion
+- **Then** it answers "yes", "no", or **"no opinion"** — and "no opinion" resolves to *not reduced*, never to a guess, matching GTK's own default for `gtk-enable-animations` where no setting object exists
+- **And** a platform with a real source must not abstain: on Windows the answer is always an opinion, read live so a setting changed while the application runs takes effect without a restart
+- **And** a platform with no source (Linux, and macOS until 27.7's deferral is closed) abstains rather than inventing an answer, so adding the seam changed no behaviour on either

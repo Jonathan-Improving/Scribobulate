@@ -72,6 +72,10 @@ const MENU_MNEMONICS: &[(&str, &str)] = &[
     // user's own theme — they go unmarked, like the dynamic Documents filenames.
     ("Reading Theme", "Reading T_heme"),
     ("Status Bar", "Status _Bar"), ("Show Unsafe Images", "Show _Unsafe Images"),
+    // Every other letter in "Play Animations" is taken elsewhere in the View popover
+    // (P: Preview, l: Vertical Split, a: Annotations, n/i/o/t/m/s: various) — "y" (in
+    // "Play") is the one free letter left.
+    ("Play Animations", "Pla_y Animations"),
     ("Zoom In", "Zoom _In"), ("Zoom Out", "_Zoom Out"),
     ("Reset Zoom", "_Reset Zoom"), ("Swap Panes", "S_wap Panes"),
     ("Vertical Split", "Vertical Sp_lit"),

@@ -49,6 +49,7 @@
 mod a11y;
 mod accel;
 mod affordance;
+mod animation;
 mod annotate;
 mod annotations;
 mod annotations_view;
@@ -70,6 +71,7 @@ mod forensics;
 mod format;
 mod icons;
 mod imagecache;
+mod imagedecode;
 mod imagefetch;
 mod keynav;
 mod limits;

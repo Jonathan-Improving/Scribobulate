@@ -1,533 +1,568 @@
-# Plan: Per-render memory-leak gating
+# Plan: Per-render memory-leak gating, and owning the animated-image decode
 
-**Retention: this plan is kept after implementation** (operator decision), against SDD's
-default of retiring a plan once its work lands. Do not offer to delete it. That does **not**
-exempt it from the rest of retirement: when the fix and the gate ship, the decisions they
-establish still migrate to their proper homes — the test class and its pipeline step to
-POLICY, the rubrics to TDD, the runbook to `tests/MANUAL-TEST.md` — because a plan is where
-a decision is *made*, never where it is *looked up*. What justifies keeping the file is the
-measured evidence and the rejected approaches, which have no other home and are expensive
-to re-derive.
+**RETIRED 2026-09-12 — both phases shipped.** Kept, at the operator's decision, for the
+MEASURED EVIDENCE below: the leak's numbers, the route-by-route table, and the C-program
+corroboration are expensive to re-measure and are cited from code comments across
+`src/imagedecode/`, `src/animation/`, `src/memgate/` and `richimg/`. Its durable decisions
+have migrated to their homes — TECH.md (the crate rows, the `imagedecode/` and `animation/`
+module entries, the concurrency model), POLICY.md (the worker's obligations to the shared
+pool, image admission, richimg's place in the workspace), CAM.md (the menu-only exception),
+TDD 2.23a/b, 6.6-6.10 and §27 with their `tests/MANUAL-TEST.md` checks, and ScrAP-351 /
+ScrAP-352. **This file is no longer a work plan**: the work-package briefs and wave schedule
+it carried during implementation are history and have been pruned; git holds them.
+
+| Phase | Scope | State |
+|---|---|---|
+| 1 | Take the render path off the leaking route, cache local decodes, build the leak gate | **Shipped** |
+| 2 | Decode WebP ourselves (`richimg`), animate WebP, GIF **and** APNG at full fidelity, never animate what is not visible | **Shipped** |
+
+## What implementation changed about this plan
+
+Three of the decisions below were WRONG as written, and were corrected against measurement
+rather than followed. They are left in place with their corrections so the record shows what
+was believed and what was found:
+
+- **Dispose-to-background does NOT fill the ANIM background colour.** Every reference
+  renderer clears to transparent (libwebp's `ZeroFillFrameRect`, Blink, Gecko, WebKit,
+  `magick -coalesce`), and the `background_color_hint()` this plan said to pass is also in
+  on-disk BGRA order, so following it would have painted red and blue swapped. Corrected in
+  the "Decoder" section below.
+- **`has_tick_callback()` does not exist** at this project's GTK floor — not in 4.6.9's
+  headers, not in gtk4-rs under any feature — so the visibility gate's oracle is the
+  type's own bookkeeping PLUS the functional fact that the painted pixels stop changing.
+  Weaker than this plan assumed; said plainly where it is relied on.
+- **A collapsed `<details>` does not park its child at (−w,−h)** in this renderer: the fold
+  deletes the buffer range and `GtkTextBuffer::delete` unparents anchored children outright.
+  The visibility table's row for it is therefore satisfied by a different mechanism.
+
+One scope gap remains and is tracked in `sdd/ISSUES.md`: an animated sprite plays in the two
+BAND decorations and shows its first frame in the other four sprite slots.
 
 ## Problem
 
-Scribobulate grows without bound as open documents are re-rendered. Measured on the
-operator's live session: **836 MB to 1017 MB across roughly eight theme switches**
-(~22 MB each), never returned. Reproduced headlessly on `master` from the same session
-state: **104 MB to 2708 MB across 98 switches**, dead linear, no plateau at 2.7 GB.
+Scribobulate grew without bound as open documents were re-rendered: **836 MB to 1017 MB
+across ~8 theme switches** on the operator's session, and **104 MB to 2708 MB across 98
+switches** headlessly, dead linear. A conservative RAM footprint is this project's reason
+to exist, so this is a go/no-go defect in the same sense the VRAM ceiling is. No gate saw
+it: every pipeline step was green, and TDD §6 gated VRAM, not growth.
 
-A conservative RAM footprint is this project's reason to exist. A leak of this size puts
-it in the company of the editors it was built to be an alternative to, so this is a
-go/no-go defect in the same sense the VRAM ceiling is.
+Phase 1 made re-renders flat. What remains is that **the decoder itself still leaks**, and
+phase 1 only stops us calling it twice for the same file:
+
+- Every **first** decode of a distinct animated WebP still leaks ~12 MB, forever.
+- A decode the cache has **evicted** (32 MiB budget) or whose file **changed** leaks again.
+  Inferred, not measured: a document whose images exceed the budget re-leaks on every
+  re-render, and 6.6 cannot see it because it measures the cached path.
+- WebP does not decode at all on Windows or macOS (no loader ships), so a bare `<img>` of a
+  WebP is a broken-image placeholder on two platforms of three.
+- Remote images, theme sprites and PDF export decode through the same leaking loader.
 
 ### Relationship to PLAN.profiling.md
 
-That plan owns the **method**: the four failure classes, the tier ladder, and T3's
-allocation-attribution order (RSS slope across scaled cycle counts, then a weak-ref guard,
-then massif, then the `LD_PRELOAD` GType interposer), plus the comparability rules any
-memory measurement must obey. **This plan does not restate any of it** — a second copy is
-how the first stops matching.
-
-This plan owns two things that plan does not: a *diagnosed, shipped defect*, and the
-decision to build the **gate rung** as a standing test class with its own pipeline step.
-PLAN.profiling.md observes that "every regression-gate rung is code" without committing to
-one; this is that commitment, scoped to leaks only. Turn-latency and idle-CPU budgets
-remain that plan's C1/C2 and are out of scope here.
-
-**No existing gate detects it.** Every pipeline step was green throughout, and TDD section 6's
-ceiling gates VRAM, not RSS over time. The defect reached the operator's desktop because
-nothing in the tree has an opinion about memory growth. That gap is half of this plan;
-the leak itself is the other half.
+That plan owns the **method** (failure classes, tier ladder, T3 attribution order,
+comparability rules); this plan does not restate it. Turn-latency and idle-CPU budgets are
+that plan's C1/C2 — but phase 2's animation **creates** a standing CPU cost, so its
+"never animate what is not visible" gate sits here, as a deterministic assertion rather
+than a CPU budget.
 
 ### Root cause
 
-A local image was decoded once per render and the decode was retained.
+The retaining owner is **not in Scribobulate**. It is `webp-pixbuf-loader`
+(0.0.5-5~22.04.1, `libpixbufloader-webp.so`), a third-party gdk-pixbuf module. Its
+**animated** branch over-references `GdkPixbufWebpAnim` through a `GdkPixbufWebpAnimIter`
+it never releases; the anim keeps the decoded frame and the whole file buffer alive.
+Refcount on the anim is **2 where GIF's is 1**. Per-loader-module, not per-format: a
+*static* WebP of identical size is flat, and GIF is clean.
 
-`renderer/start.rs` used to decode a local image on every render — `Texture::from_file` at
-natural size, `Pixbuf::from_file_at_scale` when zoomed. `imagecache` was URL-keyed for
-**remote** images only, so no local decode was cached, bounded, or reused. That is
-the shipped shape now: local keys are `local:{path}:{mtime}:{size}`, sharing the
-existing LRU.
-
-The growth is **retention, not allocator churn**: forcing aggressive glibc trimming
-(`MALLOC_TRIM_THRESHOLD_`, `M_ARENA_MAX`) recovered only ~9 MB of an 80 MB step, and
-growth stays linear across 98 renders. Nearly all of it sits in a single `[heap]`
-mapping (680 MB of the operator's 836 MB at rest).
-
-**Where the retention lives:** `webp-pixbuf-loader`'s animated branch.
-`Pixbuf::file_info` ~2.3 MB/call, `Texture::from_file` ~12 MB/call, together
-~22 MB/render. No GTK decode route is flat on a valid animated WebP
-(`static_image` leaks the same and SIGSEGVs on truncated WebP). The cache is
-what makes a re-render flat; a first unique decode still pays the leak.
-
-Two properties shape the fix:
-
-- **Animated rasters amplify it.** A 900x670 80-frame animated WebP is ~193 MB fully
-  decoded at 4 bytes/pixel. Measured ~25 MB retained per theme-switch render.
-- **It is render-generic.** Theme switch, zoom and live reload share the re-render path.
-  Live reload matters most: it is the core use case and it fires unattended while an
-  agent rewrites a file.
+What was ours: we chose a leaking entry point where a flat one existed, decoded on every
+render because local images had no cache, and decoded 80 frames to show one.
 
 ## Measured evidence
 
 Release build, Cairo renderer, headless Xvfb, theme driven via `org.gtk.Actions.SetState`.
-Growth is per cycle of 7 switches unless stated.
+Growth per cycle of 7 switches unless stated.
 
 | Fixture | Growth/cycle | Reading |
 |---|---|---|
 | Operator session, 36 tabs / 7 windows | +157 MB, linear to 2.7 GB | the reported defect |
-| 7 windows x 1 tab, zoom 1.0 | flat after cycle 1 | window count is not the trigger |
-| 1 window x 7 tabs | flat after cycle 1 | tab count is not the trigger |
-| 1 window x 16 distinct large docs | flat after cycle 1 | document size/count is not the trigger |
-| 4 windows x 4 docs, zoom 1.25 | flat after cycle 1 | **zoom is not the trigger** |
-| README.md | +178 MB | isolated to one document |
-| README.md lines 1-40 | +175 MB | isolated to the `<picture>` block |
+| 7 windows × 1 tab / 1 window × 7 tabs / 16 large docs / zoom 1.25 | flat after cycle 1 | none of these is the trigger |
+| README.md lines 1–40 | +175 MB | isolated to the `<picture>` block |
 | Animated WebP alone | **+172 MB** | the trigger |
-| Animated GIF alone (120 frames, same size) | +22 MB | format-specific, GIF is clean |
-| No images at all | +18 MB, flat over 72 cycles | warm-up, not a leak |
+| Animated GIF alone (120 frames, same size) | +22 MB, then flat | warm-up; GIF is clean |
+| No images, 72 cycles | +18 MB, then flat to 228 KB | warm-up saturates, a leak does not |
 | Animated WebP, 20 zoom renders | **+7.8 MB per render** | render-generic |
 
-The ~18-22 MB baseline is first-cycle cache warm-up (GTK icon cache pulling in librsvg,
-per-theme font loading). A 72-cycle run on an image-free document was flat to within
-228 KB, so warm-up saturates and the leak does not.
+**Proof it is not ours:** a 20-line C program making only the two calls `load_texture`
+made per render leaks 22.27 / 22.04 / 21.96 MB per iteration at n = 5 / 13 / 40; the
+application measured 22.17 and 22.01 MB/switch. They agree to 1%. The `GdkTexture` we hold
+was weak-ref-verified finalized 40/40 — **a leak can be entirely real and invisible to
+refcount assertions**, which is why the gate has a slope half.
 
-## Possible approaches — the defect
-
-### ✅ 1. Take our render path off the leaking route, and cache what remains
-
-**There is a defect of ours here, and it is not the leak.** The leak belongs to a
-third-party loader we cannot patch. What belongs to us is that **we call it, by a route we
-chose, once per render, forever** — and a non-leaking route demonstrably exists. Three
-things in this tree are wrong independently of upstream:
-
-1. **We call a leaking entry point where a flat one exists.** `Pixbuf::file_info` leaks;
-   `gdk_pixbuf_animation_new_from_file` reading width/height only is **flat**, measured on
-   the same asset. That is a route choice, in our code, with a measured better option.
-2. **We decode on every render, because there is no local-image cache at all.** That is a
-   defect on its own terms and it is already on the register in its CPU form — a large SVG
-   costs 239 ms per render on the main thread for the same reason. Upstream is irrelevant
-   to that one; it would still be a bug if every loader were perfect.
-3. **We decode 80 frames to display one.** The application renders images statically
-   (measured — see *Diagnosis*), so entering an animated decode path at all is work we
-   never use, in both memory and CPU.
-
-Upstream supplies the hole. **We drive over it, repeatedly, at every re-render, and we
-chose the road.** Fixing 1–3 is what this plan delivers on the defect side; the gate (A) is
-what stops the next one.
-
-**Pros**: entirely within this tree — no upstream dependency, no patched loader, no waiting
-on a distribution. Fixes a real defect (2) that outlives the WebP question entirely.
-**Cons**: route avoidance must be re-verified per loader rather than reasoned once; the
-route table is measured for WebP and assumed for nothing else.
-
-### ❌ 2. Caching alone, without changing the route
-
-Extend the decoded-image cache to local paths (path + mtime + quantised target size, under
-the existing LRU byte budget) and change nothing else.
-
-**Rejected as a *standalone* fix — but adopted as the second half of ✅1.** Caching does not
-fix a leak it cannot reach: it reduces how often we invoke an unfixable defect without
-removing a single leaked byte per invocation. A reader stepping through zoom levels pays it
-once per distinct size, forever. That makes it a genuine mitigation and a genuine
-performance win, and **not** a cure — so it ships *with* route avoidance, never instead of
-it.
-
-The earlier objection to caching — that it would *mask* our own retention bug — is void,
-because there is no retention bug of ours to mask. It was the right call on the evidence
-available and is recorded here so nobody re-derives it.
-
-### ❌ 3. Decode animated rasters to a single frame
-
-Take frame 0 for animated formats rather than materialising every frame.
-
-**Rejected — operator decision.** It would remove the 80x amplifier cheaply, and that is
-the whole of its appeal, but it buys memory by silently dropping animation. **Degrading UX
-is not an acceptable currency once the UX bar has been set**, and a reader whose animated
-image stopped animating has been handed our memory problem as their rendering problem. It
-also would not fix the per-render retention for large static images, so it trades a
-visible feature for a partial fix.
-
-The same reasoning rules out the softer version: **no decoded-frame budgeting.** How many
-frames an image carries is the end user's business, not a number this application gets to
-cap on their behalf.
-
-### ❌ 4. Remove `assets/splash.webp` from README.md
-
-**Rejected.** It punishes the end user for our defect — removing the asset implies the
-broken thing is the *content*, when the broken thing is the code we are responsible for.
-Any user document embedding an animated WebP leaks identically and no README edit reaches
-them. It would also destroy the reproducer a gate needs.
-
-### 💡 5. Decode WebP ourselves and stop using the module at all
-
-**Status: open, and deliberately deferred — it does not block this plan** (operator
-decision). Fix our own defect first; this is picked up by a future session when the
-operator chooses. It stays here in full rather than being summarised, so whoever takes it
-up inherits the analysis rather than re-deriving it.
-
-Operator's proposal. Rather than routing around a broken loader, remove it from the path:
-decode WebP in this tree and hand GTK a finished `GdkTexture`
-(`Texture::from_bytes`, already used for remote images — ScrAP-292). Two very different
-sizes of the same idea, and they should not be costed together:
-
-**5a — still-frame decode only.** Produce frame 0 and nothing else. This is all the
-application renders today (measured: paintables are `STATIC_CONTENTS`), so it is a pure
-defect fix with no behavioural change.
-
-**5b — a full animated WebP component.** 5a plus actually animating. This is **not a bug
-fix, it is a new feature** — the application has never animated an image on any platform.
-
-**Pros** (5a, and inherited by 5b):
-- **We consume a fraction of the component's surface and inherit all of its failure
-  modes.** The leak is in the loader's *animated* branch — a branch this application never
-  uses, since it renders frame 0 and discards the rest. A general-purpose loader carries
-  the whole format's generality, and its bugs, to a caller that wanted one still image.
-  That mismatch is the argument for owning the narrow thing, and it is why the narrow
-  thing is often *smaller* as well as more stable: it is not a smaller version of the
-  component, it is a different and much shorter problem.
-- **Removes the defect class, not this instance.** Route avoidance (✅1) is per-loader:
-  the route table is measured for WebP and assumed for nothing else, so every future
-  format is fresh whack-a-mole. Owning the decode ends that for WebP permanently, on every
-  distribution, regardless of what the user's `webp-pixbuf-loader` does.
-- **It is a portability gain, though a smaller one than first claimed.** Neither Windows
-  nor macOS ships a WebP pixbuf loader (both measured), so WebP decodes on exactly one of
-  three platforms. ⚠ **Correcting an overstatement made earlier in this plan**: that does
-  *not* mean users see a broken image on the other two. TDD 2.23's `<picture>` fallback is
-  designed for exactly this and skips the undecodable candidate, so the README hero renders
-  its GIF there. The real gap is a **bare `<img>` pointing at a WebP**, which has no
-  fallback to take and shows the broken-image placeholder on two platforms out of three.
-  Our own decoder would close that and make the three behave alike.
-- **A pure-Rust decoder is memory-safe**, where the thing it replaces is an unaudited C
-  module parsing untrusted input on the main thread. That is a security improvement, not
-  merely a lateral move.
-
-**Cons**:
-- ⚠ **"Roll our own" here means *own the decode*, not *invent the format*.** We do not
-  control this input: users' documents carry standard WebP, so the bitstream (VP8/VP8L,
-  plus the RIFF container and, for 5b, the ANMF/ANIM demux) must be implemented to spec.
-  The tenable version of this approach is therefore *integrate a narrow decoder crate and
-  own the path*, not *write a codec* — the win is scope control and dependency choice, not
-  format design. Costing it as though the format were ours would badly under-estimate it.
-- **A new dependency, which POLICY gates.** Note the precedent does *not* transfer: the
-  `pangocairo` justification was "already linked into the process by GTK, so this adds
-  bindings and no system dependency." That is **false here** — `libwebp` enters the process
-  only when the loader decodes, and on Windows it is absent entirely. A C binding therefore
-  adds a real system dependency to two platforms' packaging. A **pure-Rust** decoder avoids
-  that and is the variant worth costing; its animated-WebP coverage needs verifying before
-  anyone commits to 5b.
-- **Attribution and licence obligations** — `THIRD-PARTY-LICENSES.md` and `notices/`.
-- **"Bug-free" is not achievable by intention.** We would be trading a known bug for
-  unknown ones. What makes this defensible now and would not have before is that this plan
-  *also* builds the gate: the replacement lands under a growth-slope test that would have
-  caught the very defect being replaced.
-
-**Cost specific to 5b, and it cuts against the project's premise**: animation means
-repainting continuously on the main thread under a software renderer, and holding decoded
-frames resident. This is an application whose reason to exist is a small footprint, that
-already carries a CPU-spin defect on the register, and that pins the Cairo renderer. An
-animated image is a standing CPU and memory cost bought for decoration. **5b should be
-weighed as a product decision, not folded in as part of a leak fix.**
-
-⚠ Note ❌3 was rejected on the grounds that dropping animation degrades UX. That reasoning
-does not carry over to 5b as a reason *for* it: there is no animation today to preserve, so
-5b **adds** a capability rather than defending one, and it has to earn its footprint on its
-own merits.
-
-## Possible approaches — the gate
-
-### ✅ A. A new test class with its own mandatory pipeline step
-
-A third class alongside unit and integration tests, deterministic, excluded from the
-coverage ratchet, and a mandatory pipeline step with no opt-in or opt-out.
-
-Two kinds of assertion, catching disjoint failures:
-
-1. **Finalization (deterministic).** Weak-ref the per-render decoded object, including
-   the cache, and assert it finalizes with no main-loop pump. No thresholds, no
-   sampling. Sound only under Cairo; the gate asserts `NativeExt::renderer()` is
-   `gsk::CairoRenderer` (None panics) because `$GSK_RENDERER` is defeatable. See
-   the GSK precondition below.
-2. **Per-render growth slope.** Drive a render loop over a fixture and assert growth per
-   render stays under a per-platform bound. Catches leaks nobody predicted — including
-   this one, which no finalization assertion would have caught before someone knew to
-   write it.
-
-The bound is **per-render growth, not absolute footprint**. Absolute size is a design
-question warranting higher-level planning, not a gate.
-
-**Neither half needs to be Linux-only** (measured by the `mac` seat, GTK 4.22.4/M4). Half
-2 is portable in *mechanism*: one sampler trait with three `cfg` bodies — `/proc` VmRSS on
-Linux, `libc::proc_pid_rusage(RUSAGE_INFO_V2).ri_phys_footprint` on macOS,
-`GetProcessMemoryInfo` on Windows — and no new dependency on any seat (`libc` is already in
-`Cargo.lock`). Name the field **`footprint`, never `rss`**: the three numbers are not the
-same quantity, and a shared name invites a shared threshold. Tolerances are **per-platform
-constants**, never one shared number.
-
-⚠ **Freed memory is not returned memory — this is a property of the class, not a
-per-platform caveat.** macOS malloc keeps freed pages in the zone: a 256 MB allocation
-dropped moved the footprint by nothing (257.19 MB before and after). Linux behaves the same
-in kind — aggressive glibc trim returned only ~9 MB of an 80 MB step. Two consequences bind
-every assertion in this class:
-
-- **Never write a single-shot "render, free, assert the number came back".** It cannot pass
-  on a correct implementation. This is the trap the whole class exists to avoid and it is
-  the most natural test to reach for.
-- **Slope over N with K warm-up renders discarded is the only honest shape.** A
-  non-leaking loop plateaus once the allocator is warm; a leaking one climbs without bound.
-  K must cover *allocator* warm-up, not merely first paint.
-
-⚠ **The GSK precondition — resolved, and the resolution is a constraint, not a
-reassurance.** Finalization is sound at the glib layer, but the question was whether GSK
-retains a rendered `GdkTexture`, which would redden the assertion on healthy code.
-Measured with one probe run on two seats (`probes/gsk-texture-ref-ownership.c`):
-
-| Version / seat | `GskCairoRenderer` | `GskGLRenderer` |
-|---|---|---|
-| 4.22.4, `mac` | finalizes, 0 iterations | finalizes, 0 iterations |
-| **4.6.9 floor**, `linux` | finalizes, 0 iterations | **never finalizes** |
-
-So the assertion is safe **because this project pins `GSK_RENDERER=cairo` unconditionally**
-(`lib.rs`) and because the gate asserts `NativeExt::renderer()` is `gsk::CairoRenderer`.
-`$GSK_RENDERER` is defeatable: `.cargo/config.toml`'s `[env]` only applies when the
-variable is unset. Mutation-tested on macOS 4.22.4: `GSK_RENDERER=gl` fails the cairo-arm
-check with exit 1, and 6.7 itself still *passes* under that arm (GL finalizes there).
-Without the arm check a macOS wrong-arm run greens 6.7 having measured GL. At the 4.6
-floor the same mutation makes 6.7 fail. The guard therefore prevents a false red at the
-floor and a false green on macOS. **The forced renderer is load-bearing, and any proposal
-to let it vary re-opens this and must re-measure first.**
-
-The contract is therefore: drop every app-side ref *including the render node tree*, then
-assert the `GWeakRef` is NULL. **No main-loop pump, no forced frame count** — a
-"pump N iterations" line would encode a guess about a scheduler, and it is exactly the
-construct that passes on one seat and reds on another later.
-
-Half 1 can be **mandatory**. Two caveats to carry rather than lose: the GL result is
-software GL under Xvfb, a configuration this tree already knows is odd (GTK4Rs/AP-129), so
-real-display GL is *unmeasured* and not claimed; and a source trace predicting both
-versions would behave identically was **falsified by running it** — right for cairo, right
-for 4.22.4 entirely, wrong at the floor for the one renderer nobody would run.
-
-**Pros**: a new step can later be turned off as a unit if it proves noisy; both halves run
-on all three seats, so no platform is blind to leaks. **Cons**: a third class is new surface
-to maintain, and half 2's per-platform tolerances are three numbers to keep honest.
-
-### ❌ B. Fold into pipeline step 5 (integration)
-
-**Rejected** on the operator's call: a separate step can be disabled independently later,
-where a fold cannot be undone without unpicking step 5.
-
-### ❌ C. Absolute RSS ceiling
-
-**Rejected.** It would fail on legitimate large documents and pass a slow leak on a small
-one. It measures the wrong quantity for this purpose.
-
-## Recommendation
-
-Take **1** then **A**. Both are wholly inside this tree; neither waits on anyone.
-
-**Approach 5 does not block this plan and must not delay it** (operator decision). Fix our
-own defect first; the own-the-decoder question is deferred to its own plan and picked up
-when the operator chooses. An implementing session that stops to research a decoder has
-misread the priority.
-
-**Implementing this plan means shipping the fix, not only the gate.** The gate is what
-stops the next leak; it does nothing about this one. A session that lands the test class
-and leaves the render path on the leaking route has completed none of this plan.
-
-**And the fix is not a formality because the leak turned out to be upstream.** Diagnosis
-moved the *retention* out of this tree; it did not move the *route choice*, the *missing
-cache*, or the *unused animated decode* — all three are ours, and all three are why a user
-sees 2.7 GB.
-
-| # | Deliverable | Ours? |
-|---|---|---|
-| 1 | Stop calling the leaking entry points where a measured flat route exists | yes |
-| 2 | A bounded local-image decode cache (also kills a 239 ms/render main-thread stall) | yes |
-| 3 | The leak gate: growth-slope + finalization, its own mandatory pipeline step | yes |
-| 4 | Patch `webp-pixbuf-loader` | **no** — not ours, not shipped by us, explicitly rejected |
-
-Sequence:
-
-1. Land the failing **growth-slope** test first, against the WebP fixture. It must fail on
-   `master` before anything is fixed — a leak guard that has never been seen red is not
-   evidence (ScrAP-209: a guard whose setup prevents the resource from existing passes with
-   the fix deleted). Mutation-test it, and check the mutation fails for the reason intended
-   rather than on an earlier precondition (ScrAP-183, ScrAP-254).
-   ⚠ **The finalization half cannot catch this defect** — the `GdkTexture` we hold
-   finalizes correctly (verified 40/40); the leak sits behind it, in a module we never
-   reference. That asymmetry is the strongest argument in this plan for why the class needs
-   *both* halves: a leak can be entirely real and entirely invisible to refcount assertions.
-2. **Take the render path off the leaking route, and add the cache.** This is the fix, and
-   it ships with this plan.
-3. Wire the new pipeline step with both halves.
-4. Measure the cache's effect on the SVG stall as well — the same change should show up
-   there, and if it does not, the cache is not doing what it was justified on.
-
-**Rubrics before code — the plan-kickoff stop applies.** A new test class needs TDD
-rubrics saying what must be true of memory across a re-render, authored before the
-harness exists; rubrics written afterwards describe whatever the harness happens to
-measure. The per-render bound is one of them and cannot be chosen up front — derive it
-from a measured clean baseline once the retention is fixed.
-
-**Where this lands in the documents.** POLICY gains the new test class and its pipeline
-step (and states that the class is outside the coverage ratchet, so
-`scripts/coverage.scope` is untouched); `scripts/pipeline.steps` gains the step itself,
-following the `4b` precedent for insertion without renumbering, with `intent` pinned and
-`cmd.<platform>` per platform; TDD gains the rubrics; `tests/MANUAL-TEST.md` extends
-section 1.8, which today covers only the VRAM and RSS *ceilings*. ANTI-PATTERNS gains an
-entry once the retention is named — not before, since the lesson is the mechanism.
-
-## Diagnosis
-
-**The retaining owner is not in Scribobulate.** It is `webp-pixbuf-loader`
-(0.0.5-5~22.04.1, `libpixbufloader-webp.so`, stripped), a third-party gdk-pixbuf module.
-Its **animated** branch over-references `GdkPixbufWebpAnim` through a
-`GdkPixbufWebpAnimIter` it creates and never releases; the anim then keeps the decoded
-frame and the whole file buffer alive forever. Measured refcount on the anim is **2 where
-GIF's is 1**, and the surplus is never dropped.
-
-Two independent leaks in that one module sit on our render path:
-
-| Our call site | Route | Leak |
-|---|---|---|
-| `renderer/start.rs:846` `Pixbuf::file_info` | `gdk_pixbuf_get_file_info` | 2.31 MB/call |
-| `renderer/start.rs:873` `Texture::from_file` | `new_from_stream` → `GdkPixbufLoader` **incremental** path | 11.7–12.9 MB/call |
-
-They are **super-additive in sequence** — 2.31 + ~12.2 separately, **22.0 measured
-together**. The 22.0 is measured; fragmentation as the *reason* is inferred.
-
-**Proof it is not ours:** a 20-line C program making exactly the two calls `load_texture`
-makes per render — no widget, no buffer, no Scribobulate code — leaks 22.27 / 22.04 /
-21.96 MB per iteration at n = 5 / 13 / 40. The application measures 22.17 and 22.01
-MB/switch on a one-line `<img src="assets/splash.webp">` document. **The C probe and the
-application agree to 1%.**
-
-**Ruled out**, each excluded by the single fact that 22 MB/render reproduces with none of
-them present: anchored `GtkPicture` not detached; Pango shape attribute holding a texture
-ref; `Rc`/closure cycle through a controller (ScrAP-155's shape); copymap/offset-map
-rebuild; `imagecache` (never entered — the path is `ImageResolution::Local`). The
-`GdkTexture` **we** hold was weak-pointer-verified finalized 40/40 in every run.
-
-**The GIF/WebP asymmetry is fully explained** and narrows further than expected: it is
-**per-loader-module, not per-format-family**, and a *static* WebP of identical dimensions
-is flat. The trigger is specifically the animated branch of that one module.
-
-Route sensitivity, same asset — this is what the fix has to work with:
+Route sensitivity on the same animated WebP:
 
 | Entry point | Result |
 |---|---|
 | `gdk_pixbuf_new_from_file` | errors outright ("Cannot create WebP decoder") |
-| `new_from_stream` / `GdkPixbufLoader` | **leaks 11.7–12.9 MB/call** — what `Texture::from_file` uses |
-| `gdk_pixbuf_animation_new_from_file`, read w/h only | **flat** |
+| `new_from_stream` / `GdkPixbufLoader` (what `Texture::from_file` and `from_bytes` use) | **leaks 11.7–12.9 MB/call** |
 | `gdk_pixbuf_get_file_info` | **leaks 2.31 MB/call** |
+| `gdk_pixbuf_animation_new_from_file`, read w/h only | flat |
+| `PixbufAnimation::static_image` | leaks the same, and **SIGSEGVs on truncated WebP** |
 
-⚠ **A premise in this plan is measurably false, and it is load-bearing for ❌3.** The
-application does **not** animate the WebP today: `gdk_paintable_get_flags` on the texture
-`Texture::from_file` returns is `0x3` (`STATIC_SIZE | STATIC_CONTENTS`) for both WebP and
-GIF, and `src/` contains no animation handling at all — the decode path returns a
-`GdkTexture`, which is structurally a single image. All 80 frames are decoded and thrown
-away on every render; only frame 0 is ever shown. ❌3 was rejected on the grounds that it
-would "silently drop animation"; there is no animation to drop. **The rejection is left
-standing pending the operator**, because the decision was the operator's and the premise
-is theirs to re-weigh — but it must not be inherited unexamined.
+The two leaking calls are super-additive in sequence: 2.31 + ~12.2 alone, 22.0 together.
 
-### What this does to the fix
+## Possible approaches — the defect
 
-Approach ✅1 said *break the retention*. We cannot: the defect is in a distribution
-package, and no `.deb` we ship changes the user's loader. So the fix becomes **avoid the
-leaking routes**, and the route table above says that is possible — a non-leaking path to
-dimensions already exists. **This also rehabilitates 💡2**: caching was rejected as the
-fix because it would *mask* our retention bug, and that objection dies with the bug. It no
-longer masks anything — but it only reduces how often we invoke a leak we cannot fix, so
-it is a mitigation, not a cure, and route avoidance outranks it.
+### ✅ 1. Take our render path off the leaking route, and cache what remains (shipped)
+
+`renderer/start.rs` probes SVG dimensions with `gdk_pixbuf_animation_new_from_file`
+instead of `Pixbuf::file_info`, and `imagecache` now caches local decodes under
+`local:{path}:{mtime}:{size}` in the shared LRU. Re-renders are flat; the large-SVG second
+load went from 234 ms to 22 µs. It could not remove the per-decode leak — no GTK decode route
+is flat on a valid animated WebP — which is what phase 2 is for.
+
+### ❌ 2. Caching alone, without changing the route
+
+Reduces how often an unfixable leak is invoked without removing a byte of it. Adopted as
+half of ✅1, rejected as a standalone fix.
+
+### ❌ 3. Show frame 0 only, permanently
+
+Rejected by the operator: the target is **full animation at full fidelity**. (The
+application does show frame 0 today — `Texture::from_file` returns `STATIC_CONTENTS` —
+and TDD 2.23 still says animation is out of scope; phase 2 changes both.) The softer
+version, capping how many frames an image may carry, is rejected on the same ground.
+
+### ❌ 4. Remove `assets/splash.webp` from README.md
+
+Punishes the content for our code, reaches no user document, and destroys the reproducer.
+
+### ✅ 5. Own the decode — `richimg` — and animate WebP, GIF and APNG
+
+**Decided (operator):** build it now, as phase 2 of this plan rather than a separate plan,
+and animate rather than stop at frame 0. The reasoning that carried it:
+
+- **It removes the defect class rather than routing around one instance.** Route avoidance
+  is per-loader and was measured for WebP only; owning the decode ends it for WebP on every
+  distribution, whatever the user's loader does.
+- **Portability:** WebP renders on all three platforms instead of one.
+- **Memory safety:** a pure-Rust decoder replaces an unaudited C module parsing untrusted
+  input on the main thread.
+- **It lands under a gate** that would have caught the defect it replaces.
+
+Every phase 2 decision below is settled (✅) or rejected (❌).
+
+## Phase 2 — decisions
+
+### ✅ `richimg`: a workspace crate, loosely coupled
+
+Scribobulate's animated-raster decoder, for WebP, GIF and APNG. A workspace member beside
+`gtktest` and `xtask`, in `default-members` so steps 1, 2 and 4 format, lint and test it.
+**No GTK dependency**: bytes in, dimensions and composited RGBA8 frames (with per-frame
+durations and loop count) out. It never sees the application, so moving it
+to an external dependency later is a `Cargo.toml` change, not a refactor. The decoder crate
+it wraps is an implementation detail behind its API.
+
+### ✅ Decoder: `image-webp` 0.2.4, pinned
+
+Pure Rust, `#![forbid(unsafe_code)]`, MIT OR Apache-2.0 (compatible with Apache-2.0), MSRV
+1.80.1, two tiny dependencies. Backend of the `image` crate, GNOME glycin, resvg, Servo.
+Implements VP8, VP8L, ALPH, VP8X and ANIM/ANMF. Researcher-measured on `splash.webp`:
+frame 0 **bit-exact** against `dwebp` (0 / 603,000 pixels differ); a lossy 900×670 frame
+decodes in ~9 ms (~1.6–2.4× libwebp); truncated input returns `Err`, never panics.
+
+Carried obligations:
+
+- **Known panics on crafted input** — image-webp#182 (zero-sized VP8 in ANMF after ALPH;
+  fix is PR #185, unreleased) and #118 (lossless Huffman overflow, still open). So the
+  decode runs under `catch_unwind`, and a panic degrades exactly like a decode `Err`. A
+  panic on the GTK main thread would take the process down.
+- **No release since 2025-08-27** with fixes waiting on `main` (issue #183). A yellow
+  flag, not a show-stopper (operator). Pin 0.2.4 and watch for 0.2.5.
+- **Cap before allocating.** `WebPDecoder::new` + `dimensions()` allocates no pixels; check
+  `limits::image_pixels_within_cap` before any buffer. `set_memory_limit` is also set,
+  but its docs admit gaps, so it is defence in depth and never the cap.
+- **Straight (non-premultiplied) alpha**; RGB8 when the file has no alpha. The GTK side
+  builds a `MemoryTexture` (`R8g8b8a8`), **never** `Texture::from_bytes`, which hands
+  encoded bytes back to the leaking loader.
+- **Animation compositing has two known gaps, both in `image-webp` itself** (researcher,
+  source-read 0.2.4; the `image` wrapper adds no second compositor, so image#2913's locus is
+  here):
+  - **Dispose-to-background is a no-op by default.** `background_color` defaults to `None`,
+    so the clear does nothing. Every reference renderer clears to **transparent** and treats
+    ANIM `bgcolor` as an ignorable hint (libwebp `WebPAnimDecoder`'s `ZeroFillFrameRect`,
+    Blink, Gecko, WebKit, `magick -coalesce`; researcher, corrected from an earlier "browsers
+    fill `bgcolor`"). So `richimg` calls `set_background_color([0, 0, 0, 0])` —
+    **never** `background_color_hint()`, which is also in on-disk BGRA order. Re-check on any
+    bump: image-webp `main` already zeroes a disposed rect when the frame has alpha.
+  - **`reset_animation` does not clear the canvas** (it only rewinds the ANMF pointer). A
+    loop whose frame 0 is partial and transparent composites over the last frame, so
+    `richimg` clears the canvas itself on every loop.
+- **Fidelity evidence so far is weak for animation.** On `splash.webp` frame 0 is
+  bit-exact, and frames 1–4 differ from `magick -coalesce` by at most **1 LSB** on 80–91% of
+  pixels (YUV/blend rounding). But every `splash.webp` frame is `dispose=none`, so it
+  cannot exhibit either gap: `richimg` needs its own fixtures for dispose-to-background and
+  partial transparent frames.
+- **Sequential `read_frame`** costs a median 9.0 ms per 900×670 frame (6.5–13.4); a full
+  80-frame pass is 715 ms. `reset_animation` is free.
+
+### ❌ Other decoders
+
+- **zenwebp** — faster and bit-exact, but AGPL-3.0-only or commercial.
+- **libwebp bindings** (`libwebp-sys`, `webp`, `webp-animation`, `webpx`) — add a C
+  dependency on Windows and macOS and give up memory safety; libwebp's CVE-2023-4863
+  (exploited heap overflow) is the class being left.
+- **The `image` crate** — extra surface, and its WebP wrapper drops `set_memory_limit`
+  (image#3077).
+- **Young crates** (`webp-rust`, `gamut-webp`, `oxideav-webp`, …) — small user bases, no
+  comparable fuzzing; `gamut-webp` has no animation.
+
+### ✅ Route by content, through one choke point
+
+WebP is recognised by its `RIFF`…`WEBP` magic, GIF by `GIF87a`/`GIF89a`, and APNG by the PNG
+signature plus an `acTL` chunk before the first `IDAT` — never by file extension. **One**
+application-side module decodes every encoded image and routes WebP, GIF and APNG to
+`richimg`, everything else (a still PNG included) to GTK. It serves the four sites that decode today — preview local images
+(`renderer/start.rs`), remote images (same file), theme sprites (`sprite.rs`, including its
+`probe_pixel_size`) and PDF export (`export/pdf`) — and `export/doc.rs`'s existing WebP
+sniff becomes `richimg`'s. **Enforcement:** a `clippy.toml` `disallowed-methods` ban on
+GTK's encoded-image decode entry points (`Texture::from_bytes` / `from_file` /
+`from_filename`, `Pixbuf::from_stream`, `PixbufLoader::new`), sanctioned only in the choke
+point. The true-positive rate is high — every current caller is decoding untrusted content.
+
+### ✅ A local image file is admitted like a document
+
+Sniffing by content means the choke point reads the file itself, where GTK used to. So a
+local image read gets the same two-part test documents get (POLICY § Input limits): **a
+regular file** — a FIFO named `x.gif` would otherwise block the main thread forever — and
+**within a byte limit**. Local images have no byte limit today; only remote ones do
+(`limits::MAX_REMOTE_IMAGE_BYTES`). The limit is **configurable in `config.toml`**
+(operator), with its default in `limits.rs`: **16 MiB**, as a sibling constant
+`MAX_LOCAL_IMAGE_BYTES` with its own justification (researcher; not an alias of the remote
+one). One limit for every format.
+
+- **Evidence:** `splash.webp` is 7.0 MiB, so 16 MiB is 2.2× the project's own hero. GitHub
+  caps pasted images and GIFs at 10 MB; X at 15 MB, Discord at 8 MB, Reddit at 20 MB.
+  Browsers, `image`, gdk-pixbuf and glycin cap *decoded* pixels rather than file bytes,
+  because they stream; we need a file cap only because we read the whole file to sniff it.
+- **Why not higher:** 64 MiB is the document cap, and an image that large is a mis-attached
+  video; nothing in the measured corpus needs 32.
+- **Why not split still vs animated:** the pixel cap already bounds the canvas, and a
+  decompression bomb is caught by `MAX_IMAGE_PIXELS`, not by this. This cap bounds the read
+  and the compressed bytes that stay resident while an animation plays.
+
+### ✅ GIF animates too
+
+Animating WebP and leaving GIF static would be inconsistent (operator). Route: see the
+`gif` crate decision below.
+
+### ✅ Theme sprites animate too, and so do remote images
+
+An animated sprite always plays (operator): whether a theme uses one is the theme
+designer's call, and not the engine's to police. Sprites are painted by the preview's paint
+plan (`decorplan.rs`), not by a picture widget, so their visibility comes from its existing
+viewport gates, and they still obey the toggle and reduce-animations. Remote images animate
+like local ones. PDF export always takes the first frame.
+
+### ✅ Decode off the main thread; present on the frame clock
+
+Operator decision. A frame decode is ~9 ms for a 900×670 WebP and grows with pixel count,
+so a large, fast animation could take longer than a frame on the main thread. `richimg` has
+no GTK in it, so its decoder can run on a worker and hand back **owned RGBA bytes**. That
+is the shape POLICY § Architecture rules prefers (plain owned data crosses, no GTK object
+does), and the texture is built and swapped on the main thread. **This is the application's
+first worker of its own**, so TECH.md's concurrency model and that POLICY rule change with
+it.
+
+**Backpressure: fall behind by skipping, never by queueing.** At most one decode per
+animation is in flight. When the clock has passed a frame's presentation time, that frame is
+not shown late — playback jumps to the frame that is due now. ⚠ **Skipping a frame's
+presentation does not skip its decode**: WebP, GIF and APNG frames composite onto the previous
+canvas, so every intermediate frame must still be decoded to reach a later one, except
+where a frame replaces the whole canvas. What backpressure saves is painting and texture
+uploads, not decode work. The frame-delay floor below is what bounds that.
+
+### ✅ Frame timing: a delay under 20 ms means 50 ms
+
+A frame that declares a delay **under 20 ms** — 0 or 10 ms, since GIF counts in 10 ms
+steps — is shown for **50 ms**, configurable in `config.toml` (operator). Browsers apply the
+same kind of floor (≤10 ms becomes 100 ms). Without it, a zero-delay GIF redraws as fast as
+the display allows, and given the decode note above a 10 ms GIF decodes 100 frames a
+second whatever the display rate. An animation that has played its declared loop count
+stops, and its tick callback is removed.
+
+### ✅ Never animate what is not visible
+
+**A hard requirement** (operator). Animation costs CPU on every frame — the decode on a
+worker, and the texture swap and repaint on the main thread under the Cairo renderer — and
+an application built for a small footprint must not spend it on pixels nobody can see. Not visible includes, at least: scrolled out of the preview viewport, a
+background tab, a hidden preview pane (edit mode), a collapsed `<details>` body, and a
+minimized or hidden window. A paused animation costs **zero** CPU — no timer, no tick
+callback — not merely no repaint.
+
+**How, per the researcher's GTK 4.6.9 source read** (a dark pattern; each claim is verified
+by a test before it is relied on). **GTK pauses nothing for us**: `GtkPicture` only snapshots
+its paintable, `GdkPixbufAnimationIter` is pull-based, and gtk-demo's own animated paintable
+runs a `g_timeout_add` forever.
+
+- **The tick callback is installed or it is not.** An installed callback that returns early
+  still holds `gdk_frame_clock_begin_updating`, which keeps the whole toplevel's clock
+  running at display rate — one forgotten off-screen GIF costs the window 60 fps of
+  update/layout/paint. Pausing means `TickCallbackId::remove()`, and
+  `has_tick_callback() == false` is the gate's oracle.
+- **Never `glib::timeout_add`.** A timeout ignores mapping, viewport and frame-clock freeze.
+- **Decode on schedule, not per vsync.** Request the next frame only as the clock's
+  `frame_time` approaches its presentation time (`splash.webp`'s frame 0 lasts 2250 ms).
+
+| Not visible because… | What GTK does | Signal / predicate |
+|---|---|---|
+| Scrolled out of view | Anchored children **stay mapped** and are still snapshotted; only the allocation moves | Intersect the child's `allocation()` with the view's (both widget space — not `visible_rect()`, which is buffer space and lags paint, GTK4Rs/AP-142). Re-test on h/v adjustment `value-changed` and `changed`, coalesced on one idle |
+| Collapsed `<details>` | An invisible tag over U+FFFC does **not** unmap the child; it is parked at (−w,−h) (GTK4Rs/AP-166) | The same allocation test — a parked child fails it. `is_mapped()` is wrong here |
+| Inside a `<details>` body (`widgets/disclosure.rs`) | The picture is nested in another widget, so its own allocation is relative to that parent, not the view | `compute_bounds(picture, view)`, then the same intersection; the parent's allocation changes re-run it |
+| Background tab | Page gets `child-visible = false` → unmapped, still realized | `map` / `unmap`; `is_mapped()` |
+| Hidden pane | `set_visible(false)` → unmapped | `map` / `unmap`; `is_mapped()` |
+| Minimized window | `GdkToplevelState::MINIMIZED` on all three. Win32 also freezes the clock; X11 with a modern WM and Quartz do **not** | `notify::state` on the toplevel surface — never rely on the freeze |
+| Hidden window | Unmapped | `map` / `unmap` |
+| Covered by another window | No state and no signal at 4.6 | **Out of scope** — not observable |
+
+The pause decision is the conjunction of all of them plus reduce-animations (below), re-run
+from every one of those signals; the collapse lever is the `<details>` fold model.
+
+### ✅ Control: a "Play Animations" toggle in the View menu
+
+Operator decision. A stateful toggle beside "Show Unsafe Images" in the View menu, and
+**not on the toolbar**, because animations in Markdown documents are rare. That is an
+operator-granted exception to the command-surface CAM, recorded in CAM.md when it lands.
+**No keyboard interaction**: no accelerator and no key on the animation itself. It is
+**process-wide** (operator decision), unlike its per-tab sibling: one stateful `app.*`
+`GAction` (POLICY § Architecture rules) that pauses and resumes every animation in every
+window, and every window's View menu mirrors its state.
+
+**On by default**, and **"reduce animations" wins over it**. Its state **survives a restart
+in the session file** (UI state, beside the other window state; `config.toml` holds only the
+hand-edited numbers). ⚠ The saved state is the *reader's choice*, never the effective
+state: a new process re-reads `gtk-enable-animations` and re-applies the override, so a
+system setting changed between runs takes effect, and the override is never saved as
+though the reader had chosen it (operator).
+
+### ❌ The media Play/Pause key
+
+The operator's first choice, dropped because **the focused app does not receive it on any
+shipping desktop**. Delivery, per the researcher (GTK 4.6.9 source + a measurement on a
+private Xvfb):
+
+| Desktop | Reaches the focused GTK window? | Why |
+|---|---|---|
+| X11 KDE, default shortcuts (the operator's) | **No** | `kglobalaccel` `XGrabKey`s Media Play on the root (`kglobalshortcutsrc` `[mediacontrol]`) and forwards it to an MPRIS player. Unconditional, whether or not a player is running |
+| X11 GNOME | **No** | `gsd-media-keys` grabs it, including a hard-coded binding |
+| Wayland GNOME / KDE | **No** | The compositor owns the key |
+| X11 with Media Play unbound | **Yes** | Measured: `keyval=0x1008ff14` (`AudioPlay`), keycode 172 |
+| macOS Quartz 4.22.4 | **No** | GDK does not translate `NSEventTypeSystemDefined` / `NX_KEYTYPE_PLAY` |
+| Windows gvsbuild | **No** | GDK drops `WM_APPCOMMAND`, and `VK_MEDIA_PLAY_PAUSE` maps to `VoidSymbol` |
+
+The accelerator spelling would be `AudioPlay` (hardware play/pause is `KEY_PLAYPAUSE` →
+`XF86AudioPlay`); there is no `AudioPlayPause` keysym, and `AudioMedia` is the launch-player
+key. Not bound even as a latent extra, since the operator ruled out keyboard interaction.
+
+### ❌ Claiming the media key system-wide
+
+MPRIS on Linux, `MPRemoteCommandCenter` on macOS, SMTC or `RegisterHotKey` on Windows. Each
+makes Scribobulate the session's "now playing" target and takes Play/Pause from the user's
+music player; `RegisterHotKey` is global even when unfocused. That would be a "we are a
+media player" product decision, not a way to deliver a key.
+
+### ❌ Other keyboard routes
+
+Space/Enter on a focused animation, or a menu accelerator (the researcher's
+recommendation). The operator ruled out keyboard interaction; the menu toggle is enough
+for a rare feature.
+
+### ✅ Default state: autoplay
+
+Operator decision. An animation plays by itself whenever it is visible, the View-menu
+toggle is on and "reduce animations" is off. The visibility rule is what bounds the cost.
+
+### ❌ Start paused behind a "Play" overlay
+
+Costs nothing until asked, but the operator chose autoplay.
+
+### ✅ What a paused animation looks like: a corner "paused" badge
+
+Operator: a paused animation carries **a typical pause overlay**, to the canonical idiom
+the researcher found:
+
+- **A state badge, not a play button.** A centered play triangle is the click-to-play
+  idiom (GitHub's reduced-motion GIFs, YouTube, `GtkVideo`), and on an image that does not
+  respond to a click it promises something it cannot do. So the glyph is
+  `media-playback-pause-symbolic` (the state), not `media-playback-start-symbolic` (the
+  action). Both ship in GTK's own icon set; verify by render, not `has_icon`
+  (GTK4Rs/AP-48).
+- **Bottom-end corner**, a 16 px symbolic icon in a small circular `.osd` well (~32 px), no
+  scrim. It does not scale with the image, and is omitted when the image is under 48 px on a
+  side, where it would cover the picture.
+- **Paint-only**: drawn in the snapshot as an `IconPaintable`, not a child widget or button,
+  and with no click handler. The View-menu toggle stays the only control.
+- **Frame:** freeze on the current frame when paused mid-play (resetting to 0 would be a
+  stop, and the glyph would lie); frame 0 if it never started.
+- **Reduce-animations shows the same badge on frame 0**, so a reader can always tell a
+  paused animation from a still image. Still images never carry it, and a playing
+  animation shows nothing.
+
+### ✅ Animation state: per picture, bounded by what is on screen
+
+Operator decision. The image cache keeps holding finished `GdkTexture`s under its 32 MiB
+budget, and a playing animation is not a cache entry:
+
+- **Each on-screen animation owns its decoder and one working canvas.** The compressed file
+  bytes are shared by reference among every picture showing the same file. Decoder state
+  cannot be shared, because each copy plays at its own position.
+- **Not visible means everything but the shared bytes is dropped**, and playback restarts
+  from frame 0 when the picture is visible again. Resuming mid-loop would mean re-decoding
+  every delta frame since the last full-canvas one, and full playback fidelity is beyond the
+  scope of a Markdown editor and viewer (operator). ⚠ This is distinct from a **pause**,
+  which freezes the current frame (the overlay decision above): leaving the screen restarts,
+  the toggle freezes.
+- **No separate budget.** Resident animation memory is bounded by the animations on screen,
+  each by the file cap (16 MiB) plus one canvas (under `MAX_IMAGE_PIXELS`).
+- **Lifetime:** re-render, live reload and tab close drop every animation's state, and
+  6.7's finalization half extends to it.
+
+### ❌ Resume where it left off
+
+Needs the decoder kept alive, or a re-decode of every intermediate delta frame, for a
+fidelity a Markdown viewer does not need.
+
+### ✅ Honour "reduce animations"
+
+Operator decision. When GTK's `gtk-enable-animations` is false, animations show their first
+frame, have no tick callback installed, and stay paused until the setting changes.
+
+### ✅ GIF decode route: the pure-Rust `gif` crate
+
+Operator decision. `gif` (image-rs, 0.14.x, MIT OR Apache-2.0, fuzzed through `image`),
+inside `richimg` behind the same bytes-in / RGBA8-frames-out API as WebP. The crate emits
+raw frames without compositing, so the four disposal modes (Keep, Background, Previous,
+Any) come from `gif-dispose` (kornelski, MIT/Apache, ~160 SLoC) or are folded into
+`richimg`; the `image` crate's `gif.rs` is a readable spec.
+
+### ✅ APNG animates too, through the pure-Rust `png` crate
+
+Operator decision. An animated PNG is an ordinary PNG with extra chunks (`acTL`, `fcTL`,
+`fdAT`), so anything that ignores them shows the default image — which is what GTK's PNG
+decode does today. Every major browser and GitHub play it. `png` (image-rs, MIT OR
+Apache-2.0) decodes the frames. As with GIF, compositing is ours: three dispose ops (none,
+background, previous) and two blend ops (source, over). Two APNG-specific rules:
+
+- **The default image may not be a frame.** When no `fcTL` precedes `IDAT`, the default image
+  is the fallback for non-APNG viewers and is not part of the animation.
+- **Delays are fractions** (`delay_num` / `delay_den`, where a zero denominator means 1/100 s),
+  and the same under-20 ms floor applies.
+
+Claims about `png`'s APNG coverage and fuzzing come from general knowledge, not a probe, so
+they are verified with fixtures before the crate is relied on.
+
+**❌ `GdkPixbufAnimation`** for GIF, on the researcher's findings:
+
+- **GIF is a loader module, not built in** (meson's default built-ins are PNG and JPEG).
+  Ubuntu ships `libpixbufloader-gif.so` and Homebrew stages it, but the Windows gvsbuild
+  prefix was measured SVG-only — so GIF would play on two platforms of three, the WebP
+  portability hole again.
+- It pauses nothing; it is C parsing untrusted input on the main thread; and its
+  iterator's leak behaviour is unmeasured.
+
+### ✅ Frame residency: decode as it plays
+
+Operator decision. Keep the decoder, the compressed bytes and one composited canvas, and
+decode the next frame when it is due. Holding every frame resident would cost ~193 MB for
+`splash.webp`, the size of the leak this plan exists to remove. Measured cost is ~9 ms per
+900×670 frame, once per frame duration rather than per vsync.
+
+### ❌ Hold every frame decoded
+
+Fewer decodes, but memory scales with frame count — the ~193 MB above.
+
+## Possible approaches — the gate
+
+### ✅ A. A new test class with its own mandatory pipeline step (shipped)
+
+Step 5b, TDD 6.6–6.8, POLICY § Per-render memory-growth class. Two halves catching disjoint
+failures: **growth slope** after discarded warm-up (per-platform tolerances in
+`memgate::footprint`, field named `footprint`, never `rss`) and **finalization** of the
+decoded picture with no main-loop pump. Freed memory is not returned memory on any platform
+we ship, so a single-shot "render, free, assert it came back" cannot pass on correct code;
+slope over N with K warm-up renders discarded is the only honest shape.
+
+The finalization half is sound only under Cairo. Measured (`probes/gsk-texture-ref-ownership.c`):
+
+| Version / seat | `GskCairoRenderer` | `GskGLRenderer` |
+|---|---|---|
+| 4.22.4, `mac` | finalizes | finalizes |
+| **4.6.9 floor**, `linux` | finalizes | **never finalizes** |
+
+So the gate asserts the realized native's renderer is `GskCairoRenderer` — `$GSK_RENDERER`
+is defeatable, and without that check GL gives a false red at the floor and a false green on
+macOS. **Any proposal to let the renderer vary re-opens this and must re-measure first.**
+
+### ❌ B. Fold into pipeline step 5
+
+Operator's call: a separate step can be disabled independently.
+
+### ❌ C. Absolute RSS ceiling
+
+Fails legitimate large documents and passes a slow leak on a small one.
+
+### Phase 2 gate additions (shipped)
+
+- **Uncached decode slope** (TDD 6.9): decode the animated WebP repeatedly with the image
+  cache emptied each time. It was written RED — ~1.05 MB per iteration on the committed
+  fixture, ~12 MB on `splash.webp` — and turned green when the decode moved to `richimg`.
+  Mutation-tested: routing the format back to GTK reddens it by ~10 MB per decode while a
+  cold-cache PNG control stays flat.
+- **Playback slope and scroll-cycle slope** (TDD 6.10), and 6.7's finalization half extended
+  to the animation state.
+- **The WebP skips are gone**: every host decodes WebP now, so a decoder-absent skip would
+  be dead code hiding a failure.
 
 ## Technical details preserved
 
 **Reproducer.** A document containing `<img src="assets/splash.webp">` where the path
-resolves, driven through repeated re-renders. ⚠ **The gate is portable; this asset is
-not.** The gvsbuild prefix ships exactly one pixbuf loader (SVG), so an animated WebP does
-not decode at all on Windows — it renders a broken-image icon, and the leak is
-structurally unreachable there. A **shared** fixture must be a large PNG; the WebP fixture
-is Linux/macOS-only and should declare itself skipped elsewhere rather than silently
-passing. The asset is 7.4 MB, 900x670, 80 frames.
-A committed fixture should carry its own small animated WebP rather than depending on
-`assets/splash.webp`, which exists for the README and may change.
+resolves, driven through repeated re-renders. `assets/splash.webp` is 7.4 MB, 900×670, 80
+frames, VP8X animation+transparency, ANIM `bgcolor` 0xFFFFFFFF, loop 0; frame 1 is
+full-canvas, opaque, lossy, at (0,0), blend off, 2250 ms. Committed fixtures carry their own
+small animated WebP (`tests/fixtures/anim.webp`) rather than depending on the README asset.
 
 **Drive method.** `gdbus call --session -d com.extollit.scribobulate -o
 /com/extollit/scribobulate -m org.gtk.Actions.SetState preview-theme "<'sepia'>" "{}"`.
 Zoom uses `Activate` on `zoom-in`/`zoom-out` at `/com/extollit/scribobulate/window/1`.
-Driving the GAction bypasses the toolbar and menu popovers entirely, which is what makes
-the measurement deterministic: kwin-on-Xvfb will not deliver a synthetic click to a
-non-autohide popover surface, so a popover-driven measurement is unreliable (ScrAP-101).
+Driving the GAction bypasses popovers, which kwin-on-Xvfb will not deliver a synthetic
+click to (ScrAP-101).
 
 **Measurement.** `VmRSS` from `/proc/<pid>/status`; per-mapping attribution from
-`/proc/<pid>/smaps`. Two readings worth keeping, neither in PLAN.profiling.md: `VmHWM`
-equal to `VmRSS` means the process is at its peak and has returned nothing; and to separate
-retention from allocator slack, re-run with `MALLOC_ARENA_MAX=1`,
-`MALLOC_TRIM_THRESHOLD_=65536`, `MALLOC_MMAP_THRESHOLD_=65536` — if RSS barely moves, the
-memory is genuinely referenced. (Scaling the cycle count is that plan's rule, not restated.)
+`/proc/<pid>/smaps`. `VmHWM` equal to `VmRSS` means the process is at its peak and has
+returned nothing. To separate retention from allocator slack, re-run with
+`MALLOC_ARENA_MAX=1`, `MALLOC_TRIM_THRESHOLD_=65536`, `MALLOC_MMAP_THRESHOLD_=65536` — if
+RSS barely moves, the memory is genuinely referenced.
 
-**Harness requirements.** `xvfb-run -a ... dbus-run-session -- ...` in that nesting, plus
-`GTK_USE_PORTAL=0`; a private `XDG_STATE_HOME` so the suite never touches the developer's
-session file; `GSK_RENDERER=cairo`. Identify the process by the PID captured at launch,
-never by name — a process name is not an identity (ScrAP-241).
+**Harness.** `xvfb-run -a … dbus-run-session -- …` in that nesting, `GTK_USE_PORTAL=0`, a
+private `XDG_STATE_HOME`, `GSK_RENDERER=cairo`. Identify the process by the PID captured at
+launch, never by name (ScrAP-241).
 
-**Traps already paid for, all of which produced clean-looking false negatives:**
+**Traps already paid for, each a clean-looking false negative:**
 
-- Deleting the `<img src="...gif">` line from README leaves `<source srcset="...webp">`
-  live inside the same `<picture>` block, so the WebP still loads and the GIF looks guilty.
-  Remove the whole element when isolating.
-- Copying a document to `/tmp` breaks relative image paths, so no image loads at all and
-  the fixture silently measures nothing. Image fixtures must sit where their paths resolve.
-- Three cycles is too few to separate warm-up from a leak; the first cycle is dominated by
-  GTK icon-cache and font loading. This is PLAN.profiling.md's scale-the-count rule biting
-  in practice: warm-up is flat across counts, the leak grows with them.
-- A single-window or single-document fixture does not reproduce it, which is what sent the
-  first investigation to a false "no leak" conclusion. The trigger is the document content,
-  not the window or tab count.
+- **`tests/fixtures/anim.webp` only changes in rows 96–236 of its 480×270 canvas.** A band
+  decoration tiles the sprite from the document's own grid, so a band near the top of the
+  document displays the sprite's STATIC top rows and looks frozen while it is animating
+  perfectly. This produced a confident false FAIL of TDD 27.9 in a driven run, contradicted
+  by a second run that happened to place the band over the changing rows. **Before believing
+  a driven capture that shows no movement, prove the FIXTURE varies in the region being
+  measured** — here, `magick anim.webp -coalesce -crop 480x140+0+96` makes a sprite whose
+  whole area animates, and the same check then shows 7–24k pixels changing per capture.
 
-**Format asymmetry.** The animated GIF does not leak and the animated WebP does, through
-what is nominally the same `Texture::from_file` loader chain. Whatever the fix, the
-regression fixture should be a WebP, and the GIF is a useful negative control.
-
-## Open decisions
-
-- **Whether ❌3 should be reopened.** ✅ Operator confirmed frame 0. TDD 2.23 already
-  specified it; `Texture::from_file` already returns `STATIC_CONTENTS`. Tried
-  `PixbufAnimation::static_image` as the decode: same leak on a valid animated WebP,
-  and **SIGSEGV** on truncated WebP (`undecodable_webp_degrades_to_one_anchored_child`).
-  Raster decode stays `from_file`; the cache is what makes re-renders flat.
-- **The per-render growth bound's value.** ✅ Shape, not a byte count.
-  `memgate::footprint::TOLERANCE_BYTES` is 2 MiB on Linux and 4 MiB on macOS/Windows;
-  warm-up is 3 samples; 10 samples after that, five per half.
-- **How to avoid the leaking routes.** ✅ Dimensions via
-  `gdk_pixbuf_animation_new_from_file` (flat after warm-up). No GTK decode route is
-  flat on animated WebP (measured: `from_file`, `from_bytes`, one-shot `PixbufLoader`,
-  `static_image` all leak). Cache (💡2) ships with the route change so a re-render
-  does not invoke the loader again. SVG second load: 234 ms → 22 µs.
-
-### Routing an anti-pattern from this
-
-Two separable lessons, deliberately not written yet because the number-claim is the
-operator's:
-
-1. **Resident, `Disp C`, ≤6 lines** — the third-party module defect itself. It is not a
-   `gtk4-rs` skill entry: the bug is in a distribution pixbuf loader, not core GTK.
-2. **Separable and core-GTK-adjacent** — `GdkTexture::from_file` reaches a pixbuf module's
-   **incremental** (`begin_load`/`load_increment`/`stop_load`) path, not its one-shot
-   `load`. A module bug present in only one of the two is therefore reachable from the
-   plainest possible GTK call, and `new_from_file` erroring while `new_from_stream` leaks
-   is that asymmetry showing. Kin `GTK4Rs/AP-66`. **Raise with the operator before routing
-   to the skill.**
-
-## After-effect: PLAN.profiling.md narrows
-
-Worth stating because it is a deliverable of this plan and not a side note. That plan's
-C4 (leak) class is currently served by an *on-demand* T3 ladder — a human remembering to
-run it. Once this class exists, C4 is covered by a standing, deterministic gate, and the
-ladder reverts to what it is good at: attributing a leak the gate has already caught.
-
-So on completion, PLAN.profiling.md should be narrowed rather than left as written — its
-scope becomes C1/C2 (turn latency, idle CPU) plus T3-as-diagnostic. That is a real
-reduction in what it still has to build, and the narrowing is the responsibility of the
-session that implements this plan, not a later cleanup.
+- Deleting the `<img src="...gif">` line from README leaves `<source srcset="...webp">` live
+  in the same `<picture>`, so the WebP still loads and the GIF looks guilty. Remove the whole
+  element when isolating.
+- Copying a document to `/tmp` breaks relative image paths, so nothing loads and the fixture
+  measures nothing. Image fixtures must sit where their paths resolve.
+- Three cycles cannot separate warm-up from a leak; the first is dominated by icon-cache and
+  font loading.
+- A single-window or single-document fixture without the image does not reproduce it, which
+  sent the first investigation to a false "no leak".

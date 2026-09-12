@@ -892,6 +892,14 @@ every line as portable unless it lives in a platform seam (§ Platform seams).
 - **Do not add a dependency without justification.** The current crate set and each
   crate's role are in [TECH.md § Rust crates](TECH.md#rust-crates) — check there for
   something that already covers the need before reaching for a new crate.
+- **`richimg` is a workspace member, not a vendored fork.** This project's own decoder for
+  the animated raster formats lives beside `gtktest` and `xtask` in `default-members`, so
+  steps 1, 2 and 4 format, lint and test it like any other code. It holds **no GTK**: bytes
+  in, composited RGBA8 frames out. That is what lets a decode run off the main thread and
+  what keeps the crate movable to an external dependency by a `Cargo.toml` change rather
+  than a refactor — so do not reach into the application from it, and do not let a GTK type
+  cross its API. Its own decoder crates are pinned exactly (`=`), because each carries a
+  measured caveat recorded beside the pin.
 - **Never add a web engine or HTML-rendering dependency** (WebKitGTK, Servo,
   litehtml, etc.). The native-widget decision is deliberate; the cost of the
   alternatives is documented in ScrAP-1.
@@ -906,6 +914,13 @@ model, not separate from it.
   neither implies the other: a size test alone admits a FIFO (whose reported length is
   zero) and then blocks the main thread forever, and a type test alone admits a 40 GiB
   regular file. A caller that reimplements one half has reimplemented the bug.
+- **An image file is admitted exactly like a document.** Deciding an image's format from
+  its CONTENT means `src/imagedecode` reads the file where GTK used to, so it takes the
+  same two-part test: a regular file (a FIFO named `x.gif` would otherwise block the main
+  thread forever) and within a byte limit, checked before the read. That limit is
+  configurable (`config.toml`'s `[images]`), and the decoded pixel count is bounded
+  separately — the file cap bounds the read and the compressed bytes an animation keeps
+  resident, while a decompression bomb is caught by the pixel cap.
 - **The numbers live in `src/limits.rs` and are not restated here**, for the same
   reason the coverage floor is not restated in the build-pipeline step above — a second
   copy is how the first one silently stops matching. That module records how each value
@@ -1099,10 +1114,15 @@ full account is ScrAP-225; the rule above is what stops it recurring.
   that is the same module's problem to solve once.
 - **All GTK access on the main thread.** GTK is single-threaded. File watching uses
   `gio::FileMonitor`, whose `changed` signal is delivered on the main context (main
-  thread); the app currently spawns no worker threads *of its own* — the one write that
-  leaves the main thread (a crash-recovery snapshot) is dispatched to GLib's thread pool
-  by `replace_contents_async`, which hands only an owned `Vec<u8>` across and returns its
-  completion on the main context, so no GTK object ever crosses. Prefer that shape: a
+  thread); the app spawns no worker threads *of its own* — everything that leaves the
+  main thread is dispatched to GLib's existing pool and hands only owned data across.
+  Two things do: a crash-recovery snapshot (`replace_contents_async`, an owned
+  `Vec<u8>`), and an **animation frame decode** (`animation::worker`, which moves a
+  `richimg::Animation` — a type with no GTK in it — and gets an owned `richimg::Frame`
+  back). A decode belongs off-thread because it is CPU work measured in milliseconds per
+  frame; it is bounded at two concurrent decodes application-wide so it cannot starve the
+  ten-thread pool document I/O and the snapshot writer share (ScrAP-243). Any further use
+  of that pool takes the same two obligations: plain owned data only, and a stated bound. Prefer that shape: a
   GIO async call whose payload is plain owned data costs no concurrency model, whereas a
   hand-rolled worker costs shutdown ordering and a new class of test. If future work needs
   background computation, do the heavy work off-thread but **apply every

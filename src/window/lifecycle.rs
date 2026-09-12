@@ -147,6 +147,66 @@ fn persist_all_windows_session(closing: &ApplicationWindow) {
         // provider, so there is exactly one value and no "which window's?"
         // question to answer (TDD 18.12).
         preview_theme: crate::theme::active().id.clone(),
+        // The READER'S raw choice off `app.play-animations`'s own state — never the
+        // effective (system "reduce animations"-adjusted) value, which is
+        // recomputed live from `gtk-enable-animations` on every launch instead of
+        // being persisted (TDD 27.7). `app` here is the same `GtkApplication` every
+        // window shares, so — like `preview_theme` above — there is exactly one
+        // value and no "which window's?" question to answer.
+        play_animations: crate::animation::policy::reader_choice(&app),
         windows,
     });
+}
+
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+mod tests {
+    use super::*;
+    use crate::animation::policy::EnableAnimationsGuard;
+
+    /// TDD 27.7's persistence half, pinned at the actual write site: a close/quit
+    /// must save the READER'S raw `app.play-animations` choice, never the effective
+    /// (system "reduce animations"-adjusted) value. Forcing the two to genuinely
+    /// disagree — reader ON, system setting forcing OFF — is the only condition
+    /// that can catch a save site that persists the wrong one (a mutation that
+    /// swaps `reader_choice` for `current` at the call site above passes every
+    /// other test in this file, since they never diverge).
+    #[gtktest::test]
+    fn persisted_choice_is_the_readers_raw_choice_not_the_effective_state() {
+        let dir = tempfile::tempdir().unwrap();
+        crate::session::with_state_home_for_test(dir.path(), || {
+            let _settings = EnableAnimationsGuard::set(false); // reduce-animations ON
+
+            let app = gtk::Application::new(
+                Some("com.extollit.scribobulate.integrationtest.lifecycle.persistchoice"),
+                gtk::gio::ApplicationFlags::NON_UNIQUE,
+            );
+            app.register(gtk::gio::Cancellable::NONE)
+                .expect("register before building a window");
+            // The same shape `app::appactions::add_play_animations_action` registers
+            // (that function is `pub(super)` to `app` and reads the real session — this
+            // mirrors its shape without either dependency, matching `animation::policy`'s
+            // own `add_bare_action` test helper).
+            let action = gtk::gio::SimpleAction::new_stateful(
+                crate::animation::policy::ACTION_NAME,
+                None,
+                &true.to_variant(), // the reader chose ON
+            );
+            action.connect_change_state(|act, value| {
+                let Some(value) = value else { return };
+                act.set_state(value);
+            });
+            app.add_action(&action);
+
+            let window = crate::window::new_window(&app, "IT", "alpha", None);
+            persist_all_windows_session(&window);
+
+            assert!(
+                crate::session::load().play_animations,
+                "the saved field must be the reader's ON choice, not the effective OFF state \
+                 the system setting is currently forcing"
+            );
+
+            window.destroy();
+        });
+    }
 }

@@ -48,7 +48,7 @@
 //! is absent because it could not be produced is distinguishable in the log from a
 //! theme that named none (ScrAP-324).
 
-use gtk::{cairo, gdk, glib};
+use gtk::{cairo, gdk};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -81,12 +81,6 @@ const MAX_SPRITE_BYTES: u64 = 512 * 1024;
 /// under the measured bomb, so no plausible sprite comes near it. Re-measure rather
 /// than re-reason if this ever needs raising.
 const MAX_SPRITE_PIXELS: i64 = 4096 * 4096;
-
-/// How much of a sprite file the dimension probe feeds the loader before giving up.
-/// Every format on [`ALLOWED_EXTENSIONS`] carries its dimensions in the first few
-/// dozen bytes; this is generous enough for a JPEG whose SOF marker sits behind a
-/// large EXIF block, and small enough that the probe is not a second full read.
-const PROBE_CHUNK: usize = 64 * 1024;
 
 /// Every sprite a **built-in** theme names, embedded at compile time.
 ///
@@ -349,7 +343,7 @@ fn open_checked(p: &Path) -> Option<Vec<u8>> {
         // document cap, so this caller words its own diagnostic.
         let why = match refusal {
             crate::limits::LoadRefusal::NotARegularFile => {
-                "not a regular file (a pipe, socket or device)".to_string()
+                "not a regular file (a directory, pipe, socket or device)".to_string()
             }
             crate::limits::LoadRefusal::TooLarge { bytes } => {
                 format!("{bytes} bytes, over the {MAX_SPRITE_BYTES}-byte cap")
@@ -546,7 +540,10 @@ impl std::fmt::Display for Refusal {
             ),
             Refusal::Unmeasurable { why } => write!(f, "could not be measured: {why}"),
             Refusal::NotARegularFile => {
-                write!(f, "is not a regular file (a pipe, socket or device)")
+                write!(
+                    f,
+                    "is not a regular file (a directory, pipe, socket or device)"
+                )
             }
             Refusal::TooLarge { bytes } => {
                 write!(f, "is {bytes} bytes (cap {MAX_SPRITE_BYTES})")
@@ -573,6 +570,17 @@ thread_local! {
     /// Reference → the sprite as a cairo image surface with its natural size, for the
     /// PDF sink. See [`surface`].
     static SURFACES: RefCell<HashMap<SpriteRef, Option<Raster>>> = RefCell::new(HashMap::new());
+    /// Reference → the whole ENCODED file, but only for a sprite [`texture`] found to
+    /// be an animated WebP/GIF/APNG — `None` for a still sprite (WP10,
+    /// sdd/PLAN.memory-gates.md "Theme sprites animate too"). Populated inside
+    /// [`texture`]'s own decode, from the SAME `imagedecode::decode` call, never a
+    /// second one: `DecodedImage::animation` already answers "is this animated" and
+    /// already carries the bytes a `richimg::Animation` needs, so this is free
+    /// bookkeeping rather than a second probe. This is what lets
+    /// [`animated_bytes`] answer a STILL sprite with one cheap `HashMap` lookup and no
+    /// disk I/O — the "no new work on that path" requirement a still sprite keeps.
+    static ANIMATION_BYTES: RefCell<HashMap<SpriteRef, Option<std::sync::Arc<[u8]>>>> =
+        RefCell::new(HashMap::new());
 }
 
 /// The sprite as a cairo image surface, with its natural pixel size.
@@ -625,11 +633,13 @@ pub(crate) fn surface(r: &SpriteRef) -> Option<Raster> {
 /// class).
 ///
 /// The dimension probe runs **before** the real decode, so an image bomb is refused
-/// without ever being expanded — see [`probe_pixel_size`] for the one spelling that
-/// makes that true.
+/// without ever being expanded — see [`crate::imagedecode::probe_dimensions`] for the
+/// one spelling that makes that true, content-aware so a WebP sprite is measured
+/// correctly even on a host with no gdk-pixbuf WebP loader (WP6,
+/// sdd/PLAN.memory-gates.md).
 fn admit_for_decode(r: &SpriteRef) -> Option<std::borrow::Cow<'static, [u8]>> {
     let raw = bytes(r)?;
-    match probe_pixel_size(raw.as_ref()) {
+    match crate::imagedecode::probe_dimensions(raw.as_ref()) {
         Some((w, h)) if i64::from(w) * i64::from(h) > MAX_SPRITE_PIXELS => {
             log::warn!(
                 "theme: sprite {r} decodes to {w}×{h} pixels (cap {MAX_SPRITE_PIXELS}) — ignored"
@@ -646,88 +656,70 @@ fn admit_for_decode(r: &SpriteRef) -> Option<std::borrow::Cow<'static, [u8]>> {
 
 /// The natural pixel dimensions an image's header declares, without decoding it.
 ///
-/// **Shared with the DOCUMENT image path** (`renderer::start::load_remote_texture`),
-/// which had no decoded-pixel bound at all while this module refused one on every
-/// sprite — the project's own decompression-bomb gate applied to its assets and not to
-/// untrusted content (F-SEC-206). One probe rather than two, so the two paths cannot
-/// disagree about what an image's header says.
-///
-/// Feeds a `GdkPixbufLoader` in chunks only until `size-prepared` fires, then **aborts
-/// the load from inside that handler with `set_size(0, 0)`**. Returns `None` for bytes
-/// no installed loader recognises.
-///
-/// **`0, 0` is load-bearing and no other value substitutes for it.** A non-zero
-/// `set_size` asks the loader to *scale*, which several image modules — the PNG one
-/// among them — honour only after allocating the pixel buffer at the file's declared
-/// size; zero is the sentinel `gdk_pixbuf_get_file_info` itself uses to make the
-/// module bail out before allocating anything. MEASURED on this project's Linux
-/// reference host against a 20000×20000 PNG: peak RSS 1163 MB with `set_size(1, 1)`
-/// and 20 MB with `set_size(0, 0)`, against an 18 MB do-nothing baseline. The
-/// intuitive spelling reports the right dimensions, refuses the sprite, passes the
-/// test — and allocates the bomb anyway, which is the whole thing this gate exists to
-/// prevent.
-///
-/// Deliberately a loader rather than `gdk_pixbuf_get_file_info`, which is equivalent
-/// (18 MB, same measurement) but takes a **path**: a compiled-in sprite has none, and
-/// re-opening a file the caller has already read and validated would reintroduce the
-/// check-then-use seam [`open_checked`] closes.
-pub(crate) fn probe_pixel_size(raw: &[u8]) -> Option<(i32, i32)> {
-    use gtk::gdk_pixbuf::prelude::PixbufLoaderExt;
-    use std::cell::Cell;
-    use std::rc::Rc;
-
-    let seen: Rc<Cell<Option<(i32, i32)>>> = Rc::new(Cell::new(None));
-    let loader = gtk::gdk_pixbuf::PixbufLoader::new();
-    loader.connect_size_prepared({
-        let seen = Rc::clone(&seen);
-        move |l, w, h| {
-            seen.set(Some((w, h)));
-            l.set_size(0, 0);
-        }
-    });
-    for chunk in raw.chunks(PROBE_CHUNK) {
-        if seen.get().is_some() {
-            break;
-        }
-        if loader.write(chunk).is_err() {
-            break;
-        }
-    }
-    // The loader is deliberately fed only part of the file, so `close` reports a
-    // premature end of file. Closing it anyway is required — an unclosed loader
-    // warns at finalize.
-    let _ = loader.close();
-    seen.get()
-}
+/// **Moved to [`crate::imagedecode::probe_pixel_size`] (WP6)** — the same probe now
+/// serves the document/remote-image path as well as the theme-sprite path, so the two
+/// cannot disagree about what an image's header says (ScrAP-328). Re-exported here so
+/// `preview::build`'s pinned test (`the_shared_byte_probe_and_the_cap_agree_about_an_oversized_image`)
+/// and this module's own dimension-probe test keep resolving `sprite::probe_pixel_size`
+/// — `admit_for_decode` itself now calls the content-aware
+/// [`crate::imagedecode::probe_dimensions`] instead, which is why this specific name has
+/// no production caller left in THIS module.
+#[allow(unused_imports)]
+// kept resolvable for preview::build's pinned test and this module's own
+pub(crate) use crate::imagedecode::probe_pixel_size;
 
 /// The decoded texture for a resolved sprite reference, at its natural size.
 ///
-/// Both sources decode from bytes through `Texture::from_bytes` — the same
-/// gdk-pixbuf loader chain `from_filename` uses, by a different door (GTK4Rs/AP-66),
-/// and a 4.6 API at this project's floor rather than above it (GTK4Rs/AP-114). The
-/// file arm went through `from_filename` until the read had to be bounded and
-/// re-validated on an open handle ([`open_checked`]); one read path for both sources
-/// is what keeps that guarantee from having two implementations.
+/// **Decodes through [`crate::imagedecode::decode`] (WP6)**, the application's one
+/// choke point: content-sniffed, so a WebP sprite routes to `richimg` rather than the
+/// gdk-pixbuf loader chain `Texture::from_bytes` used to reach (the same leak
+/// `renderer::start`'s document-image path had — GTK4Rs/AP-66). The file arm went
+/// through `from_filename` until the read had to be bounded and re-validated on an
+/// open handle ([`open_checked`]); one read path for both sources is what keeps that
+/// guarantee from having two implementations. Animated sprites are a later work
+/// package — only the first frame is kept here.
 pub(crate) fn texture(r: &SpriteRef) -> Option<gdk::Texture> {
     NATURAL.with(|c| {
         c.borrow_mut()
             .entry(r.clone())
             .or_insert_with(|| {
                 let raw = admit_for_decode(r)?;
-                match gdk::Texture::from_bytes(&glib::Bytes::from_owned(raw.into_owned())) {
-                    Ok(t) => Some(t),
-                    Err(e) => {
-                        log::warn!("theme: sprite {r} failed to decode: {e}");
-                        None
-                    }
-                }
+                let origin = format!("sprite {r}");
+                let decoded = crate::imagedecode::decode(raw.as_ref(), &origin)?;
+                // WP10: stash whether this decode came back animated, and its whole
+                // encoded file if so — see `ANIMATION_BYTES`'s own doc comment for why
+                // this rides the SAME decode rather than a second one.
+                ANIMATION_BYTES.with(|a| {
+                    a.borrow_mut()
+                        .insert(r.clone(), decoded.animation.map(|anim| anim.bytes));
+                });
+                Some(decoded.texture)
             })
             .clone()
     })
 }
 
+/// The whole encoded file behind `r`, if [`texture`] has already decoded it and found
+/// it to be an animated WebP/GIF/APNG — `None` for a still sprite, for one that failed
+/// to decode, or for one [`texture`] has never been asked about yet (every current
+/// caller asks `texture` for the natural/frame-0 texture before ever asking this, so in
+/// practice the answer is always populated by the time it matters).
+///
+/// **One `HashMap` lookup, nothing else** — no disk read, no `richimg` call — which is
+/// what keeps a still sprite's paint doing no new work at all (WP10's "byte-identical
+/// rendering" requirement): [`super::animation::sprites::frame_for`] calls this first
+/// and returns the caller's own already-decoded texture verbatim on `None`.
+pub(crate) fn animated_bytes(r: &SpriteRef) -> Option<std::sync::Arc<[u8]>> {
+    ANIMATION_BYTES.with(|c| c.borrow().get(r).cloned().flatten())
+}
+
 /// The sprite resampled to exactly `w × h` with nearest-neighbour filtering. `w`/`h`
 /// must both be positive; anything else is not a size and returns `None`.
+///
+/// Decodes through [`crate::imagedecode::decode_pixbuf`] (WP6) — the `Pixbuf` shape
+/// [`gtk::gdk_pixbuf::Pixbuf::scale_simple`] needs, content-sniffed the same way
+/// [`texture`] is, so a WebP sprite resamples through `richimg` too rather than the
+/// leaking `Pixbuf::from_stream` chain.
 pub(crate) fn scaled(r: &SpriteRef, w: i32, h: i32) -> Option<gdk::Texture> {
     if w <= 0 || h <= 0 {
         return None;
@@ -737,18 +729,10 @@ pub(crate) fn scaled(r: &SpriteRef, w: i32, h: i32) -> Option<gdk::Texture> {
         c.borrow_mut()
             .entry(key)
             .or_insert_with(|| {
-                use gtk::gdk_pixbuf::{InterpType, Pixbuf};
+                use gtk::gdk_pixbuf::InterpType;
                 let raw = admit_for_decode(r)?;
-                let stream = gtk::gio::MemoryInputStream::from_bytes(&glib::Bytes::from_owned(
-                    raw.into_owned(),
-                ));
-                let pb = match Pixbuf::from_stream(&stream, gtk::gio::Cancellable::NONE) {
-                    Ok(pb) => pb,
-                    Err(e) => {
-                        log::warn!("theme: sprite {r} failed to decode: {e}");
-                        return None;
-                    }
-                };
+                let origin = format!("sprite {r}");
+                let pb = crate::imagedecode::decode_pixbuf(raw.as_ref(), &origin)?;
                 let Some(resampled) = pb.scale_simple(w, h, InterpType::Nearest) else {
                     log::warn!("theme: sprite {r} could not be resampled to {w}×{h}");
                     return None;
@@ -773,6 +757,7 @@ pub(crate) fn clear_cache() {
     NATURAL.with(|c| c.borrow_mut().clear());
     RESAMPLED.with(|c| c.borrow_mut().clear());
     SURFACES.with(|c| c.borrow_mut().clear());
+    ANIMATION_BYTES.with(|c| c.borrow_mut().clear());
 }
 
 /// How many decoded forms the three caches currently hold, including memoised
@@ -790,6 +775,7 @@ pub(crate) fn occupancy() -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use gtk::glib;
     use gtk::prelude::TextureExt;
     use std::io::Write;
 
@@ -1328,6 +1314,94 @@ mod tests {
         assert_eq!((big.width(), big.height()), (32, 32));
     }
 
+    /// A WebP sprite (`ALLOWED_EXTENSIONS` has always named it) decodes through
+    /// [`crate::imagedecode`]'s choke point too (WP6) — both the natural-size texture
+    /// and the resample, at the seam this module owns. Never exercised by a WebP
+    /// fixture before this: the pixel cap probe, the decode, and the resample all had
+    /// zero coverage over this extension until now.
+    #[test]
+    fn a_webp_sprite_decodes_through_the_choke_point_natural_and_resampled() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("chip.webp");
+        std::fs::write(
+            &path,
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/anim.webp"
+            )),
+        )
+        .unwrap();
+        let resolved = SpriteRef::File(resolve(dir.path(), "chip.webp").expect("resolves"));
+        let tex = texture(&resolved).expect("richimg decodes the WebP sprite");
+        assert_eq!((tex.width(), tex.height()), (480, 270));
+        let small = scaled(&resolved, 16, 9).expect("richimg-backed resample");
+        assert_eq!((small.width(), small.height()), (16, 9));
+    }
+
+    /// WP10: [`animated_bytes`] answers `Some` for an animated sprite and carries the
+    /// whole encoded file — the exact input a `richimg::Animation` needs — but ONLY
+    /// after [`texture`] has actually decoded it (never a fresh disk read of its own).
+    #[test]
+    fn animated_bytes_answers_the_encoded_file_for_an_animated_sprite_once_decoded() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("chip.webp");
+        let webp = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/anim.webp"
+        ));
+        std::fs::write(&path, webp).unwrap();
+        let resolved = SpriteRef::File(resolve(dir.path(), "chip.webp").expect("resolves"));
+
+        assert!(
+            animated_bytes(&resolved).is_none(),
+            "before `texture` has ever decoded it, there is nothing to answer"
+        );
+        texture(&resolved).expect("richimg decodes the animated WebP");
+        let bytes = animated_bytes(&resolved).expect("an animated sprite carries its bytes");
+        assert_eq!(&*bytes, webp, "the whole encoded file, byte for byte");
+    }
+
+    /// A STILL sprite must answer `None` — a caller falls back to `texture`'s own
+    /// result unchanged, and never attempts to build a `richimg::Animation` over a
+    /// format `richimg` never decoded.
+    #[test]
+    fn animated_bytes_answers_none_for_a_still_sprite() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("chip.png");
+        write_test_png(&path);
+        let resolved = SpriteRef::File(resolve(dir.path(), "chip.png").expect("resolves"));
+        texture(&resolved).expect("decodes");
+        assert!(
+            animated_bytes(&resolved).is_none(),
+            "a still PNG must never be reported as animated"
+        );
+    }
+
+    /// [`clear_cache`] drops the animation-bytes cache alongside the other three, so a
+    /// theme switch cannot leave a previous theme's animated sprite bytes resident
+    /// (TDD 18.58's rule, extended to the fourth cache).
+    #[test]
+    fn clear_cache_drops_animation_bytes_too() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("chip.webp");
+        std::fs::write(
+            &path,
+            include_bytes!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/fixtures/anim.webp"
+            )),
+        )
+        .unwrap();
+        let resolved = SpriteRef::File(resolve(dir.path(), "chip.webp").expect("resolves"));
+        texture(&resolved).expect("decodes");
+        assert!(animated_bytes(&resolved).is_some());
+        clear_cache();
+        assert!(
+            animated_bytes(&resolved).is_none(),
+            "clear_cache must drop the animation-bytes cache too"
+        );
+    }
+
     /// The compiled-in source, at the level the file-backed one is tested: a
     /// reference that IS in the table resolves and decodes, one that is not is refused
     /// like any other bad reference. Both halves matter — a lookup that answered
@@ -1451,6 +1525,7 @@ mod tests {
 #[cfg(all(test, feature = "gtk-integration-tests"))]
 mod gtk_integration_tests {
     use super::*;
+    use gtk::glib;
     use gtk::prelude::*;
 
     fn compiled_texture() -> (gdk::Texture, glib::WeakRef<gdk::Texture>) {

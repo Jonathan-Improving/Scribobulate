@@ -155,6 +155,16 @@ pub(crate) enum Icon {
     InsertImage,
     /// Format ▸ Insert Table.
     ViewGrid,
+    /// The paused-animation corner badge (TDD 27.8, `sdd/PLAN.memory-gates.md`
+    /// "What a paused animation looks like: a corner 'paused' badge"). The
+    /// STATE glyph, never `media-playback-start-symbolic` — that is the
+    /// click-to-play idiom, and this paint-only badge offers no interaction
+    /// to promise. Both names ship in GTK's own icon set; verified by
+    /// render, not `has_icon` (GTK4Rs/AP-48; ScrAP-169 is this project's own
+    /// instance of the same lesson). Painted directly by
+    /// `animation::paintable::badge`, never through `format_button`'s
+    /// glyph-fallback path, so this is `MustResolve` below.
+    MediaPlaybackPause,
 }
 
 /// The application ID — also the app's icon name, which is why it lives here
@@ -230,6 +240,7 @@ impl Icon {
             Icon::FormatListOrdered => "format-list-ordered-symbolic",
             Icon::InsertImage => "insert-image-symbolic",
             Icon::ViewGrid => "view-grid-symbolic",
+            Icon::MediaPlaybackPause => "media-playback-pause-symbolic",
         }
     }
 }
@@ -323,7 +334,8 @@ impl Icon {
             Icon::FormatListUnordered => Some(Icon::FormatListOrdered),
             Icon::FormatListOrdered => Some(Icon::InsertImage),
             Icon::InsertImage => Some(Icon::ViewGrid),
-            Icon::ViewGrid => None,
+            Icon::ViewGrid => Some(Icon::MediaPlaybackPause),
+            Icon::MediaPlaybackPause => None,
         }
     }
 
@@ -405,7 +417,8 @@ impl Icon {
             | Icon::EditDelete
             | Icon::EditSelectAll
             | Icon::EditFind
-            | Icon::EditFindReplace => Resolution::MustResolve,
+            | Icon::EditFindReplace
+            | Icon::MediaPlaybackPause => Resolution::MustResolve,
             Icon::FormatTextBold
             | Icon::FormatTextItalic
             | Icon::FormatTextStrikethrough

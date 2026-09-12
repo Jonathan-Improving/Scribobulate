@@ -362,9 +362,17 @@ fn build_view_menu(themes: &crate::theme::Themes) -> (Menu, Menu) {
 
     // Content safety: opt-in toggle to load remote images and images
     // outside the document folder.  Its own section keeps it visually
-    // separate from the chrome visibility toggles above.
+    // separate from the chrome visibility toggles above. Play Animations joins
+    // it (operator decision, TDD 27.5) — a second opt-out sharing the same axis.
     let unsafe_images_section = Menu::new();
     unsafe_images_section.append_item(&item("Show Unsafe Images", "win.show-unsafe-images"));
+    // Play Animations — process-wide (`app.`, not `win.`, so every window's tick
+    // agrees; `app::appactions::add_play_animations_action`), beside Show Unsafe
+    // Images per the operator's design (both are content-safety-adjacent opt-outs).
+    // Deliberately no toolbar button and no accelerator (TDD 27.5) — not wired
+    // through a `Cmd`/`FmtCmd` descriptor, which is what would otherwise draw a
+    // toolbar button and register a shortcut for it.
+    unsafe_images_section.append_item(&item("Play Animations", "app.play-animations"));
 
     // Split-pane arrangement — only enabled when in split mode (the actions
     // are disabled/greyed in preview/edit by apply_mode_action_state).
@@ -815,6 +823,60 @@ mod tests {
         assert!(
             missing.is_empty(),
             "inline commands with no menu-bar item: {missing:?}"
+        );
+    }
+
+    /// TDD 27.5: Play Animations sits beside Show Unsafe Images (same section) and
+    /// targets `app.play-animations` — walked off the model itself, not a mirror of
+    /// it, for the same reason [`menu_actions`] is (a guard whose input is a copy of
+    /// its subject reports on the copy). No `#[gtktest::test]` needed: a `GMenu`
+    /// model is a plain data structure, not a live display object — the same
+    /// reasoning `every_menu_command_with_a_shortcut_is_registered` and
+    /// `no_menu_item_declares_its_own_accel_attribute` above already rely on.
+    #[test]
+    fn play_animations_shares_the_show_unsafe_images_section() {
+        let (view_menu, _documents) = build_view_menu(&crate::theme::Themes::builtin());
+
+        let label_at = |section: &Menu, i: i32| -> Option<String> {
+            section
+                .item_attribute_value(i, "label", None)
+                .and_then(|v| v.str().map(str::to_string))
+        };
+
+        // Find the section holding "Show Unsafe Images" (mnemonic-marked, as the
+        // real menu renders it).
+        let mut target_section: Option<Menu> = None;
+        for i in 0..view_menu.n_items() {
+            let Some(section) = view_menu.item_link(i, "section") else {
+                continue;
+            };
+            let section: Menu = section
+                .downcast::<Menu>()
+                .expect("a section link is a Menu");
+            if (0..section.n_items())
+                .any(|j| label_at(&section, j).as_deref() == Some("Show _Unsafe Images"))
+            {
+                target_section = Some(section);
+                break;
+            }
+        }
+        let section = target_section.expect("Show Unsafe Images section not found in View menu");
+
+        let play_index = (0..section.n_items())
+            .find(|&j| label_at(&section, j).as_deref() == Some("Pla_y Animations"))
+            .expect("Play Animations must be in the SAME section as Show Unsafe Images");
+
+        assert_eq!(
+            section
+                .item_attribute_value(play_index, "action", None)
+                .and_then(|v| v.str().map(str::to_string))
+                .as_deref(),
+            Some("app.play-animations"),
+            "Play Animations must target the app-wide app.play-animations action"
+        );
+        assert!(
+            section.item_link(play_index, "submenu").is_none(),
+            "Play Animations is a direct item, not a nested submenu"
         );
     }
 }

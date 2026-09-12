@@ -8,7 +8,6 @@ use crate::links::ImageResolution;
 use crate::memgate::footprint::{current, SAMPLE_COUNT, TOLERANCE_BYTES, WARMUP};
 use crate::memgate::slope::assert_flat;
 use crate::renderer::start::{load_texture, LoadedImage};
-use crate::testsymlink::skipped;
 use gtk::gdk::prelude::TextureExt;
 use gtk::glib::object::ObjectExt;
 use gtk::prelude::{GtkWindowExt, NativeExt, WidgetExt};
@@ -62,14 +61,29 @@ fn cairo_renderer_is_the_measured_arm() {
     }
 }
 
-fn sample_loads(path: &Path, n: usize) -> Option<Vec<u64>> {
+/// Which decode path a sampling run exercises.
+#[derive(Clone, Copy)]
+enum CachePath {
+    /// Re-renders of an open document: every load after the first is a cache hit
+    /// (6.6, 6.8).
+    Warm,
+    /// The cache emptied before every load, as eviction or a changed file does — so
+    /// every load is a fresh decode (6.9).
+    Cold,
+}
+
+fn sample_loads(path: &Path, n: usize, cache: CachePath) -> Option<Vec<u64>> {
     crate::imagecache::reset_for_test();
     let mut samples = Vec::with_capacity(n);
     for _ in 0..n {
-        // Deliberately the cached path: 6.6 is about re-renders of an open
+        // `Warm` is deliberately the cached path: 6.6 is about re-renders of an open
         // document, which must reuse the decode (6.8). Mutation-tested: inserting
         // `imagecache::reset_for_test()` here reddens 6.6 on the slope assertion
-        // (~5 MB second-half delta), not on an earlier precondition.
+        // (~5 MB second-half delta), not on an earlier precondition. `Cold` is
+        // that mutation made the subject: 6.9.
+        if let CachePath::Cold = cache {
+            crate::imagecache::reset_for_test();
+        }
         let loaded = load_local_cached(path)?;
         let fp = current()?;
         samples.push(fp);
@@ -80,19 +94,38 @@ fn sample_loads(path: &Path, n: usize) -> Option<Vec<u64>> {
 
 #[gtktest::test]
 fn growth_slope_animated_webp_ttd_6_6() {
+    // Every host decodes this now — `richimg` is pure Rust, not a host gdk-pixbuf
+    // loader, so there is no longer a decoder-absent skip arm here (WP6,
+    // sdd/PLAN.memory-gates.md; a skip would now be dead code hiding a failure).
     let path = fixture("anim.webp");
-    match sample_loads(&path, SAMPLE_COUNT) {
-        None => skipped(
-            "TDD 6.6",
-            "this host has no decoder for the animated WebP fixture (gvsbuild \
-             ships SVG only; a missing webp-pixbuf-loader is the same skip)",
-        ),
-        Some(samples) => {
-            if let Err(err) = assert_flat(&samples, WARMUP, TOLERANCE_BYTES) {
-                panic!("TDD 6.6 animated WebP: {err}");
-            }
-        }
-    }
+    let samples = sample_loads(&path, SAMPLE_COUNT, CachePath::Warm)
+        .expect("richimg decodes anim.webp on every host; a None here is a broken fixture");
+    assert_flat(&samples, WARMUP, TOLERANCE_BYTES)
+        .unwrap_or_else(|err| panic!("TDD 6.6 animated WebP: {err}"));
+}
+
+#[gtktest::test]
+fn uncached_decode_slope_animated_webp_ttd_6_9() {
+    // Every load is a fresh decode — the path an evicted or changed file takes,
+    // which 6.6 cannot see because it measures cache hits. Every host decodes this
+    // now (see 6.6's comment above) — no decoder-absent skip arm.
+    let path = fixture("anim.webp");
+    let samples = sample_loads(&path, SAMPLE_COUNT, CachePath::Cold)
+        .expect("richimg decodes anim.webp on every host; a None here is a broken fixture");
+    assert_flat(&samples, WARMUP, TOLERANCE_BYTES)
+        .unwrap_or_else(|err| panic!("TDD 6.9 uncached animated WebP: {err}"));
+}
+
+#[gtktest::test]
+fn uncached_decode_slope_png_is_flat_ttd_6_9() {
+    // Negative control for 6.9: a fresh PNG decode every iteration must not climb.
+    // Without it, a red 6.9 could be the cache reset's own churn rather than the
+    // WebP decode.
+    let path = fixture("wide.png");
+    let samples = sample_loads(&path, SAMPLE_COUNT, CachePath::Cold)
+        .expect("PNG decode is native; a None here is a broken fixture, not a skip");
+    assert_flat(&samples, WARMUP, TOLERANCE_BYTES)
+        .unwrap_or_else(|err| panic!("TDD 6.9 PNG control: {err}"));
 }
 
 #[gtktest::test]
@@ -101,7 +134,7 @@ fn growth_slope_png_is_flat_ttd_6_6() {
     // instrument is measuring warm-up or some other render-path leak, not the
     // animated-WebP loader branch.
     let path = fixture("wide.png");
-    let samples = sample_loads(&path, SAMPLE_COUNT)
+    let samples = sample_loads(&path, SAMPLE_COUNT, CachePath::Warm)
         .expect("PNG decode is native; a None here is a broken fixture, not a skip");
     assert_flat(&samples, WARMUP, TOLERANCE_BYTES)
         .unwrap_or_else(|err| panic!("TDD 6.6 PNG control: {err}"));
@@ -132,75 +165,186 @@ fn decoded_texture_finalizes_ttd_6_7() {
 
 #[gtktest::test]
 fn local_cache_reuses_decode_ttd_6_8() {
+    // Every host decodes this now (see 6.6's comment) — no decoder-absent skip arm.
+    //
+    // **Finding 2: asserts the cache HIT directly, by counting decodes, not by
+    // measuring footprint growth against `TOLERANCE_BYTES`.** `anim.webp` decodes to
+    // ~0.49 MiB — comfortably under the 2 MiB Linux tolerance — so the old
+    // byte-growth assertion passed identically whether the second load was a real
+    // cache hit or a fresh decode: deleting the cache outright still "grew" the
+    // footprint by less than the tolerance. `imagedecode::decode_probe` counts real
+    // calls into the crate's one decode choke point, so "no new decode happened" is
+    // now the literal claim, not an inference from bytes.
     let path = fixture("anim.webp");
     crate::imagecache::reset_for_test();
-    let first = match load_local_cached(&path) {
-        Some(img) => img,
-        None => {
-            skipped(
-                "TDD 6.8",
-                "this host has no decoder for the animated WebP fixture",
-            );
-            return;
-        }
-    };
+    crate::imagedecode::decode_probe::reset_for_test();
+    let first = load_local_cached(&path).expect("richimg decodes anim.webp on every host");
     let w = first.texture.width();
     let h = first.texture.height();
     drop(first);
-    let before = current().expect("footprint");
+    let after_first = crate::imagedecode::decode_probe::count();
+    assert_eq!(
+        after_first, 1,
+        "sanity: the first load must be exactly one genuine decode"
+    );
     let second = load_local_cached(&path).expect("cached decode");
-    let after = current().expect("footprint");
     assert_eq!(second.texture.width(), w);
     assert_eq!(second.texture.height(), h);
-    let grew = after.saturating_sub(before);
-    assert!(
-        grew <= TOLERANCE_BYTES,
-        "TDD 6.8: second load of an unchanged local file grew footprint by {grew} bytes"
+    let after_second = crate::imagedecode::decode_probe::count();
+    assert_eq!(
+        after_second, after_first,
+        "TDD 6.8: second load of an unchanged local file must be a cache HIT (zero \
+         new decodes) — a decode count that moved here means the cache was bypassed, \
+         however small the resulting footprint growth was"
     );
 }
 
 #[gtktest::test]
-fn local_cache_misses_when_mtime_changes_ttd_6_8() {
+fn local_cache_misses_when_the_file_is_replaced_ttd_6_8() {
     // Two PNGs of different widths so the overwrite is visible as a dimension
     // change. A `.webp` temp overwritten with PNG bytes would pick the WebP
     // loader from the extension and fail to decode.
+    //
+    // **Written with `std::fs::write`, not `std::fs::copy`, and that is the whole
+    // point of this test's shape.** `copy` is `CopyFileExW` on Windows and carries
+    // the SOURCE file's mtime onto the destination, so the replacement left the
+    // stamp unmoved and this test reported a cache defect that did not exist
+    // (MEASURED by the Windows seat; both fixtures happened to share an mtime to
+    // the nanosecond, so even distinct sources would not have saved it). The
+    // PRODUCT half of that finding is why the cache key now carries the file's
+    // LENGTH as well — see `imagecache::loader::FileStamp`.
     let dir = std::env::temp_dir();
     let tmp = dir.join(format!(
         "scribobulate-memgate-6_8-{}.png",
         std::process::id()
     ));
-    std::fs::copy(fixture("wide.png"), &tmp).expect("copy wide png");
+    let wide = std::fs::read(fixture("wide.png")).expect("read wide png");
+    let logo = std::fs::read(fixture("logo.png")).expect("read logo png");
+    assert_ne!(
+        wide.len(),
+        logo.len(),
+        "precondition: the two fixtures must differ in LENGTH, which is half of what \
+         the cache keys on"
+    );
+    std::fs::write(&tmp, &wide).expect("write wide png");
     crate::imagecache::reset_for_test();
+    crate::imagedecode::decode_probe::reset_for_test();
     let first = load_local_cached(&tmp).expect("first decode");
     let first_w = first.texture.width();
     drop(first);
-    std::fs::copy(fixture("logo.png"), &tmp).expect("overwrite with smaller png");
-    let second = load_local_cached(&tmp).expect("decode after mtime change");
+    let after_first = crate::imagedecode::decode_probe::count();
+    std::fs::write(&tmp, &logo).expect("replace with the smaller png");
+    let second = load_local_cached(&tmp).expect("decode after the file was replaced");
     let _ = std::fs::remove_file(&tmp);
+    let after_second = crate::imagedecode::decode_probe::count();
     assert_ne!(
         second.texture.width(),
         first_w,
         "TDD 6.8: replacing the file on disk must produce a new decode, not the cached one"
     );
+    // Finding 2's instrument, applied here too (not just where it was broken): the
+    // dimension check above already proves a fresh decode happened, but stating the
+    // COUNT makes the claim exact — exactly one new decode, not merely "a different
+    // one from before".
+    assert_eq!(
+        after_second,
+        after_first + 1,
+        "TDD 6.8: replacing the file must trigger exactly one new decode"
+    );
+}
+
+#[gtktest::test]
+fn local_cache_misses_when_only_the_length_changes_ttd_6_8() {
+    // The Windows condition, reproduced on any platform: a file replaced with
+    // DIFFERENT CONTENT whose mtime is then restored to what it was. That is what
+    // `CopyFileExW` does by itself (it carries the source's mtime onto the
+    // destination), and what `cp -p`, `rsync --times`, `unzip` and a git checkout
+    // do everywhere. Before the cache key carried the file's LENGTH, this served
+    // the stale decode and the reader never saw their new image.
+    let dir = std::env::temp_dir();
+    let tmp = dir.join(format!(
+        "scribobulate-memgate-6_8-len-{}.png",
+        std::process::id()
+    ));
+    let wide = std::fs::read(fixture("wide.png")).expect("read wide png");
+    let logo = std::fs::read(fixture("logo.png")).expect("read logo png");
+    std::fs::write(&tmp, &wide).expect("write wide png");
+    let stamp = std::fs::metadata(&tmp)
+        .and_then(|m| m.modified())
+        .expect("read the mtime to restore");
+    crate::imagecache::reset_for_test();
+    crate::imagedecode::decode_probe::reset_for_test();
+    let first = load_local_cached(&tmp).expect("first decode");
+    let first_w = first.texture.width();
+    drop(first);
+    let after_first = crate::imagedecode::decode_probe::count();
+
+    std::fs::write(&tmp, &logo).expect("replace with the smaller png");
+    // Put the clock back, so mtime says nothing changed and only the length does.
+    let times = std::fs::FileTimes::new().set_modified(stamp);
+    std::fs::File::options()
+        .write(true)
+        .open(&tmp)
+        .and_then(|f| f.set_times(times))
+        .expect("restore the mtime");
+    let restored = std::fs::metadata(&tmp)
+        .and_then(|m| m.modified())
+        .expect("re-read the mtime");
+    assert_eq!(
+        restored, stamp,
+        "precondition: the mtime really was put back, so this test is about LENGTH"
+    );
+
+    let second = load_local_cached(&tmp).expect("decode after the replacement");
+    let _ = std::fs::remove_file(&tmp);
+    let after_second = crate::imagedecode::decode_probe::count();
+    assert_ne!(
+        second.texture.width(),
+        first_w,
+        "TDD 6.8: a replacement the filesystem clock cannot see must still produce a \
+         new decode — the cache keys on the file's length as well as its mtime"
+    );
+    // Finding 2's instrument: exactly one new decode, not merely a different result.
+    assert_eq!(
+        after_second,
+        after_first + 1,
+        "TDD 6.8: a length-only replacement must trigger exactly one new decode"
+    );
 }
 
 #[gtktest::test]
 fn local_cache_makes_svg_rerender_free_ttd_6_8() {
-    // A large SVG used to re-decode on every render (~239 ms on the reference
-    // host) because local images had no cache. Asserted as a cache hit
-    // (footprint, not wall-clock — a timing assertion flakes on a loaded host).
+    // A large SVG used to re-render on every paint (~239 ms on the reference host)
+    // because local images had no cache.
+    //
+    // **Driven at a NON-IDENTITY zoom, and counted rather than weighed.** At zoom 1.0
+    // this never reaches the vector path at all — it is an ordinary raster decode — so
+    // the test asserted the wrong thing twice over. And the footprint assertion it used
+    // had the same shape the raster gate was just rescued from: a re-render that fits
+    // inside `TOLERANCE_BYTES` satisfies it whether or not the cache exists. The
+    // re-rasterisation counter answers the question the rubric actually asks.
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sdd/system-overview.svg");
     crate::imagecache::reset_for_test();
-    let first = load_local_cached(&path).expect("SVG decode");
+    let zoom = 2.0;
+
+    let before_first = crate::imagedecode::decode_probe::vector_rasterize_count();
+    let first = load_texture(&ImageResolution::Local(path.clone()), zoom).expect("SVG re-render");
     let w = first.texture.width();
     drop(first);
-    let before = current().expect("footprint");
-    let second = load_local_cached(&path).expect("cached SVG");
-    let after = current().expect("footprint");
+    let after_first = crate::imagedecode::decode_probe::vector_rasterize_count();
+    assert_eq!(
+        after_first - before_first,
+        1,
+        "precondition: a zoomed SVG must actually re-rasterise once, or this test is \
+         measuring the raster path by mistake — which is exactly what it did before"
+    );
+
+    let second = load_texture(&ImageResolution::Local(path), zoom).expect("cached SVG");
     assert_eq!(second.texture.width(), w);
-    let grew = after.saturating_sub(before);
-    assert!(
-        grew <= TOLERANCE_BYTES,
-        "TDD 6.8: second load of an unchanged SVG grew footprint by {grew} bytes"
+    assert_eq!(
+        crate::imagedecode::decode_probe::vector_rasterize_count(),
+        after_first,
+        "TDD 6.8: a second render of an unchanged SVG at the same zoom must be a cache \
+         HIT — it must not re-rasterise the document again"
     );
 }

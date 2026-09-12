@@ -43,7 +43,7 @@ out-of-range value is clamped to its stated range rather than rejected. The
 worst outcome of a bad theme is a decoration that is absent.
 .SH CONFIGURATION FILE
 .I config.toml
-has four sections, all optional, and every key within them is optional. An
+has five sections, all optional, and every key within them is optional. An
 omitted key takes the default shown.
 .SS [window]
 .TP
@@ -86,6 +86,15 @@ Syntax-highlighting theme used when the desktop is dark.
 .TP
 .BR width " (integer, default " 240 )
 Default width in pixels of the document-outline sidebar.
+.SS [images]
+.TP
+.BR local_file_limit_mib " (integer, default " 16 )
+Byte cap for a local image file, in MiB. Clamped to 1\-64. A local image over
+this size is refused before it is read, the same way an oversized document is.
+.TP
+.BR short_frame_delay_ms " (integer, default " 50 )
+An animated image (WebP, GIF, APNG) frame whose declared delay is under 20 ms
+is shown for this long instead. Clamped to 20\-1000.
 .SS Example
 .PP
 .RS 4

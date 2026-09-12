@@ -48,6 +48,7 @@ pub(crate) mod appearance;
 pub(crate) mod frame;
 pub(crate) mod privacy;
 pub(crate) mod process;
+pub(crate) mod reduced_motion;
 
 // Re-exported so the split is invisible to callers: every one of these was
 // `platform::win32::X` before the decomposition and still is. Moving a function between
@@ -58,6 +59,7 @@ pub(crate) use frame::{sync_caption_theme, track_caption_theme, track_maximized_
 pub(crate) use privacy::create_private_directory;
 #[cfg(test)]
 pub(crate) use privacy::directory_dacl_sddl;
+pub(crate) use reduced_motion::{system_reduced_motion, watch_reduced_motion};
 
 use std::ffi::c_void;
 

@@ -12,12 +12,12 @@
 //! for local ones, sharing one LRU byte budget. The eviction/TTL policy itself
 //! is pure and lives in [`policy`]; this module is the thin GTK wiring — the
 //! process-wide singleton, decoded-byte accounting, and the entry point
-//! [`get_or_fetch`] that `renderer::start` calls.
+//! [`get_or_fetch`] that [`loader`] calls.
 //!
 //! ## Shape
 //!
 //! One [`policy::Cache`] instance, keyed on the image URL, holds either a
-//! decoded `gtk::gdk::Texture` (a hit — returned with no network access) or a
+//! [`CachedTexture`] (a hit — returned with no network access) or a
 //! short-lived negative marker (a cached failure — see [`NEGATIVE_CACHE_TTL`]).
 //! It is **process-wide**, not per-tab or per-window: two tabs, or two windows,
 //! showing the same remote image fetch it once between them. GTK is
@@ -28,12 +28,38 @@
 //! Successful entries live for the session — there is no positive TTL and
 //! nothing ever proactively expires one; the only way a decoded texture leaves
 //! the cache is LRU eviction under [`IMAGE_CACHE_BUDGET_BYTES`].
+//!
+//! ## Animation (WP6b, TDD 27.1)
+//!
+//! Each entry carries an [`AnimationHint`] alongside its texture — "a playing
+//! animation is not a cache entry" (sdd/PLAN.memory-gates.md): the encoded bytes an
+//! `AnimatedPaintable` needs live elsewhere, EXCEPT for a remote entry, where
+//! retaining them is cheaper than the only alternative a hit has (a second network
+//! fetch on the opt-in "Show Unsafe Images" path). [`AnimationHint::Still`] and
+//! [`AnimationHint::Local`] carry no payload — one enum discriminant plus the size
+//! of an unused `Arc<[u8]>` slot (two `usize`s), a small fixed cost paid by every
+//! entry, animated or not. [`AnimationHint::Remote`]'s bytes are real and are
+//! folded into [`cached_bytes`]'s accounting so the LRU prunes against the cache's
+//! true footprint, bounded per entry by `limits::MAX_REMOTE_IMAGE_BYTES` (16
+//! MiB) — up to half of [`IMAGE_CACHE_BUDGET_BYTES`] for one image, on the same
+//! "still cached even past budget" terms [`policy::Cache::record_success`] already
+//! applies to any oversized entry.
+//!
+//! `renderer::start`'s image loader (`imagecache::loader`) recovers a LOCAL
+//! animated image's bytes on a hit itself (sharing with a live picture, or a
+//! bounded re-read) — this module only carries the hint that tells it whether to
+//! bother.
 
+mod keys;
+mod loader;
 mod policy;
+
+pub(crate) use loader::{load_texture, LoadedImage};
 
 use gtk::prelude::TextureExt;
 use policy::Cache;
 use std::cell::RefCell;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Total decoded-pixel bytes the cache may hold before evicting the
@@ -72,8 +98,25 @@ const IMAGE_CACHE_BUDGET_BYTES: usize = 32 * 1024 * 1024;
 const NEGATIVE_CACHE_TTL: Duration = Duration::from_secs(60);
 
 thread_local! {
-    static CACHE: RefCell<Cache<gtk::gdk::Texture>> =
+    static CACHE: RefCell<Cache<CachedTexture>> =
         RefCell::new(Cache::new(IMAGE_CACHE_BUDGET_BYTES, NEGATIVE_CACHE_TTL));
+}
+
+/// What a cache entry says about whether its file animates. See the module doc's
+/// "Animation" section for why [`Self::Remote`] is the only variant with a payload.
+#[derive(Clone)]
+pub(crate) enum AnimationHint {
+    Still,
+    Local,
+    Remote(Arc<[u8]>),
+}
+
+/// A cached texture plus its [`AnimationHint`] — the value type this module's
+/// [`policy::Cache`] instance holds.
+#[derive(Clone)]
+pub(crate) struct CachedTexture {
+    pub(crate) texture: gtk::gdk::Texture,
+    pub(crate) animation: AnimationHint,
 }
 
 /// The decoded byte cost of a texture of `width` × `height` pixels: one ARGB32
@@ -89,16 +132,29 @@ fn decoded_byte_size(width: i32, height: i32) -> usize {
     (width.max(0) as u64 * height.max(0) as u64 * 4) as usize
 }
 
-/// Look up `uri` in the process-wide cache; call `fetch` only on an outright
+/// [`decoded_byte_size`] plus, for an [`AnimationHint::Remote`] entry, the
+/// retained encoded bytes — the accounting the byte budget must include so the
+/// LRU prunes against the cache's real footprint (WP6b). Before this, a retained
+/// remote animation's bytes counted against nothing at all.
+fn cached_bytes(texture: &gtk::gdk::Texture, animation: &AnimationHint) -> usize {
+    let retained = match animation {
+        AnimationHint::Remote(bytes) => bytes.len(),
+        AnimationHint::Still | AnimationHint::Local => 0,
+    };
+    decoded_byte_size(texture.width(), texture.height()) + retained
+}
+
+/// Look up `key` in the process-wide cache; call `fetch` only on an outright
 /// miss (never on a hit, never during a live negative-cache window), and record
-/// its outcome. `fetch` should perform the actual network GET + decode
-/// (`renderer::start::load_remote_texture` supplies it) — this function owns
+/// its outcome. `fetch` should perform the actual network GET/local read +
+/// decode (`imagecache::loader`'s `load_remote_texture`/`load_local` supply it),
+/// returning the decoded texture and its [`AnimationHint`] — this function owns
 /// only whether that ever needs to happen.
 pub(crate) fn get_or_fetch(
-    uri: &str,
-    fetch: impl FnOnce() -> Option<gtk::gdk::Texture>,
-) -> Option<gtk::gdk::Texture> {
-    get_or_fetch_at(uri, Instant::now(), fetch)
+    key: &str,
+    fetch: impl FnOnce() -> Option<(gtk::gdk::Texture, AnimationHint)>,
+) -> Option<CachedTexture> {
+    get_or_fetch_at(key, Instant::now(), fetch)
 }
 
 /// [`get_or_fetch`] with the clock supplied rather than read.
@@ -110,17 +166,17 @@ pub(crate) fn get_or_fetch(
 /// this seam extends the same discipline to the thread-local the application actually
 /// uses, so a test exercises the SHIPPED path rather than a second cache it built itself.
 pub(crate) fn get_or_fetch_at(
-    uri: &str,
+    key: &str,
     now: Instant,
-    fetch: impl FnOnce() -> Option<gtk::gdk::Texture>,
-) -> Option<gtk::gdk::Texture> {
+    fetch: impl FnOnce() -> Option<(gtk::gdk::Texture, AnimationHint)>,
+) -> Option<CachedTexture> {
     // The borrow discipline lives in `policy::get_or_fetch` — it takes the `RefCell`
     // precisely so no borrow is held across `fetch`. See its doc comment.
     CACHE.with(|cell| {
-        policy::get_or_fetch(cell, uri, now, || {
-            fetch().map(|texture| {
-                let bytes = decoded_byte_size(texture.width(), texture.height());
-                (texture, bytes)
+        policy::get_or_fetch(cell, key, now, || {
+            fetch().map(|(texture, animation)| {
+                let bytes = cached_bytes(&texture, &animation);
+                (CachedTexture { texture, animation }, bytes)
             })
         })
     })
@@ -227,7 +283,7 @@ mod gtk_integration_tests {
         let attempts = Cell::new(0usize);
         let ok = || {
             attempts.set(attempts.get() + 1);
-            Some(pixel())
+            Some((pixel(), AnimationHint::Still))
         };
         let t0 = Instant::now();
 
@@ -240,6 +296,99 @@ mod gtk_integration_tests {
             attempts.get(),
             1,
             "a positive entry answers every later toggle, and never expires by time"
+        );
+        reset_for_test();
+    }
+
+    /// A still image on a cache hit still carries no animation bytes — the counterpart
+    /// to the animated hit tests in `imagecache::loader` and below (WP6b, TDD 27.1).
+    #[gtktest::test]
+    fn a_still_image_carries_no_animation_hint_on_a_hit() {
+        reset_for_test();
+        let key = "https://live.invalid/still.png";
+
+        let miss = get_or_fetch(key, || Some((pixel(), AnimationHint::Still))).expect("miss");
+        assert!(matches!(miss.animation, AnimationHint::Still));
+
+        let hit = get_or_fetch(key, || panic!("a hit must not re-fetch")).expect("hit");
+        assert!(matches!(hit.animation, AnimationHint::Still));
+    }
+
+    /// **TDD 27.1 / WP6b.** A remote animated image's cache entry retains its encoded
+    /// bytes, so a HIT answers with them directly — its only alternative is a second
+    /// network fetch on the opt-in "Show Unsafe Images" path, which is worse (see the
+    /// module doc's "Animation" section).
+    ///
+    /// Mutation: leaving the retained bytes out of the STORED hint (storing
+    /// `AnimationHint::Still` instead of `AnimationHint::Remote(bytes)` on a miss)
+    /// reddens the second assertion — see `sdd/PLAN.memory-gates.md`'s WP6b mutation
+    /// list, item 1.
+    #[gtktest::test]
+    fn a_remote_animation_hit_never_re_fetches_and_shares_the_bytes() {
+        reset_for_test();
+        let key = "https://live.invalid/anim.webp";
+        let bytes: Arc<[u8]> = Arc::from(&b"encoded animated bytes"[..]);
+        let fetch_calls = Cell::new(0usize);
+
+        let first = get_or_fetch(key, || {
+            fetch_calls.set(fetch_calls.get() + 1);
+            Some((pixel(), AnimationHint::Remote(bytes.clone())))
+        })
+        .expect("miss decodes");
+        match first.animation {
+            AnimationHint::Remote(got) => assert!(Arc::ptr_eq(&got, &bytes)),
+            _ => panic!("expected AnimationHint::Remote on the miss"),
+        }
+
+        let second = get_or_fetch(key, || {
+            fetch_calls.set(fetch_calls.get() + 1);
+            Some((pixel(), AnimationHint::Remote(bytes.clone())))
+        })
+        .expect("hit answers without calling this closure");
+        match second.animation {
+            AnimationHint::Remote(got) => {
+                assert!(
+                    Arc::ptr_eq(&got, &bytes),
+                    "the SAME retained bytes on a hit"
+                )
+            }
+            _ => panic!("expected AnimationHint::Remote on the hit"),
+        }
+        assert_eq!(fetch_calls.get(), 1, "a hit must not re-fetch");
+    }
+
+    /// **TDD 6.6-family / WP6b.** Retained remote animation bytes must be charged
+    /// against the cache's own byte budget, or an oversized entry never gets evicted.
+    ///
+    /// Mutation: computing this entry's cached size from [`decoded_byte_size`] alone
+    /// (never adding the retained bytes) reddens this — the second entry then fits
+    /// alongside the first under the (wrong) accounting, the first is never evicted,
+    /// and the final re-request answers from the stale cache with `refetched` staying
+    /// `false` — see `sdd/PLAN.memory-gates.md`'s WP6b mutation list, item 2.
+    #[gtktest::test]
+    fn retained_remote_bytes_are_charged_against_the_budget_and_can_evict() {
+        reset_for_test();
+        // Bigger than half of IMAGE_CACHE_BUDGET_BYTES (32 MiB), so two of these
+        // cannot coexist unless the retained bytes are (wrongly) left uncounted.
+        const RETAINED: usize = 20 * 1024 * 1024;
+        let heavy_bytes: Arc<[u8]> = vec![0u8; RETAINED].into();
+
+        let _ = get_or_fetch("https://live.invalid/big-a.webp", || {
+            Some((pixel(), AnimationHint::Remote(heavy_bytes.clone())))
+        });
+        let _ = get_or_fetch("https://live.invalid/big-b.webp", || {
+            Some((pixel(), AnimationHint::Remote(heavy_bytes.clone())))
+        });
+
+        let refetched = Cell::new(false);
+        let _ = get_or_fetch("https://live.invalid/big-a.webp", || {
+            refetched.set(true);
+            Some((pixel(), AnimationHint::Remote(heavy_bytes.clone())))
+        });
+        assert!(
+            refetched.get(),
+            "retained remote animation bytes must be charged against the cache's byte \
+             budget, or an oversized entry never gets evicted"
         );
         reset_for_test();
     }

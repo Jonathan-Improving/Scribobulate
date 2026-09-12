@@ -44,6 +44,13 @@
 src/a11y.rs
 src/accel.rs
 src/affordance.rs
+src/animation/paintable/badge.rs
+src/animation/policy/mod.rs
+src/animation/policy/watch.rs
+src/animation/schedule.rs
+src/animation/source.rs
+src/animation/visibility/mod.rs
+src/animation/worker.rs
 src/annotate/anchored.rs
 src/annotate/mod.rs
 src/annotate/mutate.rs
@@ -97,8 +104,12 @@ src/format/mod.rs
 src/format/quote.rs
 src/format/text.rs
 src/icons.rs
+src/imagecache/keys.rs
 src/imagecache/mod.rs
 src/imagecache/policy.rs
+src/imagedecode/admission.rs
+src/imagedecode/decode.rs
+src/imagedecode/probe.rs
 src/imagefetch.rs
 src/keynav.rs
 src/limits.rs
@@ -114,6 +125,7 @@ src/outline/mod.rs
 src/outline/tree.rs
 src/palette/mod.rs
 src/pangospan.rs
+src/platform/mod.rs
 src/preview/annotate.rs
 src/preview/build.rs
 src/preview/cells.rs

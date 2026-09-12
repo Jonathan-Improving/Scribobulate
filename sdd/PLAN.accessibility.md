@@ -232,6 +232,37 @@ independently of accessibility; it should not be the reason the floor moves.
   that one was, by choosing a different `WrapMode`) rather than as a defect in the new
   accessibility code.
 
+## Deferred: the system reduce-motion preference on macOS
+
+**Deferred 2026-09-12 (operator), not rejected.** The Windows half of this shipped; the
+macOS half is written nowhere and macOS keeps today's behaviour.
+
+**What is missing.** `animation::policy` decides whether an animation may play from the
+reader's Play Animations choice AND the system's reduce-motion preference. At this
+project's GTK floor that preference has **no source on Quartz**:
+`_gdk_macos_settings_load` hardcodes `enable_animations = TRUE` and never reads
+`NSWorkspace.accessibilityDisplayShouldReduceMotion`, so a Mac reader who has asked the
+system for reduced motion still gets animations. GTK 4.22 reads the preference onto
+`gtk-interface-reduced-motion` — a **different** property, deliberately, because the
+maintainers refused to overload `gtk-enable-animations` (it is a performance kill-switch
+that also stops spinners, revealers and CSS animation) — and that property is not bound
+by gtk4-rs 0.10 at `v4_6`. TDD 27.7 is therefore unverifiable on that platform today.
+
+**What it needs**, and it is small: a child of `platform/mac/` in `appearance.rs`'s exact
+shape — a source GTK does not read, feeding the existing decision, owning no behaviour.
+Read `[[NSWorkspace sharedWorkspace] accessibilityDisplayShouldReduceMotion]` and observe
+`NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification` on
+`[[NSWorkspace sharedWorkspace] notificationCenter]`. The portable façade the Windows
+work introduced already has the macOS arm returning "no source"; filling it in is the
+whole change on our side.
+
+⚠ **Two traps recorded now, so they are not rediscovered.** GTK 4.22 reloads Quartz
+settings on `NSUserDefaultsDidChangeNotification` rather than on Apple's documented
+accessibility notification, so do not assume the toolkit's own reload path carries this —
+measure whether the live toggle arrives. And the deferral is not a code problem: **no seat
+but the macOS one can compile a `#[cfg(target_os = "macos")]` module**, so this waits on
+that seat's availability rather than on design.
+
 ## Technical details preserved
 
 - **The naming choke point is the template for the rest.** `src/a11y.rs` pairs a helper

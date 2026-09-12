@@ -208,6 +208,9 @@ impl From<LegacySession> for Session {
             // A legacy file predates reading themes entirely, so it restores the
             // base theme — i.e. exactly the appearance it was saved under.
             preview_theme: crate::theme::SYSTEM_ID.to_string(),
+            // A legacy file predates Play Animations entirely too, so it restores
+            // the same default a genuine first launch gets (TDD 27.6).
+            play_animations: crate::animation::policy::DEFAULT_CHOICE,
             windows: vec![WindowSession {
                 width: l.width,
                 height: l.height,
@@ -494,7 +497,8 @@ fn migrate_v2_app_wide_chrome(session: &mut Session, v2: &V2AppWideChrome) {
 }
 
 /// FIELD ORDER IS LOAD-BEARING for TOML — see [`WindowSession`]'s note. The
-/// scalar `preview_theme` must stay above the `windows` array-of-tables.
+/// scalars `preview_theme` and `play_animations` must stay above the `windows`
+/// array-of-tables.
 #[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug)]
 #[serde(default)]
 pub(crate) struct Session {
@@ -506,6 +510,17 @@ pub(crate) struct Session {
     /// desktop-derived appearance. An id naming a theme the user has since
     /// deleted resolves back to the base theme rather than failing.
     pub preview_theme: String,
+    /// The reader's raw Play Animations choice (`app.play-animations` — TDD
+    /// 27.5-27.7), genuinely app-wide like `preview_theme` above: one process-wide
+    /// `GAction`, so one value. **Never** the effective (system "reduce
+    /// animations"-adjusted) play state — that is recomputed live on every launch
+    /// from `gtk-enable-animations`, so a system setting changed since the last run
+    /// takes effect immediately rather than being baked into what was saved
+    /// (`animation::policy`). `#[serde(default)]` on the struct means an older
+    /// session file with no `play_animations` key restores
+    /// [`crate::animation::policy::DEFAULT_CHOICE`] — on, matching a genuine first
+    /// launch (TDD 27.6).
+    pub play_animations: bool,
     /// One entry per window open when the session was last saved. Empty means
     /// "no saved session yet" (fresh install) — `window::restore::restore_session`
     /// treats that as "fall back to the default single blank window".
@@ -516,6 +531,7 @@ impl Default for Session {
     fn default() -> Self {
         Self {
             preview_theme: crate::theme::SYSTEM_ID.to_string(),
+            play_animations: crate::animation::policy::DEFAULT_CHOICE,
             windows: Vec::new(),
         }
     }
@@ -968,6 +984,7 @@ mod tests {
     fn sample_session() -> Session {
         Session {
             preview_theme: "sepia".to_string(),
+            play_animations: false,
             windows: vec![
                 WindowSession {
                     width: 1111,
@@ -1093,6 +1110,7 @@ mod tests {
             // A shrinking single-window write, as the last closing window would attempt.
             let shrunk = Session {
                 preview_theme: full.preview_theme.clone(),
+                play_animations: full.play_animations,
                 windows: vec![full.windows[0].clone()],
             };
             save(&shrunk);
@@ -1134,6 +1152,12 @@ mod tests {
         let text = "windows = []\n";
         let s = parse(text);
         assert_eq!(s.preview_theme, Session::default().preview_theme);
+        // An older session file with no `play_animations` key restores ON — a
+        // first-launch-equivalent default (TDD 27.6), not the derived bool zero
+        // value `#[serde(default)]` would silently substitute if this constant and
+        // `Session::default()` ever disagreed.
+        assert_eq!(s.play_animations, crate::animation::policy::DEFAULT_CHOICE);
+        assert!(s.play_animations, "absent field must restore ON, not off");
         assert!(s.windows.is_empty());
 
         // A window entry with no `chrome` table at all fills the ChromeSession

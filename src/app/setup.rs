@@ -5,7 +5,7 @@
 
 use super::appactions::{
     add_about_action, add_markdown_help_action, add_new_action, add_open_action,
-    add_preview_theme_action, add_quit_action,
+    add_play_animations_action, add_preview_theme_action, add_quit_action,
 };
 use super::commands::{EDIT_CMDS, FILE_CMDS, FORMAT_CMDS, VIEW_CMDS, WELCOME};
 use crate::preview::{css, theme_css};
@@ -155,6 +155,10 @@ fn on_startup(app: &Application) {
     // the very first window builds against the right theme rather than flashing the
     // default and re-rendering (TDD 18.12).
     add_preview_theme_action(app);
+    // No ordering constraint like `add_preview_theme_action` above: nothing renders
+    // differently off this action's initial state (WP3 owns only the control and the
+    // policy later work packages subscribe to — no picture exists yet that reads it).
+    add_play_animations_action(app);
     register_accelerators(app);
 
     // ── menu bar ─────────────────────────────────────────────────────────

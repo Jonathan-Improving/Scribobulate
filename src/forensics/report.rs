@@ -281,6 +281,16 @@ pub(crate) fn write_report(
 /// reaches stderr and `RUST_BACKTRACE` still behaves. The hook only *observes* —
 /// unwinding continues, `Drop` still runs, and `Cargo.toml`'s deliberate
 /// `panic = "unwind"` stays meaningful.
+///
+/// **A panic `richimg` will itself catch and contain writes NO crash report.** This
+/// hook fires on EVERY panic, caught or not — that is how a hook works — so without
+/// this check a decoder panic `richimg::guarded` is about to convert into
+/// `Error::DecoderPanicked` (the caller gets an ordinary error; the process keeps
+/// running) would still write a crash report **naming a crash that did not happen**.
+/// [`richimg::contained_panic_in_progress`] is true for the duration of such a call,
+/// including while the panic is unwinding through it — i.e. exactly when this hook
+/// runs — so it is checked first and the panic is logged instead (sdd/PLAN.memory-gates.md,
+/// "The richimg contract").
 pub(crate) fn install_panic_hook(
     report_path: Option<PathBuf>,
     header: String,
@@ -288,14 +298,15 @@ pub(crate) fn install_panic_hook(
 ) {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        if let Some(path) = report_path.as_deref() {
-            let fault = format!(
-                "panic: {}\nlocation: {}",
-                panic_message(info),
-                info.location()
-                    .map(ToString::to_string)
-                    .unwrap_or_else(|| "(unknown)".to_owned())
-            );
+        let message = panic_message(info);
+        let location = info
+            .location()
+            .map(ToString::to_string)
+            .unwrap_or_else(|| "(unknown)".to_owned());
+        if richimg::contained_panic_in_progress() {
+            log::error!("contained decoder panic: {message} at {location}");
+        } else if let Some(path) = report_path.as_deref() {
+            let fault = format!("panic: {message}\nlocation: {location}");
             // A panic *inside* the hook would abort the process and destroy the
             // very evidence being written, so every step here is fallible-and-
             // ignored rather than `unwrap`ed.
@@ -758,5 +769,52 @@ mod tests {
         assert!(text.contains("deliberate test panic"), "{text}");
         assert!(text.contains("report.rs:"), "no panic location in:\n{text}");
         assert!(text.contains("breadcrumb before the panic"), "{text}");
+    }
+
+    /// The other half of TDD 21.7's new obligation: a panic `richimg` itself catches
+    /// and converts to `Error::DecoderPanicked` must write NO crash report, and must
+    /// still be logged so the failure is not silent.
+    ///
+    /// Drives a REAL guarded richimg panic — `richimg/tests/fixtures/crafted_182.webp`,
+    /// the fixture richimg's own `webp_errors.rs` proves reliably panics
+    /// `image-webp` 0.2.4 and is caught, so `contained_panic_in_progress()` is
+    /// genuinely true while this hook runs, not merely asserted to be. The panic hook
+    /// fires on EVERY panic regardless of `catch_unwind`, which is the property this
+    /// test and the production hook both depend on.
+    #[test]
+    fn a_contained_decoder_panic_writes_no_crash_report_but_still_logs() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("crash-panic.log");
+        let ring: &'static Ring = Box::leak(Box::new(Ring::new()));
+
+        let cap = crate::testlog::capture();
+        let previous = std::panic::take_hook();
+        install_panic_hook(Some(path.clone()), "scribobulate test\n".to_owned(), ring);
+
+        let bytes = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/richimg/tests/fixtures/crafted_182.webp"
+        ));
+        let limits = richimg::Limits::default();
+        let result = richimg::first_frame(bytes, &limits);
+
+        std::panic::set_hook(previous);
+
+        assert_eq!(
+            result,
+            Err(richimg::Error::DecoderPanicked),
+            "precondition: the fixture must still trigger the guarded panic this \
+             test depends on — richimg/tests/webp_errors.rs proves it does"
+        );
+        assert!(
+            !path.exists(),
+            "a contained decoder panic must write NO crash report: {}",
+            path.display()
+        );
+        assert!(
+            cap.logged(log::Level::Error, "contained decoder panic"),
+            "the contained panic must still be logged, or the failure is silent: {:?}",
+            cap.records()
+        );
     }
 }

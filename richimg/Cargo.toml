@@ -1,0 +1,30 @@
+# Scribobulate's GTK-free animated-raster decoder: bytes in, dimensions and
+# composited RGBA8 frames out. No GTK, no glib, no dependency on the app crate,
+# so moving it to an external dependency later is a Cargo.toml change, not a
+# refactor (sdd/PLAN.memory-gates.md, "Phase 2 decisions").
+[package]
+name = "richimg"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "GTK-free animated-raster decoder (WebP, GIF, APNG): bytes in, composited RGBA8 frames out"
+
+[dependencies]
+# Pure Rust, #![forbid(unsafe_code)], MIT OR Apache-2.0, MSRV 1.80.1. Pinned per
+# sdd/PLAN.memory-gates.md "Decoder: image-webp 0.2.4" — do not bump past 0.2.4
+# without re-reading that section (known panics on crafted input, carried
+# obligations around dispose-to-background and reset_animation).
+image-webp = "=0.2.4"
+# Pure Rust, fuzzed through `image`, MIT OR Apache-2.0. Pinned per
+# sdd/PLAN.memory-gates.md "GIF decode route" (WP4). `default-features =
+# false` drops the crate's default `color_quant` (`Frame::from_rgba` and
+# friends, encoder-only helpers this decode-only crate never calls) and
+# `raii_no_panic` (only changes `Encoder`'s `Drop` panic behaviour) —
+# neither is reachable from richimg's read-only use of `gif::Decoder`.
+gif = { version = "=0.14.2", default-features = false, features = ["std"] }
+# Pure Rust, #![forbid(unsafe_code)], MIT OR Apache-2.0, fuzzed on OSS-Fuzz
+# (png-0.18.1/README.md). Decodes APNG (`acTL`/`fcTL`/`fdAT`) directly; see
+# `richimg/src/apng.rs`'s module doc comment for what was verified against
+# its source before relying on it (sdd/PLAN.memory-gates.md WP5).
+png = "=0.18.1"

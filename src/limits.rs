@@ -126,6 +126,32 @@ pub(crate) const MAX_DOCUMENT_BYTES: u64 = 64 * 1024 * 1024;
 /// is not addressed here (`GdkTexture` owns the decode either way).
 pub(crate) const MAX_REMOTE_IMAGE_BYTES: usize = 16 * 1024 * 1024;
 
+/// Maximum size of a LOCAL image file [`crate::imagedecode`] will read, in bytes.
+///
+/// A SIBLING of [`MAX_REMOTE_IMAGE_BYTES`], never an alias: a local file is admitted
+/// like a document (POLICY § Input limits) rather than fetched, and the two caps are
+/// free to diverge even though they carry the same number today. This is the default;
+/// `[images].local_file_limit_mib` in `config.toml` overrides it, clamped to 1..=64
+/// MiB (`config::ImagesConfig`).
+///
+/// **Why a cap exists for local images at all.** Before `imagedecode` existed, a local
+/// image went straight to `GdkTexture`/`GdkPixbuf`, which read the whole file with no
+/// cap of their own. Sniffing by content means this project's own code reads the file
+/// first, so the same regular-file-plus-byte-cap admission a document gets (`is_regular_file_within`)
+/// applies here too: a FIFO named `x.gif` must never block the main thread, and an
+/// unbounded read must never be attempted in the first place. It also bounds the
+/// COMPRESSED bytes an animation keeps resident while it plays — a decompression bomb
+/// is [`MAX_IMAGE_PIXELS`]'s job, not this one's.
+///
+/// **Why 16 MiB.** `assets/splash.webp`, this project's own hero image, is 7.0 MiB —
+/// 16 MiB is 2.2× that, comfortable headroom over the project's own largest asset.
+/// Measured against what other platforms accept for a pasted or attached image:
+/// GitHub caps a pasted image at 10 MB, X at 15 MB, Discord at 8 MB, Reddit at 20 MB.
+/// 16 MiB sits inside that band. The document cap ([`MAX_DOCUMENT_BYTES`]) is 64 MiB,
+/// and an image that large is a mis-attached video, not a document illustration —
+/// so this stays well under it rather than matching it.
+pub(crate) const MAX_LOCAL_IMAGE_BYTES: u64 = 16 * 1024 * 1024;
+
 /// The largest DECODED raster a document image may expand to, in pixels.
 ///
 /// **Decoding, not transfer, is where an image bomb pays off**, and the paragraph
@@ -214,7 +240,10 @@ impl std::fmt::Display for LoadRefusal {
                 MAX_DOCUMENT_BYTES as f64 / (1024.0 * 1024.0)
             ),
             LoadRefusal::NotARegularFile => {
-                write!(f, "not a regular file (a pipe, socket or device)")
+                write!(
+                    f,
+                    "not a regular file (a directory, pipe, socket or device)"
+                )
             }
         }
     }

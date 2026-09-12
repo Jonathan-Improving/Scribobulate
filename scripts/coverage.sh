@@ -828,7 +828,29 @@ FULL_BUDGET="${SCRIB_COVERAGE_FULL_BUDGET:-1800}"
 # (`atomic_io.rs`'s unix-only code not compiled) and POLICY already says never to
 # chase that gap. The class still has to hold for that hand-run case, because
 # `cargo llvm-cov` reports native Windows paths regardless of who invokes it.
-IGNORE='src[/\\](window[/\\](tabs[/\\]|editbar[/\\]|navhistory[/\\])?[a-z_]+|app[/\\](appactions|menubar|openbatch|open|setup)|clipboard|main|lib|gtk_suite|suite_registry|logging|tags|codeview[/\\][a-z_]+|outline_view|preview[/\\]annotate[/\\]overlay|widgets[/\\](table[/\\]mod|tab[/\\](imp|bar|ops|view|mod)))\.rs'
+# The ANIMATION seam, and why only four of its files are here. `animation/` splits
+# deliberately into decision cores and GTK drivers, and the split is what decides scope:
+# `schedule`, `policy/mod`, `source`, `visibility/mod`, `worker` and `paintable/badge`
+# are decided from data and stay IN (they carry the truth tables, the slope arithmetic,
+# the geometry and the pool gate — `schedule` measures 100% on unit tests alone).
+# `paintable/mod`, `paintable/drive`, `visibility/watch` and `sprites/mod` are the other
+# kind: GObject subclass plumbing, signal wiring and frame-clock callbacks that cannot
+# run without a live display, and they measure 0% in leg A for that reason rather than
+# for want of tests — every one of them is exercised by `#[gtktest::test]` bodies in
+# leg B. `animation/tick` joins them: twelve lines wrapping a `TickCallbackId`, whose
+# only assertion needs a real frame clock to observe a callback GTK actually runs.
+# `imagecache/loader` is the same shape one layer down — it decodes into `GdkTexture`s
+# and its behaviour is asserted by the memory-gate class, not by unit tests. It was for a
+# while carrying display-free logic that had no business being excluded with it — the
+# cache-key arithmetic (`file_stamp`, `local_cache_key`, `local_animation_key`) touches
+# only `std::fs::metadata` and `format!`. That is now `imagecache/keys.rs`, IN scope and
+# unit-tested, which is the remedy the paragraph below prescribes rather than the
+# widening it warns against.
+# ⚠ Excluding these is the thing POLICY step 6 warns about, so it is worth being explicit:
+# what is excluded is the WIRING, and every decision any of them takes was extracted into
+# a file that stayed in scope. If a future change puts logic back into one of these, the
+# answer is to extract it again, not to widen this term.
+IGNORE='src[/\\](window[/\\](tabs[/\\]|editbar[/\\]|navhistory[/\\])?[a-z_]+|app[/\\](appactions|menubar|openbatch|open|setup)|clipboard|main|lib|gtk_suite|suite_registry|logging|tags|codeview[/\\][a-z_]+|outline_view|preview[/\\]annotate[/\\]overlay|animation[/\\](tick|sprites[/\\]mod|paintable[/\\](mod|drive)|visibility[/\\]watch)|imagecache[/\\]loader|widgets[/\\](table[/\\]mod|tab[/\\](imp|bar|ops|view|mod)))\.rs'
 
 # IGNORE_TESTONLY — leg B's extra filter, and ONLY leg B's.
 #
@@ -856,7 +878,14 @@ IGNORE='src[/\\](window[/\\](tabs[/\\]|editbar[/\\]|navhistory[/\\])?[a-z_]+|app
 # entering is NAMED and stops the run, rather than being quietly absorbed at whatever
 # coverage a test file happens to have. Same `[/\\]` class rule as `IGNORE` above, and
 # for the same reason.
-IGNORE_TESTONLY='src[/\\](testpump|preview[/\\]altsuppression|preview[/\\]splice[/\\]excursion([/\\][a-z_]+)*)\.rs'
+# `animation/visibility/gtk_tests/` is the fourth kind and the first DIRECTORY of them:
+# a whole module of `#[gtktest::test]` bodies (the seven-row visibility table plus the
+# four GTK-behaviour claims it verifies before relying on them), sited outside
+# `visibility/mod.rs` because that file would otherwise pass the 500-line soft limit.
+# Named depth-agnostically for the same reason the excursion term is: the table already
+# lives in its own file beside `mod.rs`, and a third would otherwise arrive as a leg-B
+# mismatch rather than being recognised as the scaffolding it is.
+IGNORE_TESTONLY='src[/\\](testpump|preview[/\\]altsuppression|preview[/\\]splice[/\\]excursion([/\\][a-z_]+)*|animation[/\\]visibility[/\\]gtk_tests([/\\][a-z_]+)*)\.rs'
 
 # SCOPE_FILE — the measured set, recorded. Its own header states its role; the one thing
 # worth repeating HERE, where the enforcement lives, is what keeps the two files from

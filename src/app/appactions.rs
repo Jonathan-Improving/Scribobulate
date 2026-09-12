@@ -365,3 +365,133 @@ pub(super) fn add_preview_theme_action(app: &Application) {
     ));
     app.add_action(&pick);
 }
+
+/// `app.play-animations` — the reader's Play Animations choice (TDD 27.5-27.7).
+/// Nothing animates yet — this is only the control and the policy a later change
+/// subscribes to.
+///
+/// **Process-wide, deliberately `app.`, not `win.`** — one stateful boolean `GAction`
+/// (POLICY § Architecture rules: single source of truth) so toggling it in any window
+/// pauses/resumes every animation in every window, and every window's View menu
+/// mirrors the same tick, exactly like `app.preview-theme` above.
+///
+/// **A DIRECT View-menu item, not a nested submenu** — unlike `preview-theme` above,
+/// this does NOT go through [`crate::window::nested_submenu_app_stateful_action`] /
+/// `dismiss_stray_menubar_popovers`. That GTK 4.6-4.12 stray-popover bug
+/// (GTK4Rs/AP-108) fires only when activating an item drawn in a nested submenu's OWN
+/// popover; Play Animations sits directly in the View menu's own popover, in the same
+/// section as Show Unsafe Images (`app/menubar.rs`'s `unsafe_images_section`) — one
+/// level up from where that bug lives, the same shape as `win.show-unsafe-images`
+/// itself, which carries no such wrapper either.
+///
+/// This action holds ONLY the reader's raw choice — never the effective (system
+/// "reduce animations"-adjusted) play state. `animation::policy` is the sole place
+/// that reconciles the two (TDD 27.7); this handler neither reads nor reacts to
+/// `gtk-enable-animations`, so the two concerns can't tangle. It also never disables
+/// itself: the toggle stays sensitive regardless of the system setting (operator
+/// decision) — only its EFFECT changes.
+pub(super) fn add_play_animations_action(app: &Application) {
+    let initial = crate::session::load().play_animations;
+    let action = SimpleAction::new_stateful(
+        crate::animation::policy::ACTION_NAME,
+        None,
+        &initial.to_variant(),
+    );
+    action.connect_change_state(|act, value| {
+        let Some(value) = value else { return };
+        act.set_state(value);
+    });
+    app.add_action(&action);
+}
+
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+mod tests {
+    use super::*;
+
+    /// TDD 27.5/27.6: `app.play-animations` is a bare boolean toggle (no parameter
+    /// type), stays sensitive (the toggle is never disabled — only its EFFECT
+    /// changes with the system setting), and — on a fresh session (nothing saved
+    /// yet) — defaults ON.
+    #[gtktest::test]
+    fn play_animations_action_is_a_stateful_bool_defaulting_on() {
+        let dir = tempfile::tempdir().unwrap();
+        crate::session::with_state_home_for_test(dir.path(), || {
+            let app =
+                crate::window::testkit::test_app_suffixed("appactions.playanimations.default");
+            add_play_animations_action(&app);
+            let action = app
+                .lookup_action("play-animations")
+                .expect("add_play_animations_action must register it");
+            assert!(
+                action.is_enabled(),
+                "stays sensitive regardless of the system setting"
+            );
+            assert_eq!(
+                action.parameter_type(),
+                None,
+                "a bare boolean toggle takes no activation parameter"
+            );
+            assert_eq!(
+                action.state().and_then(|v| v.get::<bool>()),
+                Some(true),
+                "first launch (no saved session) must default ON (TDD 27.6)"
+            );
+        });
+    }
+
+    /// TDD 27.6: a session that saved the choice OFF restores OFF on the next
+    /// launch — "otherwise is whatever the reader last chose", not the default.
+    #[gtktest::test]
+    fn play_animations_action_restores_the_saved_choice() {
+        let dir = tempfile::tempdir().unwrap();
+        crate::session::with_state_home_for_test(dir.path(), || {
+            crate::session::save(&crate::session::Session {
+                play_animations: false,
+                ..crate::session::Session::default()
+            });
+            let app =
+                crate::window::testkit::test_app_suffixed("appactions.playanimations.restore");
+            add_play_animations_action(&app);
+            let action = app.lookup_action("play-animations").unwrap();
+            assert_eq!(
+                action.state().and_then(|v| v.get::<bool>()),
+                Some(false),
+                "a saved OFF choice must restore OFF, not the ON default"
+            );
+        });
+    }
+
+    /// Toggling the action drives `change_state` → `set_state`, exactly like every
+    /// other stateful checkbox action in this file — the View-menu tick moves, and
+    /// (per `animation::policy`'s own gtktest coverage) `notify::state` fires so a
+    /// `PolicyWatch` subscriber sees it.
+    #[gtktest::test]
+    fn play_animations_action_toggle_updates_state() {
+        let dir = tempfile::tempdir().unwrap();
+        crate::session::with_state_home_for_test(dir.path(), || {
+            let app = crate::window::testkit::test_app_suffixed("appactions.playanimations.toggle");
+            add_play_animations_action(&app);
+            let action = app.lookup_action("play-animations").unwrap();
+            // `change_state`, not `activate`: the action's PARAMETER type is `None`
+            // (a bare checkbox, no target) while its STATE type is boolean — passing
+            // a parameter to `activate` on a `None`-parameter-type action trips
+            // GLib's own `g_simple_action_activate` assertion. `change_state` targets
+            // the state directly, exactly what the real View-menu checkbox drives.
+            action.change_state(&false.to_variant());
+            assert_eq!(action.state().and_then(|v| v.get::<bool>()), Some(false));
+        });
+    }
+
+    /// TDD 27.5: no accelerator is EVER registered for it. It is not wired through
+    /// any `Cmd`/`FmtCmd`/`InlineCmd` descriptor (the tables `register_accelerators`
+    /// reads), so there is no accel string anywhere for it to bind.
+    #[gtktest::test]
+    fn play_animations_action_has_no_accelerator() {
+        let app = crate::window::testkit::test_app_suffixed("appactions.playanimations.accel");
+        crate::app::register_accelerators(&app);
+        assert!(
+            app.accels_for_action("app.play-animations").is_empty(),
+            "Play Animations must never gain a keyboard shortcut (TDD 27.5)"
+        );
+    }
+}

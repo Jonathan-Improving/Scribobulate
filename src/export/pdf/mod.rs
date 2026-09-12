@@ -444,13 +444,16 @@ impl PageTally {
 
 /// Decode image bytes into a cairo surface, with its natural pixel size.
 ///
-/// Goes through `GdkTexture`, the same decoder the preview uses, so an image this
-/// project can show is an image it can export and the two cannot disagree about what is
-/// decodable. `gdk_texture_download` writes `CAIRO_FORMAT_ARGB32` exactly, so the
-/// download lands in the surface with no conversion and no format assumption of ours.
+/// Goes through [`crate::imagedecode::decode`], the application's one decode choke
+/// point, so an image the preview can show is an image the PDF sink can export and the
+/// two cannot disagree about what is decodable — content-sniffed, so an embedded WebP
+/// routes to `richimg` here exactly as it does in the preview, and takes its FIRST
+/// frame only (PDF export never animates). `gdk_texture_download` writes
+/// `CAIRO_FORMAT_ARGB32` exactly, so the download lands in the surface with no
+/// conversion and no format assumption of ours, whichever route produced the texture.
 fn decode(bytes: &[u8]) -> Option<(cairo::ImageSurface, f64, f64)> {
     use gtk::gdk::prelude::{TextureExt, TextureExtManual};
-    let texture = gtk::gdk::Texture::from_bytes(&gtk::glib::Bytes::from(bytes)).ok()?;
+    let texture = crate::imagedecode::decode(bytes, "PDF export image").map(|d| d.texture)?;
     let (w, h) = (texture.width(), texture.height());
     if w <= 0 || h <= 0 {
         return None;
@@ -712,6 +715,19 @@ mod paper_resolution_tests {
         let bytes = crate::sprite::bytes(&bar).expect("compiled-in bytes");
         let (_, w, h) = super::decode(&bytes).expect("the sink must be able to decode it");
         assert!(w > 0.0 && h > 0.0);
+    }
+
+    /// WP6 (sdd/PLAN.memory-gates.md): an embedded WebP image routes through
+    /// `crate::imagedecode` here too, and takes its FIRST frame (PDF export never
+    /// animates) — asserted at the seam by the surface's own natural size.
+    #[test]
+    fn an_embedded_webp_decodes_to_its_first_frame_for_the_pdf_sink() {
+        let bytes = include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/anim.webp"
+        ));
+        let (_, w, h) = super::decode(bytes).expect("richimg decodes the embedded WebP");
+        assert_eq!((w, h), (480.0, 270.0));
     }
 
     #[test]

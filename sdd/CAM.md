@@ -896,6 +896,25 @@ rule.
   the other three stay invisible. If this is ever revisited, all four change together;
   a family that appears half in a surface is worse than one that appears in none.
 
+- **No toolbar button and no accelerator for `app.play-animations`** — **GRANTED
+  (operator, 2026-09-11).** View ▸ Play Animations is a menu-only command: no toolbar
+  button, no keyboard shortcut, no entry in the Keyboard Shortcuts window, and no key
+  on the animation itself.
+
+  **The argument:** animations in Markdown documents are rare, so a persistent toolbar
+  pixel is not earned, and the toolbar is already at its width budget. The keyboard was
+  ruled out deliberately rather than left undone — the natural key, media Play/Pause,
+  **does not reach a focused application on any shipping desktop** (X11 KDE and GNOME
+  both grab it for an MPRIS player; Wayland compositors own it; GDK translates neither
+  the macOS `NX_KEYTYPE_PLAY` nor the Windows `WM_APPCOMMAND`), and claiming it
+  system-wide would make Scribobulate the session's "now playing" target, which is a
+  product decision this is not.
+
+  It follows the `win.show-unsafe-images` precedent exactly — same View-menu section,
+  same menu-only shape — and satisfies every other Action CAM cell: one stateful
+  `GAction`, process-wide, with every window's menu mirroring the one state, and no
+  per-surface enablement anywhere.
+
 - **Annotate** (`win.annotate`, group `Edit`) — the approved deviation from the
   Action CAM is the command's presence in the **caret formatting overlay**, a
   Format surface an Edit action would not otherwise occupy. Justified because

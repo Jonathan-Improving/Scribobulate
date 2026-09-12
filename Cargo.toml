@@ -13,8 +13,8 @@
 # ordinary test cases. `gtktest` stays out because it has no tests of its own and is
 # compiled anyway, as the app's build dependency.
 [workspace]
-members = [".", "gtktest", "xtask"]
-default-members = [".", "xtask"]
+members = [".", "gtktest", "xtask", "richimg"]
+default-members = [".", "xtask", "richimg"]
 
 [package]
 name = "scribobulate"
@@ -45,6 +45,10 @@ default-run = "scribobulate"
 # an above-floor wrapper compiles and then fails at link/runtime (GTK4Rs/AP-114).
 gtk = { package = "gtk4", version = "0.10", features = ["v4_6"] }
 sourceview = { package = "sourceview5", version = "0.10" }
+# The GTK-free WebP/GIF/APNG decoder (sdd/PLAN.memory-gates.md, "Own the decode —
+# richimg"). `src/imagedecode` is the ONLY caller: it sniffs by content and routes
+# these three formats here instead of into the leaking gdk-pixbuf WebP path.
+richimg = { path = "richimg" }
 # glib is re-exported by gtk4; depended on directly only to enable its `log`
 # feature, which compiles the glib→`log` bridge used by src/logging.rs.
 glib = { version = "0.21", features = ["log"] }

@@ -96,6 +96,7 @@ pub(crate) struct Config {
     pub view: ViewConfig,
     pub code: CodeConfig,
     pub outline: OutlineConfig,
+    pub images: ImagesConfig,
 }
 
 // NOTE: there is deliberately no `[colors]` section. It was exactly "override
@@ -146,6 +147,68 @@ pub(crate) struct CodeConfig {
     /// Syntect theme name for dark desktop scheme.
     /// Available dark themes: "base16-ocean.dark", "base16-eighties.dark", "Solarized (dark)"
     pub dark_theme: String,
+}
+
+/// `[images]` — the two knobs `src/imagedecode` and `richimg` need from the operator,
+/// per sdd/PLAN.memory-gates.md WP6. Both are clamped after parsing
+/// ([`Config::parse`]'s `clamped`), on the same "a malformed config must never
+/// prevent startup" principle every other section here follows.
+#[derive(serde::Deserialize)]
+#[serde(default)]
+pub(crate) struct ImagesConfig {
+    /// Byte cap for a local image file, in MiB. Clamped to 1..=64. Default matches
+    /// [`crate::limits::MAX_LOCAL_IMAGE_BYTES`]; see that constant's doc comment for
+    /// how it was measured.
+    pub local_file_limit_mib: u64,
+    /// What a declared per-frame animation delay under richimg's fixed 20 ms
+    /// threshold becomes. Clamped to 20..=1000. Default matches
+    /// `richimg::Limits::default().short_delay_substitute`.
+    pub short_frame_delay_ms: u64,
+}
+
+/// 1 MiB, spelled out once so [`ImagesConfig::clamp`] and the constant below don't
+/// each restate the multiplication.
+const BYTES_PER_MIB: u64 = 1024 * 1024;
+
+/// [`ImagesConfig::local_file_limit_mib`]'s clamp range. The floor keeps the setting
+/// meaningful (0 would refuse every local image); the ceiling matches
+/// [`crate::limits::MAX_DOCUMENT_BYTES`] converted to MiB — a local image is never
+/// allowed to cost more than a whole document.
+const LOCAL_FILE_LIMIT_MIB_RANGE: std::ops::RangeInclusive<u64> = 1..=64;
+
+/// [`ImagesConfig::short_frame_delay_ms`]'s clamp range: richimg's own fixed
+/// short-delay THRESHOLD is 20 ms (`richimg::SHORT_DELAY_THRESHOLD`), so a substitute
+/// below it would defeat its own purpose; 1000 ms is generously past any frame delay
+/// a real animation declares.
+const SHORT_FRAME_DELAY_MS_RANGE: std::ops::RangeInclusive<u64> = 20..=1000;
+
+impl Default for ImagesConfig {
+    fn default() -> Self {
+        Self {
+            local_file_limit_mib: crate::limits::MAX_LOCAL_IMAGE_BYTES / BYTES_PER_MIB,
+            short_frame_delay_ms: richimg::Limits::default()
+                .short_delay_substitute
+                .as_millis() as u64,
+        }
+    }
+}
+
+impl ImagesConfig {
+    /// Clamp every field to its documented range — called once, from
+    /// [`Config::parse`], so a config no human hand-edited still cannot push either
+    /// value out of range.
+    fn clamped(self) -> Self {
+        Self {
+            local_file_limit_mib: self.local_file_limit_mib.clamp(
+                *LOCAL_FILE_LIMIT_MIB_RANGE.start(),
+                *LOCAL_FILE_LIMIT_MIB_RANGE.end(),
+            ),
+            short_frame_delay_ms: self.short_frame_delay_ms.clamp(
+                *SHORT_FRAME_DELAY_MS_RANGE.start(),
+                *SHORT_FRAME_DELAY_MS_RANGE.end(),
+            ),
+        }
+    }
 }
 
 impl Default for WindowConfig {
@@ -227,7 +290,7 @@ impl Config {
     /// so the parse + default-merge behaviour is unit-testable without touching
     /// the filesystem or environment.
     fn parse(text: &str) -> Self {
-        toml::from_str(text).unwrap_or_else(|e| {
+        let cfg: Self = toml::from_str(text).unwrap_or_else(|e| {
             // `log`, not `eprintln!`: the release build is `windows_subsystem =
             // "windows"`, so it has no console attached and anything written to
             // stderr there reaches nobody at all — a malformed config would fall
@@ -236,7 +299,16 @@ impl Config {
             // and still reaches stderr wherever there is one (POLICY § Logging).
             log::error!("config parse error: {e} — using defaults");
             Self::default()
-        })
+        });
+        cfg.clamped()
+    }
+
+    /// Clamp every out-of-range field, the same "malformed input never prevents
+    /// startup" principle the rest of this module follows. Split out so a future
+    /// section's own range only has to be added here once.
+    fn clamped(mut self) -> Self {
+        self.images = self.images.clamped();
+        self
     }
 }
 
@@ -254,6 +326,51 @@ mod tests {
         assert_eq!(c.code.block_padding, 12);
         assert_eq!(c.code.light_theme, "InspiredGitHub");
         assert_eq!(c.code.dark_theme, "base16-ocean.dark");
+        assert_eq!(c.images.local_file_limit_mib, 16);
+        assert_eq!(c.images.short_frame_delay_ms, 50);
+    }
+
+    /// Absent-safe: a config file with no `[images]` section at all — every config
+    /// this project shipped before WP6 — must still parse to the documented
+    /// defaults rather than erroring or zeroing the section.
+    #[test]
+    fn a_config_with_no_images_section_gets_the_documented_defaults() {
+        let c = Config::parse("[window]\nwidth = 1234\n");
+        assert_eq!(c.images.local_file_limit_mib, 16);
+        assert_eq!(c.images.short_frame_delay_ms, 50);
+    }
+
+    #[test]
+    fn images_keys_parse_within_range() {
+        let c = Config::parse("[images]\nlocal_file_limit_mib = 32\nshort_frame_delay_ms = 100\n");
+        assert_eq!(c.images.local_file_limit_mib, 32);
+        assert_eq!(c.images.short_frame_delay_ms, 100);
+    }
+
+    /// Out-of-range values are clamped, never rejected — the same "a malformed
+    /// config must never prevent startup" principle every other section follows.
+    #[test]
+    fn images_keys_out_of_range_are_clamped_not_rejected() {
+        let c = Config::parse("[images]\nlocal_file_limit_mib = 0\nshort_frame_delay_ms = 5\n");
+        assert_eq!(
+            c.images.local_file_limit_mib, 1,
+            "clamped to the 1 MiB floor"
+        );
+        assert_eq!(
+            c.images.short_frame_delay_ms, 20,
+            "clamped to the 20 ms floor"
+        );
+
+        let c =
+            Config::parse("[images]\nlocal_file_limit_mib = 999\nshort_frame_delay_ms = 999999\n");
+        assert_eq!(
+            c.images.local_file_limit_mib, 64,
+            "clamped to the 64 MiB ceiling"
+        );
+        assert_eq!(
+            c.images.short_frame_delay_ms, 1000,
+            "clamped to the 1000 ms ceiling"
+        );
     }
 
     #[test]

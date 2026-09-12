@@ -348,16 +348,31 @@ fn mark_inlines(inlines: &mut Vec<Inline>, idx: usize, range: (i32, i32)) {
 /// extension, so trusting it would let the document mislabel what a reader's browser
 /// is told to decode.
 ///
-/// Goes through `limits::is_regular_file_within_limit` like every other read of a
-/// path this application does not control: both halves, never a size test alone,
-/// because a size test admits a FIFO whose reported length is zero (POLICY § Input
-/// limits).
+/// Goes through [`crate::imagedecode::read_local`] — the SAME admission every other
+/// image read in this application uses, and for the same reasons: a regular file, within
+/// the configured IMAGE byte cap, with the read itself bounded.
+///
+/// **It used to stat-then-`std::fs::read`, which is not the same thing** (QA round 2,
+/// F-DEC2-7/F-SEC2-3). The type-and-size check was there and was correct, but it ran
+/// against `stat`-time metadata and the read that followed was unbounded: a file that
+/// grew after the check was read whole, so the cap bounded the *decision* and not the
+/// *read*. `read_local` closes that with `Read::take(cap + 1)`. It also applies the
+/// image cap rather than the document cap this path was borrowing, and it makes
+/// `imagedecode`'s module-doc claim — that every local image is admitted through
+/// `read_local` — true of the export route as well, which it was not.
 pub(super) fn read_image(path: &std::path::Path) -> Option<(Vec<u8>, &'static str)> {
-    let meta = std::fs::metadata(path).ok()?;
-    crate::limits::is_regular_file_within_limit(&meta).ok()?;
-    let bytes = std::fs::read(path).ok()?;
+    let bytes = match crate::imagedecode::read_local(path) {
+        Ok(bytes) => bytes,
+        Err(refusal) => {
+            log::warn!(
+                "image not embedded in export: {} ({refusal})",
+                path.display()
+            );
+            return None;
+        }
+    };
     let mime = sniff_image_mime(&bytes)?;
-    Some((bytes, mime))
+    Some((bytes.to_vec(), mime))
 }
 
 /// The image type a byte string actually is. `None` for anything unrecognised, which
@@ -373,7 +388,10 @@ fn sniff_image_mime(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
         return Some("image/gif");
     }
-    if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+    // Content-sniffed through `richimg::sniff` (WP6, sdd/PLAN.memory-gates.md) rather
+    // than a hand-rolled RIFF/WEBP magic check, so this project has exactly one
+    // definition of "these bytes are a WebP" rather than two that could drift.
+    if richimg::sniff(bytes) == Some(richimg::Format::WebP) {
         return Some("image/webp");
     }
     if bytes.starts_with(b"BM") {

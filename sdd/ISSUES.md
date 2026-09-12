@@ -37,6 +37,7 @@ described from a different vantage point.
 | I | Mac | Upstream | macOS only: every native file-chooser invocation (Open, Save, Export) grows RSS by ~1.1 MB and does not give it back. Roughly four fifths is AppKit's own price for presenting an `NSSavePanel` — reproduced with no GTK in the process — with about a fifth GTK-attributable. Caching the panel upstream would recover ~95% | Medium |
 | J | Any | Upstream | A paragraph that mixes fonts (any inline-code span) can lay out a few pixels wider than the wrap width it was given, summoning the preview's Automatic horizontal scrollbar and intermittently blanking the pane until a resize | Closed |
 | M | Windows | Production | On a machine with no Visual C++ runtime the app installs and then fails to start; the installer's bootstrapper for it has landed but has never been verified against that condition | Medium |
+| N | Any | Production | An animated theme sprite plays only in the two BAND decorations (heading, disclosure summary); in a quote bar, list marker, annotation chip or horizontal rule the same file shows its first frame and never moves | Low |
 | R | Any | Production | Pane swap is remembered per TAB, so a new tab opens with the panes back the way they were and the arrangement has to be set again; tabs are short-lived and the setting is not | Low |
 
 
@@ -621,6 +622,26 @@ verification remains.
 
 ---
 
+## N. An animated theme sprite plays only in a band decoration
+
+**Severity**: Low (a theme designer's animated sprite silently renders as a still image in
+four of six sprite slots; nothing misdraws, nothing leaks, and a still sprite is unaffected)
+
+TDD 27.9 says a theme's animated sprite plays. It does — in the heading band and the
+disclosure summary band, which share one painter (`codeview::bandpaint::paint_band`) and so
+took one substitution. The other sprite slots each have their own painter and were left on
+the still path: the blockquote accent bar and panel (`codeview::quotes`), the list gutter's
+markers (`codeview::listmarkers`), the annotation chips (`codeview::chips`) and the
+horizontal-rule sprite (`widgets::rule`). Each needs the same one-line substitution —
+`animation::sprites::frame_for(view, sprite_ref, natural)` in place of the natural texture —
+plus a test at that site.
+
+**The asymmetry is invisible to a theme author**, which is what makes it worth recording:
+the same `.webp` animates in one key and does not in another, with no warning and no
+diagnostic. Anyone extending this should do all four at once rather than one per complaint,
+and should check whether the paint site has a viewport gate to hang visibility off, as
+`bandpaint` did — a sprite that animates without one would run off-screen, which is the
+thing phase 2 exists to prevent.
 ## R. Pane swap is remembered per tab, so every new tab forgets it
 
 **Severity**: Low (a repeated manual correction, no data at risk; it costs one menu

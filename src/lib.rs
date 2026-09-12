@@ -34,6 +34,7 @@
 pub(crate) mod a11y;
 pub(crate) mod accel;
 pub(crate) mod affordance;
+pub(crate) mod animation;
 pub(crate) mod annotate;
 pub(crate) mod annotations;
 pub(crate) mod annotations_view;
@@ -60,6 +61,12 @@ pub(crate) mod forensics;
 pub(crate) mod format;
 pub(crate) mod icons;
 pub(crate) mod imagecache;
+/// The application's one decode choke point (WP6, sdd/PLAN.memory-gates.md): sniffs
+/// encoded image bytes by content and routes WebP/GIF/APNG to `richimg`, everything
+/// else to GTK. Every current decode site — local/remote document images
+/// (`renderer::start`), theme sprites (`sprite.rs`), and PDF export (`export::pdf`) —
+/// goes through it.
+pub(crate) mod imagedecode;
 pub(crate) mod imagefetch;
 pub(crate) mod keynav;
 pub(crate) mod limits;

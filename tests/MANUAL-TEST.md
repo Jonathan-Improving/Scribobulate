@@ -806,6 +806,9 @@ gtk4-rs skill's dev-loop doc on why geometry/rendering bugs leave no warning.
 - [ ] **2.26g** **A disclosure exports as it renders** (TDD 2.26g; **Document Rendering CAM row 17**). Open `disclosure.md` in Preview with the first block **collapsed**. Export ▸ HTML → open the artefact in a browser: it carries a real `<details>` element whose `<summary>` reads **"Show the ASCII fallback"**, and expanding it shows the whole body — the ASCII fence, the list and the table, each rendered as Markdown. The `<details open>` block exports **open**; the collapsed ones export closed, because the `open` attribute follows the DOCUMENT and not your fold state (expand one in the app, export again, and the artefact is byte-identical in that respect). Export ▸ PDF → every disclosure's body is **laid out visibly**, since a PDF has no disclosure to offer. ⚠️ **Read for the LABEL, not for the body**: the body always exported correctly — it is ordinary Markdown — and it was the summary that reached no artefact at all, which is what made the file look finished
 - [ ] **2.26h** **Toggling a disclosure holds the reader's place** (TDD 2.26h; **Reading-Position CAM row 11**). Open `disclosure.md` in Preview and scroll down to **"Mid-document collapsed block"**, so its summary line sits at the **top of the viewport** with the whole first half of the document above it. Click the summary → the block expands and **that same summary line stays at the top of the viewport**; the twenty hidden lines appear beneath it and everything below is pushed down. Click it again → it collapses and the summary line is **still** at the top. ⚠️ MEASURED failure, and it is unmissable once you look for it: the re-render restored by buffer **line**, so opening this block threw the view back to **the very top of the document**. Repeat for the **nested** pair near the top of the file (expand Outer, then Inner) and for the `<details open>` block being collapsed. Then the boundary case: scroll so you are reading **inside** the mid-document block's body ("hidden 12" at the top), scroll up just enough to reach its summary, collapse it → the view settles on the **summary line**, the nearest position that still exists, never at the top of the document
 - [ ] **2.26l** **An edit forgets which blocks the reader had collapsed** (TDD 2.26l). Open `disclosure.md` in **Split** mode and collapse two blocks in the preview, one of them well down the document. Now type a single character in the **editor**, at the very top, above both. Within the debounce the preview re-renders → **every** block is back to the state the document states for it (`<details open>` expanded, plain `<details>` collapsed), and none is left collapsed that the document does not itself mark collapsed. This is the designed behaviour, not a bug: a fold is keyed on the source byte offset of its opening `<details>`, and your keystroke moved every offset below it. ⚠️ **The failure this replaces is far worse than the reset**: with the map left stale, a surviving key could land on a *different* block's new start offset — so typing above a disclosure could **collapse the wrong block**, hiding content the reader never asked to hide, with nothing on screen to say why. Repeat with the cursor placed **below** both blocks and confirm the same reset (an edit anywhere is an edit). Finally, the timing half: collapse a block, type one character, and **immediately** — before the ~300 ms re-render lands — click another block's summary. **That click is DISCARDED, and that is the specification**: the control was built against the previous document, so its key names text that has moved, and the fold map was cleared on the keystroke. Nothing visible happens, and a `debug`-level line says so (`RUST_LOG=scribobulate=debug`). ⚠️ What this check is really for is the failure the discard prevents: a stale key can land on a DIFFERENT block's new start offset, so the click must never toggle some other block. Confirm no block changed state, then wait for the re-render and click again — that click works normally
+- [ ] **2.23a** *(run on all three platforms)* **WebP, GIF and PNG show everywhere** (TDD 2.23a). Open a document with a bare `<img>` of each of: a lossy WebP, a lossless WebP, a transparent WebP, an animated WebP, a GIF and an APNG → every one renders, transparent areas show the page behind them, and a screenshot of each matches the same document on the other two platforms. On Windows and macOS this is the check that would have failed before: neither ships a WebP loader. Rename a copy of the WebP to `.png` and reference that → it still renders. Turn Show Unsafe Images on and point an `<img>` at a remote WebP → it renders. Export the document to PDF → each image appears, animated ones as their first frame.
+  ⚠ **State of evidence, so a tester knows what is being re-confirmed and what is being established:** the local formats, the content-sniffed rename and PDF export are MEASURED — PDF export was verified on the Windows seat by decompressing the embedded image streams and matching two independent frame-0 signatures in each. **A remote animated image is UNVERIFIED on every platform**: no driven harness here has had outbound network, so that limb of this check is the one carrying no evidence behind it
+- [ ] **2.23b** *(pending — PLAN.memory-gates phase 2)* **A bad image never takes the window down** (TDD 2.23b). Reference, one per `<img>`: a WebP truncated mid-file, a file of random bytes named `.webp`, a WebP whose header claims a canvas beyond the pixel limit, a file over the configured image size limit, and (Linux/macOS) a named pipe created with `mkfifo pipe.gif` → each shows the broken-image placeholder, and the window scrolls and types normally throughout. The FIFO is the one that would hang forever if it were read; it must not be. Lower the size limit in `config.toml` below a normal image's size and restart → that image now shows the placeholder
 
 ### §3 Live reload
 - [ ] **2.26i** **A toggle does not make the document travel** (TDD 2.26i). The companion to 2.26h, and a DIFFERENT observation: 2.26h asks where you land, this asks what you SEE on the way. Same setup — scroll well down `disclosure.md` so a collapsed block sits above you — then toggle it and **watch the scrollbar thumb**, not the text. It must not jump to the top and slide back. ⚠️ MEASURED under the full re-render this replaced: the vadjustment's `upper` collapsed from 36168 to 672 (98%), which clamped `value` to 2, and the view then re-validated line heights top-down before anything could restore it. A toggle now splices the block's own region instead, so `upper` moves by the block's height and nothing else. The excursion is a real value clamp rather than a paint glitch, so it is visible at any document length and gets worse as the document grows — **try it on a large file, not a small one**, and if it returns the toggle has fallen back to the full re-render rather than splicing. Watch a second beat past the toggle too: the reader's line must be steady when the transition finishes, not creep and then snap
@@ -851,9 +854,11 @@ gtk4-rs skill's dev-loop doc on why geometry/rendering bugs leave no warning.
   > **Read `IOSurface` as context, never as the gate.** It is the window-server handoff that every macOS window has, Cairo-rendered or not, and it dominates the GPU-mapped total (tens of MiB against IOAccelerator's hundreds of KiB). It is area-*invariant* — measured constant across a 4x window-area range — but its large backing buffers appear and disappear **in pairs** over a process's life, so its total can halve or double for no application reason. A run that gates on the IOSurface total will read that as a regression. Report it, do not gate on it.
   > **GPU engine utilisation is only available system-wide without `sudo`** (`ioreg -r -d 1 -c IOAccelerator`, field `"Device Utilization %"`). It therefore includes every other window on the desktop. Take a baseline with the app closed and compare against it; a single absolute reading proves nothing on its own.
 - [ ] **6.5** *(Windows only)* Measure dedicated GPU memory and GPU engine utilisation for the PID (`Get-Counter "\GPU Process Memory(*)\Dedicated Usage"` and `"\GPU Engine(*)\Utilization Percentage"`, matched on `pid_<PID>_`). A non-zero reading is **expected and not a failure** — Windows composites every window through the GPU. What must hold: the figure stays far under 50 MiB, engine utilisation stays ~0%, and — the actual gate — the figure **does not grow** when the window is maximised (try ~9x the area) or when a much larger document is opened at a fixed window size, while RSS *does* grow with the document. Growth in either dimension means software compositing is not active (TDD 6.5)
-- [ ] **6.6** *(all platforms; the pipeline step is the gate)* Open a document that embeds a local image — animated WebP where the host can decode it, otherwise the large PNG — and drive a dozen theme switches (or zoom steps, or live reloads of unchanged content) after a couple of warm-up renders. Process memory must not keep climbing from the first half of those remaining renders to the second. A document with no images is the control and stays flat. This is a slope, not a ceiling (TDD 6.6). **Do not** free an image and assert the number came back — it will not, on a correct build.
+- [ ] **6.6** *(all platforms; the pipeline step is the gate)* Open a document that embeds a local image — an animated WebP — and drive a dozen theme switches (or zoom steps, or live reloads of unchanged content) after a couple of warm-up renders. Process memory must not keep climbing from the first half of those remaining renders to the second. A document with no images is the control and stays flat. This is a slope, not a ceiling (TDD 6.6). **Do not** free an image and assert the number came back — it will not, on a correct build.
 - [ ] **6.7** Covered by the same pipeline step as 6.6: the previous render's decoded picture is gone once the application has dropped it, including the render node tree, with no extra main-loop pump. Cairo renderer only (TDD 6.7).
 - [ ] **6.8** Open a document with a local image, switch theme (same size, same file) → the picture is unchanged and the second render is not a fresh decode from disk. Then replace the image file on disk and reload → the new picture shows. Zoom a local SVG → it stays sharp (13.11), not a stretched bitmap (TDD 6.8).
+- [ ] **6.9** *(pending — PLAN.memory-gates phase 2; the pipeline step is the gate)* Covered by the same pipeline step as 6.6, decoding the animated WebP repeatedly with the image cache emptied each time. By hand: open a document embedding **many different** animated WebPs — more than the image cache holds — and drive a dozen theme switches → process memory must not keep climbing. On a build from before phase 2 this climbs ~12 MB per image per switch on Linux (TDD 6.9).
+- [ ] **6.10** *(pending — PLAN.memory-gates phase 2; the pipeline step is the gate)* Leave a document with a playing animation in view for several minutes (dozens of loops) → process memory is flat after the first loops. Then scroll it away and back a dozen times → still flat (TDD 6.10).
 
 ### §7 Window & layout
 - [ ] **7.0** *(Windows only, release build)* Launch the **installed** app from its Start-menu shortcut or by double-clicking a `.md` file — not from a terminal. **No console/CMD window may appear**, either in front or behind the app window, and none may show in the taskbar. Regression shape to watch for: a console-subsystem build allocates a console that owns the process, so closing that window kills the app with no save prompt. Verify with `Get-CimInstance Win32_Process -Filter "ParentProcessId = <PID>"` → no `conhost.exe`. A **debug** build is expected to keep its console (that is deliberate, so `RUST_LOG` still reaches the terminal during development) — test this against a release build only
@@ -2333,11 +2338,40 @@ Add `[DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, I
 to the `P.W` member definition above.
 
 **Still activate first** — focus changes what is DRAWN (an accent border, a caret), just
-not what is captured. And note the one thing `PrintWindow` cannot see: **a GTK4 menu or
-popover is its own `GdkSurface`, not part of the toplevel**, so it is absent from a
-`PrintWindow` of the main window. Capture those with `CopyFromScreen` (accepting
-ScrAP-236's hazard for that one shot), or avoid the need — drive through the toolbar or
-the keyboard and assert on the result instead of the menu.
+not what is captured. And note the one thing a `PrintWindow` of the MAIN window cannot
+see: **a GTK4 menu or popover is its own `GdkSurface`**, which on the Win32 backend is a
+real HWND of its own — same process, class `gdkSurfaceToplevel`, and NOT a child of the
+toplevel. The capture is not failing; it is answering completely about a window the menu
+is not in.
+
+**Capture the popover on ITS OWN handle** — `EnumWindows`, keep handles whose
+`GetWindowThreadProcessId` is your pid and that are visible, snapshot that set BEFORE the
+keystroke and again AFTER, and `PrintWindow` every handle that APPEARED. Discriminate by
+"appeared since the last snapshot" and by size, **never by title**: a popover's
+`GetWindowTextW` returns the EXE NAME, so a title filter drops it silently. A SUBMENU ADDS
+a third window rather than replacing the second, so capture every new handle rather than
+"the" popover. MEASURED (GTK 4.22.4 gvsbuild, Win10 19045): 1 visible window before
+`Alt+F`, 2 after (the new one 238×473, titled `scribobulate.exe`), 3 after opening a
+submenu; `PrintWindow` on the popover's handle returned the menu fully legible.
+
+⛔ **Do NOT reach for `CopyFromScreen` here, and do not settle for asserting on the result
+instead of the menu** — this paragraph said both until 2026-09-12, and both were wrong.
+`CopyFromScreen` photographs whatever occludes those coordinates (ScrAP-236), so it trades
+a missing menu for a possibly fabricated one, and it fails SILENTLY. "Assert on the result
+rather than the menu" then talks the reader out of the check entirely: the Windows seat
+took this document at its word and stopped pushing on a menu-driven check that was
+perfectly reachable. The diagnosis above was right the whole time and only the remedy was
+wrong, which is the dangerous shape — a reader who verifies the premise finds it correct
+and inherits the conclusion. **Nothing in the toolchain could have caught it**: a wrong
+procedure in Markdown passes fmt, clippy, every test and `lint-references` identically to a
+right one. It was found by a reader disbelieving the document and measuring it, which is
+the only mechanism this class has.
+
+**What capturing the popover BUYS is the difference between counting and measuring.** Send
+one key, capture, read WHICH ROW IS HIGHLIGHTED, and only then commit to the next key. The
+File menu carries insensitive rows, so whether arrow navigation skips them decides whether
+Export is seven presses away or nine — and a blind count that guesses wrong activates a
+DIFFERENT COMMAND while looking like it worked.
 
 *Cleanup:* see step 4.
 
@@ -2352,9 +2386,11 @@ the keyboard and assert on the result instead of the menu.
   three consecutive captures; `PrintWindow` was clean immediately. So the hazard is not
   only "something is stacked in front of you", it is "something that no longer exists is
   in front of you", and no amount of window enumeration or activation can see that one.
-  Where you must fall back to `CopyFromScreen` (a menu or popover surface), capture the
-  **window rect only** — a full-desktop grab also photographs the operator's unrelated
-  applications.
+  There is no longer a case in this procedure that needs it: a menu or popover surface is
+  captured on its own handle with `PrintWindow` (above). If some future surface genuinely
+  cannot be enumerated, capture the **window rect only** — a full-desktop grab also
+  photographs the operator's unrelated applications — and treat the result as evidence
+  about the screen rather than about the application.
 - **The app opens in PREVIEW, where keystrokes go nowhere.** Send `%+e`
   (Alt+Shift+E, `win.view-mode::edit`) first. You are in the editor when you see the
   line-number gutter and a `Ln n, Col n` status. Skipping this produces "keys sent,
@@ -2580,3 +2616,27 @@ on either platform; do not infer one from these cells.
 - [ ] **26.6** `Contents/Resources/` carries `LICENSE` and `THIRD-PARTY-LICENSES.md`, and the licence texts for the bundled runtime are present and non-empty. Cross-check the covered set against `Contents/Frameworks/` — every library shipped is attributed, and nothing is attributed that is not shipped (TDD 26.6)
 - [ ] **26.7** Make the packaging step produce a bad artefact and confirm it is rejected: truncate the `.dmg` to zero bytes, and separately build one whose version disagrees with `Cargo.toml` → the step FAILS in each case. Establish this by mutation; a green packaging run proves nothing on its own (TDD 26.7)
 - [ ] **26.8** **The recipient's experience, and the build machine structurally cannot check it.** Transfer the `.dmg` to *another* Mac (or set the flag by hand: `xattr -w com.apple.quarantine "0083;0;Safari;" <bundle>`), then double-click → macOS reports the app **"is damaged and can't be opened"**. Expected today: that is Gatekeeper refusing an ad-hoc signature, not a corrupt build. Confirm the documented way in works — right-click ▸ Open, or `xattr -dr com.apple.quarantine <bundle>` — and that `bundle.sh` printed the warning saying so. **If this check ever passes with no override, notarization has landed and the packaging step's ad-hoc warning must come out in the same change** (no TDD rubric yet — proposed as 26.8, pending the operator; recorded here rather than left uncovered)
+
+### §27 Animated images
+
+> Fixtures: an animated WebP, GIF and APNG,
+> each in a document long enough to scroll it out of view, plus one inside a `<details>`
+> block. Watch CPU with `top -p <PID>` (Linux/macOS) or Task Manager (Windows). "Uses no
+> CPU" means the process sits at ~0% — any steady figure is a FAIL, because the defect this
+> section guards against is a forgotten frame timer that keeps the whole window redrawing
+> at display rate.
+
+- [ ] **27.1** Open the fixtures with View ▸ Play Animations on → each plays at its own pace; compare against the same file in a browser for speed and frame order. A GIF with a finite loop count stops on its last frame, and CPU then drops to ~0% (TDD 27.1)
+- [ ] **27.2** Open a GIF whose frames declare 0 ms delays → it plays at a steady moderate speed, not a blur, and CPU stays modest. Change the frame-delay default in `config.toml`, restart → the speed changes accordingly (TDD 27.2)
+- [ ] **27.3** With an animation playing, confirm CPU drops to ~0% and stays there for each of: scroll it out of view; collapse the `<details>` block holding one; switch to another tab; switch to Edit mode (preview hidden); minimize the window. After each, restore → it plays again **from its first frame**. Covered-by-another-window is out of scope and not a FAIL (TDD 27.3)
+- [ ] **27.4** Open a large, fast animation (e.g. 1920×1080 at 30 frames a second) → scrolling, typing in split mode, and switching windows stay smooth while it plays; it may visibly drop frames, and that is correct (TDD 27.4)
+- [ ] **27.5** With two windows each showing an animation, switch View ▸ Play Animations off in one → both freeze on their current frame and show the pause badge, and the other window's View menu shows the item unchecked. Switch it on → both resume. The item sits beside Show Unsafe Images, the toolbar has no button for it, and the Keyboard Shortcuts window lists no shortcut for it (TDD 27.5)
+- [ ] **27.6** On a fresh state directory → Play Animations is on. Switch it off, quit, relaunch → still off (TDD 27.6)
+- [ ] **27.7** Turn on the system's reduce-animations setting (GNOME: Settings ▸ Accessibility ▸ Reduce Animation; KDE: animation speed to instant; macOS: Reduce Motion; Windows: Show animations off) → every animation shows its first frame with the pause badge and does not play, even with Play Animations on. Turn the setting off → animations play again. Then: switch Play Animations off, quit, turn reduce-animations on and back off, relaunch → Play Animations is still off (the system setting never overwrote the reader's choice) (TDD 27.7)
+- [ ] **27.8** A paused animation shows a small pause symbol in its bottom corner; a still image never does; a playing animation does not; an animation under 48 px on a side does not. Click the badge → nothing happens (TDD 27.8)
+> ⚠ **27.9's fixture must animate in the rows the band shows.** A band tiles its sprite from
+> the document's grid, so a band near the top of the document shows the sprite's top rows; if
+> those rows are static the band looks frozen while playing correctly. `tests/fixtures/anim.webp`
+> is exactly such a file (it changes only in rows 96–236), and it produced a false FAIL once.
+
+- [ ] **27.9** Select a reading theme whose **heading band** or **disclosure summary band** carries an animated sprite → it plays; scroll it away → CPU ~0%; switch Play Animations off → it freezes (TDD 27.9). ⚠ The other sprite slots — quote bar, list marker, annotation chip, horizontal rule — are known to show the first frame only, so an animated sprite there is not a FAIL of this check; it is the gap the register records

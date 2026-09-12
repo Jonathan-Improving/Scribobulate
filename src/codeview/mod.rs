@@ -57,6 +57,14 @@ mod paint;
 mod pending;
 mod quotes;
 
+/// WP10 (TDD 27.9): the animated-sprite integration tests — whether a heading/disclosure
+/// band's sprite actually plays, freezes under policy, and is released once its
+/// decoration scrolls out of `decorplan`'s own viewport gate. A sibling module for the
+/// same reason `ordertests` is: a different question over the same paint
+/// (`crate::animation::sprites::frame_for`, reached only from `bandpaint::paint_band`)
+/// than the plain presence/order guards above.
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+mod animsprite_tests;
 /// The compositing-ORDER guards — one test per pair of decorations that can overlap.
 /// A sibling module rather than more bodies inside [`gtk_integration_tests`] because
 /// they answer a different question about the same function: those tests ask whether
@@ -77,6 +85,7 @@ mod imp {
     use super::*;
     use gtk::subclass::prelude::*;
     use std::cell::{Cell, RefCell};
+    use std::collections::HashMap;
 
     thread_local! {
         /// Hands out `instance_serial`. Thread-local rather than atomic because every
@@ -356,6 +365,36 @@ mod imp {
         /// view would leak a handler on the shared clipboard (same discipline as the
         /// window's `copy-primary-handler`, GTK4Rs/AP-28/GTK4Rs/AP-82).
         pub(crate) primary_sel_handler: RefCell<Option<(gdk::Clipboard, glib::SignalHandlerId)>>,
+        /// WP10 (`sdd/PLAN.memory-gates.md`, TDD 27.9): one [`crate::animation::sprites::SpriteAnim`]
+        /// per animated sprite reference this view CURRENTLY paints, keyed by
+        /// [`crate::sprite::SpriteRef`]. A sprite is painted directly by the paint plan
+        /// rather than by a `GdkPaintable`-backed picture, so it has no host widget of
+        /// its own to hang playback state on — this view IS that host, exactly as a
+        /// `GtkPicture` is a `AnimatedPaintable`'s. Reset-then-pruned once per
+        /// `snapshot_layer` pass (`reset_sprite_anim_seen`/`drop_unseen_sprite_anims`,
+        /// called from `TextViewImpl::snapshot_layer` below): an entry not re-marked
+        /// SEEN by a `crate::animation::sprites::frame_for` call during a pass was not
+        /// painted this frame — decorplan's own viewport gate said so — and is dropped,
+        /// which is what releases its decoder and stops its tick callback (`SpriteAnim`'s
+        /// own `Drop`). Held here, not in a process-wide table keyed by a raw widget
+        /// pointer, so its lifetime is simply this view's — no separate cleanup on
+        /// teardown is needed beyond what dropping this field already does.
+        pub(crate) sprite_anim:
+            RefCell<HashMap<crate::sprite::SpriteRef, crate::animation::sprites::SpriteAnim>>,
+        /// QA finding (2026-09-12): the paint-driven pruning `sprite_anim`'s own doc
+        /// comment describes only ever runs from INSIDE a `snapshot_layer` pass, so it
+        /// cannot see a view that has stopped painting altogether — a background tab, a
+        /// hidden pane. This watch is this view's own `animation::visibility`
+        /// subscription (the same mechanism a document image's `AnimatedPaintable` uses
+        /// for its own host), installed once by
+        /// [`super::CodePreviewView::ensure_sprite_visibility_watch`] and read nowhere
+        /// else: it exists only to call
+        /// [`super::CodePreviewView::drop_all_sprite_anims`] the instant this view
+        /// itself stops being visible. Dropping it (here, in `dispose`) disconnects
+        /// everything it installed, same as `sprite_anim`'s own entries do for their own
+        /// subscriptions.
+        pub(crate) sprite_visibility:
+            RefCell<Option<crate::animation::visibility::VisibilityWatch>>,
     }
 
     impl Default for CodePreviewView {
@@ -404,6 +443,8 @@ mod imp {
                 marker_card: RefCell::new(None),
                 marker_popover_warmed: Cell::new(false),
                 primary_sel_handler: RefCell::new(None),
+                sprite_anim: RefCell::new(HashMap::new()),
+                sprite_visibility: RefCell::new(None),
             }
         }
     }
@@ -448,6 +489,15 @@ mod imp {
             if let Some((clip, id)) = self.primary_sel_handler.borrow_mut().take() {
                 clip.disconnect(id);
             }
+            // WP10: tear down every live sprite animation NOW rather than waiting for
+            // this struct's own eventual Rust `Drop` (which `dispose`, unlike `Drop`,
+            // is guaranteed to run before — GTK4Rs/AP-161) — each `SpriteAnim` removes
+            // its own tick callback and policy watch on drop.
+            self.sprite_anim.borrow_mut().clear();
+            // And this view's own visibility watch (QA finding, 2026-09-12) — dropping
+            // it disconnects the map/unmap (and, transitively, scroll/minimize)
+            // subscriptions `ensure_sprite_visibility_watch` installed on `self`.
+            self.sprite_visibility.borrow_mut().take();
         }
     }
 
@@ -621,6 +671,18 @@ mod imp {
             if layer != gtk::TextViewLayer::BelowText && layer != gtk::TextViewLayer::AboveText {
                 return;
             }
+            // WP10: `BelowText` runs FIRST and `AboveText` LAST in every real repaint
+            // (GTK's own text-view paint order — decorplan::PAINT_ORDER's own doc
+            // comment), so this pair brackets exactly one "frame" of this view's paint
+            // for `crate::animation::sprites`'s purposes, whatever `has_anything_to_draw`
+            // decides below. Resetting "seen" here and pruning it after the AboveText
+            // pass is the ENTIRE visibility signal an animated sprite gets — no separate
+            // geometry watch is built for it (sdd/PLAN.memory-gates.md "Theme sprites
+            // animate too", reusing decorplan's own viewport gates rather than
+            // inventing a second notion of visible).
+            if layer == gtk::TextViewLayer::BelowText {
+                self.obj().reset_sprite_anim_seen();
+            }
             // The gate, DERIVED from [`super::DRAWN_VECTORS`] rather than written out
             // here. It used to be a hand-maintained conjunction over five vectors, and
             // the comment beside it said so: a new decoration whose vector was missing
@@ -630,15 +692,17 @@ mod imp {
             // bespoke test; the table now carries a FIXTURE per vector, so that test is
             // written once for all of them and a new decoration extends it by the same
             // one line that extends the gate (F-GOD-001).
-            if !super::has_anything_to_draw(self) {
-                return;
-            }
-            let view = self.obj();
-            let ctx = super::paint::PaintCtx::of(self, &view, layer);
-            for step in crate::decorplan::PAINT_ORDER {
-                if step.layer() == layer {
-                    super::paint::run(*step, &snapshot, &ctx);
+            if super::has_anything_to_draw(self) {
+                let view = self.obj();
+                let ctx = super::paint::PaintCtx::of(self, &view, layer);
+                for step in crate::decorplan::PAINT_ORDER {
+                    if step.layer() == layer {
+                        super::paint::run(*step, &snapshot, &ctx);
+                    }
                 }
+            }
+            if layer == gtk::TextViewLayer::AboveText {
+                self.obj().drop_unseen_sprite_anims();
             }
         }
     }
@@ -732,6 +796,115 @@ glib::wrapper! {
 pub(crate) type CursorRefresh = std::rc::Rc<dyn Fn(&CodePreviewView, f32, f32)>;
 
 impl CodePreviewView {
+    /// WP10's four-method seam between `crate::animation::sprites` and this view's
+    /// private `sprite_anim` table — the only cross-module access that table gets,
+    /// which is what lets `SpriteAnim` stay a plain field here rather than a
+    /// process-wide table keyed by a raw, aliasable widget pointer.
+    ///
+    /// Mark every currently-tracked animation NOT seen this pass — called once, at the
+    /// start of the `BelowText` layer (the first of the two `snapshot_layer` runs a
+    /// real repaint always makes).
+    pub(crate) fn reset_sprite_anim_seen(&self) {
+        use gtk::subclass::prelude::*;
+        for anim in self.imp().sprite_anim.borrow_mut().values_mut() {
+            anim.mark_unseen();
+        }
+    }
+
+    /// Drop every animation NOT re-marked seen since the last reset — called once, at
+    /// the end of the `AboveText` layer (the second and last). An entry that survives
+    /// was painted at least once by `crate::animation::sprites::frame_for` this pass;
+    /// one that was not is a decoration decorplan's own viewport gate says is off
+    /// screen right now, and dropping its `SpriteAnim` here is what releases its
+    /// decoder and removes its tick callback (`SpriteAnim`'s own `Drop`).
+    pub(crate) fn drop_unseen_sprite_anims(&self) {
+        use gtk::subclass::prelude::*;
+        self.imp()
+            .sprite_anim
+            .borrow_mut()
+            .retain(|_, anim| anim.seen_this_pass());
+    }
+
+    /// Run `f` against the live [`crate::animation::sprites::SpriteAnim`] for `r`, if
+    /// this view still tracks one — `None` if it does not (already dropped by
+    /// [`Self::drop_unseen_sprite_anims`], or never created). The seam a tick callback
+    /// or a decode's completion uses to reach back into its own entry; neither ever
+    /// creates one.
+    pub(crate) fn with_sprite_anim<R>(
+        &self,
+        r: &crate::sprite::SpriteRef,
+        f: impl FnOnce(&mut crate::animation::sprites::SpriteAnim) -> R,
+    ) -> Option<R> {
+        use gtk::subclass::prelude::*;
+        self.imp().sprite_anim.borrow_mut().get_mut(r).map(f)
+    }
+
+    /// As [`Self::with_sprite_anim`], but constructs a fresh entry via `make` when none
+    /// exists yet — `crate::animation::sprites::frame_for`'s own seam, the only path
+    /// that ever inserts into this table. `make` returning `None` (the animation could
+    /// not be opened/decoded) inserts nothing and this answers `None` too.
+    pub(crate) fn with_sprite_anim_or_insert<R>(
+        &self,
+        r: &crate::sprite::SpriteRef,
+        make: impl FnOnce() -> Option<crate::animation::sprites::SpriteAnim>,
+        f: impl FnOnce(&mut crate::animation::sprites::SpriteAnim) -> R,
+    ) -> Option<R> {
+        use gtk::subclass::prelude::*;
+        let mut map = self.imp().sprite_anim.borrow_mut();
+        let entry = match map.entry(r.clone()) {
+            std::collections::hash_map::Entry::Occupied(o) => o.into_mut(),
+            std::collections::hash_map::Entry::Vacant(v) => v.insert(make()?),
+        };
+        Some(f(entry))
+    }
+
+    /// QA finding (2026-09-12): install this view's own `animation::visibility`
+    /// watch, once — the fifth method in this seam, alongside the four WP10 built. A
+    /// no-op once already installed, so `animation::sprites::frame_for` can call it
+    /// unconditionally on every invocation (the same idempotent shape
+    /// `SpriteAnim::ensure_bootstrapped` uses for its own policy watch).
+    ///
+    /// This closes the gap the OTHER four cannot: `reset_sprite_anim_seen` and
+    /// `drop_unseen_sprite_anims` bracket a `snapshot_layer` pass, and an unmapped
+    /// widget never gets one — a background tab or a hidden pane therefore never
+    /// prunes anything through them, however long it stays off screen.
+    /// `animation::visibility`'s `map`/`unmap` wiring fires independently of
+    /// painting, so [`Self::drop_all_sprite_anims`] runs the moment THIS view stops
+    /// being visible — never a second notion of "visible" invented here, only
+    /// `animation::visibility`'s existing answer, reused for the view that hosts
+    /// every sprite it currently drives rather than re-asked per sprite (sprites have
+    /// no independent geometry of their own — see this module's own doc comment).
+    pub(crate) fn ensure_sprite_visibility_watch(&self) {
+        use gtk::subclass::prelude::*;
+        if self.imp().sprite_visibility.borrow().is_some() {
+            return;
+        }
+        let weak = self.downgrade();
+        let watch = crate::animation::visibility::watch(self.upcast_ref(), move |visible| {
+            if !visible {
+                if let Some(view) = weak.upgrade() {
+                    view.drop_all_sprite_anims();
+                }
+            }
+        });
+        self.imp().sprite_visibility.replace(Some(watch));
+    }
+
+    /// Drop EVERY tracked sprite animation, regardless of "seen this pass" — the
+    /// visibility-driven counterpart to [`Self::drop_unseen_sprite_anims`], called
+    /// only from the callback [`Self::ensure_sprite_visibility_watch`] installs, the
+    /// instant this view itself stops being visible. Dropping every entry releases
+    /// each one's decoder and tick callback (`SpriteAnim`'s own `Drop`), exactly as
+    /// the paint-driven pruning already does for the scrolled-out case it handles —
+    /// this is the same release, reached by a different trigger. The next real paint
+    /// after this view becomes visible again finds no entries and rebuilds each one
+    /// from frame 0 through [`Self::with_sprite_anim_or_insert`], the same as a
+    /// picture's `AnimatedPaintable` restarting after WP8 dropped its own decoder.
+    pub(crate) fn drop_all_sprite_anims(&self) {
+        use gtk::subclass::prelude::*;
+        self.imp().sprite_anim.borrow_mut().clear();
+    }
+
     /// Note that this view's content has just been (re-)rendered, and return the new
     /// generation. State derived from the rendered content keys on this — see
     /// `imp::CodePreviewView::render_generation` for why buffer identity cannot.

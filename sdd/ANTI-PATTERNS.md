@@ -363,6 +363,8 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 | 348 | Placing a decoration after a text run by COMPUTING its end-of-text x | A |
 | 349 | Judging whether a cursor took from a screenshot — and letting an uncontrolled variable name the defect | A |
 | 350 | A comment that tells you NOT to do something — load-bearing in the direction nothing checks | A |
+| 351 | A gdk-pixbuf loader module that retains every decode — invisible to refcount assertions, visible only as slope | C |
+| 352 | `GdkTexture::from_file`/`from_bytes` reach a pixbuf module's INCREMENTAL path, not its one-shot `load` | C |
 
 ---
 
@@ -1549,32 +1551,27 @@ filesystem, whether a dependency resolves. Where a semantic question has no chea
 proxy, pay for the semantic answer — reading a running process's module list cost one command.
 
 **THE ESCALATION: the wrong answer becomes a false LEGAL claim.** A "the licence file exists"
-condition passed for all three of these in the gvsbuild prefix. `pcre2/COPYING` is four lines
-saying to read a `LICENCE` file that is not shipped. `cairo/COPYING` is a summary pointing at
-two files, neither present. `gettext/COPYING` is GPL-3.0 — the licence of the gettext *tools*,
-while the shipped DLL is libintl, LGPL-2.1; staging it would have attached a GPL-3 notice to a
-component not under it. That last does not under-attribute, it makes a confident false
-statement *about the product*, which a downstream redistributor acts on. The gate now requires
-each row to declare a **string that must occur in its licence text**, testing identity rather
-than presence. Note the ordering trap: "vendor a licence for every project shipping none" and
-"check each vendored file exists" are both reasonable, and neither sees a file that exists, is
-named correctly, and says the wrong thing.
+condition passed for all three in the gvsbuild prefix. `pcre2/COPYING` is four lines pointing
+at a `LICENCE` that is not shipped; `cairo/COPYING` points at two files, neither present;
+`gettext/COPYING` is GPL-3.0, the licence of the gettext TOOLS, while the shipped DLL is
+libintl (LGPL-2.1) — staging it would have made a confident false statement about the product
+that a downstream redistributor acts on. The gate now requires each row to declare a **string
+that must occur in its licence text**, testing identity rather than presence. Note the
+ordering trap: "vendor a licence for every project shipping none" and "check each vendored
+file exists" are both reasonable, and neither sees a file that exists, is named correctly, and
+says the wrong thing.
 
-**A fourth case that ran through three proxies, the last being a careful inference from
-complete evidence that was still wrong.** `share/icons/hicolor` was first reconciled by
-**counting** — right, agreed by two seats, and blind to IDENTITY: the SVGs were
-GtkSourceView's completion-provider set, not Adwaita artwork. (Two people agreeing on the
-measured half is not corroboration of the inferred half; it is why nobody re-examines it.)
-With the artwork then identified, the licence was inferred as LGPL-2.1 because the SVGs carry
-no per-file header and no licence file sits beside them in the prefix — both true. Upstream's
-`data/icons/meson.build` installs the icon subdirectory *only*, so the `data/icons/COPYING`
-that governs them (CC-BY-SA-3.0, explicitly not the code licence) is never installed. The
-evidence was complete about the installed tree; the question was about the work. **GEP-50**
-carries the rule that generalises past licensing — *a derived artefact is a filtered view, so
-absence in it is evidence about the filter.* What stays here is why we walked in anyway: we
-held the narrow version ("an empty directory is evidence about the packaging") and still
-missed the deeper one, because a *populated* directory lacking a COPYING reads as informative
-where an empty one reads as suspicious.
+**A fourth case ran through three proxies, the last a careful inference from complete
+evidence that was still wrong.** `share/icons/hicolor` was reconciled by **counting** — right,
+agreed by two seats, and blind to IDENTITY: the SVGs were GtkSourceView's completion set, not
+Adwaita artwork. (Two seats agreeing on the measured half is why nobody re-examines the
+inferred half.) Its licence was then inferred as LGPL-2.1 because the SVGs carry no header and
+no licence file sits beside them — both true, and both facts about the INSTALLED TREE: upstream
+installs the icon subdirectory only, so the governing `data/icons/COPYING` (CC-BY-SA-3.0) never
+ships. GEP-50 generalises it. What stays here is that we held the narrow version
+("an empty directory is evidence about the packaging") and still walked in, because a
+POPULATED directory lacking a COPYING reads as informative where an empty one reads as
+suspicious.
 
 **Lesson**: a predicate over a NAME or over EXISTENCE is a proxy, and every proxy has a domain
 where it silently inverts. The tell is that it never returns "I don't know" — it returns a
@@ -1666,8 +1663,8 @@ Severity: High
 ## 289. An HTTP 200 is a claim about the transaction, not about the document — four fetched licence texts were anti-bot pages
 **Symptom**: four of the first nine upstream licence fetches returned HTTP 200 carrying an anti-bot interstitial, all four byte-identical at 4626 bytes, with the client reporting success for every one — while the two requests that failed loudly (406, 404) were the harmless ones.
 **Scribobulate**: the Windows licence gate's fourth condition — every row of `packaging/windows/licenses.psd1` declares an `Expect` string that must occur in its licence text, asserted when the text is fetched and re-checked at build time by `packaging/windows/verify-licenses.ps1`. `packaging/windows/licenses/PROVENANCE.md` records the pinned versions and SHA-256s, and `packaging/windows/licenses/.gitattributes` (`* -text`) keeps those hashes true on a CRLF checkout — without it a fresh clone on an `autocrlf` seat rewrites the texts and every recorded hash silently describes bytes that are no longer on disk (measured: 219,581-byte blob vs 223,875 on disk, the delta exactly the line count).
-**Case — the guard's SCOPE did not follow what it guards, and a plausible wrong explanation nearly closed over the gap.** That `.gitattributes` covers `packaging/windows/licenses/` only. `LICENSE` and `THIRD-PARTY-LICENSES.md` were staged from the repo root by a *later* commit and were still `text: auto`, so the Windows installer shipped them CRLF while Linux and macOS shipped LF: measured 205,287 B installed against a 201,166 B blob, delta 4,121 = exactly the line count. (`THIRD-PARTY-LICENSES.md` has since stopped being versioned at all — `build.rs` generates it and normalises to LF — which removes its variance by construction rather than by guard. `LICENSE` is still versioned and still varies.) **Harmless here** (no SHA-256 is recorded for these two, and CRLF is arguably right for a file a Windows user opens in Notepad) — but it is only harmless by luck, since the guard was written *because* silent rewriting falsifies recorded bytes, and nothing extends it to files added afterwards. Two rules follow: **a byte count for a text file is only reproducible if it states its line-ending convention**, and when two seats report different sizes for one file, **check the line count against the delta before accepting any causal story.** The first explanation offered here was that a pending edit accounted for the difference — plausible, wrong, and self-ratcheting, because the file was about to grow and the story would have survived by being adjusted rather than falsified.
-**Case — the anchor discriminates DOCUMENTS, not REVISIONS of one, and that is one notch coarser than it looks.** The FTL text vendored first was SPDX's re-wrap, not FreeType 2.14.3's own file: same licence, different edition — 5,979 B against 6,743 B, paragraphs unwrapped, section rules stripped, stale `http://www.freetype.org` URL — sitting beside a provenance line asserting 2.14.3. The gate passed it and **would pass it again**, because the declared anchor occurs in both. The earlier catches here were the wrong *document*; this was the right document in the wrong *revision*. **Deliberately not escalated to a hash anchor**: that fails every row on any upstream whitespace change and teaches re-baselining rather than reading, which converts a check that catches real substitutions into a ritual. The limit is documented instead. What caught it was not a check but going to the build tree for a neighbouring file — so **prefer vendoring from the source tree the artefact was built from over a tagged download**: a tag asserts upstream published those bytes under that name; the build tree *is* the bytes the shipped binary was built from.
+**Case — the guard's SCOPE did not follow what it guards.** That `.gitattributes` covers `packaging/windows/licenses/` only. `LICENSE` and `THIRD-PARTY-LICENSES.md` were staged from the repo root by a LATER commit, still `text: auto`, so the Windows installer shipped them CRLF against LF elsewhere: 205,287 B installed against a 201,166 B blob, delta 4,121 = exactly the line count. Harmless by luck (no SHA-256 covers those two), but nothing extended the guard to files added afterwards. Two rules: **a byte count for a text file is reproducible only if it states its line-ending convention**, and when two seats report different sizes for one file, **check the line count against the delta before accepting any causal story** — the first explanation offered here (a pending edit) was plausible, wrong, and self-ratcheting, since the file was about to grow and the story would have been adjusted rather than falsified.
+**Case — the anchor discriminates DOCUMENTS, not REVISIONS of one.** The FTL text vendored first was SPDX's re-wrap, not FreeType 2.14.3's own file: same licence, different edition (5,979 B against 6,743 B, unwrapped paragraphs, stale URL), beside a provenance line asserting 2.14.3. The gate passed it and **would pass it again**, the declared anchor occurring in both. Deliberately NOT escalated to a hash anchor: that fails every row on any upstream whitespace change and teaches re-baselining rather than reading. What caught it was going to the build tree for a neighbouring file — so **prefer vendoring from the source tree the artefact was built from over a tagged download**: a tag asserts upstream published those bytes under that name; the build tree IS what the shipped binary was built from.
 **See**: general-engineering-principles (GEP-52).
 
 ## 290. A custom widget that caches child positions derived from child sizes, and re-derives them on nothing
@@ -1679,7 +1676,7 @@ Severity: High
 **See**: gtk4-rs skill → textview-scrolling-and-adjustments (GTK4Rs/AP-291), which holds the measurement and reframes that module's clamp family — lazy validation is the family's trigger, not the clamp's preco…
 
 ## 292. A `GFile` built from an `https://` URI resolves only where a GVfs backend claims the scheme
-**Scribobulate**: `imagefetch.rs` owns the fetch (an explicit HTTP GET, bounded by connect/global timeouts and `limits::MAX_REMOTE_IMAGE_BYTES`) and `renderer::start::load_remote_texture` decodes it with `GdkTexture::from_bytes`, logging fetch and decode failures separately at `warn`; the transport is replaced for **…
+**Scribobulate**: `imagefetch.rs` owns the fetch (an explicit HTTP GET, bounded by connect/global timeouts and `limits::MAX_REMOTE_IMAGE_BYTES`) and `imagecache::loader::load_remote_texture` decodes it with `GdkTexture::from_bytes`, logging fetch and decode failures separately at `warn`; the transport is replaced for **…
 **See**: gtk4-rs skill → app-lifecycle-and-env (GTK4Rs/AP-292), which holds the measurement, the daemon-not-library mechanism, and the general lesson about a toolkit API whose capability is supplied by a separ…
 
 ## 293. Sizing a drawn affordance from one font's row height and fitting it to a container laid out in another
@@ -1851,9 +1848,9 @@ Severity: High
 **Symptom**: a coverage ratchet was set from a measurement, re-run to confirm, and reported green twice — while actually failing. Two independent mechanisms had to line up, and both fail in the green direction.
 **Root cause**: The gate was invoked as `scripts/coverage.sh | tail -2; echo $?`. In a POSIX shell `$?` after a pipeline is the exit status of its LAST command, so the `0` printed was `tail`'s, and `tail` succeeds whatever the gate decided. The output looked right because `tail` faithfully showed the gate's own summary lines; only the VERDICT was substituted.
 **Resolution**: invoke a gate directly and read its own exit status; where a pipeline is genuinely wanted, `set -o pipefail` first. Read a coverage floor from the column the gate reads, never the column the summary leads with.
-**BOUNDARY, measured later and worth reading before generalising this**: "read its own exit status" assumes the tool is HONEST about it, and some are not. `codesign --force --deep --sign -` printed `bundle format unrecognized, invalid, or unsuitable`, produced no `_CodeSignature` at all, and RETURNED ZERO — so a guard written as `if ! codesign …`, authored precisely to stop a broken signature shipping, waved it through. **The boundary is narrower than "this tool is dishonest", and the narrow form is the useful one: it is the ACTING verb that lies, not the tool.** `codesign --sign` returns 0 having done nothing; `codesign --verify --deep --strict` exits non-zero correctly. So the repair does not require distrusting exit codes generally, or finding a different tool — it is to follow the acting verb with the SAME tool's verifying verb, and to assert the artefact exists. Measured while establishing this: reading `$?` after piping `--verify` to `head` reported 0 when verify had in fact failed, so this entry's own original lesson bit during the investigation of its boundary. **This case BREAKS the resolution above rather than illustrating it**, which is the reason the boundary is written here at all: in every other instance the tool is honest about the layer it reported on and the fix is to read the right layer — but here the layer that failed IS the layer that returned 0, so there is no correct status to read. The general rule is GEP-52; what is local is that this entry and ScrAP-123 both read as "the exit status is authoritative", and it is not universally.
+**BOUNDARY, measured later**: "read its own exit status" assumes the tool is HONEST about it. `codesign --force --deep --sign -` printed `bundle format unrecognized, invalid, or unsuitable`, wrote no `_CodeSignature` at all, and RETURNED ZERO, so a guard written as `if ! codesign …` waved a broken signature through. **The narrow form is the useful one: it is the ACTING verb that lies, not the tool** — `--sign` returns 0 having done nothing, while `codesign --verify --deep --strict` exits non-zero correctly. So the repair is not to distrust exit codes generally but to follow an acting verb with the same tool's VERIFYING verb and assert the artefact exists. (Measured during that investigation: reading `$?` after piping `--verify` to `head` reported 0 when verify had failed — this entry's own lesson biting inside its boundary.) It BREAKS the resolution above rather than illustrating it, which is why it is written here rather than folded into it.
 **Scribobulate**: `scripts/coverage.sh`'s header carries the column warning and its instances, and the floor is set from the Lines column and verified by running the script directly. **The value is deliberately not repeated here** — POLICY step 6 makes the script its only home, and the copy that used to sit in this line had already gone stale.
-**See**: project tooling — cargo-llvm-cov and shell invocation. Kin — ScrAP-321's family (a green that means nothing), and ScrAP-326 beside it, which is the other way a coverage number misleads: 326 is a real…
+**See**: cargo-llvm-cov and shell invocation. Kin — ScrAP-321's family (a green that means nothing) and ScrAP-326, the other way a coverage number misleads: 326 is a real…
 
 ## 330. A seam that exists is not a seam that is called
 **Routed**: GEP-67 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
@@ -1916,9 +1913,9 @@ Severity: High
 ## 343. Enlarging a decoded `GdkTexture` to display a VECTOR image at a larger size
 **Symptom**: an SVG diagram drawn above its natural size is soft, and the TEXT inside it — the part the reader enlarged it to read — goes first.
 **Root cause**: two facts that only bite together. `GdkTexture::from_file` decodes a scalable source at its NATURAL size with no way to ask for another (GTK 4.6 handles PNG/JPEG/TIFF itself and falls through to `gdk_pixbuf_new_from_stream`, which hands the loader a **no-op size callback**, so the size is discarded before librsvg sees a request). And enlarging the result cannot be sharp: GSK 4.6 sets no cairo filter at all, so it lands on cairo's default `FILTER_GOOD`, and `gtk_snapshot_append_scaled_texture` is 4.10+.
-**Resolution**: make the target size an INPUT to the decode — `Pixbuf::from_file_at_scale(path, w, -1, true)`, or `PixbufLoader::set_size` before the first write for bytes, both of which reach librsvg's vector renderer (MEASURED: a 4× thinner anti-aliased fringe than a bilinear upscale). Gate on `PixbufFormat::is_scalable()`, free in the header probe. Three riders: pass ONE axis and `-1`, since `preserve_aspect_ratio = false` letterboxes rather than stretches; cap the TARGET pixels, since a `viewBox="0 0 24 24"` file probes as 576 and bounds nothing; and fall back to the natural-size decode on loader failure, since the SVG loader is a separate package on every platform.
+**Resolution**: make the target size an INPUT to the decode — `Pixbuf::from_stream_at_scale(admitted_bytes, w, -1, true)`, which reaches librsvg's vector renderer (MEASURED: a 4× thinner anti-aliased fringe than a bilinear upscale). Take BYTES, never the path: the path-taking twin re-opens the file after admission, a check-then-use seam. Gate on `PixbufFormat::is_scalable()`, free in the header probe. Three riders: pass ONE axis and `-1`, since `preserve_aspect_ratio = false` letterboxes rather than stretches; cap the TARGET pixels, since a `viewBox="0 0 24 24"` file probes as 576 and bounds nothing; and fall back to the natural-size decode on loader failure, since the SVG loader is a separate package on every platform.
 **Lesson**: when a toolkit hands back a decoded raster, ask whether the SOURCE was resolution-independent and whether the decode discarded that. A scaling defect that looks like a filtering problem is often a decoding problem one layer up, and no work at the drawing end recovers what the decode threw away.
-**Scribobulate**: `renderer::start::rasterize_vector` and `LoadedImage` (which carries the size at zoom 1.0 apart from the texture's own — for a re-rendered vector they differ); target bound `renderer::image::cap_raster`. Plain-gdk-pixbuf repro and measurements: `probes/svg-rasterise-rs`.
+**Scribobulate**: `imagecache::loader::rasterize_vector` and `LoadedImage` (which carries the size at zoom 1.0 apart from the texture's own — for a re-rendered vector they differ); target bound `renderer::image::cap_raster`. Plain-gdk-pixbuf repro and measurements: `probes/svg-rasterise-rs`.
 **See**: TDD 13.11; kin ScrAP-32, ScrAP-146; `sprite.rs` pre-resamples for the same GSK reason.
 
 ## 344. A region-wide suppression written as one event kind, and a `bool` where the region can nest
@@ -1951,3 +1948,19 @@ Severity: High
 **Root cause**: a wrong POSITIVE claim is caught the first time somebody relies on it. A wrong "you can skip this" is falsified only by someone independently deciding to do the thing anyway — and the comment exists to talk them out of exactly that. No code path fails, no test goes red, and nothing ever re-reads a comment. Both instances were prose discouraging the one investigation that would have found the bug.
 **Scribobulate**: `refresh_hover_for_scroll` (now `refresh_hover_after_paint`) carried "the cursor is wrong only briefly, which the next motion event corrects" — inside the very function that exists because a STATIONARY pointer produces no next motion event. Measured false and kept marked false rather than deleted, because someone reasoned there once and will again. Same week, same shape: `pointercrossing.rs`'s header claimed the input-region coupling was "pinned by the check named below" and named none, which tells a reader a guard exists and so stops them writing one.
 **See**: kin ScrAP-349; GEP-12.
+
+## 351. A gdk-pixbuf loader module that retains every decode — invisible to refcount assertions, visible only as slope
+**Symptom**: ~12 MB per render of one animated WebP, never returned — 836 MB to 1017 MB over eight theme switches on a real session, 104 MB to 2708 MB over 98 headlessly. Every gate green, every object we held proven finalized.
+**Root cause**: not ours. `webp-pixbuf-loader` (0.0.5-5~22.04.1) over-references `GdkPixbufWebpAnim` through a `GdkPixbufWebpAnimIter` it never releases, so the anim keeps the decoded frame and the whole file buffer alive; its refcount is 2 where GIF's is 1. Per-loader-module, not per-format: a STATIC WebP of the same size is flat, GIF is clean. A 20-line C program making only our render's two calls leaks 22.27/22.04/21.96 MB per iteration at n = 5/13/40 against the application's 22.17 and 22.01 — agreement to 1%.
+**Resolution**: own the decode (`richimg`) so the module is never entered, and gate the class rather than the instance — a growth SLOPE over N renders after discarded warm-up, plus a finalization half (TDD 6.6, 6.7, 6.9). Caching only reduces how often an unfixable leak is invoked.
+**Lesson**: **a leak can be entirely real and invisible to refcount assertions** — our `GdkTexture` was weak-ref-verified finalized 40/40 while the retaining owner sat a layer below it, in a C module we never named as a dependency. A gate watching the objects you own cannot see a leak owned by something you merely called; only growth over many repetitions can. And freed memory is not returned memory on any platform this ships on, so a single-shot "render, free, assert it came back" cannot pass even on correct code.
+**Scribobulate**: `src/imagedecode/` is the only decode route, with `clippy.toml` banning GTK's encoded-image entry points elsewhere; the gate is `src/memgate/` (slope in `memgate::slope`, sampler field `footprint`, never `rss`), its own pipeline step 5b.
+**See**: TDD 6.6–6.9; ScrAP-352 (why the plainest GTK call reaches that module's leaking branch at all); kin ScrAP-146.
+
+## 352. `GdkTexture::from_file`/`from_bytes` reach a pixbuf module's INCREMENTAL path, not its one-shot `load`
+**Symptom**: `gdk_pixbuf_new_from_file` on an animated WebP errors ("Cannot create WebP decoder") while `GdkTexture::from_file` on the same bytes succeeds — and leaks. Two entry points to one module behaving as two decoders made the defect look format-specific and unreproducible by the obvious API.
+**Root cause**: two code paths in the module. GTK 4.6 decodes PNG/JPEG/TIFF itself and falls through to `gdk_pixbuf_new_from_stream` for everything else, driving the module's `begin_load`/`load_increment`/`stop_load` trio; `new_from_file` calls its one-shot `load`. A bug in only one of the two is reachable from the plainest GTK call and absent from the call you would reproduce it with.
+**Resolution**: measure the ENTRY POINT the application actually uses, each route its own subject: here `new_from_stream`/`GdkPixbufLoader` leaked 11.7–12.9 MB/call, `Pixbuf::file_info` 2.31 MB, `gdk_pixbuf_animation_new_from_file` (width/height only) was flat, and `PixbufAnimation::static_image` leaked the same AND SIGSEGV'd on truncated input. The two leaking calls were super-additive (2.31 + ~12.2 alone, 22.0 together).
+**Lesson**: "the library decodes this format" is not one behaviour. Before blaming a format or a library, establish WHICH path your call takes into it — a one-shot and an incremental API can disagree about errors, leaks and crashes on the same bytes.
+**Scribobulate**: the SVG dimension probe that used the animation API for this reason is gone; sizing reads `imagedecode::probe_vector_dimensions`, and every raster decode goes through `src/imagedecode/`.
+**See**: kin `GTK4Rs/AP-66`, ScrAP-146, ScrAP-328; ScrAP-351 is the leak this asymmetry hid.
