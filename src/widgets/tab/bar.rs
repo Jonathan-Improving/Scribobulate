@@ -273,6 +273,21 @@ impl TabBar {
             .unwrap_or(false)
     }
 
+    /// `content`'s tab-strip label with its Pango markup resolved to plain text —
+    /// `GtkLabel::text()` strips the tags [`set_markup`](Self::set_markup) writes,
+    /// so this reads what the strip actually shows rather than the markup string
+    /// itself. The observable of [`set_markup`](Self::set_markup), for tests.
+    #[cfg(all(test, feature = "gtk-integration-tests"))]
+    pub(super) fn label_text(&self, content: &gtk::Widget) -> Option<String> {
+        self.index_of(content).and_then(|idx| {
+            self.imp()
+                .tabs
+                .borrow()
+                .get(idx)
+                .map(|t| t.label.text().to_string())
+        })
+    }
+
     /// Set the hover tooltip for a tab handle (its full file path, or "Unsaved"
     /// for a pathless buffer). Applied to the whole handle box so the tooltip
     /// shows over the label and its padding; the close button keeps its own

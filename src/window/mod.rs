@@ -105,6 +105,7 @@ pub(crate) use tabs::badge_tab_label;
 pub(crate) use tabs::build_tab_editor;
 pub(crate) use tabs::create_tab_in_window;
 pub(crate) use tabs::start_deferred_prerender_pump;
+pub(crate) use tabs::update_window_title;
 /// Test-only at window level: the tab context menu's own builder reaches it through
 /// `tabs`, and the one crate-level consumer is `app::mnemonics`' guard, which derives
 /// its check from this enumeration rather than mirroring it.

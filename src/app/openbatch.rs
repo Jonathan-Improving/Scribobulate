@@ -169,7 +169,7 @@ async fn build_opened_batch(app: &Application, docs: Vec<LoadedDoc>, hint: &str,
                         *st.path.borrow_mut() = Some(p);
                     }
                 }
-                load_source_into_window(&win, &title, &source);
+                load_source_into_window(&win, &source);
             } else {
                 // Interactive-only path (a non-interactive reuse_target
                 // is always blank, by the filter above): no blank tab to

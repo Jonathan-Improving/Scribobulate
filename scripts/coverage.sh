@@ -885,7 +885,12 @@ IGNORE='src[/\\](window[/\\](tabs[/\\]|editbar[/\\]|navhistory[/\\])?[a-z_]+|app
 # Named depth-agnostically for the same reason the excursion term is: the table already
 # lives in its own file beside `mod.rs`, and a third would otherwise arrive as a leg-B
 # mismatch rather than being recognised as the scaffolding it is.
-IGNORE_TESTONLY='src[/\\](testpump|preview[/\\]altsuppression|preview[/\\]splice[/\\]excursion([/\\][a-z_]+)*|animation[/\\]visibility[/\\]gtk_tests([/\\][a-z_]+)*)\.rs'
+# `window/tabs/documents/gtk_integration_tests.rs` is the fifth, and the same kind as
+# `altsuppression`: `documents.rs`'s `#[gtktest::test]` bodies, moved beside it when a new
+# body would have taken that file past the 500-line soft limit. Named individually for
+# the reason `altsuppression` is — `IGNORE`'s `window/tabs/[a-z_]+` matches one level
+# only, so this deeper file would otherwise enter leg B as a scope mismatch.
+IGNORE_TESTONLY='src[/\\](testpump|preview[/\\]altsuppression|preview[/\\]splice[/\\]excursion([/\\][a-z_]+)*|animation[/\\]visibility[/\\]gtk_tests([/\\][a-z_]+)*|window[/\\]tabs[/\\]documents[/\\]gtk_integration_tests)\.rs'
 
 # SCOPE_FILE — the measured set, recorded. Its own header states its role; the one thing
 # worth repeating HERE, where the enforcement lives, is what keeps the two files from

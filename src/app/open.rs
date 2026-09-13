@@ -108,16 +108,31 @@ pub(crate) fn focus_tab(window: &ApplicationWindow, tab: &crate::winstate::TabSt
     window.present();
 }
 
-/// Load a file's source into an existing (reused) window in place.  Updates the
-/// title, the editor buffer, the stored source, and the saved baseline, then
-/// drives the document into the content area through the view-mode machinery so
-/// it lands in preview and the copy action is re-wired to the new buffer.
+/// Load a file's source into an existing (reused) window in place.  Retitles the
+/// window, relabels the tab strip, and schedules the Documents-menu rebuild (all
+/// through [`crate::window::update_window_title`] — TDD 1.5/15.18), then updates
+/// the editor buffer, the stored source, and the saved baseline before driving the
+/// document into the content area through the view-mode machinery so it lands in
+/// preview and the copy action is re-wired to the new buffer.
+///
+/// Retitling through `update_window_title` rather than a bare `set_title` is
+/// load-bearing, not a style choice: it is the ONE entry point that also relabels
+/// the tab strip and schedules the Documents-menu rebuild, and this is the only
+/// route that can retitle a window without going through it — a bare `set_title`
+/// here left the View ▸ Documents submenu and the toolbar's Documents combo naming
+/// the tab "Untitled" after the file had already loaded (the tab strip's own label
+/// happened to self-correct via `refresh_dirty_status` below, which masked the
+/// other two surfaces going stale).
+///
+/// Called with the tab's new path already stored (`state(window)`'s `path`, set by
+/// the caller before this runs), so `update_window_title`'s formula resolves the
+/// just-opened file rather than the blank tab it is replacing.
 ///
 /// The editor buffer is set *before* the view-mode change so that a D7 flush
 /// (which runs if the window happened to be in edit/split) writes the new source
 /// — not the stale `WELCOME` — back into the stored source.
-pub(super) fn load_source_into_window(window: &ApplicationWindow, title: &str, md: &str) {
-    window.set_title(Some(title));
+pub(super) fn load_source_into_window(window: &ApplicationWindow, md: &str) {
+    crate::window::update_window_title(window);
 
     if let Some(st) = state(window) {
         // Set source/baseline BEFORE mutating the buffer (mirrors

@@ -247,6 +247,13 @@ impl TabView {
         self.bar.is_busy(child.upcast_ref::<gtk::Widget>())
     }
 
+    /// `child`'s tab-strip label, markup resolved to plain text (for tests) — the
+    /// observable of [`set_tab_markup`](Self::set_tab_markup).
+    #[cfg(all(test, feature = "gtk-integration-tests"))]
+    pub(crate) fn tab_label_text(&self, child: &impl IsA<gtk::Widget>) -> Option<String> {
+        self.bar.label_text(child.upcast_ref::<gtk::Widget>())
+    }
+
     // Each façade closure captures a WEAK TabView and upgrades at fire time — a
     // strong capture would cycle through the TabBar's own callback cells and leak
     // the whole tab UI on window close (H2; see [`WeakTabView`]).
