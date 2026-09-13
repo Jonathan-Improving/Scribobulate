@@ -38,6 +38,7 @@
 use gtk::glib;
 
 use crate::forensics;
+use crate::logrepeat;
 
 /// Known-benign GTK/GDK diagnostics that fire transiently during the FIRST layout /
 /// surface-realization pass, originate inside GTK (not app code), and are
@@ -72,28 +73,32 @@ fn is_benign_gtk_startup_noise(message: &str) -> bool {
         || message.contains("Unable to connect to the accessibility bus")
 }
 
-/// Forward one glib structured-log record into the Rust `log` crate.
-///
-/// glib routes all logging — legacy *and* structured (e.g. `Gtk-CRITICAL`) — through
-/// the single writer func, which is why we bridge here rather than via
-/// `log_set_default_handler` (that misses structured records — gtk4-rs #1957).
-fn forward(level: glib::LogLevel, fields: &[glib::LogField<'_>]) -> glib::LogWriterOutput {
-    let mut domain = "glib";
-    let mut message = String::new();
-    for f in fields {
-        match f.key() {
-            "MESSAGE" => message = f.value_str().unwrap_or_default().to_owned(),
-            "GLIB_DOMAIN" => domain = f.value_str().unwrap_or("glib"),
-            _ => {}
-        }
-    }
-    let native = match level {
+/// glib → native `log::Level` mapping. glib's own floor is Debug, one level below
+/// `log`'s floor of Trace, so Debug maps down to Trace rather than losing a level.
+fn native_level(level: glib::LogLevel) -> log::Level {
+    match level {
         glib::LogLevel::Error | glib::LogLevel::Critical => log::Level::Error,
         glib::LogLevel::Warning => log::Level::Warn,
         glib::LogLevel::Message | glib::LogLevel::Info => log::Level::Info,
-        glib::LogLevel::Debug => log::Level::Trace, // glib's floor is Debug
-    };
-    if is_benign_gtk_startup_noise(&message) {
+        glib::LogLevel::Debug => log::Level::Trace,
+    }
+}
+
+/// The process-wide collapse state for this bridge — see `logrepeat` for why one
+/// `Mutex`-guarded decision core, shared with `gtk_log_harness`, is enough to make
+/// a flood of identical GTK/glib diagnostics bounded here (TDD 21.14).
+static COLLAPSE: logrepeat::RepeatCollapse<glib::LogLevel> = logrepeat::RepeatCollapse::new();
+
+/// Dispatch one already-decided message to display + forensics, exactly as the
+/// pre-collapse bridge always did for a single, non-repeating record. The SAME
+/// function handles a genuine first occurrence, a milestone summary and a
+/// run's closing summary — the benign-noise check and its forensic-bypass
+/// demotion apply identically to all three, because a milestone/closing
+/// summary always embeds the original message text (`logrepeat::
+/// repeat_summary`), so the substring check still recognises a demoted GTK
+/// transient inside its own summary line.
+fn emit(native: log::Level, domain: &str, message: &str) {
+    if is_benign_gtk_startup_noise(message) {
         // GTK-internal transients during early layout / surface realization — caused by
         // GTK/the theme, not app code, and self-corrected — so they are pure startup
         // noise at their native WARN/ERROR level. Demote to Debug so a default
@@ -104,9 +109,51 @@ fn forward(level: glib::LogLevel, fields: &[glib::LogField<'_>]) -> glib::LogWri
         // was exactly this class of message, so record it at its native level with
         // the threshold bypassed. This is the sole call site of that bypass, and the
         // demotion above is the sole reason one exists.
-        forensics::record_demoted_diagnostic(native, domain, &message);
+        forensics::record_demoted_diagnostic(native, domain, message);
     } else {
         log::log!(target: domain, native, "{message}");
+    }
+}
+
+/// Forward one glib structured-log record into the Rust `log` crate.
+///
+/// glib routes all logging — legacy *and* structured (e.g. `Gtk-CRITICAL`) — through
+/// the single writer func, which is why we bridge here rather than via
+/// `log_set_default_handler` (that misses structured records — gtk4-rs #1957).
+///
+/// Collapses a run of identical `(level, domain, message)` records through
+/// [`COLLAPSE`] before dispatching (TDD 21.14) — see `logrepeat` for the full
+/// design. A record whose level `RUST_LOG` would not admit at all is skipped
+/// before that: `log::log!` would already no-op it below, so tracking it would
+/// only cost a lock for no observable effect, and — the reason this is a
+/// decision rather than free efficiency — it keeps a below-threshold level
+/// (chiefly glib Debug, mapped to `log::Level::Trace`) from ever contributing a
+/// milestone or closing summary that display something nothing would otherwise
+/// have shown.
+fn forward(level: glib::LogLevel, fields: &[glib::LogField<'_>]) -> glib::LogWriterOutput {
+    let (domain, message) = logrepeat::extract_domain_message(fields);
+    let native = native_level(level);
+
+    if !log::log_enabled!(target: &domain, native) {
+        return glib::LogWriterOutput::Handled;
+    }
+
+    let outcome = COLLAPSE.record(logrepeat::Key::new(level, domain.clone(), message.clone()));
+    if let Some(closed) = outcome.closed {
+        emit(
+            native_level(closed.key.level),
+            &closed.key.domain,
+            &logrepeat::repeat_summary(&closed.key.domain, &closed.key.message, closed.count),
+        );
+    }
+    match outcome.action {
+        logrepeat::Action::First => emit(native, &domain, &message),
+        logrepeat::Action::Milestone(count) => emit(
+            native,
+            &domain,
+            &logrepeat::repeat_summary(&domain, &message, count),
+        ),
+        logrepeat::Action::Suppressed => {}
     }
     glib::LogWriterOutput::Handled
 }
@@ -149,7 +196,56 @@ pub(crate) fn init() {
 
 #[cfg(test)]
 mod tests {
-    use super::is_benign_gtk_startup_noise;
+    use super::{forward, is_benign_gtk_startup_noise};
+
+    /// End-to-end through the real bridge function (not just `logrepeat`'s pure
+    /// core): a flood of identical synthetic glib records collapses to the first
+    /// occurrence plus the one milestone a 25-record run crosses (10), never the
+    /// raw 25. `logrepeat`'s own test module covers the decision exhaustively;
+    /// this exists to prove the wiring — field extraction, the collapse call, the
+    /// emit dispatch — actually connects, not to re-derive the decision itself.
+    ///
+    /// Safe to run alongside every other test in this binary: nothing else in the
+    /// tree calls `forward` or touches `COLLAPSE`, and the message text is unique
+    /// enough that no other test's log output could be mistaken for it.
+    #[test]
+    fn forward_collapses_a_flood_to_the_first_occurrence_plus_its_milestones() {
+        use glib::gstr;
+
+        let cap = crate::testlog::capture(); // also raises the global max level to Trace
+        let fields = |msg: &str| {
+            vec![
+                glib::LogField::new(gstr!("GLIB_DOMAIN"), b"LogRepeatTest"),
+                glib::LogField::new(gstr!("MESSAGE"), msg.as_bytes()),
+            ]
+        };
+        let msg = "forward() flood probe 9c21";
+        for _ in 0..25 {
+            forward(glib::LogLevel::Warning, &fields(msg));
+        }
+
+        let matching: Vec<_> = cap
+            .records()
+            .into_iter()
+            .filter(|r| r.message.contains("forward() flood probe 9c21"))
+            .collect();
+        assert_eq!(
+            matching.len(),
+            2,
+            "25 identical records must collapse to the first occurrence plus the one \
+             milestone (10) it crosses, never the raw 25: {matching:?}"
+        );
+        assert!(
+            matching[0].message.ends_with(msg),
+            "the first occurrence must be verbatim: {:?}",
+            matching[0].message
+        );
+        assert!(
+            matching[1].message.contains("repeated 10 times"),
+            "the second must be the milestone summary: {:?}",
+            matching[1].message
+        );
+    }
 
     #[test]
     fn demotes_only_the_known_benign_gtk_startup_transients() {

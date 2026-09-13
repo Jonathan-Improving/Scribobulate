@@ -115,6 +115,7 @@ src/keynav.rs
 src/limits.rs
 src/lineendings.rs
 src/links.rs
+src/logrepeat.rs
 src/macwordnav.rs
 src/mdtable.rs
 src/memgate/footprint.rs

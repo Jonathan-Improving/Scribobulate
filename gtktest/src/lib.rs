@@ -19,9 +19,21 @@
 //!
 //! ```ignore
 //! fn __gtktest_body_foo() { BODY }                     // 1. the body, renamed
-//! #[gtk::test] fn foo() { __gtktest_body_foo() }        // 2. the libtest path
+//! #[gtk::test] fn foo() {                               // 2. the libtest path
+//!     crate::gtk_log_harness::install_once();           //    TDD 21.13 — see below
+//!     __gtktest_body_foo()
+//! }
 //! inventory::submit! { Case { name: "…::foo", run: __gtktest_body_foo } }  // 3. runner
 //! ```
+//!
+//! The `install_once()` call in item 2 arms the libtest harness's own collapsing
+//! glib log writer, exactly once per process — `#[gtk::test]` initialises GTK on
+//! a worker thread this crate has no other hook into, so the generated wrapper
+//! every libtest GTK body passes through is the one shared init point available.
+//! It is a no-op after the first call (`gtk_log_harness::install_once`'s own
+//! `OnceLock`), and it is inert in the suite binary along with the rest of item
+//! 2 (stripped where `--test` is absent) — `src/gtk_suite.rs`'s `main()` calls
+//! the same function itself, directly, once, for that harness.
 //!
 //! Item 1 is the annotated item's **own TokenStream with exactly one token replaced**
 //! — the name. The body's `Group` passes through untouched, so a diagnostic inside a
@@ -91,10 +103,22 @@ pub fn test(attr: TokenStream, item: TokenStream) -> TokenStream {
     // that contain no user code. `run: {body}` coerces the function to the `fn()`
     // pointer the registry holds; `module_path!()` expands at *this* call site, so
     // the recorded name is the body's real module path.
+    //
+    // `crate::gtk_log_harness::install_once()` is the libtest harness's one-time
+    // init point for the collapsing glib log writer (TDD 21.13): `#[gtk::test]`
+    // calls `gtk::init()` inside gtk4-rs's own generated wrapper, on a worker
+    // thread this crate cannot hook — but every libtest-run GTK body passes
+    // through exactly this generated function, so installing here, guarded by
+    // `install_once`'s own `OnceLock`, reaches the writer into place before the
+    // FIRST such body runs, whichever body that turns out to be, at the cost of
+    // one atomic load per test thereafter. This line is inert in the suite
+    // binary along with the rest of this item — `#[test]` items (and everything
+    // they alone reference) are stripped where `--test` is absent, and the
+    // suite's `main()` calls the same function itself, directly, once.
     let generated = format!(
         "{harness_attr_text}\
          #[gtk::test]\n\
-         fn {name}() {{ {body}() }}\n\
+         fn {name}() {{ crate::gtk_log_harness::install_once(); {body}() }}\n\
          inventory::submit! {{\n\
          \x20   crate::suite_registry::Case {{\n\
          \x20       name: concat!(module_path!(), \"::\", \"{name}\"),\n\

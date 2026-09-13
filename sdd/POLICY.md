@@ -1485,6 +1485,30 @@ out. Do **not** use the glib-native `g_*!` macros for app logging, and never
 register `glib::GlibLogger` alongside the writer bridge (opposite direction →
 stack overflow; see ScrAP-18).
 
+**A run of identical records is collapsed, not capped (TDD 21.13/21.14).** The
+bridge (`logging::forward`) routes every glib record through `logrepeat`'s
+`RepeatCollapse` before dispatching: the first occurrence of a `(level, domain,
+message)` is untouched, a repeat is suppressed except at bounded milestones (10,
+100, 1000, …, "previous message repeated N times"), and a run that ends between
+milestones still reports its true final count once a different record breaks it.
+This is a decision about the *pattern* — do not vary it by adding a byte/line
+cap elsewhere in the pipeline; a cap can discard the one record that mattered,
+where collapsing a genuine repeat discards nothing new. Never log document
+content still applies to a collapsed run's summary line — it always embeds the
+*original* message, never anything the collapse itself introduces. The two GTK
+test harnesses (the libtest lib target and `gtk_suite.rs`'s main-thread runner)
+share the same decision core through their own, thinner writer
+(`gtk_log_harness`, test-only): it delegates a first occurrence to
+`glib::log_writer_default` so it prints byte-identical to GLib's own default
+writer (both harnesses and `tests/MANUAL-TEST.md` grep that literal format —
+`logging::forward`'s reformatting must never reach these harnesses), and prints
+milestone/closing summaries directly. `gtk_log_harness::install_once()` is
+called once from `gtk_suite.rs::main()` for the main-thread runner, and once
+per test from `#[gtktest::test]`'s own generated libtest wrapper (idempotent via
+`OnceLock`) — the shared init point the libtest harness has no other hook for,
+since `#[gtk::test]` initialises GTK on a worker thread this crate cannot reach
+into.
+
 Call sites use the plain `log` macros; let `target` default to the module path
 (free per-module filtering), or pass an explicit subsystem target for hot paths.
 
@@ -1597,8 +1621,10 @@ for structured logs, which GTK's own diagnostics are, GLib consults
 writer with the bridge — so a promoted `Gtk-WARNING`/`Gtk-CRITICAL` is recorded and
 survived. This holds for every promotion route, not just this one: `fatal-warnings`,
 `fatal-criticals` and a programmatic `g_log_set_always_fatal` are all defused the same
-way, so there is no variant of the flag that arms the app. The suite runners install no bridge (`gtk_suite.rs` says why), which is what
-keeps the line above true where it is claimed. `g_error` is unaffected either way: its
+way, so there is no variant of the flag that arms the app. The suite runners install no bridge (`gtk_suite.rs` says why); their collapsing
+writer (`gtk_log_harness`) hands every first occurrence to `g_log_writer_default`
+and suppresses only exact repeats, which is what keeps the line above true where it
+is claimed. `g_error` is unaffected either way: its
 fatality is decided after the writer returns, and it kills the process with `SIGTRAP`
 rather than `abort()` (ScrAP-268).
 

@@ -69,6 +69,11 @@ mod farscroll;
 mod fold;
 mod forensics;
 mod format;
+// Test-only in `lib.rs` (gated on `test` + the GTK-suite feature); this root is
+// always built `--cfg test` under that same feature, so it needs no gate here —
+// but it does need the declaration, or `install_once` below drops out with
+// nothing failing (`cargo xtask lint-references` check 4).
+mod gtk_log_harness;
 mod icons;
 mod imagecache;
 mod imagedecode;
@@ -78,6 +83,7 @@ mod limits;
 mod lineendings;
 mod links;
 mod logging;
+mod logrepeat;
 mod macwordnav;
 mod mdtable;
 // Test-only in `lib.rs` (`#[cfg(test)]`); this root is always built `--cfg test`.
@@ -187,6 +193,12 @@ fn main() {
          if it fails here, check that a display is available (xvfb-run) rather than \
          suspecting the harness",
     );
+
+    // This runner's own one-time init point for the collapsing log writer (TDD
+    // 21.13) — see `gtk_log_harness`'s module docs for why a flood cannot simply
+    // be piped/intercepted here, and for the libtest harness's own init point
+    // (`#[gtktest::test]`'s generated wrapper), which this call has no bearing on.
+    gtk_log_harness::install_once();
 
     println!(
         "running {} of {} cases on the process main thread (per-case timeout {}s)\n",
@@ -352,14 +364,21 @@ fn flush() {
 // async-signal-safe by construction — it does nothing but `write(2)` a pre-stored
 // name and `_exit`.
 //
-// Deliberately NOT also capping output volume. The recorded case of a runaway suite
-// (a non-terminating widget-dispose loop emitting gigabytes) is caught here, because
+// Deliberately NOT also capping output VOLUME with a pipe/interception. The recorded
+// case of a runaway suite (a non-terminating widget-dispose loop emitting 99 million
+// repeats of one GLib warning, ~4.2 GB in ~2 minutes) is caught here on TIME, because
 // the flood was a symptom of the hang rather than an independent failure: the cap
 // that matters is the one on time. Intercepting a body's own stdout would need a
 // pipe and a pump to drain it, and a body that out-writes an undrained pipe blocks —
 // i.e. it would convert a noisy pass into a hang, trading a real failure mode for a
 // worse one. Redirect to a file and set `ulimit -f` if a hard byte cap is ever
 // wanted.
+//
+// The VOLUME itself — not just the wall-clock symptom — is what `gtk_log_harness`
+// (installed a few lines above, in `main`) now trims: it is not a cap on bytes, it
+// collapses a run of IDENTICAL records to the first occurrence plus bounded growth
+// milestones, so the same flood that used to cost 4.2 GB now costs a handful of
+// lines regardless of how long the hang lasts, with no pipe and nothing to drain.
 #[cfg(unix)]
 static TIMED_OUT_CASE: std::sync::atomic::AtomicPtr<u8> =
     std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());

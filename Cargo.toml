@@ -271,3 +271,17 @@ name = "gtk_suite"
 path = "src/gtk_suite.rs"
 harness = false
 required-features = ["gtk-integration-tests"]
+
+# A THIRD, narrow crate root — not the full `gtk_suite.rs` shape, because this one
+# needs only two leaf modules (`logrepeat`, `gtk_log_harness`), not the whole
+# `pub(crate)` tree, and not a `tests/*.rs` file, because those two modules are
+# `pub(crate)` and an externally-linked target cannot see them. Exercises the
+# log-repeat collapse THROUGH GLib's real logging pipeline with a redirected fd
+# (no pipe — see the file's own doc comment for why), and needs exclusive control
+# of the process's one glib log writer func, which `glib::log_set_writer_func`
+# permits only once per process. See src/logrepeat_reproduce.rs.
+[[test]]
+name = "logrepeat_reproduce"
+path = "src/logrepeat_reproduce.rs"
+harness = false
+required-features = ["gtk-integration-tests"]

@@ -59,6 +59,15 @@ pub(crate) mod farscroll;
 pub(crate) mod fold;
 pub(crate) mod forensics;
 pub(crate) mod format;
+/// Test-only. The GTK test harnesses' own collapsing glib log writer (TDD
+/// 21.13) — installed once for both the libtest lib harness and
+/// `gtk_suite.rs`'s main-thread runner. See the module's own rustdoc for the
+/// two installation points and why this is not `logging::forward`. Gated on the
+/// GTK-suite feature, not bare `#[cfg(test)]`: its only callers are
+/// `gtktest::test`'s generated wrapper and `gtk_suite.rs::main`, both of which
+/// exist only under that feature.
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+pub(crate) mod gtk_log_harness;
 pub(crate) mod icons;
 pub(crate) mod imagecache;
 /// The application's one decode choke point (WP6, sdd/PLAN.memory-gates.md): sniffs
@@ -73,6 +82,10 @@ pub(crate) mod limits;
 pub(crate) mod lineendings;
 pub(crate) mod links;
 pub(crate) mod logging;
+/// The pure, display-free decision core behind "collapse consecutive identical
+/// log records" (POLICY § Logging, TDD 21.13/21.14) — shared by `logging::forward`
+/// and (test-only) `gtk_log_harness`. See the module's own rustdoc for the design.
+pub(crate) mod logrepeat;
 /// Test-only. Per-render memory-growth gating (TDD 6.6–6.8): the slope
 /// arithmetic, the footprint sampler, and the GTK driver under `memory-gates`.
 /// Not shipped: a production build has no reader for these numbers.

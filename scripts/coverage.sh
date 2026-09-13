@@ -890,7 +890,12 @@ IGNORE='src[/\\](window[/\\](tabs[/\\]|editbar[/\\]|navhistory[/\\])?[a-z_]+|app
 # body would have taken that file past the 500-line soft limit. Named individually for
 # the reason `altsuppression` is — `IGNORE`'s `window/tabs/[a-z_]+` matches one level
 # only, so this deeper file would otherwise enter leg B as a scope mismatch.
-IGNORE_TESTONLY='src[/\\](testpump|preview[/\\]altsuppression|preview[/\\]splice[/\\]excursion([/\\][a-z_]+)*|animation[/\\]visibility[/\\]gtk_tests([/\\][a-z_]+)*|window[/\\]tabs[/\\]documents[/\\]gtk_integration_tests)\.rs'
+# `gtk_log_harness.rs` and `logrepeat_reproduce.rs` are the sixth and seventh: the GTK test
+# harnesses' collapsing glib log writer (installed only by `gtk_suite.rs` and
+# `#[gtktest::test]`'s wrapper) and the `harness = false` target that floods GLib to prove
+# it. Both exist only to test with; `logrepeat.rs`, the decision core they share with
+# `logging::forward`, is production code and stays in scope.
+IGNORE_TESTONLY='src[/\\](testpump|preview[/\\]altsuppression|preview[/\\]splice[/\\]excursion([/\\][a-z_]+)*|animation[/\\]visibility[/\\]gtk_tests([/\\][a-z_]+)*|window[/\\]tabs[/\\]documents[/\\]gtk_integration_tests|gtk_log_harness|logrepeat_reproduce)\.rs'
 
 # SCOPE_FILE — the measured set, recorded. Its own header states its role; the one thing
 # worth repeating HERE, where the enforcement lives, is what keeps the two files from

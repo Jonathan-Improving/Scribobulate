@@ -3124,6 +3124,21 @@ appearance that predates the feature; `Sepia` is the book-like reading theme.
 - **Then** it is owner-only, because it carries breadcrumbs, file paths and session diagnostics
 - **And** this holds for the *second* writer as well as the first: creating the file is what sets its mode, so a report that already exists must not keep whatever an earlier writer's umask gave it
 
+### 21.13 A flood of identical GTK/glib diagnostics does not bury a test run
+- **Given** either GTK test harness (the libtest lib target or `gtk_suite.rs`'s main-thread runner) is running, with its collapsing glib log writer installed
+- **When** the same `(level, domain, message)` is logged a very large number of times in a row (e.g. a non-terminating widget-dispose loop)
+- **Then** the output is bounded — the first occurrence, printed exactly as GLib's own default writer would print it, followed by a small, fixed number of milestone lines ("previous message repeated N times") at powers of ten, and one closing summary with the run's true final count once a different record breaks it — never the raw, unbounded repeat count
+- **And** a non-identical message is never folded into that run — it starts, and is shown as, its own first occurrence
+- **And** the per-case wall-clock cap (`gtk_suite.rs`) remains the mechanism that ends a genuinely hung case; this rubric is about the VOLUME a flood produces before or during that cap, not a substitute for it
+
+### 21.14 A flood of identical GTK/glib diagnostics does not fill the log or crowd out the breadcrumb ring
+- **Given** the application's own `logging::forward` bridge, running normally
+- **When** the same `(level, domain, message)` is logged a very large number of times in a row
+- **Then** the persistent log and the crash-forensics breadcrumb ring receive the same bounded shape as 21.13 — the first occurrence, bounded milestone summaries, and one closing summary — rather than one record per repeat
+- **And** a demoted benign-GTK-startup transient (21.5) is demoted and forensically recorded the same way whether it is the first occurrence or a later milestone/closing summary of the same message, since a summary line still names the original message text
+- **And** a level `RUST_LOG` would not display at all contributes nothing to a milestone or closing summary — collapsing never manufactures visible output for a level nothing asked to see
+- **And** two different messages interleaved never collapse into one another's run, and neither run's count is ever attributed to the other
+
 ---
 
 ## 22. Crash recovery (swap files)

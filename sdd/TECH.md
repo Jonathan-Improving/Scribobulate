@@ -170,7 +170,9 @@ Every module below runs on the GTK main thread; see [Concurrency model](#concurr
 | `colorscheme.rs` | Owns **which** GTK settings carry the desktop's lightness and in what order — the write side of `palette::desktop_is_dark()`. `#[cfg]`-gated at its declaration to the two platforms whose desktop supplies no such source; on Linux the desktop writes the setting itself and nothing here has a caller. Shared so that the rule, which turns on the GTK version rather than the OS, has one definition rather than one per platform. |
 | `accel.rs` | Owns the one transform from a command's **declared** accelerator to the spelling the host platform uses, the register of keystrokes the platform reserves for itself, and the same platform decision as an event mask for the pointer gestures that hold a modifier. Display-free and platform-as-data, so both platforms' bindings are enumerable — and their freedom from collisions provable — from either one. |
 | `a11y.rs` | Owns accessible naming: the one place a control's accessible **name** and hover **tooltip** are set together (`clippy.toml` bans the bare tooltip setter to make this the only route). Structural accessibility is not here — see [`PLAN.accessibility.md`](PLAN.accessibility.md). |
-| `logging.rs` | The single logging sink. Owns the `log`/`env_logger` setup, the glib→`log` bridge that captures GTK diagnostics, and the registration of the logger `forensics` builds. Owning registration is the point: exactly one place in the tree decides what the process's logger is. |
+| `logging.rs` | The single logging sink. Owns the `log`/`env_logger` setup, the glib→`log` bridge that captures GTK diagnostics, and the registration of the logger `forensics` builds. Owning registration is the point: exactly one place in the tree decides what the process's logger is. Collapses a flood of identical GTK/glib diagnostics through `logrepeat` before dispatching (TDD 21.14), so a runaway repeat cannot fill the persistent log or crowd the breadcrumb ring out of the context a crash report needs. |
+| `logrepeat.rs` | The pure, display-free decision core behind "collapse consecutive identical log records" (TDD 21.13/21.14) — shared by `logging::forward` and (test-only) `gtk_log_harness`, so the decision is written and unit-tested once. Knows nothing about `log`, `env_logger` or `glib::log_writer_default`; each installation decides what "display" and "record" mean for itself. |
+| `gtk_log_harness.rs` | Test-only (`gtk-integration-tests`). The GTK test harnesses' own collapsing glib log writer, installed once for both the libtest lib harness (via `#[gtktest::test]`'s generated wrapper) and `gtk_suite.rs`'s main-thread runner — so a runaway widget-dispose flood cannot bury a test run. Deliberately thinner than `logging::forward`: delegates a record's first occurrence to `glib::log_writer_default` so it prints exactly as GLib's own default writer would (both harnesses grep that literal format), and prints milestone/closing summaries via `eprintln!` rather than through any bridge. |
 | `forensics/` | Crash forensics — what the application leaves behind when it dies: the persistent log in the state directory, the identity stamp, the in-memory breadcrumb ring, the panic hook and (`cfg(unix)`) the fatal-signal handler that writes a crash report. Builds the logging sink; never registers it. See [§ Diagnostics and crash forensics](#diagnostics-and-crash-forensics). |
 | `config.rs` | Owns `config.toml` loading and the process-wide `Config` singleton, including the XDG config-directory lookup. |
 | `build.rs` | Build script. Emits the GTK, SourceView and pulldown-cmark crate versions read from `Cargo.lock`; compiles the bundled-icon `GResource`; on a Windows host, embeds the executable's Win32 icon + `VERSIONINFO` resource section. |
@@ -323,6 +325,23 @@ the crash path may not allocate or lock (`forensics/signal.rs` documents every
 choice this forces); the handler re-raises, so a crash terminates exactly as it
 would unhandled (ScrAP-203); and every artefact is created owner-only through one
 shared `OpenOptions` (`forensics::private_options` states why one, not per-writer).
+
+**A fifth property, added after a flood: a run of identical records costs the same
+handful of lines whether it repeats ten times or a hundred million (TDD
+21.13/21.14).** `logging::forward` routes every record through `logrepeat`'s
+`RepeatCollapse` before it reaches the ring or the persistent log — the first
+occurrence passes through untouched, a repeat is suppressed except at bounded
+milestones (10, 100, 1000, …), and a run that breaks between milestones still
+reports its true final count once it does. The same decision core, installed far
+more thinly (no ring, no persistent log, no demotion — just "print the first,
+collapse the rest"), backs `gtk_log_harness`'s glib writer for both GTK test
+harnesses, so the recorded case — a non-terminating widget-dispose loop that
+emitted the same `Gtk-WARNING` ~99 million times, 4.2 GB in ~2 minutes — cannot
+recur in either place. Neither installation caps output *volume* with a pipe:
+`gtk_suite.rs`'s own per-case wall-clock cap is what still ends a genuinely hung
+case, and intercepting a body's stdout through a pipe would need a reader draining
+it concurrently — a body that out-writes an undrained pipe blocks, trading a real
+failure mode for a worse one.
 
 Windows keeps all of this except the fatal-signal report, POSIX signals being absent
 there; the gate is "not applicable off unix", as `workaround.rs`'s is.
