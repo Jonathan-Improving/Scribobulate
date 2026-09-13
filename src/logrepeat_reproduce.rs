@@ -53,7 +53,6 @@ mod gtk_log_harness;
 mod logrepeat;
 
 use std::io::Write;
-use std::os::unix::io::AsRawFd;
 
 /// Repeats of the identical flood message. Large enough to be a real stress
 /// case (the recorded hang was ~99 million) while keeping this target's own
@@ -70,7 +69,10 @@ const DOMAIN: &str = "LogRepeatRepro";
 fn main() {
     let tmp = tempfile::NamedTempFile::new().expect("temp file for the redirected stderr");
     let saved_stderr = dup_fd(2);
-    redirect_fd(tmp.as_raw_fd(), 2);
+    let capture_fd = owned_fd_for(tmp.as_file());
+    redirect_fd(capture_fd, 2);
+    // `dup2` gave fd 2 its own copy; the temp file stays open through `tmp`.
+    close_fd(capture_fd);
 
     gtk_log_harness::install_once();
 
@@ -232,8 +234,49 @@ fn restore_fd(from: i32, to: i32) {
     redirect_fd(from, to);
 }
 
-/// SAFETY: `close` is async-signal-safe; `fd` is the process's own saved
-/// duplicate from [`dup_fd`], not shared with anything else.
+/// A C-runtime fd for `file` that the caller owns and must [`close_fd`] — the one
+/// platform-specific step, so the redirect itself reads the same everywhere
+/// (POLICY: never `#[cfg(platform)]` a test).
+///
+/// SAFETY (unix): `dup` of a descriptor `file` keeps open for the call.
+#[cfg(unix)]
+fn owned_fd_for(file: &std::fs::File) -> i32 {
+    use std::os::unix::io::AsRawFd;
+    dup_fd(file.as_raw_fd())
+}
+
+/// Windows has no fd under a `File`, only a HANDLE, so the CRT is asked to wrap
+/// one. `_open_osfhandle` takes OWNERSHIP of the handle it is given (closing the
+/// fd closes it), so it gets a clone — never `file`'s own handle, which `tmp`
+/// still closes on drop. `O_BINARY` keeps the CRT from rewriting `\n` as `\r\n`.
+///
+/// This reaches BOTH writers the test reads back: GLib's `g_log_writer_default`
+/// writes through the UCRT `stderr` stream, the same CRT fd table as this binary
+/// (`glib-2.0-0.dll` imports `api-ms-win-crt-stdio`); and the UCRT's `_dup2`
+/// onto fd 0-2 of a console process also calls `SetStdHandle`, which is the
+/// handle `eprintln!` looks up on every write.
+///
+/// SAFETY (windows): the raw handle is a fresh duplicate owned by nothing else,
+/// and ownership passes to the CRT fd returned.
+#[cfg(windows)]
+fn owned_fd_for(file: &std::fs::File) -> i32 {
+    use std::os::windows::io::IntoRawHandle;
+    let handle = file
+        .try_clone()
+        .expect("duplicate the temp file's handle for the CRT")
+        .into_raw_handle();
+    let fd =
+        unsafe { libc::open_osfhandle(handle as libc::intptr_t, libc::O_WRONLY | libc::O_BINARY) };
+    assert!(
+        fd >= 0,
+        "_open_osfhandle failed: {}",
+        std::io::Error::last_os_error()
+    );
+    fd
+}
+
+/// SAFETY: `close` is async-signal-safe; `fd` is one this file owns — a saved
+/// duplicate from [`dup_fd`] or a fresh one from [`owned_fd_for`].
 fn close_fd(fd: i32) {
     unsafe {
         libc::close(fd);
