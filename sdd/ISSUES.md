@@ -38,6 +38,7 @@ described from a different vantage point.
 | J | Any | Upstream | A paragraph that mixes fonts (any inline-code span) can lay out a few pixels wider than the wrap width it was given, summoning the preview's Automatic horizontal scrollbar and intermittently blanking the pane until a resize | Closed |
 | M | Windows | Production | On a machine with no Visual C++ runtime the app installs and then fails to start; the installer's bootstrapper for it has landed but has never been verified against that condition | Medium |
 | N | Any | Production | An animated theme sprite plays only in the two BAND decorations (heading, disclosure summary); in a quote bar or panel scene, list marker, annotation chip, horizontal rule or heading marker the same file shows its first frame and never moves | Low |
+| U | Any | Production | The preview opens horizontally scrolled (~20px, its left padding gone, a horizontal scrollbar showing) on the first entry into Split after launch; seen on Windows only so far | Low |
 
 
 ## A. Tables are selection islands
@@ -244,6 +245,31 @@ midway through a bisect.
 
 ## F. A GTK4/Quartz autorelease-pool crash intermittently SIGABRTs the macOS integration suite
 
+**Re-measured 2026-09-13 by the macOS seat (entry content theirs, edited here for format),
+and two claims further down were too narrow.** Same defect: the same OBJC termination
+(`namespace OBJC, flags 646, code 1`), `objc_autoreleasePoolPop` →
+`AutoreleasePoolPage::busted_die`, the nested `CFRunLoop` resolving `NSPasteboard` promised
+data, HIToolbox input-method session activation, and
+`+[NSTextInputContext currentInputContext_withFirstResponderSync:]` → `discard_preedit`; the
+same dominant site (`select_all_stands_down_for_every_text_entry_and_recovers_for_the_editor`)
+and rate (one in four full pipeline runs). But this report reaches `discard_preedit` through a
+**focus crossing**, not a mark-set — `gtk_text_view_mark_set_handler` appears nowhere in it:
+
+```
+gtk_widget_grab_focus_self
+  -> gtk_window_root_set_focus -> synthesize_focus_change_events
+  -> gtk_widget_handle_crossing -> gtk_event_controller_handle_crossing
+  -> gtk_event_controller_focus_handle_crossing -> g_signal_emit
+  -> discard_preedit -> (AppKit / HIToolbox / libobjc, as below)
+```
+
+And a Scribobulate frame IS on that thread, as the caller: `window::findbar::wire_find_bar`'s
+closure calling `WidgetExt::grab_focus` from a `SimpleAction` activation. Nothing of ours is
+faulting — every faulting frame is libobjc, AppKit or HIToolbox — so the entry stays
+`Upstream`; the sentences below are corrected to the claims that survive. Evidence:
+`~/Library/Logs/DiagnosticReports/gtk_suite-a0aba6a9f8498e0e-2026-09-13-115631.ips`, macOS
+26.6.2 (25G83), GTK 4.22.4.
+
 **Re-measured 2026-08-31 by the macOS seat, and the DISCRIMINATOR is now sharp.** 5 aborts
 in 15 full `gtk_suite` runs — **33%, one in three**, spread across two trees (3 on one, 2 on
 the other), so it is unmoved by the work that happened to be under test. Abort case indices
@@ -260,11 +286,11 @@ every time (323 passed). So this is a property of the FULL run rather than of an
 which is what a fix would have to account for and what a bisect-by-test would never find.
 
 **Severity**: Medium (the macOS GTK suite cannot be trusted to complete; no data at risk,
-and no Scribobulate code is implicated — but a red run there means nothing until re-run)
+and no Scribobulate code is faulting — but a red run there means nothing until re-run)
 
 `cargo test --features gtk-integration-tests --test gtk_suite` intermittently aborts the
 whole test process on macOS. Not one specific test — whichever happens to trigger a
-text-view mark-set at the wrong moment relative to macOS's input-method state.
+focus crossing or text-view mark-set at the wrong moment relative to macOS's input-method state.
 
 **Measured** via four independent **Apple crash reports** — the system crash reporter, not
 a Rust panic (`termination: {namespace: OBJC, flags: 646, code: 1}`) — across four separate
@@ -282,9 +308,10 @@ gtk_text_view_mark_set_handler                                   (libgtk-4.1.dyl
   -> objc_autoreleasePoolPop -> AutoreleasePoolPage::busted_die() (libobjc.A.dylib)
 ```
 
-**No Scribobulate frame appears anywhere in the faulting stack.** The cause is GTK4's
-Quartz backend firing `discard_preedit` on any `GtkTextView` mark-set — i.e. on any caret
-or selection change — which activates/deactivates the macOS input-method bridge, which
+**No Scribobulate frame is faulting.** Our code appears, when it appears at all, only as the
+caller that reaches the toolkit path (2026-09-13: the find bar's `grab_focus`). The cause is
+GTK4's Quartz backend firing `discard_preedit` on a `GtkTextView` focus crossing or mark-set —
+so on a focus change as well as on any caret or selection change — which activates/deactivates the macOS input-method bridge, which
 pumps a nested run loop for pasteboard-promise resolution and corrupts the autorelease
 pool stack. Not reachable from application code.
 
@@ -295,7 +322,7 @@ outlier was the first observation, which was also a contaminated run (a concurre
 on the same machine). All 4 crash reports carry a byte-identical stack signature.
 
 **Why this is still not filed against that test**, even though it is the dominant trigger
-— the argument is the stack, not the distribution. No application frame appears in it, so
+— the argument is the stack, not the distribution. No application frame faults in it, so
 nothing in that test's *code* is faulting; what the test does is arrive at the toolkit
 path more often. It exists to verify select-all standing down across *every* text entry,
 so its body is mostly rapid focus-switching between entries — which is precisely what
@@ -652,5 +679,47 @@ diagnostic. Anyone extending this should do every slot at once rather than one p
 and should check whether the paint site has a viewport gate to hang visibility off, as
 `bandpaint` did — a sprite that animates without one would run off-screen, which is the
 thing phase 2 exists to prevent.
+
+---
+
+## U. The preview opens horizontally scrolled on the first entry into Split after launch
+
+**Severity**: Low (cosmetic: the content is shifted about 20px left and a horizontal scrollbar
+shows; nothing is lost, and it does not recur later in the same process)
+
+Reported by the Windows seat (entry content theirs, edited here for format), GTK 4.22.4
+gvsbuild, release build of `bca4b6f`, two occurrences, not swept. **Seen on Windows only; not
+yet checked on Linux or macOS**, so the platform stays `Any` until a peer seat has tried.
+
+**Measured** (PrintWindow captures, 1336x759 window):
+
+- **A plain document**, `# Swap check` and one sentence — no inline code, no line near the
+  wrap width (text about 150px wide in a pane about 520px). Fresh launch with the file as an
+  argument, Preview, then Split (unswapped): the preview shows a horizontal scrollbar with its
+  thumb about 55px off the left stop, and the heading is drawn flush at the pane's left edge,
+  20px left of where the unscrolled layout puts it.
+- **The built-in welcome document** (a plain paragraph and a separate fenced `sh` block, no
+  inline span, no wrap). Relaunch with session restore, then Split (swapped): the same, with
+  the code block's box shifted by the same 20px.
+- **Not seen**: the same document after Swap Panes in the same process, or a new tab entering
+  Split later in the process.
+
+**Not issue J**, on all three of J's axes: no paragraph mixes fonts, no line sits at a wrap
+point, and the symptom is a nonzero horizontal adjustment VALUE (content displaced by about
+the left padding) with the pane drawn, not blanked.
+
+**Inferred, not probed**: on the preview's first allocation after a mode switch in a new
+process, the horizontal adjustment's `upper` briefly exceeds `page_size`, `value` lands near
+the padding width, and nothing clamps it back when `upper` shrinks.
+
+**Mitigation options**:
+
+- **Reproduce on Linux under Xvfb first**, with the same two documents, to settle the platform
+  before any fix.
+- **Treat the adjustment's settling as a dark pattern**: how and when GTK clamps an
+  adjustment's value when `upper` shrinks during a first allocation is not documented, so the
+  researcher should establish that before a fix is written, rather than resetting `value` by
+  guesswork.
+- **Accept it** while it stays cosmetic and one-off per launch.
 
 ---

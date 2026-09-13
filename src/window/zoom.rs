@@ -15,7 +15,7 @@ const ZOOM_LADDER: &[f64] = &[0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0];
 /// Test-only alias, so `winstate::ids`' scope test can assert that the zoom rule and the
 /// window's own CSS class land on the SAME selector — rather than rebuilding both strings
 /// itself and comparing its own two copies, which is what it used to do.
-#[cfg(test)]
+#[cfg(all(test, feature = "gtk-integration-tests"))]
 pub(crate) fn zoom_css_rule_for_test(window: &ApplicationWindow, zoom: f64) -> String {
     zoom_css_rule(window, zoom)
 }

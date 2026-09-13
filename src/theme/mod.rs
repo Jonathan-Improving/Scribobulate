@@ -497,7 +497,7 @@ pub(crate) fn set_active(id: &str) -> std::rc::Rc<Theme> {
 /// exactly the shape `sdd/POLICY.md` § Unit tests prescribes an RAII guard for: `Drop`
 /// runs on the panic path too, and it restores the theme that was active BEFORE rather
 /// than assuming it was System.
-#[cfg(test)]
+#[cfg(all(test, feature = "gtk-integration-tests"))]
 #[must_use = "the guard restores the previous active theme when it is dropped; \
               binding it to `_` drops it immediately and undoes the activation"]
 pub(crate) fn activate_for_test(theme: Theme) -> ActiveThemeGuard {
@@ -512,7 +512,7 @@ pub(crate) fn activate_for_test(theme: Theme) -> ActiveThemeGuard {
 
 /// Restores the process-global active theme and clears the sprite caches on `Drop` —
 /// including the panic path, which is the whole point.
-#[cfg(test)]
+#[cfg(all(test, feature = "gtk-integration-tests"))]
 pub(crate) struct ActiveThemeGuard {
     /// What was active before, `None` when nothing had resolved a theme yet. Restoring
     /// `None` rather than System keeps the guard honest about the state it found: a
@@ -521,7 +521,7 @@ pub(crate) struct ActiveThemeGuard {
     previous: Option<std::rc::Rc<Theme>>,
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "gtk-integration-tests"))]
 impl Drop for ActiveThemeGuard {
     fn drop(&mut self) {
         crate::sprite::clear_cache();

@@ -7,7 +7,7 @@
 //! a missing `register` does not fail loudly, it produces a window whose actions are
 //! wired to an application that never joined the action map.
 
-#[cfg(test)]
+#[cfg(all(test, feature = "gtk-integration-tests"))]
 use gtk::prelude::*;
 
 /// A registered, non-unique `gtk::Application` for a test that needs to build a window.
@@ -15,7 +15,7 @@ use gtk::prelude::*;
 /// `NON_UNIQUE` because several of these exist in one process and must not contend for a
 /// bus name; `register` before returning because `ApplicationWindow::new` on an
 /// unregistered application yields a window whose `app.*` actions resolve to nothing.
-#[cfg(test)]
+#[cfg(all(test, feature = "gtk-integration-tests"))]
 pub(crate) fn test_app(id: &str) -> gtk::Application {
     let app = gtk::Application::new(Some(id), gtk::gio::ApplicationFlags::NON_UNIQUE);
     app.register(gtk::gio::Cancellable::NONE)
@@ -28,7 +28,7 @@ pub(crate) fn test_app(id: &str) -> gtk::Application {
 /// The convention was previously spelled out at one call site and implied at the others,
 /// which is how two of them ended up with ids that shared a prefix by coincidence rather
 /// than by rule.
-#[cfg(test)]
+#[cfg(all(test, feature = "gtk-integration-tests"))]
 pub(crate) fn test_app_suffixed(suffix: &str) -> gtk::Application {
     test_app(&format!(
         "com.extollit.scribobulate.integrationtest.{suffix}"

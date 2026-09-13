@@ -116,7 +116,7 @@ pub(crate) use toast::sync_recovery_toast;
 pub(crate) use zoom::rerender_preview_from_live_edit;
 pub(crate) use zoom::rerender_preview_in_place;
 pub(crate) use zoom::rerender_tab_preview_in_place;
-#[cfg(test)]
+#[cfg(all(test, feature = "gtk-integration-tests"))]
 pub(crate) use zoom::zoom_css_rule_for_test;
 pub(crate) use zoom::RenderShape;
 
