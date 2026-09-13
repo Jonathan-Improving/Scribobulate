@@ -76,8 +76,13 @@
 //! | Scope | Lives in | Seeded at build from | On tab move |
 //! |---|---|---|---|
 //! | **App-wide** — one instance for the whole app, no per-window copy (e.g. the reading theme: one CSS provider) | `theme::active()` (live) + `Session` (persisted) | resolved globally | global |
-//! | **Window-scoped** — belongs to one window; two windows may legitimately disagree (zoom: one per-window CSS class; toolbar / status-bar / outline / toolbar-section visibility) | [`WindowChrome`] (zoom) / the window's own `win.*` action states (chrome), persisted per window in `session::WindowSession` | the source/active window, via `window::inherit_from` | **adopted from the destination** |
-//! | **Tab-scoped** — travels with the document (`show_unsafe_images`, `allow_outside_links`, view mode, split arrangement) | [`TabState`] | the tab's own value | **travels with the tab** |
+//! | **Window-scoped** — belongs to one window; two windows may legitimately disagree (zoom: one per-window CSS class; toolbar / status-bar / outline / toolbar-section visibility; the split PANE ORDER — `win.split-swap`) | [`WindowChrome`] (zoom, `split_swap`) / the window's own `win.*` action states (chrome), persisted per window in `session::WindowSession` | the source/active window, via `window::inherit_from` | **adopted from the destination** |
+//! | **Tab-scoped** — travels with the document (`show_unsafe_images`, `allow_outside_links`, view mode, split ORIENTATION/`split_vertical`) | [`TabState`] | the tab's own value | **travels with the tab** |
+//!
+//! `split_swap` and `split_vertical` are the two axes of one feature (the split's
+//! pane order and its H/V orientation) and are deliberately scoped
+//! DIFFERENTLY — a reminder that "sits beside it in the struct" is not "shares
+//! its scope". Classify each field on its own merits.
 //!
 //! Chrome is window-scoped and its live source of truth is the window's own
 //! `win.*` action states (each toggle handler writes them; nothing else owns
@@ -88,7 +93,10 @@
 //! **adopted from the destination** on a move into an existing one: zoom must
 //! actively adopt (two tabs under one per-window CSS class cannot render at
 //! different zooms — that is the real work `window/tabs/dnd.rs::wire_tab_arrival`
-//! does for zoom, GTK4Rs/AP-77); chrome adopts by *construction* (not tab-scoped, so an
+//! does for zoom, GTK4Rs/AP-77); `split_swap` is the same shape (one `SplitView`
+//! per tab, so its pane order must be actively re-applied on arrival too —
+//! `wire_tab_arrival` re-syncs it right alongside zoom); chrome
+//! adopts by *construction* (not tab-scoped, so an
 //! arriving tab carries no chrome and the destination's toggles are left alone —
 //! `wire_tab_arrival` needs no chrome code). Editing `wire_tab_arrival` for a
 //! window-scoped seeding change is the signal you have taken a wrong turn.

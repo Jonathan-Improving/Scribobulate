@@ -501,6 +501,17 @@ impl SplitView {
         self.apply_layout_state();
     }
 
+    /// Read back the current split order. Test-only: production code never reads
+    /// this back — `win.split-swap` is window-scoped (`WindowChrome.split_swap`)
+    /// and this widget is only ever the WRITE side of it
+    /// (`set_swapped`); a test asserting the fix needs to see the effect on the
+    /// widget itself, not the value it was told to apply. Carries the same cfg as
+    /// its only callers (POLICY's helper-gating rule), not a bare `#[cfg(test)]`.
+    #[cfg(all(test, feature = "gtk-integration-tests"))]
+    pub(crate) fn is_swapped(&self) -> bool {
+        self.imp().swapped.get()
+    }
+
     /// Update just the split orientation (win.split-orientation), in place.
     pub(crate) fn set_vertical(&self, vertical: bool) {
         self.imp().vertical.set(vertical);

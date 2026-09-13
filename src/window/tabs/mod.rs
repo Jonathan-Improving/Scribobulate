@@ -20,6 +20,8 @@ mod contextmenu;
 mod dnd;
 mod documents;
 mod lifecycle;
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+mod splitswap_gtk_tests;
 mod switch;
 
 // Intra-subsystem sibling resolution: each submodule's `use super::*` (super =

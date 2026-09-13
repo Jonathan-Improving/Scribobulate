@@ -74,13 +74,12 @@ pub(super) fn update_zoom_action_state(window: &ApplicationWindow) {
 /// The preview `ScrolledWindow` for the current mode, or `None` in edit-only mode.
 ///
 /// QA round-1 L8: delegates to [`tab_preview_sw`] (the active tab, `current_mode`)
-/// instead of re-deriving the same swap-aware split-pane rule against a second
-/// swap source (`bool_action_state(window, "split-swap", ...)`, the window-level
-/// GAction, vs. `tab_preview_sw`'s per-tab `TabState.split_swap` Cell). The two
-/// sources are kept in sync for the active tab by `on_active_tab_changed`'s
-/// resync, so this was never an observed bug — but a future split-layout change
-/// updating only one copy would have been a silent wrong-pane zoom/scroll bug,
-/// not a compile error. One rule, one implementation.
+/// instead of re-deriving the same split-pane rule a second time. `tab_preview_sw`
+/// resolves the preview scroller off the tab's own `SplitView` directly and is
+/// swap-agnostic (the scroller is a distinct persistent widget independent of pane
+/// order), so there is exactly one rule here rather than one per reader — a future
+/// split-layout change updating only one copy would otherwise be a silent
+/// wrong-pane zoom/scroll bug, not a compile error. One rule, one implementation.
 pub(super) fn get_preview_sw(window: &ApplicationWindow) -> Option<gtk::ScrolledWindow> {
     let st = winstate::state(window)?;
     tab_preview_sw(&st, current_mode(window))

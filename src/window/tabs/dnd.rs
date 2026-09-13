@@ -253,6 +253,15 @@ pub(crate) fn wire_tab_arrival(window: &ApplicationWindow, tab_view: &TabView) {
                         // calling it is one cheap `set_state` per arrival.
                         if let Some(tab) = winstate::tab_by_content_box(&child) {
                             resync_tab_action_state(&dest, &tab);
+                            // Window-scoped split pane order: the
+                            // arriving tab's own `SplitView` still carries whatever
+                            // order its ORIGIN window had baked into it — `set_chrome`
+                            // above only repointed which chrome it READS, it cannot by
+                            // itself move the widget's own `swapped` flag. Re-apply the
+                            // DESTINATION's value here, mirroring the zoom re-render
+                            // just below (same "adopted from the destination" rule,
+                            // `winstate` module doc state-scope table).
+                            tab.split.set_swapped(dc.split_swap.get());
                         }
                         let dest_zoom = dc.zoom_level.get();
                         if (dest_zoom - source_zoom).abs() > f64::EPSILON {
@@ -451,19 +460,7 @@ pub(crate) fn wire_tab_bar_dnd(window: &ApplicationWindow, tab_view: &TabView) {
                 tv.settle_reorder();
                 return true;
             }
-            // Same rule as the pop-out path above: the source window's switch to
-            // whatever the departing tab exposes is not a navigation (TDD 23.9).
-            // The source window is resolved from the tab's own live root — the
-            // drop handler is handed chrome, not a window, and a `TabState`
-            // deliberately holds no window reference (`winstate`'s module doc).
-            match window_of_content_box(&tab.content_box) {
-                Some(source) => {
-                    let _no_history = winstate::nav_suppress(&source);
-                    source_chrome.tabs.detach_tab(&tab.content_box);
-                }
-                None => source_chrome.tabs.detach_tab(&tab.content_box),
-            }
-            dest_chrome.tabs.append_page(&tab.content_box);
+            move_tab_into_window(&tab, &dest_chrome);
             // The tab-arrival callback (`wire_tab_arrival`) now owns every
             // remaining step — registry rehome, titles, and closing an
             // emptied source window — deferred exactly as it already was for
@@ -472,6 +469,37 @@ pub(crate) fn wire_tab_bar_dnd(window: &ApplicationWindow, tab_view: &TabView) {
         });
     }
     bar.add_controller(target);
+}
+
+/// Hand `tab` from its current window's strip to `dest_chrome`'s — the drop half of
+/// a tab dragged onto ANOTHER existing window's tab bar. Its own function so the drop
+/// closure and its test run the same steps.
+///
+/// **The format overlay is detached from the moved editor first**, for the reason the
+/// pop-out path (`spawn_window_hosting_tab`) gives: the source window's single caret
+/// overlay is `set_parent`-attached to its active tab's editor, GTK does not
+/// auto-unparent it, and when the moved tab was the source's ONLY tab no surviving
+/// tab's activation pulls it off as a side effect. Without this, the stale child
+/// outlives the move, and disposing that editor later floods
+/// `GtkPopover is not a child of GtkSourceView` without end on GTK 4.22 (GTK4Rs/AP-80's
+/// shape; measured on macOS). GTK 4.6 tolerates it silently, which is why no Linux
+/// run caught it. `detach_overlay_from` is a no-op unless this editor hosts it.
+///
+/// The source window's switch to whatever the departing tab exposes is not a
+/// navigation (TDD 23.9). The source window is resolved from the tab's own live
+/// root — a `TabState` deliberately holds no window reference (`winstate`'s module
+/// doc). `wire_tab_arrival` on the destination owns every later step.
+pub(super) fn move_tab_into_window(tab: &winstate::TabState, dest_chrome: &winstate::WindowChrome) {
+    let source_chrome = tab.chrome();
+    detach_overlay_from(&source_chrome, &tab.editor);
+    match window_of_content_box(&tab.content_box) {
+        Some(source) => {
+            let _no_history = winstate::nav_suppress(&source);
+            source_chrome.tabs.detach_tab(&tab.content_box);
+        }
+        None => source_chrome.tabs.detach_tab(&tab.content_box),
+    }
+    dest_chrome.tabs.append_page(&tab.content_box);
 }
 
 #[cfg(all(test, feature = "gtk-integration-tests"))]

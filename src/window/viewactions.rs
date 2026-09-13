@@ -103,15 +103,24 @@ pub(super) struct ChromeVisibility {
     /// Whether the annotations viewer starts shown. Per window, same mechanism as
     /// `outline_visible`; defaults hidden (`ChromeSession::annotations_visible`).
     pub annotations_visible: bool,
+    /// Whether this window's shared split pane order starts swapped
+    /// (`win.split-swap` — WINDOW-scoped). Seeded exactly like
+    /// `show_toolbar` — this window's own value, inherited from the source
+    /// window or restored from this window's own `WindowSession` — unlike
+    /// `split_vertical` (the split ORIENTATION), which stays tab-scoped and is
+    /// NOT seeded here; every tab starts at no-orientation-change and a restored
+    /// non-default value is replayed afterward through `win.split-orientation`'s
+    /// `change_state` (`window::restore`).
+    pub split_swap: bool,
 }
 
 /// Register the view / layout actions on `window`, seeding the chrome-visibility
 /// toggles' initial state from `vis` — this window's own `show_toolbar`/
-/// `show_statusbar`/`outline_visible`, its six per-section `section_states`, and the
-/// unsafe-images toggle (this tab's own restored value — tab-scoped). View mode
-/// and split arrangement are NOT seeded here — every
-/// window/tab always starts at Preview/no-split; a restored non-default value is
-/// replayed afterward through these very actions' `change_state` (see
+/// `show_statusbar`/`outline_visible`/`split_swap`, its six per-section
+/// `section_states`, and the unsafe-images toggle (this tab's own restored value —
+/// tab-scoped). View mode and split ORIENTATION are NOT seeded here — every
+/// tab always starts at Preview/no-orientation-change; a restored non-default
+/// value is replayed afterward through these very actions' `change_state` (see
 /// `window::restore`).
 pub(super) fn register_view_actions(
     window: &ApplicationWindow,
@@ -129,7 +138,7 @@ pub(super) fn register_view_actions(
         vis.annotations_visible,
     );
     register_chrome_visibility_actions(window, toolbar, section_boxes, status_bar, vis);
-    register_split_actions(window);
+    register_split_actions(window, vis.split_swap);
     register_zoom_actions(window);
 }
 
@@ -387,6 +396,7 @@ fn register_chrome_visibility_actions(
         section_states,
         outline_visible: _,     // handled by register_sidebar_actions, not here
         annotations_visible: _, // handled by register_sidebar_actions, not here
+        split_swap: _,          // handled by register_split_actions, not here
     } = *vis;
 
     // View-chrome visibility toggles — boolean stateful actions
@@ -518,15 +528,16 @@ fn register_chrome_visibility_actions(
 /// `win.split-swap` / `win.split-orientation` — the split-pane arrangement
 /// toggles (single source of truth for the View-menu checkboxes and the toolbar
 /// toggle buttons). Both start disabled and are gated on split mode by
-/// `apply_mode_action_state`.
-fn register_split_actions(window: &ApplicationWindow) {
+/// `apply_mode_action_state`. `split_swap` seeds this WINDOW's own starting pane
+/// order (window-scoped, like `show_toolbar`); `split-orientation`
+/// stays tab-scoped and always starts at its type default (see this function's
+/// caller's doc comment).
+fn register_split_actions(window: &ApplicationWindow, split_swap: bool) {
     // ── win.split-swap / win.split-orientation ────────────────────────────────
     // Both are boolean stateful actions (single source of truth for the View-menu
     // checkboxes and the toolbar toggle buttons). Both are disabled outside split
     // mode — apply_mode_action_state gates them in update_zoom_action_state's
-    // companion lines. Every tab starts false/false (see `WindowInit`'s doc
-    // comment); a restored non-default value is applied afterward via these
-    // same actions' `change_state` (`window::restore`).
+    // companion lines.
     //
     // split-swap: reorders the SplitView's two panes IN PLACE — no rebuild, no
     // reparent. The old design re-entered split mode to rebuild a `GtkPaned` with
@@ -536,19 +547,29 @@ fn register_split_actions(window: &ApplicationWindow) {
     // SplitView swaps allocation order instead, so it is UAF-free in every
     // orientation. Because the preview widget is unchanged, no scroll-sync/spy
     // rewire is needed either.
-    let split_swap_action = register_bool_action(window, "split-swap", false, |window, on| {
-        let Some(st) = state(window) else { return };
-        // Persist onto the tab (operator decision) so a later tab switch can
-        // re-sync this action's state per-tab.
-        st.split_swap.set(on);
-        if current_mode(window) == ViewMode::Split {
-            st.split.set_swapped(on);
+    //
+    // WINDOW-scoped: the toggle writes `WindowChrome.split_swap`,
+    // not any one tab, and re-applies the new order to EVERY tab currently in
+    // this window (mirroring `apply_zoom`'s per-tab sweep) — so a tab that is not
+    // active right now is already correct the moment it IS switched to, and a
+    // background (deferred) tab picks it up too since it is registered in
+    // `winstate::tabs_for_window` from the moment it is created.
+    let split_swap_action = register_bool_action(window, "split-swap", split_swap, |window, on| {
+        let Some(chrome) = winstate::chrome(window) else {
+            return;
+        };
+        chrome.split_swap.set(on);
+        for tab in winstate::tabs_for_window(window) {
+            tab.split.set_swapped(on);
         }
     });
     split_swap_action.set_enabled(false); // enabled by apply_mode_action_state in split mode
 
     // split-orientation: flips the SplitView's split axis in place — no rebuild
     // (the scroll-sync projection is fraction-based and orientation-agnostic — GTK4Rs/AP-16).
+    // Tab-scoped (unlike split-swap above) — every tab starts at horizontal; a
+    // restored non-default value is applied afterward via this action's
+    // `change_state` (`window::restore`).
     let split_orientation_action =
         register_bool_action(window, "split-orientation", false, |window, vertical| {
             let Some(st) = state(window) else { return };

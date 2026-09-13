@@ -330,6 +330,13 @@ pub(crate) fn create_tab_in_window(
         )
     });
     let core = assemble_tab_core(&content_box, md, preview.as_ref());
+    // Window-scoped split pane order: seed this new tab's own
+    // `SplitView` from the WINDOW's current arrangement instead of leaving it at
+    // the widget's construction default (un-swapped). Applied here rather than
+    // left to `win.split-swap`'s own handler, because that handler only reaches
+    // tabs ALREADY registered when it fires; a tab created afterward needs its
+    // own seed at birth.
+    core.split.set_swapped(chrome.split_swap.get());
 
     let tab_id = winstate::alloc_tab_id();
     winstate::add_tab(

@@ -241,6 +241,9 @@ pub(crate) fn read_window_chrome(window: &ApplicationWindow) -> crate::session::
         show_statusbar: bool_action_state(window, "show-statusbar", true),
         outline_visible: bool_action_state(window, "outline", true),
         annotations_visible: bool_action_state(window, "annotations", false),
+        // Window-scoped split pane order — same "the action IS the
+        // live source of truth" reasoning as every other field read here.
+        split_swap: bool_action_state(window, "split-swap", false),
         // The divider is geometry, not an action, so it is the one chrome field with
         // no `win.*` toggle to read it off — it comes from the live cache the paned
         // keeps up to date (see `WindowChrome::sidebar_split` for why not the widget).
@@ -492,6 +495,7 @@ fn build_window(
             section_states: chrome_init.toolbar_sections.to_array(),
             outline_visible: chrome_init.outline_visible,
             annotations_visible: chrome_init.annotations_visible,
+            split_swap: chrome_init.split_swap,
         },
     );
     register_tab_actions(&window);
@@ -508,6 +512,13 @@ fn build_window(
     // installs that preview, and wires the per-tab editor/search/occurrences/
     // caret-overlay/live-preview signals.
     let core = assemble_tab_core(&chrome.content_box, md, Some(&chrome.initial_preview));
+    // Window-scoped split pane order: a freshly built `SplitView`
+    // starts un-swapped by construction, which is only right for a genuinely
+    // fresh window. Apply THIS window's own starting value (inherited or
+    // restored) here so the first tab agrees with every later one this window
+    // ever gets — the same choke point `create_tab_in_window` uses for every
+    // tab after this one.
+    core.split.set_swapped(chrome_init.split_swap);
 
     // ── window-level find/format furniture (built ONCE per window, not per tab) ─
     // The find bar's shared widgets live in WindowChrome; its closures fetch the
@@ -539,6 +550,7 @@ fn build_window(
         format_overlay,
         ov_edit_btns,
         zoom_level,
+        chrome_init.split_swap,
         chrome_init.sidebar_split,
         zoom_css_provider,
     );
@@ -639,6 +651,7 @@ fn build_window_chrome_state(
     format_overlay: gtk::Popover,
     ov_edit_btns: Vec<(FmtInsertKind, gtk::Button)>,
     zoom_level: f64,
+    split_swap: bool,
     sidebar_split: f64,
     zoom_css_provider: gtk::CssProvider,
 ) -> Rc<winstate::WindowChrome> {
@@ -665,6 +678,7 @@ fn build_window_chrome_state(
         focused_pane: Cell::new(winstate::FocusedPane::Editor),
         ctx_link: RefCell::new(None),
         zoom_level: Cell::new(zoom_level),
+        split_swap: Cell::new(split_swap),
         sidebar_split: Cell::new(sidebar_split),
         zoom_css_provider,
         tabs: chrome.tabs.clone(),
@@ -969,6 +983,7 @@ pub(crate) mod gtk_integration_tests {
                 outline_visible: false,
                 annotations_visible: false,
                 sidebar_split: crate::session::ChromeSession::default().sidebar_split,
+                split_swap: false,
                 toolbar_sections: crate::session::ToolbarSections::default(),
             };
             crate::session::save(&crate::session::Session {

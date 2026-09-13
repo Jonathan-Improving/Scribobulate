@@ -132,7 +132,6 @@ fn persist_all_windows_session(closing: &ApplicationWindow) {
                         // (`swapfile`'s self-sufficiency principle).
                         doc_id: Some(t.doc_id().as_str().to_string()),
                         view_mode: t.view_mode.get(),
-                        split_swap: t.split_swap.get(),
                         split_vertical: t.split_vertical.get(),
                         show_unsafe_images: t.allow_unsafe_images.get(),
                     })

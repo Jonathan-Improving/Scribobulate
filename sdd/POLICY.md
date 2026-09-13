@@ -871,9 +871,12 @@ every line as portable unless it lives in a platform seam (§ Platform seams).
 
 - Format with `rustfmt`; keep `cargo clippy` clean. Use `Result`/`?`; no
   `unwrap`/`expect` outside tests and startup invariants.
-- **Soft limit 500 lines per file**, checked *before* the edit that would exceed it —
+- **Soft limit 1,200 lines per file**, checked *before* the edit that would exceed it —
   decompose at that moment (extracting a decision core also brings it inside the
-  coverage gate), not later.
+  coverage gate), not later. Raised from 500 on 2026-09-13: at 500, 98 files were over
+  it and the rule demanded rework out of all proportion to what it protects. Source
+  comments that cite "the 500-line soft limit" record why a past split happened; they
+  are history, not the current number.
 - **Keep functions small and shallow.** Logic trapped in a long, deeply nested function
   can only be exercised end-to-end. GTK signal-wiring bodies are the pragmatic
   exception; hoist real computation out of them even so.
@@ -986,7 +989,7 @@ full account is ScrAP-225; the rule above is what stops it recurring.
   here even when the fix is pure gtk-rs. Splitting on mechanism would scatter one
   decision's consequences across the tree.
   **It is a directory, and the children split by cause.** It was a single file until it
-  passed 1100 lines against the 500-line soft limit below, at which point the two rules
+  passed 1100 lines against the soft limit below (then 500 lines), at which point the two rules
   pointed opposite ways; the operator ruled for decomposition. What the one-place rule
   protects is that every call past GTK crosses **one** module boundary with **one**
   `#[cfg]` gate, and a directory preserves that exactly — `platform/mac/` has always been

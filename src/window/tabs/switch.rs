@@ -138,7 +138,13 @@ pub(super) fn resync_tab_action_state(window: &ApplicationWindow, st: &Rc<TabSta
         "view-mode",
         &st.view_mode.get().as_str().to_variant(),
     );
-    set_action_state(window, "split-swap", &st.split_swap.get().to_variant());
+    // Window-scoped: reads THIS window's own value off its chrome,
+    // not this tab's — every tab in a window reports the same arrangement.
+    set_action_state(
+        window,
+        "split-swap",
+        &st.chrome().split_swap.get().to_variant(),
+    );
     set_action_state(
         window,
         "split-orientation",
@@ -364,7 +370,7 @@ pub(super) fn detach_overlay_from(chrome: &winstate::WindowChrome, editor: &sour
 ///     GAction replay is needed, so this is safe to run in the BACKGROUND for a
 ///     non-active tab (the pre-render pump does exactly that).
 ///
-///   • **A restored NON-default layout** (Edit / Split / swapped / vertical) —
+///   • **A restored NON-default layout** (Edit / Split / vertical) —
 ///     replay it through the real view-mode/split GActions
 ///     ([`apply_tab_layout`]), which act on the ACTIVE tab: they rebuild its
 ///     content, render (or free) the preview, wire split scroll-sync, move
@@ -374,10 +380,16 @@ pub(super) fn detach_overlay_from(chrome: &winstate::WindowChrome, editor: &sour
 ///     by construction they only reach here from `on_active_tab_changed` (a
 ///     genuine first activation), where the switched-to tab is already active.
 ///
+/// The split PANE ORDER (swap) needs no replay here at all — it is
+/// WINDOW-scoped (`WindowChrome.split_swap`) and already applied to
+/// this tab's own `SplitView` the moment it was created
+/// (`create_tab_in_window`) and on every later toggle while it sits in the
+/// background (`win.split-swap`'s handler sweeps every tab in
+/// `winstate::tabs_for_window`), so by the time this runs it is already correct.
+///
 /// The preview render below fires only for Preview mode: a Split tab's preview
 /// is built by the view-mode replay itself (no double render), and an Edit tab
-/// has none. A Preview tab merely carrying a stale split flag (leftover from a
-/// past split) is rendered here AND has the flag re-applied by the replay.
+/// has none.
 fn materialize_deferred_preview(window: &ApplicationWindow, st: &Rc<TabState>) {
     if !st.needs_render.replace(false) {
         return;
@@ -389,7 +401,6 @@ fn materialize_deferred_preview(window: &ApplicationWindow, st: &Rc<TabState>) {
     // first-activation click.
     st.chrome().tabs.set_tab_busy(&st.content_box, false);
     let mode = st.view_mode.get();
-    let swapped = st.split_swap.get();
     let vertical = st.split_vertical.get();
 
     if mode == ViewMode::Preview {
@@ -411,9 +422,10 @@ fn materialize_deferred_preview(window: &ApplicationWindow, st: &Rc<TabState>) {
         st.split.set_preview(Some(&preview));
     }
     // Replay any non-default persisted layout (no-op for a plain Preview/no-split
-    // tab). Active-tab only — see this function's doc comment.
-    if mode.is_editor_visible() || swapped || vertical {
-        apply_tab_layout(window, mode, swapped, vertical);
+    // tab). Active-tab only — see this function's doc comment. Split PANE ORDER
+    // is deliberately not part of this gate — see the note above.
+    if mode.is_editor_visible() || vertical {
+        apply_tab_layout(window, mode, vertical);
     }
 }
 
@@ -428,10 +440,13 @@ fn materialize_deferred_preview(window: &ApplicationWindow, st: &Rc<TabState>) {
 /// on, and clear, `needs_render`), so a click that races ahead of the pump just
 /// renders that one tab early and the pump skips it.
 ///
-/// A restored tab with a NON-default layout (Edit/Split/swapped/vertical) is
+/// A restored tab with a NON-default layout (Edit/Split/vertical) is
 /// deliberately EXCLUDED here: its materialization replays that layout through
 /// the active-tab GActions, which is only correct while it is the active tab, so
 /// it is left to render on its own first activation (never in the background).
+/// Split PANE ORDER plays no part in this gate — it is window-scoped and
+/// already correct on every tab regardless of activation (see
+/// `materialize_deferred_preview`'s doc comment).
 pub(crate) fn prerender_one_deferred_tab(app: &gtk::Application) -> bool {
     for win in app.windows() {
         let Ok(w) = win.downcast::<ApplicationWindow>() else {
@@ -440,7 +455,6 @@ pub(crate) fn prerender_one_deferred_tab(app: &gtk::Application) -> bool {
         for st in winstate::tabs_for_window(&w) {
             if st.needs_render.get()
                 && st.view_mode.get() == ViewMode::Preview
-                && !st.split_swap.get()
                 && !st.split_vertical.get()
             {
                 materialize_deferred_preview(&w, &st);

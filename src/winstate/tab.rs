@@ -335,9 +335,11 @@ pub(crate) struct TabState {
     /// via `set_state` (not `change_state`, which would needlessly rebuild
     /// `content_box` — already correct for this tab and untouched by a switch).
     pub(crate) view_mode: Cell<ViewMode>,
-    /// This tab's own split-pane arrangement (operator decision Q3), re-synced
-    /// the same way as [`view_mode`](Self::view_mode).
-    pub(crate) split_swap: Cell<bool>,
+    /// This tab's own split AXIS/orientation (H vs. V — operator decision Q3),
+    /// re-synced the same way as [`view_mode`](Self::view_mode). The split's
+    /// PANE ORDER (swapped or not) moved to
+    /// [`WindowChrome::split_swap`](super::WindowChrome::split_swap) —
+    /// a different axis, not tab-scoped.
     pub(crate) split_vertical: Cell<bool>,
 }
 
@@ -540,7 +542,6 @@ impl TabState {
             // `window/mod.rs`'s `WindowInit` doc comment and
             // `restore::apply_restored_tab_state`).
             view_mode: Cell::new(ViewMode::Preview),
-            split_swap: Cell::new(false),
             split_vertical: Cell::new(false),
         }
     }

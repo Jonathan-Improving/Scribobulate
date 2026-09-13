@@ -37,8 +37,7 @@ described from a different vantage point.
 | I | Mac | Upstream | macOS only: every native file-chooser invocation (Open, Save, Export) grows RSS by ~1.1 MB and does not give it back. Roughly four fifths is AppKit's own price for presenting an `NSSavePanel` — reproduced with no GTK in the process — with about a fifth GTK-attributable. Caching the panel upstream would recover ~95% | Medium |
 | J | Any | Upstream | A paragraph that mixes fonts (any inline-code span) can lay out a few pixels wider than the wrap width it was given, summoning the preview's Automatic horizontal scrollbar and intermittently blanking the pane until a resize | Closed |
 | M | Windows | Production | On a machine with no Visual C++ runtime the app installs and then fails to start; the installer's bootstrapper for it has landed but has never been verified against that condition | Medium |
-| N | Any | Production | An animated theme sprite plays only in the two BAND decorations (heading, disclosure summary); in a quote bar, list marker, annotation chip or horizontal rule the same file shows its first frame and never moves | Low |
-| R | Any | Production | Pane swap is remembered per TAB, so a new tab opens with the panes back the way they were and the arrangement has to be set again; tabs are short-lived and the setting is not | Low |
+| N | Any | Production | An animated theme sprite plays only in the two BAND decorations (heading, disclosure summary); in a quote bar or panel scene, list marker, annotation chip, horizontal rule or heading marker the same file shows its first frame and never moves | Low |
 
 
 ## A. Tables are selection islands
@@ -629,65 +628,29 @@ four of six sprite slots; nothing misdraws, nothing leaks, and a still sprite is
 
 TDD 27.9 says a theme's animated sprite plays. It does — in the heading band and the
 disclosure summary band, which share one painter (`codeview::bandpaint::paint_band`) and so
-took one substitution. The other sprite slots each have their own painter and were left on
-the still path: the blockquote accent bar and panel (`codeview::quotes`), the list gutter's
-markers (`codeview::listmarkers`), the annotation chips (`codeview::chips`) and the
-horizontal-rule sprite (`widgets::rule`). Each needs the same one-line substitution —
-`animation::sprites::frame_for(view, sprite_ref, natural)` in place of the natural texture —
-plus a test at that site.
+took one substitution. The other sprite slots were left on the still path, and they are
+**not** one-line substitutions (from code reading, 2026-09-13; not yet built):
+
+- **Resampled slots.** `frame_for` hands back a frame at the sprite's NATURAL size, which
+  suits a tile drawn 1:1. Most remaining slots instead draw a texture resampled by
+  `sprite::scaled`, cached per size from the still decode: the annotation chips
+  (`codeview::chips`) and list-gutter markers (`codeview::gutter`) through
+  `widgets::draw_sprite_into`, the quote panel's corner scene through
+  `widgets::draw_scene_corner`, and the blockquote bar (`codeview::quotes`) whenever zoom
+  makes the bar wider than the tile. Animating these needs a per-frame nearest-neighbour
+  resample with a cache of its own.
+- **The horizontal rule** (`widgets::rule`) tiles at natural size but is its own child
+  widget, so it likely sits outside the `decorplan` viewport gate `frame_for` relies on and
+  needs a visibility source of its own.
+- **The heading marker** (`renderer::emit::insert_heading_marker`) is not painted at all:
+  it is inserted into the buffer as a still paintable at render time, so it would take the
+  document-image route (`animation::paintable`) rather than `frame_for`.
 
 **The asymmetry is invisible to a theme author**, which is what makes it worth recording:
 the same `.webp` animates in one key and does not in another, with no warning and no
-diagnostic. Anyone extending this should do all four at once rather than one per complaint,
+diagnostic. Anyone extending this should do every slot at once rather than one per complaint,
 and should check whether the paint site has a viewport gate to hang visibility off, as
 `bandpaint` did — a sprite that animates without one would run off-screen, which is the
 thing phase 2 exists to prevent.
-## R. Pane swap is remembered per tab, so every new tab forgets it
-
-**Severity**: Low (a repeated manual correction, no data at risk; it costs one menu
-item or accelerator each time, and the count of times is the whole complaint)
-
-`Swap Panes` (`win.split-swap`) writes its state to `TabState.split_swap`
-(`src/winstate/tab.rs`), alongside `split_vertical`. That was a deliberate scoping
-decision when it was made, and `src/winstate/mod.rs`'s state-scope table still records
-split arrangement as tab-scoped. What has changed since is how tabs are used: they are
-opened and closed constantly, and a preference about *where the editor sits on screen*
-outlives any one of them. So the user flips the panes, closes the tab, opens another,
-and the panes are back the way they were.
-
-**Measured, in a real GTK harness** (`create_tab_in_window`, the path `File ▸ New
-Document` takes): a new tab's `split_swap` comes back `false` regardless of what the
-currently-active tab is showing. It inherits nothing; it starts from the type's
-construction default. Restart survival is *not* the broken half: `TabSession.split_swap`
-is written per tab and replayed through the real actions on restore, so a relaunch does
-restore each tab's own arrangement. The gap is entirely new-tab-within-a-live-session.
-
-**Mitigation options**:
-
-- **Promote it to window scope**, the way zoom already works (`WindowChrome.zoom_level`).
-  Every choke point this needs is built: `window::inherit_from` already threads zoom into
-  a new window's `WindowInit`, `resync_tab_action_state` already re-reads window state on
-  a tab switch, and `wire_tab_arrival` already adopts the destination window's zoom when a
-  tab is dragged across, which is exactly where a moved tab would adopt the destination's
-  arrangement instead of carrying its own. Two windows stay free to differ. This is the
-  recommendation, and it is medium effort: one struct field moved, five or six call sites
-  re-pointed, a session migration, and three rubrics rewritten (TDD 15.8 is made false by
-  it and 15.10 partly so).
-- **Promote it to application scope**, one arrangement shared by every open window, so a
-  flip in one window re-lays-out the others live. Nothing in the report asks for that, it
-  has no precedent in this codebase beyond the single shared preview-theme CSS provider,
-  and it means rebuilding every open tab's `SplitView` on a single toggle. It is the
-  larger and riskier of the two, and worth doing only if the operator says the preference
-  is about the application rather than about a window.
-- **Seed a new tab from the active one and leave the storage alone**. Cheapest by far, and
-  it fixes the reported symptom. It also leaves two tabs in one window free to disagree
-  about where the editor sits, which is the incoherence underneath the complaint rather
-  than the complaint itself.
-
-Existing `session.toml` files carry the per-tab key, so either promotion needs a
-migration in the shape of `migrate_v2_app_wide_chrome` (`src/session.rs`), reading each
-window's arrangement from **the tab that was active when the session was saved**. A
-majority vote or a last-writer rule would both sometimes restore an arrangement the user
-was not looking at.
 
 ---
