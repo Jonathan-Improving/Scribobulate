@@ -203,19 +203,17 @@ pub(crate) struct TabState {
     /// unit-tested directly rather than only reachable through a live
     /// `TabState`.
     pub(crate) expect_self_delete: SelfDeleteGuard,
-    /// True when this tab HAS a backing path but that file is currently gone
-    /// from disk — a genuine external deletion the file monitor reported (not a
-    /// self-rename save, which `expect_self_delete` swallows). Independent of
-    /// the dirty flag: a *clean* buffer over a now-missing file still reads as
-    /// "clean" (buffer == baseline), so without this flag Save stays disabled
-    /// and the "File deleted on disk — save to restore it" notice points at an
-    /// inert control. `save_enabled(dirty, backing_missing)` consults it so
-    /// Save re-creates the file. Set in the monitor's `Deleted` handler; cleared
-    /// the instant the file exists again — a successful save (`save_window`), a
-    /// reload, or any monitor event that implies the path is back
-    /// (`Changed`/`ChangesDoneHint`/`Created`). Never set for an untitled
-    /// document (no path to be missing).
-    pub(crate) backing_missing: Cell<bool>,
+    /// Why this document's buffer is the only copy of it, if it is: its file was
+    /// deleted, or emptied, on disk (TDD 3.4, 3.5, 15.22). Independent of the dirty
+    /// flag — a *clean* buffer over a lost file still reads as clean against its
+    /// baseline, so this is what keeps Save enabled, the tab badged ⚠, the close
+    /// prompt armed and a crash-recovery snapshot on disk. Set and cleared by
+    /// `window::backingloss`, and cleared by a completed save or an explicit reload.
+    /// Always `None` for an untitled document.
+    pub(crate) backing_loss: Cell<Option<super::BackingLoss>>,
+    /// The pending re-read that decides whether a file seen blank was truncated or
+    /// was caught between a rewrite's truncate and its write (TDD 3.5).
+    pub(crate) truncation_settle: Cell<Option<gtk::glib::SourceId>>,
     /// True while the editor buffer is being replaced programmatically (load /
     /// external reload), so the split-preview debounce ignores that change.
     pub(crate) loading: Cell<bool>,
@@ -513,9 +511,9 @@ impl TabState {
             suppress_conflict: Cell::new(false),
             pending_external: Cell::new(false),
             expect_self_delete: SelfDeleteGuard::default(),
-            // A freshly loaded/created tab's file is present (or it is untitled);
-            // only a genuine external Deleted event flips this true.
-            backing_missing: Cell::new(false),
+            // A freshly loaded/created tab's file is present (or it is untitled).
+            backing_loss: Cell::new(None),
+            truncation_settle: Cell::new(None),
             loading: Cell::new(false),
             write_gate: crate::winstate::WriteGate::default(),
             doc_epoch: crate::winstate::DocEpoch::default(),
@@ -667,13 +665,13 @@ impl TabState {
 
     /// Whether closing this tab must prompt the user first, exactly as a dirty
     /// tab does (TDD 15.22). True when the buffer has unsaved edits OR the
-    /// backing file was deleted out from under the document (`backing_missing`):
-    /// in the latter case the buffer holds the document's only remaining copy —
-    /// closing without a Save (which re-creates the file) would lose it — so it
-    /// is guarded like unsaved work even though it is byte-for-byte "clean"
-    /// against a baseline whose file no longer exists.
+    /// backing file was deleted or truncated out from under the document
+    /// (`backing_loss`): in the latter case the buffer holds the document's only
+    /// remaining copy — closing without a Save would lose it — so it is guarded like
+    /// unsaved work even though it is byte-for-byte "clean" against its baseline.
+    /// The crash-recovery snapshot keys off the same answer (TDD 22.18).
     pub(crate) fn needs_close_prompt(&self) -> bool {
-        self.is_dirty() || self.backing_missing.get()
+        self.is_dirty() || self.backing_loss.get().is_some()
     }
 
     pub(crate) fn has_path(&self) -> bool {

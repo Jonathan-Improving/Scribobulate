@@ -12,7 +12,7 @@ single document with full-fidelity rendering. The rejected alternatives
 
 ## System overview
 
-![System overview: one single-threaded GtkApplication process; each Document Window carries per-window chrome plus a TabView of tabs, each tab one document (TabState) whose SplitView holds a GtkSourceView source pane and a CodePreviewView preview pane; Markdown source flows through CriticMarkup extraction, pulldown-cmark, the Renderer and preview::build_render_products into the preview widget; the file on disk is read and written through docio on GLib's I/O thread pool (writes via atomic_io) and watched by a gio::FileMonitor whose pure decision core chooses ignore, conflict-toast or reload; and a second, display-free consumer of the same event stream builds one ExportDoc that two sinks turn into an HTML file or a paginated PDF.](system-overview.svg)
+![System overview: one single-threaded GtkApplication process; each Document Window carries per-window chrome plus a TabView of tabs, each tab one document (TabState) whose SplitView holds a GtkSourceView source pane and a CodePreviewView preview pane; Markdown source flows through CriticMarkup extraction, pulldown-cmark, the Renderer and preview::build_render_products into the preview widget; the file on disk is read and written through docio on GLib's I/O thread pool (writes via atomic_io) and watched by a gio::FileMonitor whose pure decision core chooses ignore, conflict-toast, reload, or keeping the buffer when the file is deleted or emptied; and a second, display-free consumer of the same event stream builds one ExportDoc that two sinks turn into an HTML file or a paginated PDF.](system-overview.svg)
 
 GSK is configured to use the **Cairo software renderer** (`GSK_RENDERER=cairo`,
 set in-process before GTK initialises), so the application never holds a GL/GLES
@@ -106,9 +106,10 @@ Platform-specific notes that shape the architecture:
 
 ### Integration boundaries
 
-- **Filesystem ↔ Recovery snapshot**: a dirty document's buffer is periodically
-  written to a *swap file* in the user state directory, so an unclean exit (a
-  SIGSEGV, an OOM kill, a power loss) no longer discards unsaved work. This is the
+- **Filesystem ↔ Recovery snapshot**: a document's buffer is periodically written
+  to a *swap file* in the user state directory while it is at risk — dirty, or its
+  file deleted or emptied — so an unclean exit (a SIGSEGV, an OOM kill, a power
+  loss) no longer discards work that exists nowhere else. This is the
   one write path besides save, and it is deliberately not the same one: it must be
   owner-only from the first byte and must never block the main thread, neither of
   which `atomic_io` provides. The write opens a co-located temp with GIO
@@ -132,8 +133,9 @@ Platform-specific notes that shape the architecture:
 - **File watcher ↔ main loop**: a `gio::FileMonitor` is attached per open file.
   Events arrive on the GLib main loop directly, with no background thread, and the
   monitor's lifetime follows the tab that owns it. Whether a change is ignored,
-  reloaded, or raised as a conflict is decided by a pure function of the buffer's
-  dirty state; the behavioural contract is TDD §3 and §5.
+  reloaded, raised as a conflict, or recorded as the file being deleted or emptied
+  out from under its buffer is decided by a pure function of what the re-read found
+  and the document's state; the behavioural contract is TDD §3 and §5.
 - **Single-instance activation**: a second launch with file arguments is
   forwarded to the primary instance's `open` handler; no second process starts.
   The transport is per-platform and the difference stops at the transport — every
@@ -196,7 +198,8 @@ Every module below runs on the GTK main thread; see [Concurrency model](#concurr
 | `window/save.rs` | Owns the save path, including the pre-write safety check and the atomic write. |
 | `window/export.rs` | Owns the GTK edge of File ▸ Export: the one `win.export` action, the destination chooser, dispatching the HTML write, and the outcome notice. The name the chooser is **seeded with** is validated (through `docio/rename`'s rules) and the name it **returns** is not — the platform agrees with those rules on reserved names and forbidden characters and disagrees on trailing dots and spaces, so gating the return would reject a name the platform already accepted and rewrote. |
 | `window/export_pdf.rs` | Owns driving `GtkPrintOperation`'s export route. Its two load-bearing facts: the destination is **never** handed to GTK, which opens and therefore truncates it before the first page is drawn (so the render goes to a staged temp promoted only on success), and success is concluded from the return value **plus the application's own page tally**, never from `is_finished()`/`status()`, which are inverted in both directions. |
-| `window/reload.rs` | Owns live-reload and conflict handling for external file changes. |
+| `window/reload.rs` | Owns live-reload and conflict handling for external file changes, including the settle re-read that tells a truncated file from one caught mid-rewrite. |
+| `window/backingloss.rs` | Owns applying a document's *backing loss* — its file deleted or emptied on disk, leaving the buffer as the only copy — to every guard that reads it: Save, the ⚠ badge, the close prompt and the crash-recovery snapshot. |
 | `window/rename.rs` | Owns renaming a document's file in place: the dialog, the per-tab enablement rule's two readers, and the monitor choreography — the live-reload monitor is **cancelled before** the rename and re-attached after, on every path including failure, because a rename of a watched file delivers three events on the old monitor (Linux/Windows) and the save path's self-delete guard consumes only one of them. The filesystem call and every naming rule live in `docio/rename.rs`. |
 | `window/toast.rs` | Owns the floating toast widgets — the conflict prompt and the transient info notice. |
 | `window/scrollsync.rs` | Owns split-pane scroll synchronisation, coalesced to once per frame. |

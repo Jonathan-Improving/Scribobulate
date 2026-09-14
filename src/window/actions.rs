@@ -564,17 +564,17 @@ pub(crate) fn nested_submenu_app_stateful_action(
 /// a file-side operation, not a buffer mutation — so unlike the editor-only
 /// actions it is NOT gated on the preview-mode lockout; it tracks the active
 /// tab's unsaved-changes (dirty) state in every view mode, including
-/// preview-only. It is ALSO enabled when the active tab's backing file is gone
-/// from disk (`backing_missing`) even if the buffer is clean — so Save can
-/// re-create a deleted file and the "save to restore it" notice is actionable.
+/// preview-only. It is ALSO enabled when the active tab's backing file was deleted
+/// or truncated (`backing_loss`) even if the buffer is clean — so Save can restore
+/// the file and the "save to restore it" notice is actionable.
 /// Called from `apply_mode_action_state` (mode/tab switch) and
-/// `refresh_dirty_status` (every edit, save, reload), and directly from the
-/// file monitor's `Deleted`/reappear handlers that flip `backing_missing`.
+/// `refresh_dirty_status` (every edit, save, reload), and from
+/// `window::backingloss`, which sets and clears `backing_loss`.
 pub(crate) fn update_save_action_state(window: &ApplicationWindow) {
-    let (dirty, backing_missing) = state(window)
-        .map(|st| (st.is_dirty(), st.backing_missing.get()))
+    let (dirty, backing_lost) = state(window)
+        .map(|st| (st.is_dirty(), st.backing_loss.get().is_some()))
         .unwrap_or((false, false));
-    set_action_enabled(window, "save", save_enabled(dirty, backing_missing));
+    set_action_enabled(window, "save", save_enabled(dirty, backing_lost));
     // Save All is enabled when ANY tab in the window needs writing — dirty or
     // clean-over-deleted-file — not only the active one (TDD 4.12).
     let any_to_save = winstate::tabs_for_window(window)

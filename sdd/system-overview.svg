@@ -174,7 +174,7 @@
   <text class="lbl" x="644" y="592" font-size="9.5">thread, no channel. One monitor per tab, per file.</text>
   <text class="lbl" x="644" y="608" font-size="9.5"><tspan class="mono" font-weight="bold">winstate::external_change_action</tspan> — a pure, GTK-free</text>
   <text class="lbl" x="644" y="620" font-size="9.5">decision core (unit-tested headlessly):</text>
-  <text class="lbl" x="644" y="631" font-size="8.8">same content → Ignore · changed + dirty → Toast · changed + clean → Reload</text>
+  <text class="lbl" x="644" y="631" font-size="8.8">same → Ignore · dirty or lost → Toast · clean → Reload · blank → keep ⚠</text>
 
   <path class="flow" d="M 246 578 L 288 578" stroke-width="1.4" marker-end="url(#a)"/>
   <path class="flow" d="M 288 600 L 246 600" stroke-width="1.4" marker-end="url(#a)"/>
@@ -218,9 +218,9 @@
   <!-- ── crash recovery ─────────────────────────────────────────────────── -->
   <rect class="note" x="26" y="816" width="948" height="76" rx="4" stroke-width="1"/>
   <text class="t" x="36" y="833" font-size="10.5" font-weight="bold">Crash recovery — swap/ under XDG_STATE_HOME · swapfile/ + window/swap.rs + window/swaprecovery.rs</text>
-  <text class="lbl" x="36" y="848" font-size="9.5">The one place document text <tspan font-style="italic">is</tspan> persisted, and only while a document is dirty. Invariant: <tspan class="mono" font-weight="bold">a swap file exists iff the document is dirty</tspan>,</text>
-  <text class="lbl" x="36" y="861" font-size="9.5">applied at the single point dirtiness is recomputed — so save, undo, discard and reload need no deletion rule of their own.</text>
-  <text class="lbl" x="36" y="874" font-size="9.5">Written by <tspan class="mono">replace_contents_async</tspan> (GLib's thread pool — no thread of ours; owner-only from the first byte). Each file carries a</text>
+  <text class="lbl" x="36" y="848" font-size="9.5">The one place document text <tspan font-style="italic">is</tspan> persisted, and only while its buffer is at risk. Invariant: <tspan class="mono" font-weight="bold">a swap file exists iff closing would prompt to save</tspan></text>
+  <text class="lbl" x="36" y="861" font-size="9.5">(dirty, or its file deleted or emptied) — applied at one choke point, so save, undo, discard and reload need no deletion rule of their own.</text>
+  <text class="lbl" x="36" y="874" font-size="9.5">Written to a temp by <tspan class="mono">replace_async</tspan> and renamed only once complete (GLib's thread pool — no thread of ours; owner-only from the first byte). Each file carries a</text>
   <text class="lbl" x="36" y="887" font-size="9.5">frontmatter header naming its own document, so recovery reads the headers, never session.toml: <tspan font-style="italic">a non-empty swap/ IS the "unclean exit" signal.</tspan></text>
 
   <!-- ── network egress ─────────────────────────────────────────────────── -->

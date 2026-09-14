@@ -288,34 +288,21 @@ pub(crate) fn attach_file_backing(
                 );
                 return;
             }
-            // The backing file is genuinely gone. Mark the document savable even
-            // if the buffer is clean (buffer == baseline whose file no longer
-            // exists), so Ctrl+S / File ▸ Save re-creates it and the notice's
-            // own suggested action actually works. Recompute the active window's
-            // Save sensitivity now — if this tab is the active one, Save enables
-            // immediately; if it's a background tab, the tab-switch path picks
-            // up the flag when the user switches to it.
-            tab.backing_missing.set(true);
-            crate::window::update_save_action_state(&win);
-            // Badge this tab (active or background) with the yellow "⚠"
-            // deleted-backing marker, mirroring how a pending external change
-            // badges "⟳" — it also arms the close guard (`needs_close_prompt`),
-            // so the transient notice and the tab both signal the risk. TDD 15.22.
-            crate::window::badge_tab_label(&tab);
-            // Pushed and retracted through the chrome, so the notice is taken down
-            // from the window that showed it even if this tab is moved or closed
-            // first — `WindowChrome::push_timed_notice`.
-            tab.chrome().push_timed_notice(
-                "File deleted on disk — save to restore it",
-                crate::winstate::ERROR_NOTICE_TIME,
-            );
+            // The backing file is genuinely gone, so the buffer is its only copy
+            // (TDD 3.4, 15.22).
+            crate::window::mark_backing_lost(&tab, crate::winstate::BackingLoss::Deleted);
             return;
         }
 
         match event {
+            // `AttributeChanged` re-reads too: Darwin's kqueue reports an in-place
+            // truncation (`open(O_TRUNC)`, `ftruncate`) as NOTE_ATTRIB alone, so on macOS
+            // it is the ONLY event an emptied file produces (TDD 3.5). A genuine
+            // attribute-only change reads back identical and decides `Ignore`.
             FileMonitorEvent::Changed
             | FileMonitorEvent::ChangesDoneHint
-            | FileMonitorEvent::Created => {
+            | FileMonitorEvent::Created
+            | FileMonitorEvent::AttributeChanged => {
                 // Don't leave a stale self-delete guard armed to swallow a later,
                 // genuinely external deletion (GTK4Rs/AP-62).
                 //
@@ -336,29 +323,18 @@ pub(crate) fn attach_file_backing(
                 // The app's own Rename does not rely on any of this — it cancels the
                 // monitor before renaming (`window/rename.rs`).
                 tab.expect_self_delete.disarm();
-                // The file exists again (recreated / rewritten externally). If a
-                // prior Deleted had flipped the "backing missing" savable
-                // override, retire it now that the clean state means "clean over
-                // a present file" again, and refresh Save sensitivity so it
-                // returns to being dirty-gated. Harmless when it was never set.
-                if tab.backing_missing.replace(false) {
-                    if let Some(active_win) = crate::window::window_of_content_box(&tab.content_box)
-                    {
-                        crate::window::update_save_action_state(&active_win);
-                    }
-                    // The file exists again — clear the yellow "⚠" badge on this
-                    // tab (the check_and_reload below then handles any content
-                    // change). TDD 15.22.
-                    crate::window::badge_tab_label(&tab);
-                }
+                //
+                // A document flagged as deleted or truncated is NOT un-flagged here:
+                // whether its file is back is decided from what the read below finds,
+                // because a file that returns with different content is a conflict, not
+                // a restoration (TDD 3.6).
             }
             // QA round-1 L5: explicitly named as "known, not relevant to
             // reload semantics" rather than folded into a silent `_ =>
             // return` — this app never watches a mount point or cares about
-            // bare attribute/rename-without-content-change events, so
-            // dropping them here is deliberate, not an oversight.
-            FileMonitorEvent::AttributeChanged
-            | FileMonitorEvent::PreUnmount
+            // bare rename-without-content-change events, so dropping them here
+            // is deliberate, not an oversight.
+            FileMonitorEvent::PreUnmount
             | FileMonitorEvent::Unmounted
             | FileMonitorEvent::Moved
             | FileMonitorEvent::Renamed

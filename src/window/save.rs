@@ -181,13 +181,11 @@ async fn save_window(
     // work just written to disk vanishes from the screen and the next save puts the
     // stale version back over it (`winstate::DocEpoch`).
     st.doc_epoch.bump();
-    // The write re-created the file if it had been deleted, so retire the
-    // "backing missing" savable override — the subsequent `refresh_dirty_status`
-    // recomputes Save sensitivity (now clean + present → disabled). This is the
-    // "save to restore it" completion: a clean buffer over a deleted file was
-    // savable only because of this flag, and the save just made the file exist
-    // again.
-    st.backing_missing.set(false);
+    // The write re-created a deleted file, or refilled a truncated one, so the buffer
+    // is no longer the only copy — the "save to restore it" completion. The swap sync
+    // and badge below, and the callers' `refresh_dirty_status`, re-derive everything
+    // the flag was guarding.
+    st.backing_loss.set(None);
     // A fresh save resets the conflict state: an earlier dismissal no longer
     // applies and a future external change should warn again.
     st.suppress_conflict.set(false);
@@ -334,7 +332,11 @@ fn save_with_guard_tab(window: &ApplicationWindow, st: Rc<TabState>, after: Opti
         // the same "safe" outcome. Only the former is actually safe.
         match disk {
             Ok(disk_content) => {
-                if save_is_safe(&st.saved_baseline.borrow(), Some(&disk_content)) {
+                if save_is_safe(
+                    &st.saved_baseline.borrow(),
+                    Some(&disk_content),
+                    st.backing_loss.get().is_some(),
+                ) {
                     do_save(&window, &st, Some(busy), after);
                 } else {
                     confirm_overwrite(

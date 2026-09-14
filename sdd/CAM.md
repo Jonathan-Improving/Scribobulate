@@ -631,6 +631,7 @@ The interference classes (matrix columns):
 | 4 | **Save's write** | ✓ | ◑ | ✓ | ✓ | ✓ | `WriteGate` (drop, not queue); explicit `Rc<TabState>`; tab-scoped completion |
 | 5 | **Crash-recovery snapshot write** | ✓ | ◑ | ✓ | ✓ | ✓ | `swap.in_flight` + latest-wins coalescing; `tab_by_id` |
 | 6 | **Startup recovery pass** | ✓ | ✓ | ✓ | ✓ | ✓ | runs once; bumps `DocEpoch` on apply; re-resolves windows/tabs after each await |
+| 7 | **Truncation settle re-read** (TDD 3.5) | ✓ | ✓ | ✓ | ✓ | ✓ | one pending timer per tab, re-armed not stacked, cancelled when a loss is recorded; weak `tab_by_id`; the re-read is an ordinary row-2 read, so its ticket and the active-vs-background split apply unchanged, and a loss is recorded once however many reads conclude it |
 
 Rules that give the matrix its teeth:
 
@@ -714,7 +715,7 @@ intended pop:
 | 2 | Crash-recovery count ("Recovered … in N documents") | event — first interaction with the window | ✓ | ✓ (per-window: the stack dies with the window) | ✓ (per-window, never travels with a tab) | — (once per launch) | `window/swaprecovery.rs` |
 | 3 | Transient info notice (saved / reloaded / recovered) | **timed** (~4 s) | ✓ | ✓ | ✓ | ✓ (each notice is its own ctx) | `window/toast.rs` |
 | 4 | Link-navigation notice | **timed** (~6 s) | ✓ | ✓ | ✓ | ✓ | `window/linknav.rs` |
-| 5 | "File deleted on disk — save to restore it" | **timed** (~6 s) | ✓ | ✓ | ✓ | ✓ | `app/open.rs` |
+| 5 | "File deleted on disk — save to restore it" / "File was truncated — save to restore it" | **timed** (~6 s) | ✓ | ✓ | ✓ | ✓ (announced once per loss; a repeat of the same loss is silent) | `window/backingloss.rs` |
 | 6 | Operation-in-progress ("Saving…" / "Reloading…" / "Opening…") | **the operation ends** (`Drop`) | ✓ | ✓ | ✓ | ✓ | `winstate::BusyNotice` — armed, not shown: nothing appears unless the operation outlives `BUSY_NOTICE_DELAY`, so a fast save never blinks. `Rc`-backed so ONE notice spans a logical operation made of several futures (the save guard's read, the decision, the write) |
 
 **Every timed row (3, 4, 5) holds B and C through one mechanism:

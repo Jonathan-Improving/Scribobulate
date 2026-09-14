@@ -78,6 +78,7 @@ pub(crate) use contextmenu::attach_context_menu;
 pub(crate) use rename::update_rename_action_state;
 // The two find types `TabState` stores. The module itself stays private — the engine is
 // window-internal; only the shapes the per-tab state has to *hold* are named crate-wide.
+pub(crate) use backingloss::{clear_backing_loss, mark_backing_lost};
 pub(crate) use find::{FindCursor, PreviewFindCache};
 pub(crate) use findbar::refresh_preview_find_highlight;
 pub(crate) use foldreveal::defer_with_window;
@@ -121,6 +122,7 @@ pub(crate) use zoom::zoom_css_rule_for_test;
 pub(crate) use zoom::RenderShape;
 
 // Decomposed window sub-builders (see TECH.md module map).
+mod backingloss;
 mod chrome;
 mod chrome_fit;
 mod copylink;

@@ -172,7 +172,10 @@ fn show_tab_context_menu(
             // CLICKED tab's own state, and `focus_page` it before driving the
             // action so a right-click on an inactive tab saves THAT tab.
             TabMenuItem::Save => {
-                btn.set_sensitive(save_enabled(tab.is_dirty(), tab.backing_missing.get()));
+                btn.set_sensitive(save_enabled(
+                    tab.is_dirty(),
+                    tab.backing_loss.get().is_some(),
+                ));
                 btn.connect_clicked(glib::clone!(
                     #[weak(rename_to = po)]
                     popover,

@@ -89,6 +89,10 @@ see Help ▸ Keyboard Shortcuts in the app for the exact mapping.)*
 - **Your edits stay yours**
   - **Conflicts** — if a file changes while you have unsaved work, you're asked
     whether to reload or keep your version. Never a silent overwrite.
+  - **Emptied or deleted files** — if an open file is deleted, or wiped blank by
+    a write that went wrong, the open copy is kept rather than reloaded blank:
+    the tab is flagged, closing it asks first, a crash can't lose it, and one
+    save puts the file back.
   - **Crash recovery** — unsaved edits come back after a crash, still marked
     unsaved, with the choice to keep or discard. Your file is never written
     without an explicit save.

@@ -16,12 +16,13 @@
 //!
 //! # The governing invariant
 //!
-//! > **A swap file exists for a document if and only if that document is dirty.**
+//! > **A swap file exists for a document if and only if its buffer is at risk** — it is
+//! > dirty, or its file was deleted or truncated so the buffer is the only copy.
 //!
 //! Every deletion rule collapses into that one statement: a save makes the document
-//! clean, so its swap goes; an undo back to the on-disk content makes it clean, so its
-//! swap goes; discarding an unsaved tab makes the document cease to exist, so its swap
-//! goes. Implementing the invariant at the single place dirtiness is recomputed — rather
+//! clean and its file whole, so its swap goes; an undo back to the on-disk content makes
+//! it clean, so its swap goes; discarding an unsaved tab makes the document cease to
+//! exist, so its swap goes. Implementing the invariant at the single place dirtiness is recomputed — rather
 //! than teaching each of save / save-as / discard / reload / revert its own deletion
 //! rule — is what makes every *future* path that changes dirtiness correct without being
 //! individually taught (POLICY § "one path, not two"; GTK4Rs/AP-108, ScrAP-219).

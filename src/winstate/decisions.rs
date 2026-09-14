@@ -24,19 +24,19 @@ pub(crate) fn edit_actions_enabled(mode: ViewMode, has_target: bool) -> bool {
 ///
 /// - `dirty`: the buffer differs from the on-disk baseline, so there is unsaved
 ///   work to write.
-/// - `backing_missing`: the document HAS a backing path but that file is gone
-///   from disk (deleted out from under a clean buffer). The buffer still holds
-///   the document's content, and Save re-creates the file — so Save must be
-///   enabled even though the buffer is byte-for-byte "clean" against a baseline
-///   whose file no longer exists. Without this a clean document over a deleted
-///   file could only be recovered via Save As, and the "save to restore it"
-///   deleted-file notice pointed at a control that would not act.
+/// - `backing_lost`: the document HAS a backing path but that file was deleted or
+///   truncated out from under the buffer ([`BackingLoss`]). The buffer still holds
+///   the document's content, and Save restores the file — so Save must be enabled
+///   even though the buffer is byte-for-byte "clean" against a baseline the file no
+///   longer holds. Without this a clean document over a lost file could only be
+///   recovered via Save As, and the "save to restore it" notice pointed at a control
+///   that would not act.
 ///
 /// A clean document whose file is present has nothing to write, so Save is
 /// disabled regardless of mode. (Save As is a separate, always-enabled action —
 /// it can write a copy to a new path even from a clean, present document.)
-pub(crate) fn save_enabled(dirty: bool, backing_missing: bool) -> bool {
-    dirty || backing_missing
+pub(crate) fn save_enabled(dirty: bool, backing_lost: bool) -> bool {
+    dirty || backing_lost
 }
 
 /// Whether Rename should be enabled for a document (TDD 24.6).
@@ -58,7 +58,7 @@ pub(crate) fn save_enabled(dirty: bool, backing_missing: bool) -> bool {
 ///   copy pointing at a file whose name just changed under it. The operator accepted
 ///   the resulting cliff — the command greys out and the reader saves first — over a
 ///   "Save and rename" prompt.
-/// - `!backing_missing`: the file is already known to be gone; there is nothing to
+/// - `!backing_lost`: the file is already known to be gone; there is nothing to
 ///   rename. This gates the **command**; it is deliberately *not* sufficient as the
 ///   operation's precondition, which re-checks against the filesystem (24.8) because
 ///   the flag is only set if the monitor happened to observe the deletion.
@@ -70,7 +70,7 @@ pub(crate) fn save_enabled(dirty: bool, backing_missing: bool) -> bool {
 ///
 /// 1. **It would be unreachable.** A write is only ever in flight for a document that
 ///    is `dirty` (a save's baseline is updated *after* the write lands, so the buffer
-///    still differs from it throughout) or `backing_missing` (the save-to-restore
+///    still differs from it throughout) or `backing_lost` (the save-to-restore
 ///    case). Either one already vetoes. A fourth condition that no reachable state can
 ///    be the sole cause of is dead code wearing a guard's clothes — and, being a
 ///    second sufficient mechanism, it would make the other two mutation-proof one at a
@@ -87,8 +87,8 @@ pub(crate) fn save_enabled(dirty: bool, backing_missing: bool) -> bool {
 /// hint; the pass is the guarantee. This is the plan's "preconditions are re-checked
 /// at apply time, not trusted from the gate" applied to the one precondition that
 /// cannot be honestly read in advance.
-pub(crate) fn rename_enabled(has_path: bool, dirty: bool, backing_missing: bool) -> bool {
-    has_path && !dirty && !backing_missing
+pub(crate) fn rename_enabled(has_path: bool, dirty: bool, backing_lost: bool) -> bool {
+    has_path && !dirty && !backing_lost
 }
 
 /// Whether a window is a *reusable blank*: no backing file and the editor still
@@ -156,16 +156,16 @@ pub(crate) struct TabBadgeState {
     /// background and is awaiting replay on activation (leading "⟳"; TDD
     /// 15.13).
     pub(crate) pending_external: bool,
-    /// The loaded document's backing file was deleted from disk (leading,
-    /// coloured "⚠"; TDD 15.22). The buffer still holds the document's only
-    /// copy, so — like a dirty tab — it prompts before closing until saved.
-    pub(crate) backing_missing: bool,
+    /// The loaded document's backing file was deleted or truncated on disk
+    /// (leading, coloured "⚠"; TDD 15.22). The buffer still holds the document's
+    /// only copy, so — like a dirty tab — it prompts before closing until saved.
+    pub(crate) backing_lost: bool,
 }
 
 /// Pure decision core of a tab's own notebook label, rendered as **Pango
 /// markup** so the "⚠" badge can be coloured (operator decision Q7, TDD
 /// 15.7/15.22): its filename, a leading coloured "⚠" while
-/// `badge.backing_missing`, a leading "⟳" while `badge.pending_external`, and a
+/// `badge.backing_lost`, a leading "⟳" while `badge.pending_external`, and a
 /// trailing "•" while `badge.dirty`.
 ///
 /// `name` MUST already be Pango-markup-escaped by the caller — a filename can
@@ -175,7 +175,7 @@ pub(crate) struct TabBadgeState {
 /// display-free and testable — it decides badge ORDERING, not "which yellow".
 pub(crate) fn tab_label_markup(name: &str, badge: TabBadgeState, warn_color: &str) -> String {
     let mut label = String::new();
-    if badge.backing_missing {
+    if badge.backing_lost {
         label.push_str("<span foreground=\"");
         label.push_str(warn_color);
         label.push_str("\">⚠</span> ");
@@ -214,40 +214,126 @@ pub(crate) fn line_col_indicator(mode: ViewMode, line: i32, visual_col: u32) -> 
 /// will surface any real I/O error) or is byte-identical to `baseline` (the
 /// content we last loaded/saved/reloaded FROM disk — never the in-progress
 /// edit, which is expected to differ). Any other on-disk content means
-/// something else wrote to the file since we last synced with it.
-pub(crate) fn save_is_safe(baseline: &str, disk_content: Option<&str>) -> bool {
+/// something else wrote to the file since we last synced with it — except a
+/// blank file under a document already flagged as having lost its backing
+/// (`backing_lost`): that is the truncation the user is saving to repair, not
+/// someone else's work to warn about (TDD 15.22).
+pub(crate) fn save_is_safe(baseline: &str, disk_content: Option<&str>, backing_lost: bool) -> bool {
     match disk_content {
-        Some(disk) => disk == baseline,
+        Some(disk) => disk == baseline || (backing_lost && is_blank_content(disk)),
         None => true,
     }
+}
+
+/// Why a document's buffer has become the only copy of it (TDD 3.4, 3.5, 15.22).
+///
+/// One state with two reasons rather than two flags, so that everything guarding the
+/// buffer — Save, the ⚠ badge, the close prompt, the crash-recovery snapshot — reads
+/// one answer and cannot protect one loss while forgetting the other.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum BackingLoss {
+    /// The file is gone from disk.
+    Deleted,
+    /// The file is present but blank ([`is_blank_content`]).
+    Truncated,
+}
+
+impl BackingLoss {
+    /// The status notice that announces this loss.
+    pub(crate) fn notice(self) -> &'static str {
+        match self {
+            Self::Deleted => "File deleted on disk — save to restore it",
+            Self::Truncated => "File was truncated — save to restore it",
+        }
+    }
+}
+
+/// Every character a file may consist of and still count as blank (TDD 3.5): the
+/// residue of a writer that truncated and wrote nothing, or wrote only an empty
+/// variable's `echo`.
+const BLANK_CHARS: [char; 5] = [' ', '\t', '\n', '\r', '\u{FEFF}'];
+
+/// How long a file must stay blank before it is treated as truncated (TDD 3.5).
+///
+/// A writer that truncates and then succeeds refills the file within milliseconds,
+/// and one that failed leaves it blank indefinitely, so a short wait separates the
+/// two without the reader noticing it.
+pub(crate) const TRUNCATION_SETTLE: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// Whether `text` holds nothing a reader could lose — see [`BLANK_CHARS`].
+pub(crate) fn is_blank_content(text: &str) -> bool {
+    text.chars().all(|c| BLANK_CHARS.contains(&c))
 }
 
 /// What to do when the backing file is found to have changed on disk.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum ExternalChange {
-    /// No actionable change — content identical, or a dirty buffer whose conflict
-    /// notice the user already dismissed.
+    /// No actionable change — content identical, a dirty buffer whose conflict
+    /// notice the user already dismissed, or a flagged document still blank.
     Ignore,
-    /// Content changed under a dirty buffer — raise the conflict toast.
+    /// Content changed under a buffer that must not be replaced silently — raise the
+    /// conflict toast.
     Toast,
     /// Content changed and the buffer is clean — reload silently.
     Reload,
+    /// The file just read blank over a document that was not. Re-read after
+    /// [`TRUNCATION_SETTLE`] before deciding anything, so a rewrite caught between its
+    /// truncate and its write neither reloads a blank page nor raises a warning.
+    AwaitSettle,
+    /// Still blank after the settle — keep the buffer and flag the loss.
+    Truncated,
+    /// A flagged document's file is back with exactly the content last loaded or
+    /// saved — retire the flag; there is nothing to reload.
+    Restored,
+}
+
+/// Everything [`external_change_action`] decides from: one read of the file, and the
+/// document it was read for.
+pub(crate) struct DiskObservation<'a> {
+    /// The file's content as just read.
+    pub(crate) disk: &'a str,
+    /// The text the preview was rendered from.
+    pub(crate) source: &'a str,
+    /// The content last loaded from or saved to disk.
+    pub(crate) baseline: &'a str,
+    /// Whether the buffer has unsaved edits.
+    pub(crate) dirty: bool,
+    /// Whether the user dismissed the conflict notice.
+    pub(crate) suppressed: bool,
+    /// Whether the buffer is already known to be the only copy.
+    pub(crate) backing_loss: Option<BackingLoss>,
+    /// Whether this read is the re-read taken after [`TRUNCATION_SETTLE`].
+    pub(crate) settled: bool,
 }
 
 /// Decide how to respond to an external file change. Pure decision core of
-/// `window::check_and_reload` (TDD 3.1 / 4.6 / 5.1 / 9.13): given whether the
-/// on-disk content differs from the in-memory source, whether the buffer has
-/// unsaved edits, and whether the user has dismissed the conflict notice.
-pub(crate) fn external_change_action(
-    content_differs: bool,
-    dirty: bool,
-    suppressed: bool,
-) -> ExternalChange {
-    if !content_differs {
+/// `window::check_and_reload_tab` (TDD 3.1, 3.5, 3.6, 4.6, 5.1, 9.13).
+///
+/// A flagged document is decided as though it were dirty whatever its buffer says:
+/// its buffer is the only copy of what the file held, so new content is a conflict to
+/// raise, never a reload to apply (3.6).
+pub(crate) fn external_change_action(seen: &DiskObservation) -> ExternalChange {
+    if is_blank_content(seen.disk) && !is_blank_content(seen.baseline) {
+        return match (seen.backing_loss, seen.settled) {
+            (Some(_), _) => ExternalChange::Ignore,
+            (None, false) => ExternalChange::AwaitSettle,
+            (None, true) => ExternalChange::Truncated,
+        };
+    }
+    if seen.backing_loss.is_some() {
+        return if seen.disk == seen.baseline {
+            ExternalChange::Restored
+        } else if seen.suppressed {
+            ExternalChange::Ignore
+        } else {
+            ExternalChange::Toast
+        };
+    }
+    if seen.disk == seen.source {
         ExternalChange::Ignore
-    } else if !dirty {
+    } else if !seen.dirty {
         ExternalChange::Reload
-    } else if suppressed {
+    } else if seen.suppressed {
         ExternalChange::Ignore
     } else {
         ExternalChange::Toast
@@ -256,6 +342,7 @@ pub(crate) fn external_change_action(
 
 #[cfg(test)]
 mod tests {
+    use super::is_blank_content;
     use crate::winstate::*;
 
     #[test]
@@ -307,7 +394,7 @@ mod tests {
         // The in-flight-write requirement of TDD 24.6 is deliberately absent from
         // this predicate and met by claiming the write gate instead — see the
         // function's doc comment. A write in flight always implies `dirty` or
-        // `backing_missing`, both asserted above, so the contract is covered here
+        // `backing_lost`, both asserted above, so the contract is covered here
         // and the guarantee is the `WritePass`.
     }
 
@@ -321,27 +408,177 @@ mod tests {
     #[test]
     fn save_is_safe_gates_on_content_not_mtime() {
         // QA round-1: content-identical → safe, regardless of what any clock says.
-        assert!(save_is_safe("hello", Some("hello")));
+        assert!(save_is_safe("hello", Some("hello"), false));
         // Any other on-disk content → unsafe, even a single-byte difference
         // that a coarse-resolution mtime clock could never have detected.
-        assert!(!save_is_safe("hello", Some("hello!")));
+        assert!(!save_is_safe("hello", Some("hello!"), false));
         // Unreadable/deleted on disk → allow (the write itself surfaces any
         // real I/O error; there is nothing there to clobber).
-        assert!(save_is_safe("hello", None));
+        assert!(save_is_safe("hello", None, false));
     }
 
     #[test]
-    fn external_change_action_maps_the_full_matrix() {
+    fn saving_over_a_truncated_file_is_safe_and_over_anything_else_is_not() {
+        // TDD 15.22: the blank file is what the save is repairing.
+        assert!(save_is_safe("hello", Some(""), true));
+        assert!(save_is_safe("hello", Some(" \n\t\r\n"), true));
+        // Blank but never flagged: somebody else's write, even an empty one.
+        assert!(!save_is_safe("hello", Some(""), false));
+        // Flagged, but the file came back with other content: a conflict (TDD 3.6).
+        assert!(!save_is_safe("hello", Some("other"), true));
+    }
+
+    #[test]
+    fn blank_content_is_whitespace_and_a_byte_order_mark_only() {
+        for blank in ["", "\n", "\r\n", " \t\n", "\u{FEFF}", "\u{FEFF}\n"] {
+            assert!(is_blank_content(blank), "{blank:?} is blank");
+        }
+        // A non-breaking or zero-width space is a character somebody typed.
+        for text in ["x", "\n#\n", "\u{00A0}", "\u{200B}"] {
+            assert!(!is_blank_content(text), "{text:?} is content");
+        }
+    }
+
+    #[test]
+    fn each_loss_announces_itself_distinctly() {
+        assert_eq!(
+            BackingLoss::Deleted.notice(),
+            "File deleted on disk — save to restore it"
+        );
+        assert_eq!(
+            BackingLoss::Truncated.notice(),
+            "File was truncated — save to restore it"
+        );
+    }
+
+    /// A clean, unflagged document whose preview source is its baseline, read on the
+    /// first (unsettled) pass.
+    fn seen<'a>(disk: &'a str, baseline: &'a str) -> DiskObservation<'a> {
+        DiskObservation {
+            disk,
+            source: baseline,
+            baseline,
+            dirty: false,
+            suppressed: false,
+            backing_loss: None,
+            settled: false,
+        }
+    }
+
+    fn flagged(loss: BackingLoss, disk: &str) -> DiskObservation<'_> {
+        DiskObservation {
+            backing_loss: Some(loss),
+            ..seen(disk, "doc")
+        }
+    }
+
+    #[test]
+    fn external_change_action_maps_the_ordinary_matrix() {
         use ExternalChange::*;
         // No on-disk change → never act, regardless of dirty/suppressed.
-        assert_eq!(external_change_action(false, false, false), Ignore);
-        assert_eq!(external_change_action(false, true, false), Ignore);
+        assert_eq!(external_change_action(&seen("doc", "doc")), Ignore);
+        let dirty_same = DiskObservation {
+            dirty: true,
+            ..seen("doc", "doc")
+        };
+        assert_eq!(external_change_action(&dirty_same), Ignore);
         // Changed + clean buffer → silent reload (suppressed is irrelevant).
-        assert_eq!(external_change_action(true, false, false), Reload);
-        assert_eq!(external_change_action(true, false, true), Reload);
+        assert_eq!(external_change_action(&seen("new", "doc")), Reload);
+        let suppressed = DiskObservation {
+            suppressed: true,
+            ..seen("new", "doc")
+        };
+        assert_eq!(external_change_action(&suppressed), Reload);
         // Changed + dirty buffer → toast, unless the user dismissed the notice.
-        assert_eq!(external_change_action(true, true, false), Toast);
-        assert_eq!(external_change_action(true, true, true), Ignore);
+        let dirty = DiskObservation {
+            dirty: true,
+            ..seen("new", "doc")
+        };
+        assert_eq!(external_change_action(&dirty), Toast);
+        let dismissed = DiskObservation {
+            suppressed: true,
+            ..dirty
+        };
+        assert_eq!(external_change_action(&dismissed), Ignore);
+    }
+
+    /// TDD 3.5. The first blank read must neither reload a blank page nor warn: a
+    /// rewrite caught between its truncate and its write looks exactly like this.
+    #[test]
+    fn a_blank_read_is_a_truncation_only_once_it_survives_the_settle() {
+        use ExternalChange::*;
+        assert_eq!(external_change_action(&seen("", "doc")), AwaitSettle);
+        assert_eq!(external_change_action(&seen("\n", "doc")), AwaitSettle);
+        let dirty = DiskObservation {
+            dirty: true,
+            ..seen(" \n", "doc")
+        };
+        assert_eq!(external_change_action(&dirty), AwaitSettle);
+
+        let still_blank = DiskObservation {
+            settled: true,
+            ..seen("", "doc")
+        };
+        assert_eq!(external_change_action(&still_blank), Truncated);
+        let dirty_dismissed = DiskObservation {
+            settled: true,
+            dirty: true,
+            suppressed: true,
+            ..seen("\n", "doc")
+        };
+        assert_eq!(
+            external_change_action(&dirty_dismissed),
+            Truncated,
+            "unsaved edits and a dismissed prompt do not stop the warning"
+        );
+
+        // Refilled by the time the settle re-read ran: an ordinary change.
+        let refilled = DiskObservation {
+            settled: true,
+            ..seen("new", "doc")
+        };
+        assert_eq!(external_change_action(&refilled), Reload);
+
+        // A blank document rewritten blank is content, never a truncation.
+        assert_eq!(external_change_action(&seen("\n", "")), Reload);
+        let blank_again = DiskObservation {
+            settled: true,
+            ..seen("", "")
+        };
+        assert_eq!(external_change_action(&blank_again), Ignore);
+    }
+
+    /// TDD 3.6, for both losses: a flagged document is decided as though dirty.
+    #[test]
+    fn a_flagged_document_is_restored_only_by_its_own_content() {
+        use ExternalChange::*;
+        for loss in [BackingLoss::Deleted, BackingLoss::Truncated] {
+            assert_eq!(
+                external_change_action(&flagged(loss, "doc")),
+                Restored,
+                "{loss:?}"
+            );
+            assert_eq!(
+                external_change_action(&flagged(loss, "new")),
+                Toast,
+                "{loss:?}: a clean buffer over a lost file is still never reloaded"
+            );
+            let dismissed = DiskObservation {
+                suppressed: true,
+                ..flagged(loss, "new")
+            };
+            assert_eq!(external_change_action(&dismissed), Ignore, "{loss:?}");
+            assert_eq!(
+                external_change_action(&flagged(loss, "")),
+                Ignore,
+                "{loss:?}: a return that is still blank changes nothing"
+            );
+            let settled = DiskObservation {
+                settled: true,
+                ..flagged(loss, "\n")
+            };
+            assert_eq!(external_change_action(&settled), Ignore, "{loss:?}");
+        }
     }
 
     #[test]
@@ -382,11 +619,11 @@ mod tests {
     // particular yellow — the display layer owns "which yellow" (documents.rs).
     const C: &str = "#c";
 
-    fn badge(dirty: bool, pending_external: bool, backing_missing: bool) -> TabBadgeState {
+    fn badge(dirty: bool, pending_external: bool, backing_lost: bool) -> TabBadgeState {
         TabBadgeState {
             dirty,
             pending_external,
-            backing_missing,
+            backing_lost,
         }
     }
 

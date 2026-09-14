@@ -34,9 +34,11 @@ is to show formatted text, that trade-off is indefensible.
 - **Lost work from background edits**: When the file changes on disk while the
   user has unsaved edits, Scribobulate surfaces the conflict and lets the user
   choose, rather than silently discarding either side. When the file is instead
-  *deleted* out from under an open document, its tab is flagged with a warning
-  marker and — since the open buffer now holds the only copy — closing it prompts
-  to save first, exactly as an unsaved document would.
+  *deleted* or *emptied* out from under an open document — an agent whose write
+  truncated the file and then failed is the case this exists for — the buffer is
+  kept rather than reloaded blank, its tab is flagged with a warning marker, and —
+  since the open buffer now holds the only copy — closing it prompts to save first,
+  exactly as an unsaved document would, and a crash cannot lose it either.
 - **Unsaved work lost to an unclean exit**: Every safeguard above protects a
   document from being overwritten; none of them protected it from the application
   simply dying. A crash, an out-of-memory kill or a power cut discarded everything

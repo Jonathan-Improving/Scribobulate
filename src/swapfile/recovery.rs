@@ -18,14 +18,16 @@ pub(crate) enum SwapSync {
 }
 
 /// **The governing invariant, in one place**: a swap file exists for a document if and
-/// only if that document is dirty.
+/// only if its buffer is at risk — it is dirty, or its file was deleted or truncated so
+/// the buffer is the only copy (TDD 22.18). The caller answers that as "would closing
+/// it prompt to save?".
 ///
 /// Every deletion rule in the feature is this function's `Delete` arm. Saving,
 /// undoing back to the on-disk content, reverting and reloading all reach it the same
-/// way — by making the document clean — so none of them needs its own rule, and a
-/// *future* path that changes dirtiness inherits the behaviour without being taught it.
-pub(crate) fn sync_action(dirty: bool) -> SwapSync {
-    if dirty {
+/// way — by taking the document out of risk — so none of them needs its own rule, and a
+/// *future* path that changes it inherits the behaviour without being taught it.
+pub(crate) fn sync_action(at_risk: bool) -> SwapSync {
+    if at_risk {
         SwapSync::Write
     } else {
         SwapSync::Delete

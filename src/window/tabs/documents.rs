@@ -278,7 +278,7 @@ fn tab_display_markup(tab: &TabState) -> String {
         winstate::TabBadgeState {
             dirty: tab.is_dirty(),
             pending_external: tab.pending_external.get(),
-            backing_missing: tab.backing_missing.get(),
+            backing_lost: tab.backing_loss.get().is_some(),
         },
         BACKING_MISSING_BADGE_COLOR,
     )

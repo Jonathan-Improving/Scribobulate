@@ -4,7 +4,7 @@
 |---|-----------------|---------|
 | 1 | Opening & displaying documents | 1.1 – 1.11a |
 | 2 | Rendering fidelity | 2.1 – 2.26l |
-| 3 | Live reload (external edits) | 3.1 – 3.4 |
+| 3 | Live reload (external edits) | 3.1 – 3.6 |
 | 4 | Editing & saving | 4.1 – 4.9 |
 | 5 | Reconciliation (conflict handling) | 5.1 – 5.4 |
 | 6 | Resource footprint (viability gate) | 6.1 – 6.10 |
@@ -23,7 +23,7 @@
 | 19 | Local document-link navigation | 19.1 – 19.13 |
 | 20 | Annotations viewer | 20.1 – 20.18 |
 | 21 | Crash forensics | 21.1 – 21.12 |
-| 22 | Crash recovery (swap files) | 22.1 – 22.16 |
+| 22 | Crash recovery (swap files) | 22.1 – 22.18 |
 | 23 | Back / Forward navigation history | 23.1 – 23.14 |
 | 24 | Renaming an open document | 24.1 – 24.14 |
 | 25 | Exporting a document | 25.1 – 25.24 |
@@ -591,6 +591,21 @@
 - **Given** an open document
 - **When** the file is deleted on disk
 - **Then** the user is informed and the current content is retained in the editor (recoverable by saving)
+
+### 3.5 File emptied externally
+- **Given** an open document whose content as last loaded from disk is not blank
+- **When** another program leaves the file **blank** — zero bytes, or nothing but spaces, tabs, line breaks and a byte-order mark (e.g. an `echo "$TYPO" > doc.md`, or a writer that opened the file for writing and then failed) — and it is still blank about half a second later
+- **Then** the editor keeps its content rather than reloading to a blank page, the user is told "File was truncated — save to restore it", and the tab is badged and guarded exactly as for a deleted file (15.22), whether or not the buffer has unsaved edits
+- **And** a writer that empties the file and fills it again within that half-second raises no warning — the new content reloads as any external edit does (3.1, 5.1)
+- **And** a file that was already blank and is rewritten blank is ordinary content, not a truncation
+- **And** an explicit File ▸ Reload honours the blank file: it loads it and clears the warning
+
+### 3.6 A deleted or emptied file that comes back is never silently adopted
+- **Given** a document flagged as deleted (3.4) or truncated (3.5), with or without unsaved edits
+- **When** its file reappears with content
+- **Then** if that content is exactly what was last loaded or saved, the warning clears quietly and nothing reloads
+- **And** otherwise the editor keeps its content and the external-change conflict prompt appears (§5), exactly as for a document with unsaved edits; the warning, the close prompt and the crash-recovery snapshot all stay until the user chooses Reload or saves — dismissing the prompt keeps them
+- **And** a reappearance that is still blank changes nothing
 
 ---
 
@@ -2087,13 +2102,13 @@
 - **And** the active tab is distinguishable from the inactive tabs at a glance, by appearance alone and without reading any label
 - The *means* — fills, borders, edge treatments, which surface is lighter than which — are deliberately left unspecified. Theming is fluid and derived from the desktop theme, so naming a mechanism here would make this rubric fail on every legitimate restyle. What must hold is the distinction, in both theme variants.
 
-### 15.22 A tab whose backing file was deleted is badged and guarded like a dirty tab
+### 15.22 A tab whose backing file was deleted or truncated is badged and guarded like a dirty tab
 - **Given** an open, saved document whose buffer is clean (no unsaved edits)
-- **When** its backing file is deleted on disk (a genuine external deletion, not the app's own crash-safe self-rename on save)
-- **Then** its tab carries a leading **yellow ⚠** warning marker — the complement to the ⟳ reload badge (15.13) — shown whether the tab is active or in the background, and combinable with the dirty "•"; and the persistent "File deleted on disk — save to restore it" notice appears (this last is the existing §3.4 behaviour)
-- **And** the ⚠ clears the moment the file exists again — a Save or Save As re-creates it, a Reload reads it back, or an external program re-creates it — the tab returning to its plain label
+- **When** its backing file is deleted on disk (a genuine external deletion, not the app's own crash-safe self-rename on save), or emptied (3.5)
+- **Then** its tab carries a leading **yellow ⚠** warning marker — the complement to the ⟳ reload badge (15.13) — shown whether the tab is active or in the background, and combinable with the dirty "•"; and the notice "File deleted on disk — save to restore it" or "File was truncated — save to restore it" appears (§3.4, §3.5)
+- **And** Save is enabled, and saving over a truncated file writes at once — the blank file is not treated as an external change the save must warn about (5.2)
+- **And** the ⚠ clears when a Save or Save As writes the document, a Reload reads the file back, or the file reappears with exactly the content last loaded or saved (3.6) — the tab returning to its plain label
 - **And** closing that tab (its ×, Ctrl+W, Close Other Tabs) or its window prompts **Save / Discard / Cancel** first, exactly as an unsaved tab does — because the buffer holds the document's only remaining copy and closing without a Save would lose it — even though the buffer is byte-for-byte "clean" against a baseline whose file is gone; choosing Save re-creates the file and lets the close proceed
-- The badge and the close guard read the same per-tab "backing missing" state that already makes Save enabled over a deleted file (§ above, `save_enabled(dirty, backing_missing)`); the label formula and the close-prompt predicate are unit-tested in `winstate::decisions` and `winstate::tab`
 
 ## 16. Keyboard-shortcuts help & status surfaces
 
@@ -3145,8 +3160,10 @@ appearance that predates the feature; `Sepia` is the book-like reading theme.
 
 An unclean exit — a SIGSEGV, an OOM kill, a power loss — must no longer discard
 every unsaved edit. The mechanism is a periodic full-content **swap file** per
-dirty document, governed by one rule that the rubrics below are mostly restatements
-of: *a swap file exists for a document if and only if that document is dirty.*
+document whose buffer is at risk, governed by one rule that the rubrics below are mostly
+restatements of: *a swap file exists for a document if and only if closing it would
+prompt to save* — it is dirty, or its file was deleted or truncated (15.22), so the
+buffer holds the only copy.
 
 ### 22.1 Unsaved edits survive an unclean exit
 - **Given** a document with unsaved edits open in a tab
@@ -3243,6 +3260,12 @@ of: *a swap file exists for a document if and only if that document is dirty.*
 - **Then** the work is recovered into the tab that file opened, and the window holds **one** tab for it, not a clean one beside a recovered one the user has to tell apart
 - **And** this holds however the two paths are spelled — a relative argument, a symlink, `..`, or a different letter case where the filesystem is case-insensitive — because the same "is this the same file?" rule governs here as governs re-opening an already-open document (8.2/15.16)
 - **And** an untitled recovery is never correlated this way: it names no file, so it always comes back in a tab of its own
+
+### 22.18 A document whose file was deleted or truncated is protected even with no unsaved edits
+- **Given** an open document with no unsaved edits whose file has been deleted (3.4) or truncated (3.5), so the buffer holds its only copy
+- **When** the application dies uncleanly and restarts
+- **Then** the content comes back marked unsaved, as any unsaved work does (22.1), and the file on disk is left as it was
+- **And** the recovery data goes away as soon as the file is restored — by a Save, a Reload, or the file reappearing with the content last loaded (3.6)
 
 ## 23. Back / Forward navigation history
 

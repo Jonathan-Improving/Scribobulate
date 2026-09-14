@@ -365,6 +365,14 @@ async fn apply_recovered_content(window: &ApplicationWindow, tab: &Rc<TabState>,
         tab.chrome().zoom_level.get(),
         tab.allow_unsafe_images.get(),
     );
+    // The outline and the annotations list are window furniture showing the ACTIVE tab,
+    // and were derived from the pre-recovery text when the tab was built. A background tab
+    // re-derives both on activation; the active one has to be told now (Derived-view CAM
+    // rows 1 and 3).
+    if winstate::state(window).is_some_and(|active| active.id == tab.id) {
+        refresh_outline(window);
+        refresh_annotations(window);
+    }
 
     if stale {
         // The twin changed on disk since the snapshot was taken, so the recovered content
@@ -1164,17 +1172,21 @@ mod tests {
             let tab = winstate::state(&win).expect("a tab");
             let doc_id = DocId::generate();
             tab.adopt_doc_id(doc_id.clone());
+            assert!(
+                tab.heading_src_offsets.borrow().is_empty(),
+                "precondition: the document on disk has no headings"
+            );
             seed_swap(
                 dir.path(),
                 &header(doc_id, None, b"on disk"),
-                "on disk, plus recovered work",
+                "on disk\n\n# Recovered heading\n",
             );
 
             gtk::glib::MainContext::default().block_on(recover_after_restore(&app));
 
             assert_eq!(
                 *tab.source(),
-                "on disk, plus recovered work",
+                "on disk\n\n# Recovered heading\n",
                 "the preview/outline/annotations all render from `source`; leaving it \
                  stale makes every projection of the document disagree with the editor"
             );
@@ -1182,6 +1194,12 @@ mod tests {
                 *tab.source(),
                 tab.editor_text(),
                 "and the two must not be allowed to drift apart in the first place"
+            );
+            assert_eq!(
+                tab.heading_src_offsets.borrow().len(),
+                1,
+                "the outline of the active tab is rebuilt from the recovered text, not left \
+                 describing the file on disk"
             );
         });
     }

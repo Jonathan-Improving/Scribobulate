@@ -50,16 +50,17 @@ use crate::winstate::{next_delay_ms, MAX_LATENCY_MS};
 use gtk::gio;
 
 /// Apply the governing invariant to one tab: **a swap file exists for this document if
-/// and only if it is dirty.**
+/// and only if closing it would prompt to save** — it is dirty, or its file was deleted
+/// or truncated and the buffer is the only copy (TDD 22.18).
 ///
-/// This is the choke point. Every path that can change a document's dirtiness — save,
-/// Save As, discard, reload, revert, undo, and every future one — reaches the right
-/// behaviour by calling this and nothing else. Deliberately *not* a pair of
+/// This is the choke point. Every path that can change either — save, Save As, discard,
+/// reload, revert, undo, a file vanishing or coming back, and every future one — reaches
+/// the right behaviour by calling this and nothing else. Deliberately *not* a pair of
 /// `write_swap`/`delete_swap` helpers called from each of those sites: an opt-in
 /// mitigation re-applied per call site is a latent regression, because the next site
 /// added will forget it and the feature test will still pass (GTK4Rs/AP-108, ScrAP-219).
 pub(crate) fn sync_tab_swap(tab: &Rc<TabState>) {
-    match swapfile::sync_action(tab.is_dirty()) {
+    match swapfile::sync_action(tab.needs_close_prompt()) {
         SwapSync::Write => request_snapshot(tab),
         SwapSync::Delete => {
             cancel_pending(tab);
@@ -124,7 +125,7 @@ pub(crate) fn flush_now(tab: &Rc<TabState>) {
         return;
     }
     cancel_pending(tab);
-    if tab.is_dirty() {
+    if tab.needs_close_prompt() {
         write_snapshot(tab);
     } else {
         delete_snapshot(tab);

@@ -71,10 +71,14 @@ pub(crate) fn update_rename_action_state(window: &ApplicationWindow) {
 /// is display-free in `winstate::decisions` (TDD 24.6, 24.11).
 pub(crate) fn rename_enabled_for(tab: &Rc<TabState>) -> bool {
     // No write-gate term: a write in flight always implies `dirty` or
-    // `backing_missing`, and the gate is deliberately unreadable outside tests. The
+    // `backing_loss`, and the gate is deliberately unreadable outside tests. The
     // in-flight case is honoured by CLAIMING the gate in `perform_rename`, which is
     // where it can be acted on without a check-then-act window (TDD 24.6).
-    winstate::rename_enabled(tab.has_path(), tab.is_dirty(), tab.backing_missing.get())
+    winstate::rename_enabled(
+        tab.has_path(),
+        tab.is_dirty(),
+        tab.backing_loss.get().is_some(),
+    )
 }
 
 /// Rename the window's active document (the `win.rename` action's handler).
@@ -235,9 +239,7 @@ fn perform_rename(window: &ApplicationWindow, tab: &Rc<TabState>, new_name: Stri
                     // rename running. That is exactly the state the monitor's own
                     // Deleted arm produces, so produce it the same way rather than a
                     // second, subtly different version of it (TDD 24.8).
-                    tab.backing_missing.set(true);
-                    crate::window::update_save_action_state(&window);
-                    crate::window::badge_tab_label(&tab);
+                    crate::window::mark_backing_lost(&tab, crate::winstate::BackingLoss::Deleted);
                 }
                 report_rename_error(&window, &err);
             }
@@ -345,7 +347,7 @@ mod gtk_integration_tests {
             "the saved baseline is content, and content did not change"
         );
         assert!(
-            !tab.backing_missing.get(),
+            tab.backing_loss.get().is_none(),
             "the document's file exists — under its new name"
         );
 
@@ -388,7 +390,7 @@ mod gtk_integration_tests {
         // never going to arrive and the assertion proves nothing.
         pump_for(300);
         assert!(
-            !tab.backing_missing.get(),
+            tab.backing_loss.get().is_none(),
             "precondition: the document starts with its backing file present"
         );
 
@@ -403,14 +405,14 @@ mod gtk_integration_tests {
         pump_for(1000);
 
         assert!(
-            !tab.backing_missing.get(),
+            tab.backing_loss.get().is_none(),
             "a rename must not leave the document believing its file was deleted"
         );
 
         // ── The control. If this half does not fire, the half above proved nothing. ──
         std::fs::remove_file(dir.path().join("renamed.md")).expect("delete the renamed file");
         assert!(
-            crate::docio::settle(|| tab.backing_missing.get()),
+            crate::docio::settle(|| tab.backing_loss.get().is_some()),
             "CONTROL FAILED: a genuine external deletion must still be reported. \
              The monitor is not working, so the assertion above was vacuous."
         );
@@ -646,12 +648,13 @@ mod gtk_integration_tests {
         tab.editor_buf.set_text("# body\n");
         assert!(rename_enabled_for(&tab), "…and can be again once clean");
 
-        tab.backing_missing.set(true);
+        tab.backing_loss
+            .set(Some(crate::winstate::BackingLoss::Deleted));
         assert!(
             !rename_enabled_for(&tab),
             "a document whose file is gone cannot be renamed"
         );
-        tab.backing_missing.set(false);
+        tab.backing_loss.set(None);
 
         *tab.path.borrow_mut() = None;
         assert!(
