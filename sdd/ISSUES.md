@@ -37,7 +37,6 @@ described from a different vantage point.
 | I | Mac | Upstream | macOS only: every native file-chooser invocation (Open, Save, Export) grows RSS by ~1.1 MB and does not give it back. Roughly four fifths is AppKit's own price for presenting an `NSSavePanel` — reproduced with no GTK in the process — with about a fifth GTK-attributable. Caching the panel upstream would recover ~95% | Medium |
 | J | Any | Upstream | A paragraph that mixes fonts (any inline-code span) can lay out a few pixels wider than the wrap width it was given, summoning the preview's Automatic horizontal scrollbar and intermittently blanking the pane until a resize | Closed |
 | M | Windows | Production | On a machine with no Visual C++ runtime the app installs and then fails to start; the installer's bootstrapper for it has landed but has never been verified against that condition | Medium |
-| N | Any | Production | An animated theme sprite plays only in the two BAND decorations (heading, disclosure summary); in a quote bar or panel scene, list marker, annotation chip, horizontal rule or heading marker the same file shows its first frame and never moves | Low |
 | U | Any | Production | The preview opens horizontally scrolled (~20px, its left padding gone, a horizontal scrollbar showing) on the first entry into Split after launch; seen on Windows only so far | Low |
 
 
@@ -645,40 +644,6 @@ floor) rather than in its absence.
 `notices/*.md` at build time, and `notices/20-msvc.md` covers the embedded
 `vc_redist.x64.exe`. That was the other obligation this entry was carrying; only the
 verification remains.
-
----
-
-## N. An animated theme sprite plays only in a band decoration
-
-**Severity**: Low (a theme designer's animated sprite silently renders as a still image in
-four of six sprite slots; nothing misdraws, nothing leaks, and a still sprite is unaffected)
-
-TDD 27.9 says a theme's animated sprite plays. It does — in the heading band and the
-disclosure summary band, which share one painter (`codeview::bandpaint::paint_band`) and so
-took one substitution. The other sprite slots were left on the still path, and they are
-**not** one-line substitutions (from code reading, 2026-09-13; not yet built):
-
-- **Resampled slots.** `frame_for` hands back a frame at the sprite's NATURAL size, which
-  suits a tile drawn 1:1. Most remaining slots instead draw a texture resampled by
-  `sprite::scaled`, cached per size from the still decode: the annotation chips
-  (`codeview::chips`) and list-gutter markers (`codeview::gutter`) through
-  `widgets::draw_sprite_into`, the quote panel's corner scene through
-  `widgets::draw_scene_corner`, and the blockquote bar (`codeview::quotes`) whenever zoom
-  makes the bar wider than the tile. Animating these needs a per-frame nearest-neighbour
-  resample with a cache of its own.
-- **The horizontal rule** (`widgets::rule`) tiles at natural size but is its own child
-  widget, so it likely sits outside the `decorplan` viewport gate `frame_for` relies on and
-  needs a visibility source of its own.
-- **The heading marker** (`renderer::emit::insert_heading_marker`) is not painted at all:
-  it is inserted into the buffer as a still paintable at render time, so it would take the
-  document-image route (`animation::paintable`) rather than `frame_for`.
-
-**The asymmetry is invisible to a theme author**, which is what makes it worth recording:
-the same `.webp` animates in one key and does not in another, with no warning and no
-diagnostic. Anyone extending this should do every slot at once rather than one per complaint,
-and should check whether the paint site has a viewport gate to hang visibility off, as
-`bandpaint` did — a sprite that animates without one would run off-screen, which is the
-thing phase 2 exists to prevent.
 
 ---
 

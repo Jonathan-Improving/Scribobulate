@@ -56,7 +56,8 @@ mod probe;
 
 pub(crate) use admission::read_local;
 pub(crate) use decode::{
-    decode, decode_pixbuf, memory_texture_from_frame, rasterize_vector_bytes, richimg_limits,
+    decode, decode_pixbuf, memory_texture_from_frame, rasterize_vector_bytes, resample_nearest,
+    richimg_limits, FramePixels,
 };
 pub(crate) use probe::{probe_dimensions, probe_pixel_size, probe_vector_dimensions};
 

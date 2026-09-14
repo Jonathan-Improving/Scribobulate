@@ -130,6 +130,13 @@ impl<'a> PaintCtx<'a> {
             quote_extents,
         }
     }
+
+    /// Where this pass's sprites get their pixels — an animated sprite's current frame
+    /// (TDD 27.9). Call it only where the decoration is already known to be on screen:
+    /// the call is that sprite's visibility signal (`animation::sprites`).
+    pub(super) fn frames(&self) -> crate::animation::sprites::Frames<'_> {
+        self.imp.sprites.frames(self.view.upcast_ref())
+    }
 }
 
 /// Run one step of the paint.

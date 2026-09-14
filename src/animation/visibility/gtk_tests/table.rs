@@ -310,3 +310,56 @@ fn return_to_view_restarts_at_frame_zero() {
     );
     window.destroy();
 }
+
+/// TDD 27.3's other half, from the other direction: a picture BELOW the viewport at load
+/// starts playing when ONE scroll brings it into view. The tests above re-issue their
+/// scroll on every poll, which would also re-run the visibility check and so hide a check
+/// that read the picture's position before layout had moved it — measured on a theme
+/// sprite's host, where the only report after such a scroll said hidden.
+#[gtktest::test]
+fn a_picture_scrolled_into_view_from_below_by_one_scroll_starts_playing() {
+    let _enable = EnableAnimationsGuard::set(true);
+    let app = test_app("frombelow");
+    let (view, _pic, animated) = build_scrollable_animation(400, 2);
+    let sw = gtk::ScrolledWindow::new();
+    sw.set_child(Some(&view));
+    let window = gtk::ApplicationWindow::new(&app);
+    window.set_default_size(300, 150);
+    window.set_child(Some(&sw));
+    window.present();
+
+    // Let the lazily-validated `upper` settle before the one scroll, so the scroll
+    // lands at the true end rather than a draft of it.
+    let mut last_upper = -1.0;
+    crate::testpump::until(
+        crate::testpump::Clock::Frame,
+        "the document height to settle",
+        || {
+            crate::testpump::drain_for(
+                crate::testpump::Clock::Frame,
+                std::time::Duration::from_millis(200),
+            );
+            let upper = sw.vadjustment().upper();
+            let settled = view.is_mapped() && upper > 0.0 && upper == last_upper;
+            last_upper = upper;
+            settled
+        },
+    );
+    assert!(
+        !animated.tick_installed(),
+        "precondition: the picture starts below the viewport, so it must not be playing"
+    );
+
+    let vadj = sw.vadjustment();
+    scroll_to(&sw, vadj.upper() - vadj.page_size());
+    let started = crate::testpump::until_or_for(
+        crate::testpump::Clock::Frame,
+        std::time::Duration::from_secs(5),
+        || animated.tick_installed(),
+    );
+    window.destroy();
+    assert!(
+        started,
+        "one scroll brought the picture into view and it never started playing"
+    );
+}

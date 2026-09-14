@@ -80,6 +80,10 @@ mod imp {
         /// table overflows the viewport by `inset` px → spurious Automatic h-scrollbar →
         /// GTK4Rs/AP-22/23 churn/blank (GTK4Rs/AP-23a). Set once by the renderer at build time.
         pub(crate) inset: std::cell::Cell<i32>,
+        /// The header band's own playback table, so an animated tile or scene plays
+        /// (TDD 27.9) with each frame's repaint queued on this widget and each pass
+        /// bracketed inside its own `snapshot`.
+        pub(crate) sprites: crate::animation::sprites::SpriteTable,
     }
 
     #[glib::object_subclass]
@@ -171,10 +175,14 @@ mod imp {
         // page-coloured, exactly as they were before this band existed.
         fn snapshot(&self, snapshot: &gtk::Snapshot) {
             let theme = crate::theme::active();
+            // One pass over this widget's sprite table, bracketing the band whether or
+            // not the theme paints one — so a theme that stops painting it releases
+            // what the last pass was playing.
+            self.sprites.begin_pass();
             if theme.table_head_is_painted() {
                 let decor = theme.table_head_decor();
-                // Decoded ONCE for the whole header, not once per cell.
-                let tiled = decor.sprite.and_then(crate::sprite::texture);
+                let obj = self.obj();
+                let frames = self.sprites.frames(obj.upcast_ref());
                 for rect in self.head_cell_rects() {
                     // The cells' own corners are rounded by generated CSS, which is
                     // applied at its DESIGN-TIME value and does not follow zoom
@@ -191,15 +199,10 @@ mod imp {
                         rect.width(),
                         rect.height(),
                     );
-                    crate::widgets::paint_band_into(
-                        snapshot,
-                        &rect,
-                        &decor,
-                        radius,
-                        tiled.as_ref(),
-                    );
+                    crate::widgets::paint_band_into(snapshot, &rect, &decor, radius, frames);
                 }
             }
+            self.sprites.end_pass();
             // Then the cells themselves, on top of it.
             self.parent_snapshot(snapshot);
         }
@@ -553,6 +556,66 @@ mod gtk_integration_tests {
         let empty = ScribTableWidget::new(Vec::new());
         empty.set_bound_width(600);
         assert!(empty.imp().head_cell_rects().is_empty());
+    }
+
+    /// TDD 27.9 — an animated header SCENE plays, driven by the table's own sprite
+    /// table. Asserted on the driver's frame rather than the painted pixels: a header
+    /// cell is short, and the rows the fixture's frames change in need not fall inside it.
+    #[gtktest::test]
+    fn an_animated_header_scene_plays() {
+        use crate::animation::sprites::testkit;
+        crate::sprite::clear_cache();
+        let (_dir, r) = testkit::animated_fixture();
+        let mut themes = crate::theme::themes();
+        themes.merge_over_for_test(
+            "[themes.animhead]\nbackground = \"#ffffff\"\nforeground = \"#000000\"\n",
+        );
+        let mut theme = themes.resolve("animhead");
+        theme.sprites.table_head_scene = Some(r.clone());
+        let _theme = crate::theme::activate_for_test(theme);
+
+        let cell =
+            |text: &str| -> gtk::Widget { gtk::Label::builder().label(text).build().upcast() };
+        let table = ScribTableWidget::new(vec![
+            vec![cell("Head A"), cell("Head B")],
+            vec![cell("a"), cell("b")],
+        ]);
+        table.set_bound_width(480);
+        let app = crate::window::testkit::test_app_suffixed("table.animhead");
+        let win = gtk::ApplicationWindow::new(&app);
+        win.set_child(Some(&table));
+        win.present();
+        crate::testpump::until(
+            crate::testpump::Clock::Idle,
+            "the table to be allocated",
+            || table.width() > 0,
+        );
+
+        let frame = || {
+            let _ =
+                testkit::rendered(|s| gtk::subclass::prelude::WidgetImpl::snapshot(table.imp(), s));
+            testkit::current_frame(&table.imp().sprites, &r)
+        };
+        let first = frame().expect("the header is painted, so its scene must be played");
+        assert!(
+            table
+                .imp()
+                .sprites
+                .with_anim(&r, |anim| anim.is_ticking())
+                .unwrap_or(false),
+            "a mapped header with an animated scene must be ticking"
+        );
+        let changed = crate::testpump::until_or_for(
+            crate::testpump::Clock::Frame,
+            std::time::Duration::from_secs(10),
+            || frame().is_some_and(|now| now != first),
+        );
+        win.destroy();
+        assert!(
+            changed,
+            "the header scene's frame never advanced across 10s"
+        );
+        crate::sprite::clear_cache();
     }
 
     /// **The preview's link-cell rules reach the widget** — asserted on the colour the

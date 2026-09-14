@@ -1,24 +1,12 @@
-//! `SpriteAnim`'s own GTK-object test — the driver called directly through
-//! [`frame_for`] rather than through a themed `bandpaint::paint_band`.
+//! The sprite driver's own GTK-object tests — a [`SpriteTable`] driven directly on a
+//! plain host widget, rather than through a themed paint.
 //!
-//! **Only the STILL-sprite case belongs here.** An animated case needs the view to
-//! ALSO carry real decoration content (`set_heading_spans` on a themed view): once a
-//! tick installs, `SpriteAnim::ensure_bootstrapped`'s policy-watch subscription calls
-//! `view.queue_draw()` on any Play-Animations/reduce-animations change, which forces a
-//! REAL `snapshot_layer` pass on this view — and a bare view with nothing else drawn
-//! answers `has_anything_to_draw() == false`, so that forced pass's own
-//! `reset_sprite_anim_seen`/`drop_unseen_sprite_anims` bracketing (unconditional,
-//! `codeview::mod::snapshot_layer`) drops an entry this file created only by calling
-//! `frame_for` directly, outside any paint `bandpaint::paint_band` would itself have
-//! driven. That is a **test-methodology artifact**, not a production bug — a real
-//! document with the sprite decoration also has `has_anything_to_draw() == true` and
-//! `bandpaint::paint_band` runs on every such forced repaint too, so the two calls
-//! cooperate instead of racing. `codeview::animsprite_tests` is where the animated
-//! cases live instead, each through a themed heading exactly as production reaches
-//! this module.
+//! A plain widget is the right fixture here, where it was not for `CodePreviewView`:
+//! nothing but these calls brackets this table's passes, so a repaint the driver asks
+//! for (a new frame, a policy change) cannot prune an entry out from under the test.
+//! `codeview::animsprite_tests` proves the wiring through real themed paints.
 
 use super::*;
-use crate::codeview::CodePreviewView;
 use crate::sprite::SpriteRef;
 use gtk::prelude::TextureExt;
 
@@ -26,9 +14,8 @@ fn test_app(suffix: &str) -> gtk::Application {
     crate::window::testkit::test_app_suffixed(&format!("spriteanim.{suffix}"))
 }
 
-/// The downloaded pixel bytes of `tex` — `GdkTexture` has no public identity
-/// accessor (`animation::paintable::gtk_tests`'s own `painted_bytes` doc comment), so
-/// every comparison below is by CONTENT, not by object identity.
+/// The downloaded pixel bytes of `tex` — compared by CONTENT, since `GdkTexture` has
+/// no public identity accessor.
 fn bytes_of(tex: &gtk::gdk::Texture) -> Vec<u8> {
     let stride = tex.width() as usize * 4;
     let mut buf = vec![0u8; stride * tex.height() as usize];
@@ -36,27 +23,30 @@ fn bytes_of(tex: &gtk::gdk::Texture) -> Vec<u8> {
     buf
 }
 
-/// A realized, mapped `CodePreviewView` in its own application window — real root,
-/// real application, real frame clock, exactly what `SpriteAnim::ensure_bootstrapped`
-/// needs to resolve `policy::current`.
-fn realize(app: &gtk::Application) -> (CodePreviewView, gtk::ApplicationWindow) {
-    let view = CodePreviewView::new();
+/// A mapped host widget in its own application window — real root, real application,
+/// real frame clock, which is what the driver needs to resolve `policy::current` and
+/// tick.
+fn mapped_host(app: &gtk::Application) -> (gtk::Label, gtk::ApplicationWindow) {
+    let host = gtk::Label::new(Some("host"));
     let window = gtk::ApplicationWindow::new(app);
-    window.set_child(Some(&view));
+    window.set_child(Some(&host));
     window.present();
-    crate::testpump::until(crate::testpump::Clock::Idle, "the view to map", || {
-        view.is_mapped()
+    crate::testpump::until(crate::testpump::Clock::Idle, "the host to map", || {
+        host.is_mapped()
     });
-    (view, window)
+    (host, window)
 }
 
-fn still_sprite_ref() -> (SpriteRef, gtk::gdk::Texture) {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let dir = Box::leak(Box::new(dir));
-    let path = dir.path().join("chip.png");
-    // The smallest fixture that actually decodes — see `sprite::tests::write_test_png`
-    // for the same bytes; duplicated here rather than exposed cross-module for a
-    // one-off fixture.
+/// A file-backed sprite reference over `bytes`. The directory is leaked for the test's
+/// lifetime, since the reference is by path.
+fn sprite_file(name: &str, bytes: &[u8]) -> SpriteRef {
+    let dir = Box::leak(Box::new(tempfile::tempdir().expect("tempdir")));
+    std::fs::write(dir.path().join(name), bytes).expect("write fixture");
+    SpriteRef::File(crate::sprite::resolve(dir.path(), name).expect("resolves"))
+}
+
+fn still_sprite() -> SpriteRef {
+    // The smallest fixture that actually decodes — see `sprite::tests::write_test_png`.
     const PNG: &[u8] = &[
         0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
         0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00, 0x00, 0x90,
@@ -64,34 +54,148 @@ fn still_sprite_ref() -> (SpriteRef, gtk::gdk::Texture) {
         0xFF, 0xFF, 0x3F, 0x00, 0x05, 0xFE, 0x02, 0xFE, 0xDC, 0xCC, 0x59, 0xE7, 0x00, 0x00, 0x00,
         0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
     ];
-    std::fs::write(&path, PNG).expect("write fixture");
-    let resolved =
-        SpriteRef::File(crate::sprite::resolve(dir.path(), "chip.png").expect("resolves"));
-    let tex = crate::sprite::texture(&resolved).expect("decodes");
-    (resolved, tex)
+    sprite_file("chip.png", PNG)
 }
 
-/// A still sprite must cost NOTHING new: `frame_for` hands back the caller's own
-/// `natural` texture unchanged, and no `SpriteAnim` is ever created for it — verified
-/// both by content (byte-for-byte) and by absence from the view's own table
-/// (`with_sprite_anim` finds nothing to run against). No incidental repaint can ever
-/// disturb this case either way: nothing is ever inserted to begin with.
+fn animated_sprite() -> SpriteRef {
+    sprite_file(
+        "anim.webp",
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/anim.webp"
+        )),
+    )
+}
+
+/// A still sprite costs NOTHING new: both `Frames` routes hand back exactly what
+/// `sprite::texture`/`sprite::scaled` produce, and no driver entry is ever created.
 #[gtktest::test]
 fn a_still_sprite_is_returned_unchanged_and_creates_no_driver_state() {
     crate::sprite::clear_cache();
     let app = test_app("still");
-    let (view, _window) = realize(&app);
-    let (r, natural) = still_sprite_ref();
+    let (host, _window) = mapped_host(&app);
+    let r = still_sprite();
+    let table = SpriteTable::default();
 
-    let got = frame_for(&view, &r, Some(natural.clone())).expect("a still sprite has a texture");
+    table.begin_pass();
+    let frames = table.frames(host.upcast_ref());
+    let natural = frames.natural(&r).expect("a still sprite has a texture");
+    let scaled = frames.scaled(&r, 3, 2).expect("a still sprite resamples");
+    table.end_pass();
+
+    let still = crate::sprite::texture(&r).expect("decodes");
     assert_eq!(
-        bytes_of(&got),
         bytes_of(&natural),
-        "a still sprite's texture must come back byte-for-byte identical"
+        bytes_of(&still),
+        "natural size is the still texture"
+    );
+    let still_scaled = crate::sprite::scaled(&r, 3, 2).expect("resamples");
+    assert_eq!(
+        bytes_of(&scaled),
+        bytes_of(&still_scaled),
+        "resample is the still resample"
     );
     assert!(
-        view.with_sprite_anim(&r, |_| ()).is_none(),
+        table.with_anim(&r, |_| ()).is_none(),
         "a still sprite must never gain an entry in the animation driver's table"
+    );
+    crate::sprite::clear_cache();
+}
+
+/// TDD 27.9: a RESAMPLED animated sprite plays — the slot shape of a chip, a list
+/// marker, a scene or a disclosure indicator, which draw a sprite into a box the layout
+/// chose rather than tiling it. The resample is at the requested size, and its pixels
+/// change under the real frame clock.
+#[gtktest::test]
+fn a_resampled_animated_sprite_plays_at_the_requested_size() {
+    crate::sprite::clear_cache();
+    let app = test_app("scaled");
+    let (host, window) = mapped_host(&app);
+    let r = animated_sprite();
+    let table = SpriteTable::default();
+    let (w, h) = (96, 54);
+
+    let paint = || {
+        table.begin_pass();
+        let tex = table
+            .frames(host.upcast_ref())
+            .scaled(&r, w, h)
+            .expect("the sprite resamples");
+        table.end_pass();
+        tex
+    };
+    let first = paint();
+    assert_eq!((first.width(), first.height()), (w, h));
+    assert!(
+        table
+            .with_anim(&r, |anim| anim.is_ticking())
+            .unwrap_or(false),
+        "a visible, policy-enabled animated sprite must be ticking"
+    );
+    let first = bytes_of(&first);
+    let changed = crate::testpump::until_or_for(
+        crate::testpump::Clock::Frame,
+        std::time::Duration::from_secs(10),
+        || bytes_of(&paint()) != first,
+    );
+    window.destroy();
+    assert!(
+        changed,
+        "the resampled sprite never changed across 10s of wall clock"
+    );
+    crate::sprite::clear_cache();
+}
+
+/// TDD 27.3 / 27.9: a pass that no longer draws the sprite releases it — no decoder,
+/// no tick — which is what a decoration scrolled out of its paint's viewport gate is.
+#[gtktest::test]
+fn a_pass_that_does_not_draw_the_sprite_drops_its_driver() {
+    crate::sprite::clear_cache();
+    let app = test_app("pass");
+    let (host, window) = mapped_host(&app);
+    let r = animated_sprite();
+    let table = SpriteTable::default();
+
+    table.begin_pass();
+    let _ = table.frames(host.upcast_ref()).natural(&r);
+    table.end_pass();
+    assert!(
+        table.with_anim(&r, |_| ()).is_some(),
+        "precondition: drawn, so tracked"
+    );
+
+    table.begin_pass();
+    table.end_pass();
+    window.destroy();
+    assert!(
+        table.with_anim(&r, |_| ()).is_none(),
+        "a pass that did not draw the sprite must drop its driver"
+    );
+    crate::sprite::clear_cache();
+}
+
+/// TDD 27.3: a host that is not on screen plays nothing, even when its paint asks —
+/// the case of an anchored child that GTK still snapshots while scrolled away. It gets
+/// the still frame, and no driver.
+#[gtktest::test]
+fn an_unmapped_host_plays_nothing_and_paints_the_still_frame() {
+    crate::sprite::clear_cache();
+    let r = animated_sprite();
+    let host = gtk::Label::new(Some("never shown"));
+    let table = SpriteTable::default();
+
+    table.begin_pass();
+    let got = table
+        .frames(host.upcast_ref())
+        .natural(&r)
+        .expect("the still frame is still there");
+    table.end_pass();
+
+    let still = crate::sprite::texture(&r).expect("decodes");
+    assert_eq!(bytes_of(&got), bytes_of(&still));
+    assert!(
+        table.with_anim(&r, |_| ()).is_none(),
+        "an invisible host must not create a driver"
     );
     crate::sprite::clear_cache();
 }

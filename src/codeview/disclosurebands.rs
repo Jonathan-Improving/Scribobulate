@@ -36,10 +36,9 @@ pub(super) fn draw(snapshot: &gtk::Snapshot, ctx: &PaintCtx) {
     if !decor.is_present() {
         return;
     }
-    // The sprite is decoded ONCE for the whole pass rather than per band: unlike a
-    // heading's, this decoration is stated flat, so every band on the page draws the
-    // same texture.
-    let tiled = decor.sprite.and_then(crate::sprite::texture);
+    // The sprite is decoded once for the whole document by `sprite::texture`'s cache,
+    // and resolved inside `paint_band` only once a band is known to be on screen (TDD
+    // 27.9).
     for span in spans.iter() {
         paint_band(
             snapshot,
@@ -47,7 +46,6 @@ pub(super) fn draw(snapshot: &gtk::Snapshot, ctx: &PaintCtx) {
             *span,
             &decor,
             theme.metrics.disclosure_band_radius,
-            tiled.as_ref(),
         );
     }
 }

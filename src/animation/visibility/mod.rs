@@ -85,6 +85,14 @@ pub(crate) fn current(host: &gtk::Widget) -> bool {
     }
 }
 
+/// Whether `host` is hidden for a reason no geometry can change — unmapped, or in a
+/// minimized window. Such a host gets no paint, so anything waiting for its next paint
+/// to decide waits forever; a caller that can defer the geometry half of [`current`] to
+/// a paint must still act on this half itself.
+pub(crate) fn hidden_regardless_of_geometry(host: &gtk::Widget) -> bool {
+    !host.is_mapped() || is_minimized(host)
+}
+
 /// Is `host` within `view`'s own allocated rectangle, both in WIDGET space?
 ///
 /// `compute_bounds` (`gtk_widget_compute_bounds`) reports `host`'s allocation

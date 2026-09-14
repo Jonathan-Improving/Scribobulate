@@ -2636,9 +2636,10 @@ on either platform; do not infer one from these cells.
 - [ ] **27.6** On a fresh state directory → Play Animations is on. Switch it off, quit, relaunch → still off (TDD 27.6)
 - [ ] **27.7** Turn on the system's reduce-animations setting (GNOME: Settings ▸ Accessibility ▸ Reduce Animation; KDE: animation speed to instant; macOS: Reduce Motion; Windows: Show animations off) → every animation shows its first frame with the pause badge and does not play, even with Play Animations on. Turn the setting off → animations play again. Then: switch Play Animations off, quit, turn reduce-animations on and back off, relaunch → Play Animations is still off (the system setting never overwrote the reader's choice) (TDD 27.7)
 - [ ] **27.8** A paused animation shows a small pause symbol in its bottom corner; a still image never does; a playing animation does not; an animation under 48 px on a side does not. Click the badge → nothing happens (TDD 27.8)
-> ⚠ **27.9's fixture must animate in the rows the band shows.** A band tiles its sprite from
-> the document's grid, so a band near the top of the document shows the sprite's top rows; if
-> those rows are static the band looks frozen while playing correctly. `tests/fixtures/anim.webp`
-> is exactly such a file (it changes only in rows 96–236), and it produced a false FAIL once.
+> ⚠ **27.9's fixture must animate in the rows a band shows.** A heading band, a disclosure
+> summary band and a table header tile their sprite at natural size from the document's grid,
+> so a short band shows only some of the sprite's rows; if those rows are static the band looks
+> frozen while playing correctly. `tests/fixtures/anim.webp` is exactly such a file (it changes
+> only in rows 96–236), and it produced a false FAIL once. Every other slot shows the whole frame.
 
-- [ ] **27.9** Select a reading theme whose **heading band** or **disclosure summary band** carries an animated sprite → it plays; scroll it away → CPU ~0%; switch Play Animations off → it freezes (TDD 27.9). ⚠ The other sprite slots — quote bar, list marker, annotation chip, horizontal rule — are known to show the first frame only, so an animated sprite there is not a FAIL of this check; it is the gap the register records
+- [ ] **27.9** Select a reading theme with an animated sprite in every slot — heading band and scene, disclosure summary band and indicator, quote bar and scene, list bullet, number and checkbox, annotation chip, horizontal rule, table header tile and scene, heading marker (the icon after a heading's text) → each plays; scroll each away → CPU ~0%; switch to another tab and back → CPU ~0% while away, and each plays again on return; switch Play Animations off → every one freezes (TDD 27.9). The animated heading marker sits exactly where the same sprite as a still image does, and copying the heading copies no marker

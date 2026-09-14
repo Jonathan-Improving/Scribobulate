@@ -5,7 +5,7 @@
 //! rather than a second geometry check invented for the purpose?
 //!
 //! `crate::animation::sprites::gtk_tests` proves the DRIVER (ticking, policy, frame
-//! advance) in isolation, calling `frame_for` directly; this module proves it is wired
+//! advance) in isolation, on a plain host widget; this module proves it is wired
 //! up correctly from a real themed document, through `bandpaint::paint_band`, and that
 //! scrolling the decoration off screen — the one thing only a real paint pass can show
 //! — actually releases it.
@@ -85,7 +85,7 @@ fn an_animated_heading_band_sprite_plays_while_the_heading_is_in_view() {
 /// gate drops the animation driver's whole entry — no tick, no decoder — and scrolling
 /// it back plays it again from frame 0. This is the ONE test that can prove the
 /// viewport gate really is this sprite's visibility signal, because only a real
-/// `snapshot_layer` pass (not `frame_for` called directly) exercises
+/// `snapshot_layer` pass (not the driver called directly) exercises
 /// `bandpaint::paint_band`'s `span.is_outside` early return at all.
 #[gtktest::test]
 fn scrolling_the_banded_heading_off_screen_drops_the_sprite_driver_and_stops_ticking() {
@@ -167,7 +167,7 @@ fn scrolling_the_banded_heading_off_screen_drops_the_sprite_driver_and_stops_tic
     );
 
     // Scroll back to the top and force another fresh paint — the heading is off
-    // screen again, and NOTHING calls `frame_for` for it on this pass.
+    // screen again, and NOTHING asks `Frames` for it on this pass.
     crate::saferizer::scrollpos::jump(&vadj, 0.0);
     crate::testpump::drain_for(
         crate::testpump::Clock::Frame,
@@ -356,9 +356,8 @@ fn add_bare_play_animations_action(app: &gtk::Application, initial: bool) {
 /// on its current frame, with no tick callback left running; nothing else about the
 /// document changes (the heading stays exactly where it is).
 ///
-/// Built on a REAL themed heading, like the "plays" test above, rather than calling
-/// `frame_for` directly — `animation::sprites::gtk_tests`'s own module doc comment
-/// explains why a bare, undecorated view is the wrong fixture for this: the
+/// Built on a REAL themed heading, like the "plays" test above, rather than driving the
+/// view's sprite table directly — a bare, undecorated view is the wrong fixture: the
 /// policy-watch subscription's `queue_draw()` forces a real repaint on toggle, and only
 /// a view whose `has_anything_to_draw()` is genuinely `true` keeps that repaint from
 /// wiping the driver state out from under the very call meant to observe it.
@@ -387,9 +386,7 @@ fn play_animations_off_freezes_the_banded_heading_sprite() {
     let sprite_bytes = || {
         let _ = framebuffer_of(&view, 400.0, 200.0);
         view.with_sprite_anim(&r, |anim| {
-            let tex = anim
-                .current_texture()
-                .expect("a playing sprite has a frame");
+            let tex = anim.current_texture();
             let stride = tex.width() as usize * 4;
             let mut buf = vec![0u8; stride * tex.height() as usize];
             tex.download(&mut buf, stride);
@@ -433,6 +430,226 @@ fn play_animations_off_freezes_the_banded_heading_sprite() {
     assert_eq!(
         still_frozen, frozen,
         "paused must stay on the current frame, not keep advancing"
+    );
+    crate::sprite::clear_cache();
+}
+
+/// A theme tiling `r` down the blockquote bar, 24 px wide — narrower than the fixture,
+/// so the bar takes the RESAMPLED route rather than the natural-size one.
+fn activate_barred_theme(r: &SpriteRef) -> crate::theme::ActiveThemeGuard {
+    let mut themes = crate::theme::themes();
+    themes.merge_over_for_test(
+        "[themes.animbarred]\nbackground = \"#ffffff\"\nforeground = \"#000000\"\n\
+         blockquote_bar_width = 24\n",
+    );
+    let mut theme = themes.resolve("animbarred");
+    theme.sprites.blockquote_bar = Some(r.clone());
+    let guard = crate::theme::activate_for_test(theme);
+    crate::sprite::clear_cache();
+    guard
+}
+
+fn quote(start: i32, len: i32) -> Vec<crate::span::QuoteSpan> {
+    vec![crate::span::QuoteSpan {
+        span: crate::span::BufferSpan::new(start, start + len),
+        depth: 1,
+    }]
+}
+
+/// The frame the view is playing for `r`, read after a real paint — so an entry can
+/// only exist because the paint plan asked for it.
+fn painted_frame(view: &CodePreviewView, r: &SpriteRef) -> Option<Vec<u8>> {
+    let _ = framebuffer_of(view, 400.0, 200.0);
+    view.with_sprite_anim(r, |anim| {
+        crate::animation::sprites::testkit::texture_bytes(&anim.current_texture())
+    })
+}
+
+/// TDD 27.9: an animated blockquote bar plays through the real paint plan — a sprite
+/// RESAMPLED to the bar's width, the route the band slots never took.
+#[gtktest::test]
+fn an_animated_blockquote_bar_sprite_plays() {
+    let (_dir, r) = crate::animation::sprites::testkit::animated_fixture();
+    let _theme = activate_barred_theme(&r);
+
+    let view = CodePreviewView::new();
+    view.buffer().set_text("A quoted line\n");
+    view.set_blockquotes(quote(0, 13), gtk::gdk::RGBA::new(0.0, 1.0, 0.0, 1.0));
+    let app = crate::window::testkit::test_app_suffixed("animsprite.bar");
+    let window = present_for_paint_sized(&view, 400, 200);
+    window.set_application(Some(&app));
+
+    // The window gains its application only AFTER its first paint, and a pass with no
+    // application has no Play Animations policy to consult, so that pass does not tick.
+    // The next real paint consults it and must start.
+    view.queue_draw();
+    crate::testpump::until(
+        crate::testpump::Clock::Frame,
+        "a visible, policy-enabled bar sprite to be ticking",
+        || {
+            let _ = painted_frame(&view, &r);
+            view.with_sprite_anim(&r, |anim| anim.is_ticking())
+                .unwrap_or(false)
+        },
+    );
+    let first = painted_frame(&view, &r)
+        .expect("the quote is on screen, so the paint must play its bar sprite");
+    let changed = crate::testpump::until_or_for(
+        crate::testpump::Clock::Frame,
+        std::time::Duration::from_secs(10),
+        || painted_frame(&view, &r).is_some_and(|now| now != first),
+    );
+    window.destroy();
+    assert!(changed, "the bar sprite's frame never advanced across 10s");
+    crate::sprite::clear_cache();
+}
+
+/// TDD 27.3 / 27.9: a quote below the viewport never plays its bar. The bar is resolved
+/// once per pass, before the per-quote loop, so the paint must return before resolving
+/// it when no quote is on screen — otherwise an off-screen quote would tick at display
+/// rate for pixels nobody can see.
+#[gtktest::test]
+fn a_blockquote_bar_sprite_below_the_viewport_is_never_played() {
+    let (_dir, r) = crate::animation::sprites::testkit::animated_fixture();
+    let _theme = activate_barred_theme(&r);
+
+    let mut text = String::new();
+    for _ in 0..80 {
+        text.push_str("blank line of ordinary text\n");
+    }
+    let start = text.chars().count() as i32;
+    text.push_str("A quoted line\n");
+
+    let view = CodePreviewView::new();
+    view.buffer().set_text(&text);
+    view.set_blockquotes(quote(start, 13), gtk::gdk::RGBA::new(0.0, 1.0, 0.0, 1.0));
+    let app = crate::window::testkit::test_app_suffixed("animsprite.barbelow");
+    let scroller = gtk::ScrolledWindow::new();
+    scroller.set_child(Some(&view));
+    let window = gtk::Window::new();
+    window.set_default_size(400, 200);
+    window.set_child(Some(&scroller));
+    window.set_application(Some(&app));
+    window.present();
+    crate::testpump::until(crate::testpump::Clock::Frame, "the preview maps", || {
+        view.width() > 0
+    });
+
+    let played = painted_frame(&view, &r).is_some();
+    window.destroy();
+    assert!(
+        !played,
+        "the only quote is below the viewport — its bar sprite must not be played"
+    );
+    crate::sprite::clear_cache();
+}
+
+/// TDD 27.9: an animated list BULLET plays through the real paint plan — a sprite drawn
+/// into the marker box the gutter chose (`widgets::draw_sprite_into`), the same resample
+/// seam the annotation chip and the disclosure indicator take.
+#[gtktest::test]
+fn an_animated_list_bullet_sprite_plays() {
+    let (_dir, r) = crate::animation::sprites::testkit::animated_fixture();
+    let mut themes = crate::theme::themes();
+    themes.merge_over_for_test(
+        "[themes.animbullet]\nbackground = \"#ffffff\"\nforeground = \"#000000\"\n",
+    );
+    let mut theme = themes.resolve("animbullet");
+    theme.sprites.list_bullet[0] = Some(r.clone());
+    let _theme = crate::theme::activate_for_test(theme);
+    crate::sprite::clear_cache();
+
+    let view = CodePreviewView::new();
+    view.buffer().set_text("an item\n");
+    view.set_list_markers(
+        vec![crate::renderer::ListMarker {
+            depth: 1,
+            kind: crate::renderer::ListMarkerKind::Bullet,
+            first_line: 0,
+            quoted: false,
+        }],
+        1.0,
+    );
+    let app = crate::window::testkit::test_app_suffixed("animsprite.bullet");
+    let window = present_for_paint_sized(&view, 400, 200);
+    window.set_application(Some(&app));
+
+    let first = painted_frame(&view, &r)
+        .expect("the item is on screen, so the gutter must play its bullet sprite");
+    let changed = crate::testpump::until_or_for(
+        crate::testpump::Clock::Frame,
+        std::time::Duration::from_secs(10),
+        || painted_frame(&view, &r).is_some_and(|now| now != first),
+    );
+    window.destroy();
+    assert!(
+        changed,
+        "the bullet sprite's frame never advanced across 10s"
+    );
+    crate::sprite::clear_cache();
+}
+
+/// TDD 27.9: an animated disclosure INDICATOR keeps playing where production puts it —
+/// a `SpriteIcon` inside the toggle anchored in the preview, not a bare icon in a
+/// window. Counts DISTINCT frames rather than asking for one change: in the running app
+/// the indicator advanced once and then froze, which a single-change check passes.
+#[gtktest::test]
+fn an_animated_disclosure_indicator_keeps_playing_anchored_in_the_preview() {
+    let (_dir, r) = crate::animation::sprites::testkit::animated_fixture();
+    let mut themes = crate::theme::themes();
+    themes.merge_over_for_test(
+        "[themes.animdisc]\nbackground = \"#ffffff\"\nforeground = \"#000000\"\n",
+    );
+    let mut theme = themes.resolve("animdisc");
+    theme.sprites.disclosure = Some(r.clone());
+    theme.sprites.disclosure_expanded = Some(r.clone());
+    let _theme = crate::theme::activate_for_test(theme);
+    crate::sprite::clear_cache();
+
+    let view = CodePreviewView::new();
+    let buffer = view.buffer();
+    buffer.set_text("\n");
+    let mut at = buffer.start_iter();
+    let anchor = buffer.create_child_anchor(&mut at);
+    let toggle = crate::widgets::disclosure::build(true, 1.0, "Summary");
+    view.add_child_at_anchor(&toggle, &anchor);
+    let icon = toggle
+        .child()
+        .and_downcast::<crate::widgets::sprite_icon::SpriteIcon>()
+        .expect("the themed indicator is a sprite icon");
+
+    let app = crate::window::testkit::test_app_suffixed("animsprite.disclosure");
+    let scroller = gtk::ScrolledWindow::new();
+    scroller.set_child(Some(&view));
+    let window = gtk::ApplicationWindow::new(&app);
+    window.set_default_size(400, 200);
+    window.set_child(Some(&scroller));
+    window.present();
+    crate::testpump::until(crate::testpump::Clock::Frame, "the indicator maps", || {
+        icon.is_mapped() && icon.width() > 0
+    });
+
+    const WANT_FRAMES: usize = 4;
+    let mut seen: Vec<Vec<u8>> = Vec::new();
+    let played = crate::testpump::until_or_for(
+        crate::testpump::Clock::Frame,
+        std::time::Duration::from_secs(10),
+        || {
+            if let Some(frame) =
+                crate::animation::sprites::testkit::current_frame(icon.sprites(), &r)
+            {
+                if !seen.contains(&frame) {
+                    seen.push(frame);
+                }
+            }
+            seen.len() >= WANT_FRAMES
+        },
+    );
+    window.destroy();
+    assert!(
+        played,
+        "the anchored indicator showed {} distinct frames in 10s — it must keep playing",
+        seen.len()
     );
     crate::sprite::clear_cache();
 }

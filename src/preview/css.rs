@@ -201,7 +201,7 @@ fn rgba_css(c: gtk::gdk::RGBA, alpha: f32) -> String {
 /// driven one for the same reason: only a real widget can say whether a selector matched.
 /// **Every widget shape the disclosure indicator wears**, plus the button that hosts
 /// them — `widgets::disclosure::indicator` returns a `GtkLabel` for a themed glyph, a
-/// `GtkImage` for the stock icon, and a `GtkPicture` for a sprite (which carries its own
+/// `GtkImage` for the stock icon, and a `SpriteIcon` for a sprite (which carries its own
 /// pixels and ignores `color`, so it needs no selector).
 ///
 /// The button alone is not enough for the same reason a link cell's button was not:

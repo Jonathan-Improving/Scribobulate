@@ -143,6 +143,7 @@ pub(super) fn draw(snapshot: &gtk::Snapshot, ctx: &PaintCtx) {
                     depth: m.depth,
                     glyphs: &qm.list_glyphs,
                     sprites: &qm.sprites,
+                    frames: ctx.frames(),
                 },
             );
         }

@@ -104,25 +104,158 @@ pub(crate) fn memory_texture_from_frame(
     frame: richimg::Frame,
     origin: &str,
 ) -> Option<gtk::gdk::Texture> {
-    use gtk::prelude::Cast;
-    if frame.width == 0 || frame.height == 0 {
-        log::warn!(
-            "image {origin} decoded to an empty frame ({}x{}) — not loaded",
-            frame.width,
-            frame.height
+    FramePixels::of(frame, origin).map(|pixels| pixels.texture())
+}
+
+/// One decoded frame's straight-alpha RGBA8 pixels, held as shared `glib::Bytes`, so
+/// the texture and every resample read the same buffer rather than copies of it.
+///
+/// What an animated theme sprite keeps per frame (TDD 27.9): a sprite drawn into a box
+/// the layout chose is resampled from PIXELS, and a `GdkTexture` only gives them back
+/// as a premultiplied download in the host's byte order.
+pub(crate) struct FramePixels {
+    bytes: gtk::glib::Bytes,
+    width: i32,
+    height: i32,
+}
+
+impl FramePixels {
+    /// Take ownership of `frame`'s pixels. `None` — logged — for an empty frame.
+    pub(crate) fn of(frame: richimg::Frame, origin: &str) -> Option<Self> {
+        let (Ok(width), Ok(height)) = (i32::try_from(frame.width), i32::try_from(frame.height))
+        else {
+            log::warn!(
+                "image {origin} decoded to a frame too large to address ({}x{}) — not loaded",
+                frame.width,
+                frame.height
+            );
+            return None;
+        };
+        if width == 0 || height == 0 {
+            log::warn!("image {origin} decoded to an empty frame ({width}x{height}) — not loaded");
+            return None;
+        }
+        Some(Self {
+            bytes: gtk::glib::Bytes::from_owned(frame.rgba),
+            width,
+            height,
+        })
+    }
+
+    #[cfg(test)]
+    fn from_rgba(rgba: Vec<u8>, width: i32, height: i32) -> Self {
+        Self {
+            bytes: gtk::glib::Bytes::from_owned(rgba),
+            width,
+            height,
+        }
+    }
+
+    pub(crate) fn width(&self) -> i32 {
+        self.width
+    }
+
+    pub(crate) fn height(&self) -> i32 {
+        self.height
+    }
+
+    /// The frame as a texture. **Never `Texture::from_bytes`** — that would hand the
+    /// ALREADY-DECODED pixels back through an encoded-image loader.
+    pub(crate) fn texture(&self) -> gtk::gdk::Texture {
+        use gtk::prelude::Cast;
+        gtk::gdk::MemoryTexture::new(
+            self.width,
+            self.height,
+            gtk::gdk::MemoryFormat::R8g8b8a8,
+            &self.bytes,
+            self.width as usize * 4,
+        )
+        .upcast()
+    }
+
+    /// The frame resampled to exactly `w × h`, nearest-neighbour — the same resample
+    /// `sprite::scaled` applies to a still sprite.
+    pub(crate) fn resampled(&self, w: i32, h: i32) -> Option<gtk::gdk::Texture> {
+        let pb = gtk::gdk_pixbuf::Pixbuf::from_bytes(
+            &self.bytes,
+            gtk::gdk_pixbuf::Colorspace::Rgb,
+            true,
+            8,
+            self.width,
+            self.height,
+            self.width * 4,
         );
+        resample_nearest(&pb, w, h)
+    }
+}
+
+/// `pb` resampled to exactly `w × h` with nearest-neighbour filtering, as a texture.
+/// `None` for a size that is not one, or a resample gdk-pixbuf refuses.
+///
+/// Nearest because GSK 4.6's `append_texture` filters linearly with no choice
+/// (GTK4Rs/AP-114), so pre-resampling is the only way pixel art stays crisp at any zoom.
+/// One definition, so a still sprite (`sprite::scaled`) and an animated sprite's frame
+/// (`FramePixels::resampled`) cannot resample differently.
+pub(crate) fn resample_nearest(
+    pb: &gtk::gdk_pixbuf::Pixbuf,
+    w: i32,
+    h: i32,
+) -> Option<gtk::gdk::Texture> {
+    if w <= 0 || h <= 0 {
         return None;
     }
-    let stride = frame.width as usize * 4;
-    let bytes = gtk::glib::Bytes::from_owned(frame.rgba);
-    let texture = gtk::gdk::MemoryTexture::new(
-        frame.width as i32,
-        frame.height as i32,
-        gtk::gdk::MemoryFormat::R8g8b8a8,
-        &bytes,
-        stride,
-    );
-    Some(texture.upcast())
+    pb.scale_simple(w, h, gtk::gdk_pixbuf::InterpType::Nearest)
+        .map(|resampled| gtk::gdk::Texture::for_pixbuf(&resampled))
+}
+
+#[cfg(test)]
+mod frame_pixels_tests {
+    use super::FramePixels;
+    use gtk::gdk::prelude::{TextureExt, TextureExtManual};
+
+    /// Opaque red | opaque blue, 2×1.
+    fn two_pixels() -> FramePixels {
+        FramePixels::from_rgba(vec![255, 0, 0, 255, 0, 0, 255, 255], 2, 1)
+    }
+
+    /// TDD 27.9: an animated sprite's frame resamples to the requested box by repeating
+    /// source pixels, never by blending them. Compared across columns rather than
+    /// against channel values, so the download's byte order does not matter.
+    #[test]
+    fn a_frame_resamples_nearest_neighbour_to_the_requested_size() {
+        let tex = two_pixels().resampled(4, 2).expect("a real size resamples");
+        assert_eq!((tex.width(), tex.height()), (4, 2));
+        let mut buf = vec![0u8; 4 * 2 * 4];
+        tex.download(&mut buf, 4 * 4);
+        let px: Vec<&[u8]> = buf.chunks_exact(4).collect();
+        assert_eq!(
+            px[0], px[1],
+            "the left source pixel is repeated, not blended"
+        );
+        assert_eq!(
+            px[2], px[3],
+            "the right source pixel is repeated, not blended"
+        );
+        assert_ne!(px[1], px[2], "the two source pixels stay distinct");
+        assert_eq!(
+            &buf[..16],
+            &buf[16..],
+            "both rows sample the one source row"
+        );
+    }
+
+    #[test]
+    fn a_non_positive_size_is_not_a_size() {
+        assert!(two_pixels().resampled(0, 3).is_none());
+        assert!(two_pixels().resampled(3, -1).is_none());
+    }
+
+    /// The texture is the frame at its own size.
+    #[test]
+    fn the_texture_is_the_frame_at_its_natural_size() {
+        let tex = two_pixels().texture();
+        assert_eq!((tex.width(), tex.height()), (2, 1));
+    }
 }
 
 fn decode_gtk(bytes: &[u8], origin: &str) -> Option<DecodedImage> {

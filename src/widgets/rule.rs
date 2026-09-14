@@ -61,6 +61,14 @@ mod imp {
     #[derive(Default)]
     pub(crate) struct SpriteRule {
         pub(crate) tile: RefCell<Option<gdk::Texture>>,
+        /// The reference `tile` was decoded from, so an animated tile plays (TDD 27.9).
+        /// `None` for a rule built from a bare texture.
+        pub(crate) sprite: RefCell<Option<crate::sprite::SpriteRef>>,
+        /// This widget's own playback table. Its own, so each frame's repaint is queued
+        /// on the widget that draws it and each pass is bracketed inside this widget's
+        /// own `snapshot` — independent of where GTK orders an anchored child's snapshot
+        /// against the text view's layers.
+        pub(crate) sprites: crate::animation::sprites::SpriteTable,
     }
 
     #[glib::object_subclass]
@@ -70,7 +78,13 @@ mod imp {
         type ParentType = gtk::Widget;
     }
 
-    impl ObjectImpl for SpriteRule {}
+    impl ObjectImpl for SpriteRule {
+        /// Release the tile's playback (tick, decoder, watches) while the widget can
+        /// still be disconnected from — `dispose` runs before this struct's `Drop`.
+        fn dispose(&self) {
+            self.sprites.release();
+        }
+    }
 
     impl WidgetImpl for SpriteRule {
         /// Height never depends on width, so the anchored-child re-measure loop
@@ -110,12 +124,22 @@ mod imp {
             // documented consequence the bar's `blockquote_bar_width` has, here decided
             // by the tile itself.
             let rect = graphene::Rect::new(0.0, 0.0, w, h);
+            // An animated tile's current frame, else the still tile. Every frame shares
+            // the still tile's size, so `measure` above stays truthful across frames.
+            self.sprites.begin_pass();
+            let current = self
+                .sprite
+                .borrow()
+                .as_ref()
+                .and_then(|r| self.sprites.frames(obj.upcast_ref()).natural(r));
             crate::widgets::tile_texture(
-                snapshot, &rect,
+                snapshot,
+                &rect,
                 // A standalone widget: its rect IS its own coordinate space, so the
                 // origin and the rect coincide and the phase is fixed either way.
-                tex,
+                current.as_ref().unwrap_or(tex),
             );
+            self.sprites.end_pass();
         }
     }
 }
@@ -129,17 +153,25 @@ glib::wrapper! {
 impl SpriteRule {
     /// A rule filled with `tile`, tiled at the texture's natural size.
     ///
-    /// Takes the decoded texture rather than the `SpriteRef` so the decision "does this
-    /// theme have a rule sprite, and did it decode?" stays at the ONE call site that
-    /// chooses between this widget and a `GtkSeparator` — a constructor that could
-    /// return an undecodable rule would put a second, silent way to get a blank one.
-    pub(crate) fn new(tile: gtk::gdk::Texture) -> Self {
+    /// Takes the decoded texture so the decision "does this theme have a rule sprite, and
+    /// did it decode?" stays at the ONE call site that chooses between this widget and a
+    /// `GtkSeparator` — a constructor that could return an undecodable rule would put a
+    /// second, silent way to get a blank one. `sprite` is the reference the tile was
+    /// decoded from, which is what lets an animated one play (TDD 27.9).
+    pub(crate) fn new(tile: gtk::gdk::Texture, sprite: Option<crate::sprite::SpriteRef>) -> Self {
         let obj: Self = glib::Object::new();
         // A rule is decoration: it carries no text and names nothing, so it announces
         // as a separator exactly as the `GtkSeparator` it stands in for does.
         obj.set_accessible_role(gtk::AccessibleRole::Separator);
         obj.imp().tile.replace(Some(tile));
+        obj.imp().sprite.replace(sprite);
         obj
+    }
+
+    /// The table this rule plays its tile from — for tests asking the driver.
+    #[cfg(all(test, feature = "gtk-integration-tests"))]
+    pub(crate) fn sprites(&self) -> &crate::animation::sprites::SpriteTable {
+        &self.imp().sprites
     }
 }
 
@@ -172,7 +204,7 @@ mod gtk_integration_tests {
     /// on a nested rule would overflow it (GTK4Rs/AP-23a).
     #[gtktest::test]
     fn a_sprite_rule_measures_the_tiles_height_and_asks_for_no_width() {
-        let rule = SpriteRule::new(tile());
+        let rule = SpriteRule::new(tile(), None);
         let (min_h, nat_h, _, _) = WidgetExt::measure(&rule, gtk::Orientation::Vertical, -1);
         assert_eq!((min_h, nat_h), (3, 3), "the tile's own height, unscaled");
         let (min_w, nat_w, _, _) = WidgetExt::measure(&rule, gtk::Orientation::Horizontal, -1);
@@ -191,7 +223,7 @@ mod gtk_integration_tests {
     /// if the node repeated.
     #[gtktest::test]
     fn a_sprite_rule_tiles_across_its_whole_width() {
-        let rule = SpriteRule::new(tile());
+        let rule = SpriteRule::new(tile(), None);
         rule.set_size_request(40, -1);
         let win = gtk::Window::new();
         win.set_child(Some(&rule));
@@ -229,5 +261,40 @@ mod gtk_integration_tests {
              un-repeated node covers only its own {}",
             2 * 3
         );
+    }
+
+    /// TDD 27.9 — an animated tile PLAYS, driven by the rule's own sprite table: its
+    /// rendered pixels change under the real frame clock.
+    #[gtktest::test]
+    fn an_animated_rule_tile_plays() {
+        use crate::animation::sprites::testkit;
+        crate::sprite::clear_cache();
+        let (_dir, r) = testkit::animated_fixture();
+        let still = crate::sprite::texture(&r).expect("the fixture decodes");
+        let app = crate::window::testkit::test_app_suffixed("rule.anim");
+        let rule = SpriteRule::new(still, Some(r.clone()));
+        // The fixture's full width, so the rows its frames change in are all tiled.
+        rule.set_size_request(480, -1);
+        let win = gtk::ApplicationWindow::new(&app);
+        win.set_child(Some(&rule));
+        win.present();
+        crate::testpump::until(
+            crate::testpump::Clock::Idle,
+            "the rule to be allocated its requested width",
+            || rule.width() >= 480,
+        );
+        let paint = |s: &gtk::Snapshot| gtk::subclass::prelude::WidgetImpl::snapshot(rule.imp(), s);
+
+        let _ = testkit::rendered(paint);
+        assert!(
+            rule.sprites()
+                .with_anim(&r, |anim| anim.is_ticking())
+                .unwrap_or(false),
+            "a mapped rule with an animated tile must be ticking"
+        );
+        let played = testkit::plays(paint);
+        win.destroy();
+        assert!(played, "the rule's animated tile never changed across 10s");
+        crate::sprite::clear_cache();
     }
 }

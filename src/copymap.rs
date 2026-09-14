@@ -32,6 +32,25 @@ use crate::renderer::{BlockScripts, Script, Seg};
 use pulldown_cmark::{Event, Tag, TagEnd};
 use std::ops::Range;
 
+/// Marks a child anchor as DECORATION — it stands for no source, so no copymap node
+/// claims its `U+FFFC` and copy is right to omit it. Read by [`debug_verify`]'s
+/// unclaimed-character check.
+const DECORATION_ANCHOR: crate::saferizer::qdata_key::QdataKey<bool> =
+    crate::saferizer::qdata_key::QdataKey::new("scrib-decoration-anchor");
+
+/// Mark `anchor` as standing for no source (ScrAP-346). The mark rides on the anchor
+/// OBJECT, which is what the check reaches through the buffer — never an offset
+/// recorded at render time, which a splice re-bases.
+pub(crate) fn mark_decoration_anchor(anchor: &gtk::TextChildAnchor) {
+    DECORATION_ANCHOR.set(anchor, true);
+}
+
+/// Whether `anchor` was marked by [`mark_decoration_anchor`].
+#[cfg(debug_assertions)]
+fn is_decoration_anchor(anchor: &gtk::TextChildAnchor) -> bool {
+    DECORATION_ANCHOR.get(anchor).unwrap_or(false)
+}
+
 /// The Markdown constructs the copy resolver distinguishes. Table/cell internals
 /// are deliberately absent — a table is [`opaque`](Node::Opaque) and its inner
 /// events are skipped wholesale.
@@ -549,12 +568,19 @@ pub(crate) fn debug_verify(
     // document, so any offset recorded during that render is in the wrong coordinate
     // space by the time this runs. `None` (the unit tests, which have no buffer) keeps
     // the original behaviour of treating every `U+FFFC` as an anchored child.
+    //
+    // An anchor can stand for no source too: an ANIMATED heading marker is an anchored
+    // widget rather than a paintable (`renderer::emit::insert_heading_marker`), so its
+    // anchor carries a decoration mark and gets the paintable's verdict.
     use gtk::prelude::TextBufferExt;
     let is_decoration = |i: usize| {
         buf.is_some_and(|b| {
             i32::try_from(i)
                 .ok()
-                .is_some_and(|off| b.iter_at_offset(off).child_anchor().is_none())
+                .is_some_and(|off| match b.iter_at_offset(off).child_anchor() {
+                    None => true,
+                    Some(anchor) => is_decoration_anchor(&anchor),
+                })
         })
     };
     for (i, ch) in buffer_chars.iter().enumerate() {

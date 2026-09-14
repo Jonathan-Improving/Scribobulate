@@ -120,14 +120,14 @@ mod gtk_tests {
     /// This brackets the fix `animation::sprites`'s visibility watch performs:
     /// the RETENTION half was already **CERTAIN** regardless of this
     /// measurement, because the only PRE-EXISTING pruning
-    /// (`CodePreviewView::drop_unseen_sprite_anims`) runs from INSIDE a paint an
+    /// (`SpriteTable::end_pass`) runs from INSIDE a paint an
     /// unmapped widget never gets. What this measurement settles is the OTHER
     /// half: a background tab does not merely retain a sprite's decoder and
     /// canvas idly — its tick callback (and therefore `SpriteAnim::on_tick`'s
     /// own schedule poll/decode dispatch) keeps running at display rate for a
     /// widget nobody can see, so the CPU cost compounds on top of the memory
     /// cost rather than sitting dormant beside it. This is exactly what makes
-    /// the fix's `drop_all_sprite_anims` — which also removes the tick
+    /// the fix's visibility-driven drop of every entry — which also removes the tick
     /// registration, via each `SpriteAnim`'s own `Drop` — matter for CPU, not
     /// only for memory.
     ///

@@ -16,6 +16,8 @@
 //! - [`rule`] — `SpriteRule`, the horizontal rule when a theme tiles a sprite across
 //!   it (TDD 18.31). Built only where the theme states one; the flat rule stays the
 //!   stock `GtkSeparator` it has always been.
+//! - [`sprite_icon`] — `SpriteIcon`, a theme sprite drawn at a fixed square size (the
+//!   disclosure indicator's sprite shape), so an animated one plays (TDD 27.9).
 //! - [`textfield`] — the constructors every `GtkEntry`/`GtkSearchEntry` in the
 //!   application comes from, so the two silent follow-ups a hand-built field owes
 //!   (accessible name; macOS word navigation) cannot be forgotten one surface at a
@@ -26,6 +28,7 @@ use gtk::prelude::*;
 pub(crate) mod comment_entry;
 pub(crate) mod disclosure;
 pub(crate) mod rule;
+pub(crate) mod sprite_icon;
 pub(crate) mod tab;
 pub(crate) mod table;
 pub(crate) mod textfield;
@@ -174,12 +177,15 @@ pub(crate) fn tile_texture(
 /// to scenes — it applies to every `sprite::scaled` and `tile_texture` caller — and
 /// fixing it belongs to one sweep of them all, not to this function.
 ///
+/// `frames` supplies the pixels — an animated scene's current frame (TDD 27.9).
+///
 /// Returns `false` — painting nothing — when the rect is degenerate or the sprite will
 /// not decode, this vocabulary's inert-by-default failure.
 pub(crate) fn draw_scene_into(
     snapshot: &gtk::Snapshot,
     rect: &gtk::graphene::Rect,
     sprite: &crate::sprite::SpriteRef,
+    frames: crate::animation::sprites::Frames<'_>,
 ) -> bool {
     use gtk::gdk::prelude::TextureExt;
     let h = rect.height().round() as i32;
@@ -194,7 +200,7 @@ pub(crate) fn draw_scene_into(
         return false;
     }
     let w = ((f64::from(nw) * f64::from(h) / f64::from(nh)).round() as i32).max(1);
-    let Some(tex) = crate::sprite::scaled(sprite, w, h) else {
+    let Some(tex) = frames.scaled(sprite, w, h) else {
         return false;
     };
     let dst = gtk::graphene::Rect::new(
@@ -233,6 +239,8 @@ pub(crate) fn draw_scene_into(
 /// viewport and slide it as the reader scrolls, which is ScrAP-333's shape. See
 /// `codeview::quotes::draw_panel_scene`.
 ///
+/// `frames` supplies the pixels — an animated scene's current frame (TDD 27.9).
+///
 /// Returns `false` — painting nothing — when the rect is degenerate or the sprite will
 /// not resample.
 pub(crate) fn draw_scene_corner(
@@ -240,6 +248,7 @@ pub(crate) fn draw_scene_corner(
     rect: &gtk::graphene::Rect,
     sprite: &crate::sprite::SpriteRef,
     zoom: f64,
+    frames: crate::animation::sprites::Frames<'_>,
 ) -> bool {
     use gtk::gdk::prelude::TextureExt;
     if rect.width() <= 0.0 || rect.height() <= 0.0 {
@@ -254,7 +263,7 @@ pub(crate) fn draw_scene_corner(
     }
     let w = ((f64::from(nw) * zoom).round() as i32).max(1);
     let h = ((f64::from(nh) * zoom).round() as i32).max(1);
-    let Some(tex) = crate::sprite::scaled(sprite, w, h) else {
+    let Some(tex) = frames.scaled(sprite, w, h) else {
         return false;
     };
     let dst = gtk::graphene::Rect::new(
@@ -285,6 +294,8 @@ pub(crate) fn draw_scene_corner(
 /// stays crisp at any zoom. `sprite::scaled` caches per size and diagnoses its own
 /// refusals.
 ///
+/// `frames` supplies the pixels — an animated sprite's current frame (TDD 27.9).
+///
 /// Returns `false` — painting nothing — when the rect is degenerate or the sprite will
 /// not resample, which is this vocabulary's inert-by-default failure: the caller then
 /// draws whatever the decoration would have been without a sprite.
@@ -292,13 +303,14 @@ pub(crate) fn draw_sprite_into(
     snapshot: &gtk::Snapshot,
     rect: &gtk::graphene::Rect,
     sprite: &crate::sprite::SpriteRef,
+    frames: crate::animation::sprites::Frames<'_>,
 ) -> bool {
     let w = rect.width().round() as i32;
     let h = rect.height().round() as i32;
     if w <= 0 || h <= 0 {
         return false;
     }
-    let Some(tex) = crate::sprite::scaled(sprite, w, h) else {
+    let Some(tex) = frames.scaled(sprite, w, h) else {
         return false;
     };
     snapshot.append_texture(&tex, rect);
@@ -329,14 +341,15 @@ pub(crate) fn draw_sprite_into(
 /// stays display-free arithmetic over a rect, and so a caller whose radius comes from a
 /// different key (a table cell's, not a band's) is not forced through a heading's.
 ///
-/// `tiled` is the caller's already-decoded sprite, passed in so a caller with many
-/// bands decodes one texture for the whole pass instead of one per band.
+/// `frames` supplies the tile's and the scene's pixels — the current frame of an animated
+/// one (TDD 27.9). A still sprite resolves through `sprite::texture`'s cache, so a caller
+/// with many bands still decodes one texture for the whole document.
 pub(crate) fn paint_band_into(
     snapshot: &gtk::Snapshot,
     rect: &gtk::graphene::Rect,
     decor: &crate::theme::Band<'_>,
     radius: f32,
-    tiled: Option<&gtk::gdk::Texture>,
+    frames: crate::animation::sprites::Frames<'_>,
 ) {
     use gtk::gsk;
     if rect.width() <= 0.0 || rect.height() <= 0.0 {
@@ -351,8 +364,9 @@ pub(crate) fn paint_band_into(
     // decoration in this vocabulary follows. An explicit branch rather than painting
     // the fill under the tile: an opaque tile hides the difference and a transparent
     // one lets the colour bleed through (SCHEMA § Key naming).
+    let tiled = decor.sprite.and_then(|r| frames.natural(r));
     match tiled {
-        Some(tex) => tile_texture(snapshot, rect, tex),
+        Some(tex) => tile_texture(snapshot, rect, &tex),
         None => match decor.without_sprite() {
             Some(crate::theme::BandPaint::Gradient { from, to }) => snapshot
                 .append_linear_gradient(
@@ -375,7 +389,7 @@ pub(crate) fn paint_band_into(
     // Inside the rounded clip pushed above, so a scene cannot square off the band's
     // corners — the failure a caller drawing it after the `pop` would ship.
     if let Some(scene) = decor.scene {
-        draw_scene_into(snapshot, rect, scene);
+        draw_scene_into(snapshot, rect, scene, frames);
     }
     if radius > 0.0 {
         snapshot.pop();

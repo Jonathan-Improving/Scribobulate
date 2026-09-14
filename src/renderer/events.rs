@@ -259,9 +259,13 @@ impl Renderer {
                 // not decode falls through to the stock separator, which the theme's
                 // own `rule_color` styles through generated CSS — degrading, not
                 // erasing.
-                let rule_tile = theme.rule_decor().sprite.and_then(crate::sprite::texture);
+                let rule_sprite = theme.rule_decor().sprite;
+                let rule_tile = rule_sprite.and_then(crate::sprite::texture);
                 let sep: gtk::Widget = match rule_tile {
-                    Some(tex) => crate::widgets::rule::SpriteRule::new(tex).upcast(),
+                    // The reference rides along so an animated tile plays (TDD 27.9).
+                    Some(tex) => {
+                        crate::widgets::rule::SpriteRule::new(tex, rule_sprite.cloned()).upcast()
+                    }
                     None => gtk::Separator::new(gtk::Orientation::Horizontal).upcast(),
                 };
                 // NO initial width_request: it must NOT start over-wide, or an

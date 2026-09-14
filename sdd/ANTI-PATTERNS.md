@@ -1927,7 +1927,7 @@ Severity: High
 **See**: `sdd/THEMING.md`; kin ScrAP-128; GEP-57.
 
 ## 346. Assuming every `U+FFFC` in the preview buffer is an anchored child
-**Root cause**: decoration also enters as a Pango shape (`insert_paintable`) — same character, no anchor, opposite verdict, standing for no source. Ask the buffer for an anchor, never offsets taken at render time — the splice re-bases them.
+**Root cause**: decoration enters as a Pango shape (`insert_paintable`), or animated as an anchored widget — same character, opposite verdict. Ask the buffer (no anchor, or one `copymap::mark_decoration_anchor` marked), never render-time offsets; splices re-base them.
 **See**: `copymap::debug_verify`; kin ScrAP-74; GEP-4; GEP-19.
 
 ## 347. A legibility gate measuring an ink against a surface its level can never show

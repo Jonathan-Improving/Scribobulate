@@ -846,11 +846,16 @@ FULL_BUDGET="${SCRIB_COVERAGE_FULL_BUDGET:-1800}"
 # only `std::fs::metadata` and `format!`. That is now `imagecache/keys.rs`, IN scope and
 # unit-tested, which is the remedy the paragraph below prescribes rather than the
 # widening it warns against.
+# `widgets/sprite_icon` is a widget that draws one theme sprite at a fixed size:
+# `measure`, `snapshot`, a constructor and `dispose`, every body a GTK call. It decides
+# nothing — which rung of the decoration applies is `theme::decor`'s, and when a frame is
+# due or a sprite may play is `animation::schedule`'s and `animation::sprites`'s — and
+# its assertions need a realized widget and a frame clock, so they run in leg B.
 # ⚠ Excluding these is the thing POLICY step 6 warns about, so it is worth being explicit:
 # what is excluded is the WIRING, and every decision any of them takes was extracted into
 # a file that stayed in scope. If a future change puts logic back into one of these, the
 # answer is to extract it again, not to widen this term.
-IGNORE='src[/\\](window[/\\](tabs[/\\]|editbar[/\\]|navhistory[/\\])?[a-z_]+|app[/\\](appactions|menubar|openbatch|open|setup)|clipboard|main|lib|gtk_suite|suite_registry|logging|tags|codeview[/\\][a-z_]+|outline_view|preview[/\\]annotate[/\\]overlay|animation[/\\](tick|sprites[/\\]mod|paintable[/\\](mod|drive)|visibility[/\\]watch)|imagecache[/\\]loader|widgets[/\\](table[/\\]mod|tab[/\\](imp|bar|ops|view|mod)))\.rs'
+IGNORE='src[/\\](window[/\\](tabs[/\\]|editbar[/\\]|navhistory[/\\])?[a-z_]+|app[/\\](appactions|menubar|openbatch|open|setup)|clipboard|main|lib|gtk_suite|suite_registry|logging|tags|codeview[/\\][a-z_]+|outline_view|preview[/\\]annotate[/\\]overlay|animation[/\\](tick|sprites[/\\]mod|paintable[/\\](mod|drive)|visibility[/\\]watch)|imagecache[/\\]loader|widgets[/\\](sprite_icon|table[/\\]mod|tab[/\\](imp|bar|ops|view|mod)))\.rs'
 
 # IGNORE_TESTONLY — leg B's extra filter, and ONLY leg B's.
 #
@@ -895,7 +900,13 @@ IGNORE='src[/\\](window[/\\](tabs[/\\]|editbar[/\\]|navhistory[/\\])?[a-z_]+|app
 # `#[gtktest::test]`'s wrapper) and the `harness = false` target that floods GLib to prove
 # it. Both exist only to test with; `logrepeat.rs`, the decision core they share with
 # `logging::forward`, is production code and stays in scope.
-IGNORE_TESTONLY='src[/\\](testpump|preview[/\\]altsuppression|preview[/\\]splice[/\\]excursion([/\\][a-z_]+)*|animation[/\\]visibility[/\\]gtk_tests([/\\][a-z_]+)*|window[/\\]tabs[/\\]documents[/\\]gtk_integration_tests|gtk_log_harness|logrepeat_reproduce)\.rs'
+# `animation/sprites/testkit.rs` is the eighth: the fixtures and render oracles every
+# animated-sprite host's `#[gtktest::test]` bodies share (the driver's, the preview's, and
+# each widget that hosts a sprite table). Compiled only under the feature, and named
+# individually for the reason `altsuppression` is. `preview/markertests.rs` is the ninth,
+# and the same kind as `altsuppression`: `#[gtktest::test]` bodies for the heading marker's
+# two shapes, beside `preview/build.rs` rather than inside it for the same size reason.
+IGNORE_TESTONLY='src[/\\](testpump|animation[/\\]sprites[/\\]testkit|preview[/\\]markertests|preview[/\\]altsuppression|preview[/\\]splice[/\\]excursion([/\\][a-z_]+)*|animation[/\\]visibility[/\\]gtk_tests([/\\][a-z_]+)*|window[/\\]tabs[/\\]documents[/\\]gtk_integration_tests|gtk_log_harness|logrepeat_reproduce)\.rs'
 
 # SCOPE_FILE — the measured set, recorded. Its own header states its role; the one thing
 # worth repeating HERE, where the enforcement lives, is what keeps the two files from

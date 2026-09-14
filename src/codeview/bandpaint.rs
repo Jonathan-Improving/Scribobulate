@@ -29,24 +29,16 @@ use gtk::graphene;
 /// THIS RENDER was laid out at, like every other themed pixel metric (POLICY: pixel
 /// metrics do not follow the CSS `font-size` rule).
 ///
-/// `tiled` is the caller's already-decoded sprite, passed in rather than resolved
-/// here so a caller whose decoration is flat decodes one texture for the whole pass
-/// instead of one per band.
-///
-/// **WP10 (TDD 27.9):** if `decor.sprite` names an ANIMATED WebP/GIF/APNG, `tiled` is
-/// swapped for that animation's current playing frame right here — after the
-/// visibility gate just below has already said this decoration is on screen, and
-/// nowhere else. That gate call IS this sprite's whole visibility signal for this
-/// paint (`crate::animation::sprites`'s own module doc comment); a still sprite never
-/// reaches `crate::sprite::animated_bytes` finding anything, so it costs one cache
-/// lookup and paints through the exact `tiled` texture it always has.
+/// **The band's sprites are resolved only past the visibility gate just below** (TDD
+/// 27.9): `ctx.frames()` is handed to `paint_band_into`, and a `Frames` call is that
+/// sprite's whole visibility signal for this paint (`crate::animation::sprites`), so a
+/// band that returns early here never plays its tile or its scene.
 pub(super) fn paint_band(
     snapshot: &gtk::Snapshot,
     ctx: &PaintCtx,
     span: crate::span::BufferSpan,
     decor: &crate::theme::Band<'_>,
     radius_design_px: i32,
-    tiled: Option<&gtk::gdk::Texture>,
 ) {
     if span.is_empty() || span.is_outside(ctx.vis_start, ctx.vis_end) {
         return;
@@ -90,10 +82,5 @@ pub(super) fn paint_band(
     // table header's band (TDD 18.57), which is a band drawn by an anchored widget
     // rather than by this pass. What stays here is the half that is genuinely about a
     // text view: which span, measured how, at what extent.
-    let animated: Option<gtk::gdk::Texture> = match decor.sprite {
-        Some(r) => crate::animation::sprites::frame_for(ctx.view, r, tiled.cloned()),
-        None => None,
-    };
-    let tiled = animated.as_ref().or(tiled);
-    crate::widgets::paint_band_into(snapshot, &rect, decor, radius, tiled);
+    crate::widgets::paint_band_into(snapshot, &rect, decor, radius, ctx.frames());
 }

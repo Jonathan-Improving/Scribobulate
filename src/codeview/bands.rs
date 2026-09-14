@@ -24,16 +24,10 @@ pub(super) fn draw(snapshot: &gtk::Snapshot, ctx: &PaintCtx) {
         return;
     }
     // Every band property is stated per level (TDD 18.32), so all three are read at
-    // the level a heading is — not once for the document. The SPRITE, though, is
-    // decoded once per level for the whole pass rather than once per heading:
-    // decoding it per span re-read one picture N times, which is the divergence this
-    // module's disclosure sibling had corrected in its own copy and could never
-    // propagate back (that is why there is only one copy now).
-    let tiled: [Option<gtk::gdk::Texture>; HEADING_LEVELS] = std::array::from_fn(|level| {
-        band.heading_band_decor(level)
-            .sprite
-            .and_then(crate::sprite::texture)
-    });
+    // the level a heading is — not once for the document. The SPRITE is decoded once
+    // per reference for the whole document by `sprite::texture`'s cache, and is
+    // resolved inside `paint_band` only once the band is known to be on screen (TDD
+    // 27.9).
     for h in heading_spans.iter() {
         let level = band_slot(h.level_index, HEADING_LEVELS);
         // The engine decides which of the band's three appearances applies
@@ -50,7 +44,6 @@ pub(super) fn draw(snapshot: &gtk::Snapshot, ctx: &PaintCtx) {
             h.span,
             &decor,
             band.metrics.heading_band_radius[level],
-            tiled[level].as_ref(),
         );
     }
 }

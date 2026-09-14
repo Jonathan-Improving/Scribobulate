@@ -145,13 +145,14 @@ fn indicator(theme: &crate::theme::Theme, expanded: bool, size: i32) -> gtk::Wid
     for candidate in theme.disclosure_marker_decor(expanded).candidates() {
         match candidate {
             MarkerSubstitute::Sprite(sprite) => {
-                // An exact-size texture rather than a paint pass: this is a WIDGET,
-                // so the toolkit already has somewhere to put a picture, and the
-                // resample seam the drawn markers take is for a snapshot they do not.
-                if let Some(tex) = crate::sprite::scaled(sprite, size, size) {
-                    let pic = gtk::Picture::for_paintable(&tex);
-                    pic.set_size_request(size, size);
-                    return pic.upcast();
+                // The still resample decides whether the sprite is usable at all, so one
+                // that will not decode still falls to the glyph. The icon then draws it
+                // through the same resample seam the drawn markers take, which is what
+                // lets an animated one play (TDD 27.9) — a picture of one texture could
+                // only ever show its first frame.
+                if crate::sprite::scaled(sprite, size, size).is_some() {
+                    return crate::widgets::sprite_icon::SpriteIcon::new(sprite.clone(), size)
+                        .upcast();
                 }
             }
             MarkerSubstitute::Glyph(glyph) => {
@@ -193,7 +194,7 @@ fn indicator(theme: &crate::theme::Theme, expanded: bool, size: i32) -> gtk::Wid
 fn marker_css_node(shape: &crate::theme::MarkerSubstitute<'_>) -> Option<&'static str> {
     use crate::theme::MarkerSubstitute;
     match shape {
-        // A `GtkPicture` of a decoded texture — its colours are in the file, which is
+        // A `SpriteIcon` drawing a decoded sprite — its colours are in the file, which is
         // the sprite-outranks-flat rule doing its job.
         MarkerSubstitute::Sprite(_) => None,
         MarkerSubstitute::Glyph(_) => Some("label"),
@@ -437,7 +438,10 @@ mod tests {
         for expanded in [false, true] {
             let toggle = build(expanded, 1.0, "Summary");
             assert!(
-                toggle.child().and_downcast::<gtk::Picture>().is_some(),
+                toggle
+                    .child()
+                    .and_downcast::<crate::widgets::sprite_icon::SpriteIcon>()
+                    .is_some(),
                 "expanded={expanded}: Pixel Quest's plate did not reach the control — it \
                  fell to a rung beneath, which renders an arrow and says nothing"
             );

@@ -707,8 +707,8 @@ pub(crate) fn texture(r: &SpriteRef) -> Option<gdk::Texture> {
 ///
 /// **One `HashMap` lookup, nothing else** — no disk read, no `richimg` call — which is
 /// what keeps a still sprite's paint doing no new work at all (WP10's "byte-identical
-/// rendering" requirement): [`super::animation::sprites::frame_for`] calls this first
-/// and returns the caller's own already-decoded texture verbatim on `None`.
+/// rendering" requirement): [`crate::animation::sprites::Frames`] calls this first and
+/// returns the still texture verbatim on `None`.
 pub(crate) fn animated_bytes(r: &SpriteRef) -> Option<std::sync::Arc<[u8]>> {
     ANIMATION_BYTES.with(|c| c.borrow().get(r).cloned().flatten())
 }
@@ -729,15 +729,14 @@ pub(crate) fn scaled(r: &SpriteRef, w: i32, h: i32) -> Option<gdk::Texture> {
         c.borrow_mut()
             .entry(key)
             .or_insert_with(|| {
-                use gtk::gdk_pixbuf::InterpType;
                 let raw = admit_for_decode(r)?;
                 let origin = format!("sprite {r}");
                 let pb = crate::imagedecode::decode_pixbuf(raw.as_ref(), &origin)?;
-                let Some(resampled) = pb.scale_simple(w, h, InterpType::Nearest) else {
+                let resampled = crate::imagedecode::resample_nearest(&pb, w, h);
+                if resampled.is_none() {
                     log::warn!("theme: sprite {r} could not be resampled to {w}×{h}");
-                    return None;
-                };
-                Some(gdk::Texture::for_pixbuf(&resampled))
+                }
+                resampled
             })
             .clone()
     })
@@ -750,7 +749,7 @@ pub(crate) fn scaled(r: &SpriteRef, w: i32, h: i32) -> Option<gdk::Texture> {
 ///
 /// **Necessary, not sufficient.** Widgets that cloned a texture out of the cache —
 /// a heading-marker paintable in the buffer, a [`crate::widgets::rule::SpriteRule`],
-/// a disclosure `GtkPicture` — keep that GObject alive until the theme-change
+/// an animated sprite's current frame — keep that GObject alive until the theme-change
 /// re-render destroys them. The cache going empty is the first half; those holders
 /// dropping is the second, and both are asserted.
 pub(crate) fn clear_cache() {
@@ -1569,7 +1568,7 @@ mod gtk_integration_tests {
     #[gtktest::test]
     fn a_sprite_rule_releases_its_tile_when_the_widget_is_dropped() {
         let (tex, weak) = compiled_texture();
-        let rule = crate::widgets::rule::SpriteRule::new(tex.clone());
+        let rule = crate::widgets::rule::SpriteRule::new(tex.clone(), None);
         drop(tex);
         clear_cache();
         assert!(

@@ -134,13 +134,19 @@ fn draw_panel_scene(snapshot: &gtk::Snapshot, ctx: &PaintCtx) {
         .filter(|e| e.depth == 1 && e.bottom < ctx.vbot)
     {
         let rect = graphene::Rect::new(ctx.lm, e.top, ctx.card_w, e.bottom - e.top);
-        crate::widgets::draw_scene_corner(snapshot, &rect, scene, zoom);
+        crate::widgets::draw_scene_corner(snapshot, &rect, scene, zoom, ctx.frames());
     }
 }
 
 /// The quote's accent bar.
 pub(super) fn draw_accent_bar(snapshot: &gtk::Snapshot, ctx: &PaintCtx) {
     let (lm, quote_extents) = (ctx.lm, &ctx.quote_extents);
+    // Nothing on screen, nothing to draw — and returning BEFORE the sprite is resolved is
+    // what keeps an off-screen quote's animated bar from being played this pass: a
+    // `Frames` call is the sprite's visibility signal (TDD 27.9, `animation::sprites`).
+    if quote_extents.is_empty() {
+        return;
+    }
     // Blockquote accent bars — same visible-only, viewport-clamped Y-extent
     // logic as the code-block backgrounds (so we never read an off-screen,
     // unvalidated iter — GTK4Rs/AP-22), but drawn as a thin vertical rect at the
@@ -185,6 +191,10 @@ pub(super) fn draw_accent_bar(snapshot: &gtk::Snapshot, ctx: &PaintCtx) {
     // At zoom 1.0 a theme that sized `blockquote_bar_width` to its tile — which the key's
     // own comment tells it to — hits the `==` short-circuit and gets the natural texture
     // back, byte-identical to what this drew before.
+    //
+    // The still decode answers the tile's DIMENSIONS only — every frame of an animation
+    // shares them — and `frames` answers the pixels, so an animated bar plays (TDD 27.9).
+    let frames = ctx.frames();
     let bar_sprite = bar_decor.sprite.and_then(|s| {
         use gtk::gdk::prelude::TextureExt;
         let natural = crate::sprite::texture(s)?;
@@ -194,10 +204,10 @@ pub(super) fn draw_accent_bar(snapshot: &gtk::Snapshot, ctx: &PaintCtx) {
             return None;
         }
         if w == tw {
-            return Some(natural);
+            return frames.natural(s);
         }
         let h = (f64::from(th) * f64::from(w) / f64::from(tw)).round() as i32;
-        crate::sprite::scaled(s, w, h)
+        frames.scaled(s, w, h)
     });
     // The SAME `quote_extents` the panel was filled from, so the bar and the
     // fill behind it can never disagree about where the quote starts or ends

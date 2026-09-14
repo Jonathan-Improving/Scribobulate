@@ -128,6 +128,9 @@ pub(crate) struct MarkerPaint<'a> {
     /// Sprite files standing in for the drawn markers. A sprite outranks a glyph for
     /// the same marker — see [`marker_substitute`].
     pub sprites: &'a Sprites,
+    /// Where a sprite's pixels come from this paint — the current frame of an animated
+    /// one (TDD 27.9).
+    pub frames: crate::animation::sprites::Frames<'a>,
 }
 
 /// Draw a marker substitution, or report that it could not be produced.
@@ -143,6 +146,7 @@ fn paint_substitute(
     geometry: (f32, f32, f32),
     fg: &gdk::RGBA,
     rect: graphene::Rect,
+    frames: crate::animation::sprites::Frames<'_>,
 ) -> bool {
     let (col_cx, text_cy, _z) = geometry;
     match what {
@@ -151,7 +155,7 @@ fn paint_substitute(
         // choice rather than two open-coded idioms. It carries the zero-size guard and
         // the nearest-neighbour rationale; see `widgets::draw_sprite_into`.
         MarkerSubstitute::Sprite(sprite) => {
-            crate::widgets::draw_sprite_into(snapshot, &rect, sprite)
+            crate::widgets::draw_sprite_into(snapshot, &rect, sprite, frames)
         }
         MarkerSubstitute::Glyph(glyph) => {
             // CENTRED in the marker column, like the bullet — not right-aligned like the
@@ -237,6 +241,7 @@ pub(crate) fn draw_list_marker(
             (col_cx, text_cy, z),
             fg,
             sprite_rect,
+            paint.frames,
         ) {
             return;
         }

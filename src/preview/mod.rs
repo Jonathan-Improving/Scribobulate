@@ -30,6 +30,8 @@ pub(crate) mod build;
 mod cells;
 mod css;
 mod interactions;
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+mod markertests;
 pub(crate) mod qdata;
 mod render;
 mod scroll;

@@ -99,9 +99,9 @@ pub(super) fn draw(snapshot: &gtk::Snapshot, ctx: &PaintCtx) {
             let rect = graphene::Rect::new(chip_x, cy, marker_w, chip_h);
             // Through the SHARED resample-and-draw seam (the twin of
             // `tile_texture`).
-            let sprite_drawn = chip_decor
-                .sprite
-                .is_some_and(|sprite| crate::widgets::draw_sprite_into(snapshot, &rect, sprite));
+            let sprite_drawn = chip_decor.sprite.is_some_and(|sprite| {
+                crate::widgets::draw_sprite_into(snapshot, &rect, sprite, ctx.frames())
+            });
             // A sprite that will not decode falls back to the flat fill —
             // degrading, not erasing.
             if !sprite_drawn {

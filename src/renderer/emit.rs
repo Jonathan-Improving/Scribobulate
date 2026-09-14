@@ -151,11 +151,11 @@ impl Renderer {
     /// ScrAP-105's use-after-free. Researcher-verified against 4.6.9 source and
     /// reproduced here with `nm -D`.
     ///
-    /// **Inserted BEFORE the caller records the heading's span**, which is load-bearing
-    /// twice over: the band then covers the marker, and the heading's copymap node
-    /// claims the `U+FFFC` this leaves in the buffer, so copied source stays clean and
-    /// `copymap`'s unclaimed-anchor check keeps passing (measured: copy round-trips a
-    /// marked-up heading byte-identically).
+    /// **Inserted BEFORE the caller records the heading's span**, so the band covers the
+    /// marker. The `U+FFFC` this leaves is claimed by NO copymap node: it stands for no
+    /// source, so copy omits it and a marked-up heading round-trips byte-identically
+    /// (measured), and `copymap`'s unclaimed-character check reads it as decoration
+    /// rather than as a lost construct (ScrAP-346).
     ///
     /// Sized by HEIGHT from `heading_marker_size` — a themed design-px metric scaled by
     /// this render's zoom, exactly as every other decoration metric is. Zoom re-renders
@@ -164,6 +164,13 @@ impl Renderer {
     ///
     /// Inert unless the level states a marker, and inert again if it will not resample —
     /// the same degrade-to-nothing every decoration in this vocabulary takes.
+    ///
+    /// **An ANIMATED marker is an anchored `SpriteIcon` instead** (TDD 27.9), at the same
+    /// size and in the same place — an anchored child is placed by the same Pango shape.
+    /// A buffer paintable cannot animate without re-wrapping its line every frame; see
+    /// `widgets::sprite_icon`. Its anchor is marked as decoration
+    /// (`copymap::mark_decoration_anchor`), because an unclaimed character that carries
+    /// an anchor otherwise reads as a table or image whose source copy would lose.
     pub(super) fn insert_heading_marker(&mut self, slot: usize) {
         let theme = crate::theme::active();
         let Some(sprite) = theme.sprites.heading_marker[slot].as_ref() else {
@@ -194,7 +201,19 @@ impl Renderer {
         // text and takes the heading's own tags, so it scales with the level.
         self.insert(" ");
         let mut iter = self.tip();
-        self.buf.insert_paintable(&mut iter, &tex);
+        if crate::sprite::animated_bytes(sprite).is_some() {
+            let anchor = self.buf.create_child_anchor(&mut iter);
+            crate::copymap::mark_decoration_anchor(&anchor);
+            let icon = crate::widgets::sprite_icon::SpriteIcon::sized(
+                sprite.clone(),
+                w,
+                h,
+                gtk::AccessibleRole::Presentation,
+            );
+            self.push_anchored(anchor, icon.upcast());
+        } else {
+            self.buf.insert_paintable(&mut iter, &tex);
+        }
     }
 
     pub(super) fn newline(&mut self) {
