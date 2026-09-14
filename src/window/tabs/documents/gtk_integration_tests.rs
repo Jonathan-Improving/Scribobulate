@@ -207,6 +207,126 @@ fn opening_a_file_into_a_reused_blank_tab_relabels_every_surface() {
     window.destroy();
 }
 
+/// `GTK_TEXT_VIEW_PRIORITY_VALIDATE` (`gtktextview.h`: `GDK_PRIORITY_REDRAW + 5`) — the
+/// priority of a text view's background layout, a source that stays ready until the whole
+/// buffer is laid out.
+const TEXT_VIEW_VALIDATE_PRIORITY: i32 = 125;
+
+/// **The Documents list relabels a reused tab while the new document is still being laid
+/// out (TDD 15.18).** A rebuild queued at the default idle priority (200) waits behind a
+/// text view's validation source (125) until the whole document is laid out — close to a
+/// second of "Untitled" for a large file. A source held ready at that priority stands in
+/// for the layout, so the check is deterministic rather than a race against file size: the
+/// list must still name the file while it is armed.
+#[gtktest::test]
+fn the_documents_list_relabels_a_reused_tab_while_layout_is_still_running() {
+    let dir = tempfile::tempdir().unwrap();
+    let alpha = dir.path().join("alpha.md");
+    let beta = dir.path().join("beta.md");
+    std::fs::write(&alpha, "# Alpha\n").unwrap();
+    std::fs::write(&beta, "# Beta\n").unwrap();
+
+    let app = gtk::Application::new(
+        Some("com.extollit.scribobulate.integrationtest.reusenewtab"),
+        gtk::gio::ApplicationFlags::HANDLES_OPEN | gtk::gio::ApplicationFlags::NON_UNIQUE,
+    );
+    crate::app::setup_app(&app);
+    app.register(gtk::gio::Cancellable::NONE)
+        .expect("register before building a window");
+
+    let window = crate::window::new_window(&app, "Scribobulate", crate::app::WELCOME, None);
+    crate::testpump::until(crate::testpump::Clock::Idle, "window active", || {
+        app.active_window().is_some()
+    });
+    crate::testpump::drain_for(
+        crate::testpump::Clock::Idle,
+        std::time::Duration::from_millis(300),
+    );
+    app.open(&[gtk::gio::File::for_path(&alpha)], "interactive");
+    assert!(crate::docio::settle(|| state(&window)
+        .and_then(|st| st.path.borrow().clone())
+        .as_deref()
+        == Some(alpha.as_path())));
+    crate::testpump::drain_for(
+        crate::testpump::Clock::Idle,
+        std::time::Duration::from_millis(300),
+    );
+
+    crate::window::add_new_document_tab(&window);
+    crate::testpump::drain_for(
+        crate::testpump::Clock::Idle,
+        std::time::Duration::from_millis(300),
+    );
+    let labels = |w: &ApplicationWindow| {
+        let chrome = winstate::chrome(w).unwrap();
+        (0..chrome.documents_menu.n_items())
+            .map(|i| {
+                chrome
+                    .documents_menu
+                    .item_attribute_value(i, "label", None)
+                    .and_then(|v| v.str().map(str::to_string))
+                    .unwrap_or_default()
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(labels(&window), ["alpha.md", "Untitled"], "precondition");
+    // The blank tab in the BACKGROUND: reuse must still relabel it (TDD 1.5).
+    if let Some(named) = winstate::tabs_for_window(&window)
+        .into_iter()
+        .find(|t| t.has_path())
+    {
+        winstate::chrome(&window)
+            .unwrap()
+            .tabs
+            .focus_page(&named.content_box);
+    }
+    crate::testpump::drain_for(
+        crate::testpump::Clock::Idle,
+        std::time::Duration::from_millis(300),
+    );
+
+    // Stand-in for the opened document's layout, disarmed on every exit path so it
+    // cannot starve the tests that run after this one.
+    struct Layout(std::rc::Rc<std::cell::Cell<bool>>);
+    impl Drop for Layout {
+        fn drop(&mut self) {
+            self.0.set(false);
+        }
+    }
+    let layout = Layout(std::rc::Rc::new(std::cell::Cell::new(true)));
+    let running = layout.0.clone();
+    gtk::glib::idle_add_local_full(
+        gtk::glib::Priority::from(TEXT_VIEW_VALIDATE_PRIORITY),
+        move || {
+            if running.get() {
+                gtk::glib::ControlFlow::Continue
+            } else {
+                gtk::glib::ControlFlow::Break
+            }
+        },
+    );
+
+    app.open(&[gtk::gio::File::for_path(&beta)], "interactive");
+    assert!(
+        crate::docio::settle(|| labels(&window) == ["alpha.md", "beta.md"]),
+        "View ▸ Documents must name the opened file while its layout is still running, \
+         got {:?}",
+        labels(&window)
+    );
+    assert_eq!(
+        winstate::chrome(&window)
+            .unwrap()
+            .documents_btn
+            .label()
+            .map(|s| s.to_string()),
+        Some("beta.md".to_string()),
+        "the toolbar Documents combo must name the opened file too"
+    );
+    drop(layout);
+
+    window.destroy();
+}
+
 /// **The window title names the ACTIVE document and counts the others (TDD
 /// 15.7).** Three claims, none implied by the others:
 ///

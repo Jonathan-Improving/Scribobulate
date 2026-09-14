@@ -296,10 +296,13 @@ Rules that give the matrix its teeth:
 - **Take the cheapest correct path.** When the rendered text is invariant, use the
   in-place refresh rather than rebuilding the buffer — a needless `set_buffer`
   brings the repaint/scroll-jump family with it.
-- **Deferral is legitimate only for surfaces that are not visible.** A background
-  tab may carry stale derived state provided it is re-derived on activation (the
-  `needs_render` / `materialize_deferred_preview` / `pending_external` replay path).
-  Nothing on screen may be stale.
+- **A deferral on screen is capped under 250 ms.** A background tab may carry stale
+  derived state for as long as it stays in the background, provided it is re-derived on
+  activation (the `needs_render` / `materialize_deferred_preview` / `pending_external`
+  replay path). A visible surface may defer its refresh — a menu rebuild moved out of a
+  signal handler so it cannot crash (GTK4Rs/AP-76) is the standing case — but the stale
+  state must be gone in under 250 ms, and a deferral that can queue behind other work
+  (layout, rendering, I/O) has no bound at all, so it does not meet the cap.
 
 **Row 8 is the matrix's own worked example of why column B exists.** The recovery
 notice reports *unsaved recovered content*, and its action is "Discard recovery" —

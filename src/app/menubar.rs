@@ -76,6 +76,13 @@ fn make_format_item(label: &str, target: &str) -> MenuItem {
 /// frees the `GtkModelButton` mid-`clicked` because `gtkmenusectionbox.c` refs only the
 /// popover. Deferring to idle puts the mutation outside any dispatch.
 ///
+/// **At `HIGH_IDLE`, not the default idle priority.** What makes the deferral safe is
+/// running at main-loop top level, and any idle priority gives that. The default one (200)
+/// also ranks below a `GtkTextView`'s background layout (125), which stays ready until the
+/// whole buffer is laid out — so opening a large document left the Documents list and combo
+/// naming the previous tab for close to a second (gtk4-rs skill T-5). A deferral that can
+/// wait behind other work is not a brief one (CAM Derived-view, row 4).
+///
 /// It exists as a shared function because the rule had been applied to one of the two
 /// live-bound submenus and not the other. `View ▸ Documents` had the idle machinery and
 /// an emphatic "never call it directly from a signal handler"; `Format ▸`'s insert
@@ -98,17 +105,22 @@ pub(crate) fn defer_live_menu_mutation(
     if scheduled(&chrome).replace(true) {
         return; // a run is already queued for this window's menu
     }
-    glib::idle_add_local_once(glib::clone!(
-        #[weak(rename_to = w)]
-        window,
-        move || {
-            let Some(chrome) = crate::winstate::chrome(&w) else {
-                return;
-            };
-            scheduled(&chrome).set(false);
-            mutate(&w, &chrome);
-        }
-    ));
+    glib::idle_add_local_full(
+        glib::Priority::HIGH_IDLE,
+        glib::clone!(
+            #[weak(rename_to = w)]
+            window,
+            #[upgrade_or]
+            glib::ControlFlow::Break,
+            move || {
+                if let Some(chrome) = crate::winstate::chrome(&w) {
+                    scheduled(&chrome).set(false);
+                    mutate(&w, &chrome);
+                }
+                glib::ControlFlow::Break
+            }
+        ),
+    );
 }
 
 /// Relabel `window`'s OWN Format menu Link/Image items Insert↔Edit for its editor
