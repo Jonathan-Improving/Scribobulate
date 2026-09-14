@@ -715,7 +715,7 @@ intended pop:
 | 2 | Crash-recovery count ("Recovered … in N documents") | event — first interaction with the window | ✓ | ✓ (per-window: the stack dies with the window) | ✓ (per-window, never travels with a tab) | — (once per launch) | `window/swaprecovery.rs` |
 | 3 | Transient info notice (saved / reloaded / recovered) | **timed** (~4 s) | ✓ | ✓ | ✓ | ✓ (each notice is its own ctx) | `window/toast.rs` |
 | 4 | Link-navigation notice | **timed** (~6 s) | ✓ | ✓ | ✓ | ✓ | `window/linknav.rs` |
-| 5 | "File deleted on disk — save to restore it" / "File was truncated — save to restore it" | **timed** (~6 s) | ✓ | ✓ | ✓ | ✓ (announced once per loss; a repeat of the same loss is silent) | `window/backingloss.rs` |
+| 5 | "File deleted on disk — save to restore it" / "File was truncated — save to restore it" | **timed** (~6 s), or the loss clearing — whichever comes first (one entry, retracted through the handle `push_timed_notice` returns) | ✓ | ✓ | ✓ | ✓ (announced once per loss; a repeat of the same loss is silent) | `window/backingloss.rs` |
 | 6 | Operation-in-progress ("Saving…" / "Reloading…" / "Opening…") | **the operation ends** (`Drop`) | ✓ | ✓ | ✓ | ✓ | `winstate::BusyNotice` — armed, not shown: nothing appears unless the operation outlives `BUSY_NOTICE_DELAY`, so a fast save never blinks. `Rc`-backed so ONE notice spans a logical operation made of several futures (the save guard's read, the decision, the write) |
 
 **Every timed row (3, 4, 5) holds B and C through one mechanism:

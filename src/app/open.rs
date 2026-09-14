@@ -297,7 +297,7 @@ pub(crate) fn attach_file_backing(
         match event {
             // `AttributeChanged` re-reads too: Darwin's kqueue reports an in-place
             // truncation (`open(O_TRUNC)`, `ftruncate`) as NOTE_ATTRIB alone, so on macOS
-            // it is the ONLY event an emptied file produces (TDD 3.5). A genuine
+            // it is the ONLY event an emptied file produces (TDD 3.5; GTK4Rs/AP-329). A genuine
             // attribute-only change reads back identical and decides `Ignore`.
             FileMonitorEvent::Changed
             | FileMonitorEvent::ChangesDoneHint

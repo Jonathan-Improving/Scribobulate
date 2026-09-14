@@ -302,14 +302,40 @@ impl WindowChrome {
     /// window's whole chrome (and its widget tree) alive for the notice's remaining
     /// seconds. When the window is gone there is no stack left to retract from and
     /// nothing to do, which is exactly what a failed upgrade expresses.
-    pub(crate) fn push_timed_notice(self: &Rc<Self>, msg: &str, duration: Duration) {
+    ///
+    /// Returns a [`TimedNotice`] for a raiser whose condition can end before the timer
+    /// does; dropping it leaves the timer as the only retraction.
+    pub(crate) fn push_timed_notice(self: &Rc<Self>, msg: &str, duration: Duration) -> TimedNotice {
         let ctx = self.status.borrow_mut().push(msg);
         let chrome = Rc::downgrade(self);
+        let timer_chrome = chrome.clone();
         gtk::glib::timeout_add_local_once(duration, move || {
-            if let Some(chrome) = chrome.upgrade() {
+            if let Some(chrome) = timer_chrome.upgrade() {
                 chrome.status.borrow_mut().pop(ctx);
             }
         });
+        TimedNotice { chrome, ctx }
+    }
+}
+
+/// A notice pushed by [`WindowChrome::push_timed_notice`], retractable before its timer
+/// fires — against the stack that issued it, like the timer, never one re-resolved
+/// through a tab that may since have moved.
+///
+/// Retracting early and then letting the timer fire pops the same entry twice, which
+/// the stack answers as already retracted and ignores, so neither side has to know
+/// whether the other ran.
+pub(crate) struct TimedNotice {
+    chrome: std::rc::Weak<WindowChrome>,
+    ctx: super::StatusCtx,
+}
+
+impl TimedNotice {
+    /// Take the notice down now.
+    pub(crate) fn retract(self) {
+        if let Some(chrome) = self.chrome.upgrade() {
+            chrome.status.borrow_mut().pop(self.ctx);
+        }
     }
 }
 

@@ -211,6 +211,9 @@ pub(crate) struct TabState {
     /// `window::backingloss`, and cleared by a completed save or an explicit reload.
     /// Always `None` for an untitled document.
     pub(crate) backing_loss: Cell<Option<super::BackingLoss>>,
+    /// The status notice announcing `backing_loss`, held so the notice is taken down
+    /// when the loss clears rather than outliving it on its timer (TDD 15.22).
+    pub(crate) backing_notice: RefCell<Option<super::TimedNotice>>,
     /// The pending re-read that decides whether a file seen blank was truncated or
     /// was caught between a rewrite's truncate and its write (TDD 3.5).
     pub(crate) truncation_settle: Cell<Option<gtk::glib::SourceId>>,
@@ -514,6 +517,7 @@ impl TabState {
             // A freshly loaded/created tab's file is present (or it is untitled).
             backing_loss: Cell::new(None),
             truncation_settle: Cell::new(None),
+            backing_notice: RefCell::new(None),
             loading: Cell::new(false),
             write_gate: crate::winstate::WriteGate::default(),
             doc_epoch: crate::winstate::DocEpoch::default(),

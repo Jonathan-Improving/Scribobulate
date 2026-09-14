@@ -26,18 +26,27 @@ pub(crate) fn mark_backing_lost(tab: &Rc<TabState>, loss: BackingLoss) {
         path_for_log(tab)
     );
     refresh_guards(tab);
-    // Pushed and retracted through the chrome, so the notice is taken down from the
-    // window that showed it even if this tab is moved or closed first
-    // (`WindowChrome::push_timed_notice`).
-    tab.chrome()
+    // Pushed through the chrome, so both its timer and an early retraction take it down
+    // from the window that showed it even if this tab is moved or closed first
+    // (`WindowChrome::push_timed_notice`). A change of reason replaces the notice.
+    let notice = tab
+        .chrome()
         .push_timed_notice(loss.notice(), crate::winstate::ERROR_NOTICE_TIME);
+    if let Some(previous) = tab.backing_notice.replace(Some(notice)) {
+        previous.retract();
+    }
 }
 
-/// Retire `tab`'s loss because its file is back with the content last loaded or saved.
+/// Retire `tab`'s loss — the file is back with the content last loaded or saved, or a
+/// save or an explicit reload made the buffer and the file agree — and take down the
+/// notice that announced it, which must not go on saying so after it stops being true.
 pub(crate) fn clear_backing_loss(tab: &Rc<TabState>) {
     let Some(loss) = tab.backing_loss.take() else {
         return;
     };
+    if let Some(notice) = tab.backing_notice.take() {
+        notice.retract();
+    }
     log::info!(
         "tab {}: backing file restored after {loss:?}: {}",
         tab.id,

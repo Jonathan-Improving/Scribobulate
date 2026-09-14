@@ -2107,7 +2107,7 @@
 - **When** its backing file is deleted on disk (a genuine external deletion, not the app's own crash-safe self-rename on save), or emptied (3.5)
 - **Then** its tab carries a leading **yellow ⚠** warning marker — the complement to the ⟳ reload badge (15.13) — shown whether the tab is active or in the background, and combinable with the dirty "•"; and the notice "File deleted on disk — save to restore it" or "File was truncated — save to restore it" appears (§3.4, §3.5)
 - **And** Save is enabled, and saving over a truncated file writes at once — the blank file is not treated as an external change the save must warn about (5.2)
-- **And** the ⚠ clears when a Save or Save As writes the document, a Reload reads the file back, or the file reappears with exactly the content last loaded or saved (3.6) — the tab returning to its plain label
+- **And** the ⚠ clears when a Save or Save As writes the document, a Reload reads the file back, or the file reappears with exactly the content last loaded or saved (3.6) — the tab returning to its plain label, and the "save to restore it" notice withdrawn at the same moment rather than left to lapse
 - **And** closing that tab (its ×, Ctrl+W, Close Other Tabs) or its window prompts **Save / Discard / Cancel** first, exactly as an unsaved tab does — because the buffer holds the document's only remaining copy and closing without a Save would lose it — even though the buffer is byte-for-byte "clean" against a baseline whose file is gone; choosing Save re-creates the file and lets the close proceed
 
 ## 16. Keyboard-shortcuts help & status surfaces
@@ -3169,6 +3169,7 @@ buffer holds the only copy.
 - **Given** a document with unsaved edits open in a tab
 - **When** the application dies uncleanly and restarts
 - **Then** the tab comes back with the pre-crash buffer content and still marked as having unsaved changes — the user's file on disk is untouched
+- **And** the outline and the annotations list show the recovered text, never the file on disk
 
 ### 22.2 Discarding unsaved work discards its recovery data with it
 - **Given** a dirty tab whose content has been snapshotted

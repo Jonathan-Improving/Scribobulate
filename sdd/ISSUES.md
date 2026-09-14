@@ -37,7 +37,7 @@ described from a different vantage point.
 | I | Mac | Upstream | macOS only: every native file-chooser invocation (Open, Save, Export) grows RSS by ~1.1 MB and does not give it back. Roughly four fifths is AppKit's own price for presenting an `NSSavePanel` — reproduced with no GTK in the process — with about a fifth GTK-attributable. Caching the panel upstream would recover ~95% | Medium |
 | J | Any | Upstream | A paragraph that mixes fonts (any inline-code span) can lay out a few pixels wider than the wrap width it was given, summoning the preview's Automatic horizontal scrollbar and intermittently blanking the pane until a resize | Closed |
 | M | Windows | Production | On a machine with no Visual C++ runtime the app installs and then fails to start; the installer's bootstrapper for it has landed but has never been verified against that condition | Medium |
-| U | Any | Production | The preview opens horizontally scrolled (~20px, its left padding gone, a horizontal scrollbar showing) on the first entry into Split after launch; seen on Windows only so far | Low |
+| U | Any | Production | The preview is drawn horizontally scrolled (~20px, its left padding gone, a horizontal scrollbar showing) after a mode switch or an explicit Reload rebuilds it — intermittent, pre-existing, seen on Linux and Windows | Low |
 
 
 ## A. Tables are selection islands
@@ -647,44 +647,62 @@ verification remains.
 
 ---
 
-## U. The preview opens horizontally scrolled on the first entry into Split after launch
+## U. The preview is drawn horizontally scrolled after a mode switch or an explicit Reload rebuilds it
 
-**Severity**: Low (cosmetic: the content is shifted about 20px left and a horizontal scrollbar
-shows; nothing is lost, and it does not recur later in the same process)
+**Severity**: Low (cosmetic: the content is shifted about 20px left — the pane's left padding —
+and a horizontal scrollbar shows; nothing is lost, and a width change corrects it)
 
-Reported by the Windows seat (entry content theirs, edited here for format), GTK 4.22.4
-gvsbuild, release build of `bca4b6f`, two occurrences, not swept. **Seen on Windows only; not
-yet checked on Linux or macOS**, so the platform stays `Any` until a peer seat has tried.
+First reported by the Windows seat (GTK 4.22.4 gvsbuild, release build of `bca4b6f`) on the
+first entry into Split after launch. **Now measured on Linux and Windows, and pre-existing**:
+the Windows seat reproduced it identically on `8d45d05` and `e173aaa`, and Linux (Xvfb,
+`e173aaa`) shows both triggers below. **macOS not yet checked.**
 
-**Measured** (PrintWindow captures, 1336x759 window):
+**Measured**:
 
-- **A plain document**, `# Swap check` and one sentence — no inline code, no line near the
-  wrap width (text about 150px wide in a pane about 520px). Fresh launch with the file as an
-  argument, Preview, then Split (unswapped): the preview shows a horizontal scrollbar with its
-  thumb about 55px off the left stop, and the heading is drawn flush at the pane's left edge,
-  20px left of where the unscrolled layout puts it.
-- **The built-in welcome document** (a plain paragraph and a separate fenced `sh` block, no
-  inline span, no wrap). Relaunch with session restore, then Split (swapped): the same, with
-  the code block's box shifted by the same 20px.
-- **Not seen**: the same document after Swap Panes in the same process, or a new tab entering
-  Split later in the process.
+- **The first entry into Split after launch.** A plain document, `# Swap check` and one
+  sentence — no inline code, no line near the wrap width. Fresh launch with the file as an
+  argument, Preview, then Split: the preview's heading is drawn flush at the pane's left edge,
+  about 20px left of the unscrolled layout, with a horizontal scrollbar showing. Windows
+  (PrintWindow, 1336x759) and Linux (Xvfb). The built-in welcome document after a session
+  restore did the same on Windows, with its code block's box shifted by the same 20px.
+- **The toolbar's Reload** (`win.reload`) in Preview, even over an unchanged file, and **the
+  toolbar's Edit-then-Preview toggle**. Frequent but **not deterministic per gesture**: the first
+  Reload after launch shifted it 8 of 8 in earlier Windows sessions, yet a later session's
+  alternating Reload/toggle runs went normal five times, shifted four, then normal; either
+  gesture can cause it and either can clear it. Linux shifted on its one Reload. A second
+  Reload never corrected it on Windows; an auto-reload from an external write corrected it 5
+  of 5; widening the window corrects it and restoring the width does not bring it back.
+  Parking the pointer over the button without clicking does not cause it, so it is not a
+  hover-revealed scrollbar.
+- **Windows' Split in a later session stayed normal** 4 of 4, including three Reloads, so the
+  first-entry trigger above is not reliable either.
+- Windows used two detectors per capture, each validated on known-normal and known-shifted
+  frames: the scrollbar row's pixel, and the heading's leftmost ink x (≈275 normal, ≈255
+  shifted, in a pane starting at ≈253). **Not seen** on Windows: the same document after Swap
+  Panes in the same process.
 
 **Not issue J**, on all three of J's axes: no paragraph mixes fonts, no line sits at a wrap
 point, and the symptom is a nonzero horizontal adjustment VALUE (content displaced by about
 the left padding) with the pane drawn, not blanked.
 
-**Inferred, not probed**: on the preview's first allocation after a mode switch in a new
-process, the horizontal adjustment's `upper` briefly exceeds `page_size`, `value` lands near
-the padding width, and nothing clamps it back when `upper` shrinks.
+**Inferred, not probed**: every gesture that can shift it rebuilds the preview through the
+view-mode handler — a mode switch, and the explicit Reload, which re-issues the current mode —
+while both things that reliably correct it do not: the auto-reload builds a fresh preview and
+installs it with its reading line restored, and a width change forces a fresh allocation. So
+the likely shape is a race in the view-mode rebuild's first allocation, where the horizontal
+adjustment's `upper` briefly exceeds `page_size`, `value` lands near the padding width, and
+nothing clamps it back when `upper` shrinks.
 
 **Mitigation options**:
 
-- **Reproduce on Linux under Xvfb first**, with the same two documents, to settle the platform
-  before any fix.
 - **Treat the adjustment's settling as a dark pattern**: how and when GTK clamps an
   adjustment's value when `upper` shrinks during a first allocation is not documented, so the
   researcher should establish that before a fix is written, rather than resetting `value` by
-  guesswork.
-- **Accept it** while it stays cosmetic and one-off per launch.
+  guesswork. Alternating toolbar Reload and Edit-then-Preview about ten times in Preview gives
+  a reproduction within a session.
+- **Compare the rebuild paths**: the auto-reload's rebuild has not been seen to shift, so
+  building the preview the same way from the view-mode handler might remove it without
+  touching adjustments — to be established by that research, not assumed.
+- **Accept it** while it stays cosmetic.
 
 ---

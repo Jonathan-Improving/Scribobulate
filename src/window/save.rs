@@ -182,10 +182,8 @@ async fn save_window(
     // stale version back over it (`winstate::DocEpoch`).
     st.doc_epoch.bump();
     // The write re-created a deleted file, or refilled a truncated one, so the buffer
-    // is no longer the only copy — the "save to restore it" completion. The swap sync
-    // and badge below, and the callers' `refresh_dirty_status`, re-derive everything
-    // the flag was guarding.
-    st.backing_loss.set(None);
+    // is no longer the only copy — the "save to restore it" completion.
+    crate::window::clear_backing_loss(st);
     // A fresh save resets the conflict state: an earlier dismissal no longer
     // applies and a future external change should warn again.
     st.suppress_conflict.set(false);

@@ -92,9 +92,8 @@ fn apply_reload_from_disk(window: &ApplicationWindow, st: &Rc<TabState>, content
     // document is now describing a document that no longer exists.
     st.doc_epoch.bump();
     // An explicit reload accepts whatever the file holds — even a blank one (TDD 3.5)
-    // — so the buffer is no longer the only copy of anything; `refresh_dirty_status`
-    // below re-derives Save, the badge and the snapshot.
-    st.backing_loss.set(None);
+    // — so the buffer is no longer the only copy of anything.
+    crate::window::clear_backing_loss(st);
     st.suppress_conflict.set(false);
     st.chrome().conflict_toast.set_visible(false);
 
@@ -374,10 +373,9 @@ pub(crate) fn apply_external_reload(window: &ApplicationWindow, content: &str) {
     *st.saved_baseline.borrow_mut() = content.to_string();
     // See `apply_reload_from_disk`: mutations bump, deferred readers check.
     st.doc_epoch.bump();
-    // The file was read successfully, so it exists again — retire any "backing
-    // missing" savable override (the `refresh_dirty_status` at the end of this
-    // function recomputes Save sensitivity).
-    st.backing_loss.set(None);
+    // Unreachable with a loss recorded (a lost document's changes decide Toast, never
+    // Reload), but a reload that did land here would make the file whole again.
+    crate::window::clear_backing_loss(&st);
     // Replace the editor buffer (guarded so the split debounce ignores this).
     st.loading.set(true);
     load_into_editor(&st.editor_buf, content);
@@ -671,6 +669,13 @@ mod gtk_integration_tests {
                 tab.backing_loss.get() == Some(winstate::BackingLoss::Truncated)
             });
             assert_eq!(tab.editor_text(), ORIGINAL, "the buffer is kept");
+            let notice = winstate::BackingLoss::Truncated.notice();
+            assert_eq!(
+                tab.chrome().status.borrow().label_text(),
+                notice,
+                "the reader is told (and, the timer being seconds long, is still told \
+                 when the file comes back below — which is what that assertion needs)"
+            );
             assert!(
                 !tab.is_dirty(),
                 "precondition: nothing here is an unsaved edit"
@@ -717,6 +722,12 @@ mod gtk_integration_tests {
                 !tab.chrome().conflict_toast.is_visible(),
                 "the prompt about the other content retires with it"
             );
+            assert_ne!(
+                tab.chrome().status.borrow().label_text(),
+                notice,
+                "and so does the notice: it must not go on saying the file was truncated \
+                 until its timer lapses (TDD 15.22)"
+            );
             assert!(!tab.needs_close_prompt());
             assert_eq!(swap_count(state_home.path()), 0, "and the snapshot goes");
             window.destroy();
@@ -760,8 +771,8 @@ mod gtk_integration_tests {
 
     /// TDD 3.6 for a deleted file, through the real monitor: the monitor's `Created`
     /// must not retire the guard on its own, since the file came back with other
-    /// content. The re-read is also driven explicitly, so a backend that reports no
-    /// creation (kqueue) still reaches the decision.
+    /// content. The re-read is also driven explicitly, so the decision is reached
+    /// without depending on how, or whether, a backend reports the file's return.
     #[gtktest::test]
     fn a_deleted_file_recreated_with_other_content_is_a_conflict() {
         const ORIGINAL: &str = "# Plan\n\nThe only copy.\n";
