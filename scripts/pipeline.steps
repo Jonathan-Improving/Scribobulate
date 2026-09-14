@@ -297,7 +297,7 @@ intent integration  The GTK integration suite passes against a real display, thr
 verdict integration  exit
 class  integration  required
 cmd.linux   integration  scripts/run-integration.sh
-cmd.macos   integration  cargo test --features gtk-integration-tests --test gtk_suite --test icon_resolution --test macos_dark_mode --test popover_deferred_focus
+cmd.macos   integration  cargo test --features gtk-integration-tests --test gtk_suite --test icon_resolution --test macos_dark_mode --test popover_deferred_focus --test logrepeat_reproduce
 cmd.windows integration  G_DEBUG=fatal-criticals cargo test --features gtk-integration-tests -- --test-threads=1
 disarm.macos integration  permanent  G_DEBUG=fatal-criticals is absent from the macOS command above, and this line is why: GDK's Quartz backend freezes a surface once per CONSTRUCTION and thaws once per MAP, and gdk_macos_surface_hide never freezes, so the second map thaws at zero and the suite emits gdk_surface_thaw_updates assertions on every popover open or dismiss. Present 4.22.4 through main; the freeze/thaw pair is private and absent from the gdk4 bindings, so no application-side fix exists. Do NOT arm it by masking Gdk-CRITICAL: that would also silence ScrAP-318, a leaked update-freeze that stops a surface repainting, which is the only signal anybody would get if it happened. See also ScrAP-268 before reaching for a g_log_set_writer_func allowlist.
 

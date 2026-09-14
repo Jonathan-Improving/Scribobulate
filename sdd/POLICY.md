@@ -16,9 +16,9 @@
   the process off the main thread (ScrAP-171; measured 2026-07-30, GTK 4.22.4/Quartz:
   `cargo test --features gtk-integration-tests --lib` SIGABRTs after ~95 non-GTK
   tests). Run `cargo test --features gtk-integration-tests --test gtk_suite` plus
-  the three standalone targets instead — see "Verifying a change on macOS" below,
+  the standalone targets instead — see "Verifying a change on macOS" below,
   now measured rather than only designed: the suite passes clean on that platform,
-  as do all three standalone targets. **Deliberately not a case count.** The number
+  as do the standalone targets. **Deliberately not a case count.** The number
   written here (147, when this was first measured) is the one thing about a suite
   guaranteed to be wrong by the next commit, and a stale one reads as a *deficit*
   to the next reader — the seat that measured 259 passing had to establish that the
@@ -742,7 +742,12 @@ registration, `GtkSettings`, the theme name or variant, focus/window state, the
 default display — because GTK cannot be un-initialised and the suite shares one
 process across every body. `tests/icon_resolution.rs` (a pristine icon theme, plus its
 own `--render` argv), `tests/macos_dark_mode.rs` (drives `prefer-dark` both ways) and
-`tests/popover_deferred_focus.rs` (a clean focus curve) are the three standing cases.
+`tests/popover_deferred_focus.rs` (a clean focus curve) are the standing GTK cases, and
+`src/logrepeat_reproduce.rs` is a fourth of the same kind: it takes the process's one GLib
+log writer func and redirects its stderr to prove a flood collapses (TDD 21.13). **Every one
+of them must be named in `cmd.macos integration`** (`scripts/pipeline.steps`): macOS runs an
+enumerated set rather than a broad `cargo test`, so a new standalone target that is not added
+there silently never runs on macOS while Linux and Windows run it for free.
 Record the reason in the target's doc comment so it is not later "tidied" into the
 suite. Do not reach for `examples/` instead — an example also owns `main()`, but
 `cargo test` never runs one, so the check silently stops being a gate.

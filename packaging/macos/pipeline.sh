@@ -19,7 +19,7 @@
 #
 # This runner's per-platform command bodies (cmd.macos.* in the contract) are what differ
 # from Linux, not the parsing/execution logic:
-#   - Step 5 runs `--test gtk_suite` plus three standalone targets, never `--lib` —
+#   - Step 5 runs `--test gtk_suite` plus the standalone targets, never `--lib` —
 #     the dual-harness bodies abort the process off the main thread on Quartz
 #     (ScrAP-171; measured GTK 4.22.4). That difference lives in the contract, not here.
 #   - Step 6 (coverage) is declared `na.macos permanent` in the contract: this
