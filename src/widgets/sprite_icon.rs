@@ -126,7 +126,13 @@ mod gtk_tests {
     use super::*;
     use crate::animation::sprites::testkit;
 
-    /// An icon presented in its own application window, mapped and allocated.
+    /// An icon presented in its own application window, mapped and allocated at exactly
+    /// its requested size.
+    ///
+    /// Pinned to the top-left corner, because a `GtkWindow` gives its sole child the whole
+    /// content area: on Windows the native frame will not shrink to 16 px, so an unpinned
+    /// icon was allocated about 144×33 and drew the sprite resampled to THAT — measured by
+    /// the Windows seat as a render 18.6× the area of the box being asserted about.
     fn presented(
         r: &crate::sprite::SpriteRef,
         size: i32,
@@ -134,13 +140,20 @@ mod gtk_tests {
     ) -> (SpriteIcon, gtk::ApplicationWindow) {
         let app = crate::window::testkit::test_app_suffixed(&format!("spriteicon.{suffix}"));
         let icon = SpriteIcon::new(r.clone(), size);
+        icon.set_halign(gtk::Align::Start);
+        icon.set_valign(gtk::Align::Start);
         let win = gtk::ApplicationWindow::new(&app);
         win.set_child(Some(&icon));
         win.present();
         crate::testpump::until(
             crate::testpump::Clock::Idle,
             "the icon to be allocated",
-            || icon.width() >= size,
+            || icon.width() > 0,
+        );
+        assert_eq!(
+            (icon.width(), icon.height()),
+            (size, size),
+            "precondition: the icon is allocated exactly its requested size"
         );
         (icon, win)
     }

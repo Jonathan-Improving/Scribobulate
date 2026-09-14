@@ -1,6 +1,5 @@
-/// A raster format this crate can recognise. Not every variant has a working
-/// codec yet — `Gif` and `Apng` currently decode to [`crate::Error::Unsupported`]
-/// (WP4/WP5 stubs).
+/// A raster format this crate can recognise and decode — each variant routes to its own
+/// codec in `codec`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Format {
     WebP,
