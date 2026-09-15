@@ -69,6 +69,14 @@ pub(super) struct TabBar {
     pub(super) prev_shown: Cell<bool>,
     pub(super) next_shown: Cell<bool>,
     pub(super) active_idx: Cell<Option<usize>>,
+    /// How many times `size_allocate` has run. GTK exposes no public "does this widget
+    /// still need an allocation" query, so this is what the TDD 7.26 guards assert on.
+    #[cfg(all(test, feature = "gtk-integration-tests"))]
+    pub(super) allocations: Cell<u32>,
+    /// How many times `measure` has run. GTK re-measures a widget only after a
+    /// `queue_resize`, never after a bare `queue_allocate`, so this tells the two apart.
+    #[cfg(all(test, feature = "gtk-integration-tests"))]
+    pub(super) measures: Cell<u32>,
     // Two separate slots, both invoked by `switch_to_index` (bug found by
     // live Xvfb testing, the retired tab-widget plan implementation): a single
     // shared slot cannot serve both `TabView::new`'s own internal
@@ -198,6 +206,8 @@ impl WidgetImpl for TabBar {
     // exactly as a `GtkScrollable` is meant to (its own size is driven by
     // the viewport it's given, not by its scrollable content).
     fn measure(&self, orientation: gtk::Orientation, _for_size: i32) -> (i32, i32, i32, i32) {
+        #[cfg(all(test, feature = "gtk-integration-tests"))]
+        self.measures.set(self.measures.get() + 1);
         match orientation {
             gtk::Orientation::Horizontal => (0, 0, -1, -1),
             _ => {
@@ -219,6 +229,8 @@ impl WidgetImpl for TabBar {
     }
 
     fn size_allocate(&self, width: i32, height: i32, baseline: i32) {
+        #[cfg(all(test, feature = "gtk-integration-tests"))]
+        self.allocations.set(self.allocations.get() + 1);
         let (Some(prev_btn), Some(next_btn)) = (
             self.prev_btn.borrow().clone(),
             self.next_btn.borrow().clone(),

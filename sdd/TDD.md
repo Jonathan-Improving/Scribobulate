@@ -1033,6 +1033,12 @@
 - **And** leaving the window and returning keeps them working
 - **And** this holds independently for every window the application opens — one window's behaviour never decides another's
 
+### 7.26 The tab strip stays drawn while typing
+- **Given** a document open in split mode
+- **When** the reader types steadily, pausing between words, including after the tab's label has gained its unsaved-changes marker
+- **Then** the tab strip is drawn on every frame — never blank — and no `Trying to snapshot … without a current allocation` warning names the tab strip
+- **And** a relabel that leaves a tab's text unchanged does not lay the strip out again; one that changes it (a filename, the unsaved-changes marker, a deleted-file badge) has the strip laid out before it is next drawn
+
 ## 8. Single-instance lifecycle
 
 > One process, many windows. Launching the app repeatedly must not spawn

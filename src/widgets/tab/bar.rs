@@ -227,6 +227,20 @@ impl TabBar {
     }
 
     pub(super) fn set_markup(&self, content: &gtk::Widget, markup: &str) {
+        // An unchanged label changes no width, so it must not lay the strip out: the
+        // application re-labels the active tab on every edit, and a layout request per
+        // keystroke is what left the strip undrawn while typing on GTK 4.6 (TDD 7.26;
+        // the mechanism is on `settle_or_animate`).
+        let unchanged = self.index_of(content).is_some_and(|idx| {
+            self.imp()
+                .tabs
+                .borrow()
+                .get(idx)
+                .is_some_and(|t| t.label.label() == markup)
+        });
+        if unchanged {
+            return;
+        }
         self.with_entry_width_change(content, |t| {
             // Markup, not plain text: the label carries the coloured "⚠"
             // deleted-backing badge (the filename is escaped upstream). A
@@ -821,6 +835,59 @@ mod gtk_integration_tests {
              no longer discriminates and GTK4Rs/AP-156 must be re-verified"
         );
 
+        win.destroy();
+    }
+    /// **A relabel to the same text lays nothing out (TDD 7.26).** The application
+    /// re-labels the active tab on every edit, so without this skip every keystroke asks
+    /// the strip for a layout.
+    #[gtktest::test]
+    fn an_unchanged_relabel_does_not_lay_the_strip_out() {
+        let (win, bar) = presented_bar(600);
+        let mut contents = Vec::new();
+        let tab = add_titled_tab(&bar, &mut contents, "notes.md \u{2022}");
+        pump_strip(&bar);
+        let before = bar.imp().allocations.get();
+        for _ in 0..5 {
+            bar.set_markup(&tab, "notes.md \u{2022}");
+        }
+        pump_strip(&bar);
+        assert_eq!(
+            bar.imp().allocations.get(),
+            before,
+            "a relabel to the text the tab already shows must not lay the strip out"
+        );
+        win.destroy();
+    }
+
+    /// **A width change asks for a resize, not just an allocation (TDD 7.26).**
+    ///
+    /// In GTK 4.6 a `queue_allocate` walk stops at the first ancestor already marked as
+    /// having a child to allocate, and a layout pass can leave that mark behind — so a
+    /// strip that only asks for an allocation can be left unallocated and then drawn as
+    /// a hole. A `queue_resize` walk always reaches the window. Recreating that stranded
+    /// ancestor in a bare test window did not work (MEASURED: the planted sibling was laid
+    /// out and drawn normally, with no snapshot warning), so this asserts the request
+    /// itself: GTK re-measures a widget only after a `queue_resize`, never after a bare
+    /// `queue_allocate`, and that holds on every GTK version. The blank itself is covered
+    /// by the running-app check 7.26.
+    #[gtktest::test]
+    fn a_width_change_asks_for_a_resize_not_just_an_allocation() {
+        let (win, bar) = presented_bar(600);
+        let mut contents = Vec::new();
+        add_titled_tab(&bar, &mut contents, "doc.md");
+        pump_strip(&bar);
+        let (measures, allocations) = (bar.imp().measures.get(), bar.imp().allocations.get());
+        bar.settle_or_animate();
+        pump_strip(&bar);
+        assert!(
+            bar.imp().measures.get() > measures,
+            "a settle must re-measure the strip, i.e. ask for a resize: a bare allocation \
+             request can be swallowed by an ancestor on GTK 4.6 and leave the strip undrawn"
+        );
+        assert!(
+            bar.imp().allocations.get() > allocations,
+            "and the strip must then be laid out"
+        );
         win.destroy();
     }
 }

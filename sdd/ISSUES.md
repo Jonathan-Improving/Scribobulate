@@ -36,7 +36,6 @@ described from a different vantage point.
 | J | Any | Upstream | A paragraph that mixes fonts (any inline-code span) can lay out a few pixels wider than the wrap width it was given, summoning the preview's Automatic horizontal scrollbar and intermittently blanking the pane until a resize | Closed |
 | M | Windows | Production | On a machine with no Visual C++ runtime the app installs and then fails to start; the installer's bootstrapper for it has landed but has never been verified against that condition | Medium |
 | U | Any | Production | The preview is drawn horizontally scrolled (~20px, its left padding gone, a horizontal scrollbar showing) after a mode switch or an explicit Reload rebuilds it — intermittent, pre-existing, seen on Linux and Windows | Low |
-| W | Linux | Production | The tab bar — and at times the whole window — blanks while typing in split mode on some documents; operator-reported with only the File, View and Zoom toolbar sections shown; not yet diagnosed | High |
 
 
 ## A. Tables are selection islands
@@ -260,6 +259,13 @@ and `autorelease pool page 0x… corrupted / magic 0x0f9fdca3 … should be 0xa1
 0x1f6b22180 should be 0x1f6b22180`. In the page-corruption case the pthread values MATCH: the page
 was damaged in place on its own thread, not popped from a different one. That argues against a
 cross-thread pop and for an accumulating in-place imbalance, which agrees with the depth finding.
+
+**Removing that test's clipboard traffic did not make the suite complete.** On the next commit,
+where the test asserts the paste hand-off without touching the clipboard, two consecutive full
+runs still aborted — at an annotation-card body and a find body, neither of them clipboard work —
+while the clipboard-free test itself passed; the pthread values matched again. Two runs are not
+a rate and no change in rate is claimed either way; what they settle is that the abort is not
+this test's, so do not read the clipboard-free test as having addressed this entry.
 
 **Re-measured 2026-09-13 by the macOS seat (entry content theirs, edited here for format),
 and two claims further down were too narrow.** Same defect: the same OBJC termination
@@ -605,23 +611,5 @@ nothing clamps it back when `upper` shrinks.
   building the preview the same way from the view-mode handler might remove it without
   touching adjustments — to be established by that research, not assumed.
 - **Accept it** while it stays cosmetic.
-
----
-
-## W. The tab bar, and at times the whole window, blanks while typing in split mode
-
-**Severity**: High (the window goes blank while the user is editing; no data loss, but nothing can be read or used until it repaints)
-
-Operator-reported 2026-09-14, not yet reproduced by a seat. In split mode, typing in the editor blanks the tab bar, and at times the entire view. It is **document-dependent**: it began on the operator's `~/.claude/CLAUDE.md` immediately after appending one bullet point, and reproduces there fairly reliably. Neither the reading theme nor the window size changes it. macOS and Windows not yet checked.
-
-**Chrome state at the time:** only the **File, View and Zoom** toolbar sections were shown (View ▸ Toolbar). That narrows the toolbar and so the window's content-derived minimum width, which is a plausible axis of its own — reproduce with that exact section set before varying it.
-
-**Reproduction input:** the operator's copy of the document, kept outside the repository because it is private configuration. Do not commit it; build a fixture of the same shape if a test needs one.
-
-**Not reproduced headless** (2026-09-14, release build, Xvfb 1920×1080, no window manager or compositor, Cairo renderer): the operator's document in Split mode with exactly File, View and Zoom shown; a bullet containing inline code typed at 110 ms per key while the screen was sampled every 0.2 s; then 41 window widths from the 1,057 px minimum to 1,900 px, typing at each. No region of the tab bar, editor or preview went flat and no warning was logged. So the missing ingredient is probably something Xvfb lacks — the real compositor, window manager, GPU driver or display scale (GTK4Rs/AP-56) — and the next evidence has to come from the operator's own session. Issue J's width-dependent blank (a paragraph with inline code laid out wider than its pane) remains the nearest recorded mechanism for the whole-view half, but J does not explain the tab bar.
-
-Not diagnosed. Before theorising, establish: whether a `Trying to snapshot … without a current allocation` warning names a tab-strip or pane widget, and how often (GTK4Rs/AP-257's triage); whether the blank follows the split preview's debounced re-render or every keystroke; and whether showing all toolbar sections makes it stop.
-
-**Options**: none yet — reproduce first.
 
 ---

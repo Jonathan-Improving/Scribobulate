@@ -319,10 +319,20 @@ impl TabBar {
     }
 
     /// Start the sibling-slide if any tab is away from its resting slot, and
-    /// otherwise just re-allocate. Keeping the animation opt-in (rather than an
-    /// unconditional [`Self::ensure_tick`]) means the common no-op case — a
-    /// relabel that doesn't change a width, which `update_window_title` does for
-    /// every tab on every title update — costs one measure pass and no frames.
+    /// otherwise lay the strip out again. Keeping the animation opt-in (rather than
+    /// an unconditional [`Self::ensure_tick`]) means a width change that moved
+    /// nothing costs one layout and no animation frames; a relabel to the SAME
+    /// text never gets here (`TabBar::set_markup` returns first).
+    ///
+    /// **`queue_resize`, never `queue_allocate`.** In GTK 4.6 a `queue_allocate`'s
+    /// walk up the tree stops at the first ancestor already marked as having a child
+    /// to allocate, without asking the window for a layout — and that mark can
+    /// outlive a layout pass in which the ancestor kept its size (`gtk_widget_allocate`'s
+    /// skip path neither clears it nor allocates the children; fixed in GTK 4.10).
+    /// The strip was then left unallocated and its next draw came out blank —
+    /// `Trying to snapshot ScribobulateTabBar … without a current allocation`, once per
+    /// keystroke while typing (TDD 7.26). A `queue_resize` walk always reaches the
+    /// window.
     pub(super) fn settle_or_animate(&self) {
         let unsettled = {
             let tabs = self.imp().tabs.borrow();
@@ -333,7 +343,7 @@ impl TabBar {
         if unsettled {
             self.ensure_tick();
         } else {
-            self.queue_allocate();
+            self.queue_resize();
         }
     }
 
@@ -416,7 +426,8 @@ impl TabBar {
 
     pub(super) fn ensure_tick(&self) {
         if self.imp().tick_id.borrow().is_some() {
-            self.queue_allocate();
+            // `queue_resize`, for the reason on `settle_or_animate`.
+            self.queue_resize();
             return;
         }
         let id = self.add_tick_callback(|bar, clock| bar.animate_tick(clock));
