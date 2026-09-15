@@ -108,7 +108,7 @@ validate_contract() {
     local errs=0
 
     local bad
-    bad=$(grep -nvE '^[[:space:]]*(#.*)?$|^(platform|step|intent|verdict|class|setup|cmd\.[a-z]+|na\.[a-z]+|carveout\.[a-z]+|disarm\.[a-z]+)[[:space:]]+[^[:space:]]+([[:space:]]+.*)?$' \
+    bad=$(grep -nvE '^[[:space:]]*(#.*)?$|^(platform|step|intent|verdict|class|setup|cmd\.[a-z]+|na\.[a-z]+|carveout\.[a-z]+|disarm\.[a-z]+|surface)[[:space:]]+[^[:space:]]+([[:space:]]+.*)?$' \
         "$CONTRACT" || true)
     if [ -n "$bad" ]; then
         echo "pipeline: $CONTRACT has lines that are neither blank, a comment, nor a" >&2
@@ -840,6 +840,24 @@ execution_cases() {
     _reset; _step beta packaging; _cmds beta 'true'; _run beta
     _want_not "a clean build claims no missing gates" "WARNING: built without"
 
+    # ── surface: a step's OWN marker lines are repeated after it, verdict untouched ──
+    _reset; _step beta required; _cmds beta "printf 'noise\\nSKIPPED [X]: why\\n'"
+    _add "surface beta SKIPPED ["; _run beta
+    _want    "surfaced marker lines get their own header" "surfaced 'SKIPPED ['"
+    _want    "the surfaced line itself is shown"         "SKIPPED [X]: why"
+    _want_rc "surfacing leaves a passing verdict alone"  0
+
+    _reset; _step beta required; _cmds beta "printf 'SKIPPED [X]\\n'; false"
+    _add "surface beta SKIPPED ["; _run beta
+    _want    "a failing step that surfaces a marker still FAILS" "FAIL"
+    _want_rc "…and still returns 1"                            1
+
+    _reset; _step beta required; _cmds beta 'true'; _add "surface beta SKIPPED ["; _run beta
+    _want "a step with nothing to surface says so" "no tests reported 'SKIPPED ['"
+
+    _reset; _step beta required; _cmds beta "printf 'SKIPPED [X]\\n'"; _run beta
+    _want_not "without a surface line nothing is surfaced" "surfaced '"
+
     DO_PACKAGE="$saved_pkg"
     OVERRIDDEN_STEPS="$saved_over"
     unset -f _reset _add _step _cmds _carve _disarm _run _want _want_not _want_rc
@@ -983,7 +1001,30 @@ run_step() {
     report_carveouts "$id"
     cmd=$(apply_carveouts "$cmd" "$(carveout_skip_args "$id")")
     echo "    \$ $cmd"
-    if eval "$cmd"; then
+    # A `surface` line repeats the marker lines of this step's OWN output after it runs —
+    # the step is run once, streamed as usual, and a copy is scanned. It exists because a
+    # marker verdict can only see what its own re-run prints: step 4b re-runs the unit tests,
+    # while an integration body that skips itself prints its marker in step 5's output and
+    # nowhere else. Surfacing never changes the verdict; the exit code still decides.
+    local surface rc=0
+    surface=$(contract_value surface "$id")
+    if [ -n "$surface" ]; then
+        local log hits
+        log=$(mktemp -t "scrib-surface.XXXXXX")
+        eval "$cmd" 2>&1 | tee "$log"
+        rc=${PIPESTATUS[0]}
+        hits=$(grep -F -- "$surface" "$log" || true)
+        rm -f "$log"
+        if [ -n "$hits" ]; then
+            echo "    surfaced '$surface':"
+            echo "$hits" | sed 's/^/    /'
+        else
+            echo "    no tests reported '$surface'"
+        fi
+    else
+        eval "$cmd" || rc=$?
+    fi
+    if [ "$rc" -eq 0 ]; then
         echo "    PASS"
     else
         echo "    FAIL"

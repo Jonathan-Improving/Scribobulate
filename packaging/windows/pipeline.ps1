@@ -115,7 +115,7 @@ $script:ContractLines = @(Get-Content -Encoding UTF8 -LiteralPath $CONTRACT)
 # matching defaults are case-INSENSITIVE where grep's are not: porting this gate with the
 # default operator would silently accept `Step 1 fmt` and `CMD.WINDOWS`, quietly relaxing
 # the contract's strictness relative to the Linux runner.
-$script:LineShape = '^(platform|step|intent|verdict|class|setup|cmd\.[a-z]+|na\.[a-z]+|carveout\.[a-z]+|disarm\.[a-z]+)\s+\S+(\s+.*)?$'
+$script:LineShape = '^(platform|step|intent|verdict|class|setup|cmd\.[a-z]+|na\.[a-z]+|carveout\.[a-z]+|disarm\.[a-z]+|surface)\s+\S+(\s+.*)?$'
 
 function Split-ContractLine {
     param([string] $Line)
@@ -900,6 +900,47 @@ function Invoke-SelfTest {
     $script:Failed = @()
     Write-Host '   a failing step reports its exit code and sets the failure flag'
 
+    # SURFACE (scripts/pipeline.steps `surface`). The marker word reaches the output only by
+    # EXECUTION: the command prints %SCRIB_SELFTEST_A% [X], so the `$ <cmd>` echo line holds
+    # no "SKIPPED [" and a runner that surfaced from the echo instead of the run cannot pass.
+    $surfLine = 'surface probe  SKIPPED ['
+    $surfCmd  = 'cmd.windows probe  SCRIB_SELFTEST_A=SKIPPED echo %SCRIB_SELFTEST_A% [X]: why'
+    $surfaced = Invoke-SyntheticStep -Lines ($base + @($surfCmd, $surfLine))
+    # Literal .Contains(), never -like: the markers hold '[', which -like reads as a
+    # character class (throws on a lone '[', silently mismatches on '[X]').
+    foreach ($want in @("surfaced 'SKIPPED ['", 'SKIPPED [X]: why', 'PASS')) {
+        if (-not "$($surfaced.Text)".Contains($want)) {
+            Write-Err "pipeline: a surfacing step's output is missing '$want'"
+            Write-Err "  got: $($surfaced.Text.Trim())"
+            return $false
+        }
+    }
+    if (-not $surfaced.Ok) {
+        Write-Err 'pipeline: surfacing a marker turned a passing step into a failure'
+        return $false
+    }
+    $surfFail = Invoke-SyntheticStep -Lines ($base + @(
+        'cmd.windows probe  SCRIB_SELFTEST_A=SKIPPED echo %SCRIB_SELFTEST_A% [X] & exit 3',
+        $surfLine))
+    if ($surfFail.Text -notlike '*FAIL (exit 3)*' -or $surfFail.Ok) {
+        Write-Err 'pipeline: a failing step that surfaces a marker must still FAIL'
+        Write-Err "  got: $($surfFail.Text.Trim())"
+        return $false
+    }
+    $script:Failed = @()
+    $surfNone = Invoke-SyntheticStep -Lines ($base + @('cmd.windows probe  exit 0', $surfLine))
+    if (-not "$($surfNone.Text)".Contains("no tests reported 'SKIPPED ['")) {
+        Write-Err 'pipeline: a surfacing step with no marker lines must say so'
+        Write-Err "  got: $($surfNone.Text.Trim())"
+        return $false
+    }
+    $noSurf = Invoke-SyntheticStep -Lines ($base + @($surfCmd))
+    if ($noSurf.Text -like "*surfaced '*") {
+        Write-Err 'pipeline: a step with no surface line surfaced something'
+        return $false
+    }
+    Write-Host "   a surface line repeats the step's own marker lines and leaves the verdict alone"
+
     # ---------------------------------------------------------------------------------
     # Carve-outs (F-GATE-003). Three separable properties, tested separately because a
     # single end-to-end case that passed would not say WHICH of them holds.
@@ -1357,7 +1398,29 @@ function Invoke-ContractStep {
     Show-Carveouts $Id
     $cmd = Add-Carveouts -CommandLine $cmd -SkipArgs (Get-CarveoutSkipArgs $Id)
     Write-Host "    `$ $cmd"
-    Invoke-ContractCommand -CommandLine $cmd
+    # A `surface` line repeats the marker lines of this step's OWN output after it runs --
+    # the step runs once, streams as usual, and a copy is scanned. Analogue of the shell
+    # port's `run_step`: a marker verdict only sees what its own re-run prints, and an
+    # integration body that skips itself prints its marker in step 5's output and nowhere
+    # else. Surfacing never changes the verdict; the exit code still decides.
+    $surface = Get-ContractValue 'surface' $Id
+    if ($surface) {
+        # Tee-Object -Variable never creates the variable when the command prints nothing,
+        # and StrictMode then throws on the read below; seed it empty.
+        $stepOut = @()
+        Invoke-ContractCommand -CommandLine $cmd | Tee-Object -Variable stepOut
+        # -SimpleMatch and -CaseSensitive for the same reasons as the marker branch above.
+        $hits = @($stepOut | Select-String -SimpleMatch -CaseSensitive -Pattern $surface |
+                  ForEach-Object { $_.Line.Trim() })
+        if ($hits.Count) {
+            Write-Host "    surfaced '$surface':"
+            foreach ($h in $hits) { Write-Host "    $h" -ForegroundColor Yellow }
+        } else {
+            Write-Host "    no tests reported '$surface'"
+        }
+    } else {
+        Invoke-ContractCommand -CommandLine $cmd
+    }
     if ($script:StepExitCode -eq 0) {
         Write-Host '    PASS' -ForegroundColor Green
         return

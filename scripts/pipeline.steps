@@ -61,6 +61,9 @@
 #                                          implement them, none may ignore them
 #   na.<plat> <id>   permanent|tooling <reason>
 #   carveout.<plat> <id>  <test name>      by-name test exclusions, may be absent
+#   surface   <id>   <text>                lines of the step's OWN output containing <text>
+#                                          are repeated after it runs; never changes the
+#                                          verdict, and the step is not re-run for it
 #   setup     <plat> <description>         per-platform setup PHASE, not a step
 #
 # ENV PREFIXES ARE PART OF THE GRAMMAR, AND A PORT MUST IMPLEMENT THEM DELIBERATELY.
@@ -216,7 +219,9 @@ cmd.windows test  cargo test
 # A skip nobody sees is a pass.
 #
 # The marker's label is the RUBRIC, not the test name, so renaming a test does not break
-# the grep. Never `#[cfg(platform)]` a test to achieve a skip — a cfg'd-out test is not
+# the grep. This step re-runs the UNIT tests only; an integration body that skips itself
+# prints its marker in step 5's own output, which step 5 surfaces (`surface`) rather than
+# paying for a second integration run. Never `#[cfg(platform)]` a test to achieve a skip — a cfg'd-out test is not
 # skipped, it is deleted: not compiled, not reported, not counted, and no harness
 # distinguishes "never built" from "passed" (ScrAP-212).
 # ---------------------------------------------------------------------------
@@ -296,6 +301,7 @@ step   5  integration
 intent integration  The GTK integration suite passes against a real display, through Cargo so the [env] pins apply
 verdict integration  exit
 class  integration  required
+surface integration  SKIPPED [
 cmd.linux   integration  scripts/run-integration.sh
 cmd.macos   integration  cargo test --features gtk-integration-tests --test gtk_suite --test icon_resolution --test macos_dark_mode --test popover_deferred_focus --test logrepeat_reproduce
 cmd.windows integration  G_DEBUG=fatal-criticals cargo test --features gtk-integration-tests -- --test-threads=1
