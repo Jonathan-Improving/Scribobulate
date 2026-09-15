@@ -6,8 +6,8 @@
 //! first tab is built the same way `new_window` builds any window's first
 //! tab (`build_window`), each further tab is added exactly the way File ▸ New
 //! Document adds one (`tabs::lifecycle::create_tab_in_window`), and a tab's restored view
-//! mode / split arrangement is replayed through the real `win.view-mode` /
-//! `win.split-*` GActions (`apply_restored_tab_state`) — the same
+//! mode is replayed through the real `win.view-mode` GAction
+//! (`apply_restored_tab_state`) — the same
 //! `change_state` machinery a user's own click would drive — so the content
 //! actually rebuilds instead of only a stored flag being set that nothing
 //! then reads.
@@ -26,9 +26,9 @@
 //! [`start_deferred_prerender_pump`] — exactly what `app::on_open` does for a
 //! `docs/*.md sdd/*.md` batch. This is what keeps restoring a large multi-tab
 //! session from freezing the UI while every tab's preview renders up front.
-//! A background tab's persisted view-mode + split arrangement is stored on its
+//! A background tab's persisted view mode is stored on its
 //! `TabState` at build time so (a) a tab the user never re-opens still SAVES the
-//! right layout on quit (session save reads `TabState`, `window/lifecycle.rs`)
+//! right mode on quit (session save reads `TabState`, `window/lifecycle.rs`)
 //! and (b) its first activation replays that layout through the real GActions
 //! (`tabs::switch::materialize_deferred_preview` → [`apply_tab_layout`]).
 
@@ -37,20 +37,16 @@ use crate::docio::LoadedDoc;
 use crate::session::TabSession;
 
 /// Replay a tab's persisted view mode + split ORIENTATION onto whichever tab is
-/// currently ACTIVE in `window`, through the real `win.view-mode` /
-/// `win.split-orientation` GActions — the same `change_state` machinery a user's
-/// own click drives, so the content genuinely rebuilds (renders the preview,
-/// wires split scroll-sync, moves focus, refreshes the outline) rather than only
-/// a stored flag being set. A Preview/no-vertical tab needs no calls at all —
-/// every tab already starts that way — so this is a no-op for it (which is
-/// exactly why a deferred plain-preview tab can instead be cheaply
-/// background-rendered without reaching here).
+/// currently ACTIVE in `window`, through the real `win.view-mode` GAction — the
+/// same `change_state` machinery a user's own click drives, so the content
+/// genuinely rebuilds (renders the preview, wires split scroll-sync, moves focus,
+/// refreshes the outline) rather than only a stored flag being set. A Preview tab
+/// needs no call at all — every tab already starts that way — so this is a no-op
+/// for it (which is exactly why a deferred plain-preview tab can instead be
+/// cheaply background-rendered without reaching here).
 ///
-/// The split PANE ORDER (swap) is deliberately NOT a parameter here — it is
-/// WINDOW-scoped (`WindowChrome.split_swap`), seeded once for the
-/// whole window at `build_window` from `WindowInit.chrome.split_swap`, and
-/// already applied to every tab this window has (including ones not yet built)
-/// as they are created — see `create_tab_in_window`.
+/// The split arrangement is deliberately NOT a parameter here — it is app-wide
+/// (`window::arrangement`) and already applied to every tab as it is created.
 ///
 /// The single home shared by the EAGER first-tab restore
 /// ([`apply_restored_tab_state`]) and the DEFERRED materialization of a
@@ -58,26 +54,19 @@ use crate::session::TabSession;
 /// (`tabs::switch::materialize_deferred_preview`), so the two cannot drift.
 /// Because it drives the *active*-tab GActions, callers must ensure the target
 /// tab is the active one (both do).
-pub(crate) fn apply_tab_layout(
-    window: &ApplicationWindow,
-    view_mode: ViewMode,
-    split_vertical: bool,
-) {
-    if split_vertical {
-        change_action_state(window, "split-orientation", &true.to_variant());
-    }
+pub(crate) fn apply_tab_layout(window: &ApplicationWindow, view_mode: ViewMode) {
     if view_mode.is_editor_visible() {
         change_action_state(window, "view-mode", &view_mode.as_str().to_variant());
     }
 }
 
-/// Re-apply one persisted tab's view mode and split orientation to whichever
+/// Re-apply one persisted tab's view mode to whichever
 /// tab is currently active in `window` (the eager first-tab path). Both
 /// `build_window` and `tabs::lifecycle::create_tab_in_window` already make their
 /// newly-created tab current before returning, so this always lands on the right
 /// tab. Thin adapter over [`apply_tab_layout`] from a `TabSession`.
 fn apply_restored_tab_state(window: &ApplicationWindow, tab: &TabSession) {
-    apply_tab_layout(window, tab.view_mode, tab.split_vertical);
+    apply_tab_layout(window, tab.view_mode);
 }
 
 /// Give a freshly restored tab the crash-recovery identity it had before the restart, so
@@ -160,7 +149,7 @@ fn restore_window(
         // freeze the UI rendering every tab up front. The preview is built lazily
         // on first activation, or one-per-tick by the shared pre-render pump
         // `restore_session` starts (see this module's doc comment). Its persisted
-        // view-mode + split arrangement is copied onto the `TabState` right after
+        // view mode is copied onto the `TabState` right after
         // creation, decoupling per-tab layout STORAGE from RENDERING: session
         // save reads it whether or not the tab was ever re-opened, and first
         // activation replays it through the real GActions
@@ -182,10 +171,9 @@ fn restore_window(
                 }
                 adopt_persisted_doc_id(&t, tab);
                 t.view_mode.set(tab.view_mode);
-                t.split_vertical.set(tab.split_vertical);
-                // No split-swap line here: it is window-scoped now and
+                // No split arrangement here: it is app-wide, and
                 // `create_tab_in_window` (just above) already seeded this tab's own
-                // `SplitView` from the window's arrangement at construction time.
+                // `SplitView` from it at construction time.
             }
         }
     }

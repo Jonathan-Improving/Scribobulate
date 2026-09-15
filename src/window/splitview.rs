@@ -493,29 +493,30 @@ impl SplitView {
         self.apply_layout_state();
     }
 
-    /// Update just the split order (win.split-swap). Reparent-free — the old
-    /// design re-entered split mode to rebuild the `GtkPaned`, which for a
-    /// *vertical* split reparented the editor and re-triggered the reparent UAF.
-    pub(crate) fn set_swapped(&self, swapped: bool) {
-        self.imp().swapped.set(swapped);
+    /// Apply the app-wide split arrangement (`window::arrangement`) in place.
+    /// Reparent-free in both halves: the old design re-entered split mode to
+    /// rebuild a `GtkPaned`, which for a *vertical* split reparented the editor and
+    /// re-triggered the reparent UAF (ScrAP-58); and the scroll-sync projection is
+    /// fraction-based, so an axis change needs no rewire (GTK4Rs/AP-16). Harmless
+    /// outside split mode, where neither half is read.
+    pub(crate) fn set_arrangement(&self, arrangement: super::arrangement::SplitArrangement) {
+        let imp = self.imp();
+        imp.swapped.set(arrangement.swapped);
+        imp.vertical.set(arrangement.vertical);
         self.apply_layout_state();
     }
 
-    /// Read back the current split order. Test-only: production code never reads
-    /// this back — `win.split-swap` is window-scoped (`WindowChrome.split_swap`)
-    /// and this widget is only ever the WRITE side of it
-    /// (`set_swapped`); a test asserting the fix needs to see the effect on the
-    /// widget itself, not the value it was told to apply. Carries the same cfg as
-    /// its only callers (POLICY's helper-gating rule), not a bare `#[cfg(test)]`.
+    /// Read back the arrangement this widget is showing. Test-only: production code
+    /// only ever WRITES it, and a test needs to see the effect on the widget itself,
+    /// not the value it was told to apply. Carries the same cfg as its only callers
+    /// (POLICY's helper-gating rule), not a bare `#[cfg(test)]`.
     #[cfg(all(test, feature = "gtk-integration-tests"))]
-    pub(crate) fn is_swapped(&self) -> bool {
-        self.imp().swapped.get()
-    }
-
-    /// Update just the split orientation (win.split-orientation), in place.
-    pub(crate) fn set_vertical(&self, vertical: bool) {
-        self.imp().vertical.set(vertical);
-        self.apply_layout_state();
+    pub(crate) fn arrangement(&self) -> super::arrangement::SplitArrangement {
+        let imp = self.imp();
+        super::arrangement::SplitArrangement {
+            swapped: imp.swapped.get(),
+            vertical: imp.vertical.get(),
+        }
     }
 
     /// Reflect the current (mode, vertical, swapped) into child visibility, the

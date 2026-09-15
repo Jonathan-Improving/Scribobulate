@@ -144,19 +144,6 @@ pub(crate) struct WindowChrome {
     /// zoom is an accessibility accommodation and should not vary as the user
     /// switches documents in the same window.
     pub(crate) zoom_level: Cell<f64>,
-    /// The window's shared split-pane order (`win.split-swap` — editor/preview
-    /// swapped, or not). Window-scoped, not tab-scoped: a
-    /// preference about *where the editor sits on screen* outlives any one tab,
-    /// the same reasoning [`zoom_level`](Self::zoom_level) already uses just
-    /// above. Initialised from the session; written back on window close
-    /// (`window::read_window_chrome`). A new tab (`create_tab_in_window`) reads
-    /// this to seed its own `SplitView`'s pane order instead of starting from
-    /// the widget's construction default; a tab moved into a different window
-    /// re-reads the DESTINATION's value (`wire_tab_arrival`) instead of keeping
-    /// the one it carried. `split_vertical` (the split's H/V orientation) stays
-    /// tab-scoped on [`TabState`](super::TabState) — a different axis, not moved
-    /// by this field.
-    pub(crate) split_swap: Cell<bool>,
     /// Where this window's sidebar divider sits, as the fraction of the sidebar's
     /// height given to the outline (TDD 20.21) — the value `read_window_chrome`
     /// persists and `inherit_from` hands to a new window.

@@ -885,7 +885,7 @@
 - **And when** the user activates View ▸ Vertical Split (or the toolbar toggle)
 - **Then** the split reorients from left/right (horizontal) to top/bottom (vertical), with both panes retaining their content and scroll sync
 - **And** both controls are disabled (greyed) when the window is not in split mode
-- **And** the pane arrangement (swap flag + vertical flag) survives a session restart — opening the same document restores the same layout
+- **And** Swap Panes and Vertical Split are one app-wide preference: changing either in any window applies at once to every tab in every open window, new tabs and new windows start with it, and it survives a session restart
 
 ### 7.4 Clean shutdown with unsaved changes
 - **Given** unsaved edits exist — in a previously-loaded file **or** a new/untitled document the user has typed into
@@ -2010,15 +2010,15 @@
 - **Then** the title re-aims at the newly active document and keeps the same count — the title tracks *which* document is on screen, not merely how many there are
 - **And** hovering a tab shows a tooltip with the backing file's full absolute path, or "Unsaved" for a tab that has never been saved to a path (updated the moment a Save As adopts a path)
 
-### 15.8 View mode and split orientation are restored per tab
-- **Given** two tabs in the same window, one in Preview and the other in Split (with its own orientation setting)
+### 15.8 View mode is restored per tab
+- **Given** two tabs in the same window, one in Preview and the other in Split
 - **When** the user switches from one tab to the other
-- **Then** the view mode and split orientation shown change to match the newly active tab's own stored settings, not the previously active tab's; the split PANE ORDER (swapped or not) stays the same across the switch either way, because it belongs to the window, not the tab (15.8a)
+- **Then** the view mode shown changes to match the newly active tab's own stored mode, not the previously active tab's; the split arrangement (pane order and orientation) stays the same across the switch, because it belongs to the application, not the tab (15.8a)
 
-### 15.8a A new tab, and a tab moved into another window, take that window's split pane order
-- **Given** a window whose panes are swapped (Swap Panes)
-- **When** a new tab is opened in that window (File ▸ New Document, or any other new-tab path), or an existing tab from a DIFFERENT, un-swapped window is moved into it
-- **Then** the tab shows the same swapped arrangement the window is already showing rather than the type's own un-swapped default; a tab moved OUT of this window into an un-swapped one adopts that window's arrangement instead, and the two windows stay free to disagree
+### 15.8a New tabs, moved tabs and other windows follow the app-wide split arrangement
+- **Given** Swap Panes and Vertical Split are turned on in one window
+- **When** a new tab is opened in that window (File ▸ New Document, or any other new-tab path), a new window is opened, or the user looks at a tab already open in a different window
+- **Then** each of them shows the same swapped, vertical arrangement rather than the default; a tab moved between windows keeps it, and no two windows can disagree
 
 ### 15.9 Zoom is scoped per window and applies to every tab
 - **Given** a window with two or more tabs
@@ -2026,9 +2026,9 @@
 - **Then** every tab's preview in that window rescales (both the live one and any in the background), and every other window's zoom level is unaffected
 
 ### 15.10 Session restore rebuilds every window and every tab
-- **Given** two or more windows were open at quit, each with two or more tabs in a mix of view modes, split orientations, and zoom levels, and the windows' own pane orders (swapped or not) differ from each other
+- **Given** two or more windows were open at quit, each with two or more tabs in a mix of view modes and zoom levels, with Swap Panes and Vertical Split turned on
 - **When** the application is relaunched
-- **Then** every window reopens with the same size, zoom level, and pane order (swapped or not); every tab reopens with its own path (or blank, if untitled), view mode, and split orientation; and each window's previously active tab is the one shown
+- **Then** every window reopens with the same size and zoom level; every tab reopens with its own path (or blank, if untitled) and view mode; the split arrangement is restored once, for the whole application; and each window's previously active tab is the one shown
 
 ### 15.11 Closing a window with several dirty tabs prompts sequentially
 - **Given** a window with three tabs, two of them dirty

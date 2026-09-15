@@ -11,17 +11,17 @@
 //! sequence and per-close writes would otherwise leave only the last window
 //! (GTK4Rs/AP-113, TDD 15.10).
 //!
-//! ## Schema (v4)
+//! ## Schema (v5)
 //!
-//! One [`Session`] holds the app-wide `preview_theme` (genuinely app-wide: one
-//! CSS provider, one value) plus a `Vec<WindowSession>`, one per open window:
+//! One [`Session`] holds the app-wide values — `preview_theme` (one CSS provider),
+//! `play_animations`, and since v5 the split-pane ARRANGEMENT (`split_swap`,
+//! `split_vertical`: one app-wide preference, TDD 7.3) — plus a
+//! `Vec<WindowSession>`, one per open window:
 //! its geometry, its **one shared zoom level** (zoom is a window-level
 //! accessibility setting, not a per-tab one — operator
 //! decision), its own [`ChromeSession`] (toolbar / status bar / outline
-//! visibility, and — since v4 — the shared split PANE ORDER, `split_swap` —
-//! all per window, not app-wide), and a `Vec<TabSession>` (path,
-//! view mode, split ORIENTATION, unsafe-images toggle — no per-tab zoom or
-//! pane-order field) plus which tab was active. No tab content is persisted
+//! visibility — per window, not app-wide), and a `Vec<TabSession>` (path,
+//! view mode, unsafe-images toggle) plus which tab was active. No tab content is persisted
 //! (only its `path`, if any) — an unsaved untitled tab restores blank, matching
 //! `create_tab_in_window`'s own blank-tab convention (`window::restore`).
 //!
@@ -57,21 +57,19 @@
 //! chrome key is the v2 signal; this crate's v3+ writer emits none of them, so
 //! the migration cannot fire on a file it wrote itself.
 //!
-//! ## Migrating per-tab split-swap (v3) files
+//! ## Migrating a per-window / per-tab split arrangement (v3, v4) files
 //!
-//! v3 kept the split PANE ORDER (`split_swap`) on [`TabSession`], alongside the
-//! split ORIENTATION (`split_vertical`) it is still scoped like today. It is now
-//! per WINDOW ([`ChromeSession::split_swap`]) — a preference about *where the
-//! editor sits on screen* outlives any one tab — so a v3 file's per-tab values are
-//! read once by [`migrate_v3_tab_split_swap`] and applied to each window from
-//! **the tab that was ACTIVE when the session was saved** (`WindowSession::active_tab`,
-//! already recorded for exactly this purpose), never a majority vote or a
-//! first/last-tab rule — both would sometimes restore an arrangement the user was
-//! not looking at.
+//! v3 kept both halves of the split arrangement per TAB; v4 moved the pane order
+//! (`split_swap`) into each window's `chrome` and left the orientation
+//! (`split_vertical`) per tab. Both are now one app-wide value, because tabs and
+//! windows are both short-lived and a preference that dies with either never
+//! feels saved. [`migrate_pre_v5_split_arrangement`] recovers it from **the first
+//! window's ACTIVE tab** — the arrangement the user was last looking at, since
+//! the writer lists windows most-recently-focused first (`app.windows()`).
 //!
 //! Same shape as the v2 migration: a strict ADD applied after normal parsing,
-//! driven by a separate all-`Option` reparse ([`V3SplitSwapSession`]) so it is a
-//! no-op on a v4 file (no per-tab `split_swap` key survives to be read).
+//! driven by a separate all-`Option` reparse ([`PreV5Session`]) so it is a
+//! no-op on a v5 file (no per-window or per-tab key survives to be read).
 
 use crate::config::config;
 use crate::winstate::ViewMode;
@@ -135,10 +133,6 @@ pub(crate) struct TabSession {
     /// rejected value is simply replaced.
     pub doc_id: Option<String>,
     pub view_mode: ViewMode,
-    /// This tab's own split AXIS/orientation (H vs. V). The split's PANE ORDER
-    /// (swapped or not) is `ChromeSession::split_swap` now — window-scoped, not
-    /// per tab.
-    pub split_vertical: bool,
     /// This tab's own "Show Unsafe Images" toggle (per-tab, unlike zoom).
     pub show_unsafe_images: bool,
 }
@@ -230,6 +224,10 @@ impl From<LegacySession> for Session {
             // A legacy file predates Play Animations entirely too, so it restores
             // the same default a genuine first launch gets (TDD 27.6).
             play_animations: crate::animation::policy::DEFAULT_CHOICE,
+            // v1 described one window with one tab, so its flat arrangement IS the
+            // app's — no "which window's?" question to answer.
+            split_swap: l.split_swap,
+            split_vertical: l.split_vertical,
             windows: vec![WindowSession {
                 width: l.width,
                 height: l.height,
@@ -258,12 +256,6 @@ impl From<LegacySession> for Session {
                     // sections, there having been only one. The even split is the
                     // default, and the first drag records a real one.
                     sidebar_split: ChromeSession::default().sidebar_split,
-                    // v1 described exactly ONE window with exactly one tab, so its
-                    // flat `split_swap` IS that window's own arrangement — same
-                    // "no app-wide-to-per-window question" reasoning as the rest of
-                    // this chrome literal (and, unlike the v3 migration below, no
-                    // "which tab was active" question either: there was only one).
-                    split_swap: l.split_swap,
                 },
                 tabs: vec![TabSession {
                     path: None,
@@ -271,7 +263,6 @@ impl From<LegacySession> for Session {
                     // tab keeps the fresh id it was born with.
                     doc_id: None,
                     view_mode: l.view_mode,
-                    split_vertical: l.split_vertical,
                     show_unsafe_images: l.show_unsafe_images,
                 }],
             }],
@@ -399,14 +390,6 @@ pub(crate) struct ChromeSession {
     /// break layout, on the same principle that a malformed config never prevents
     /// startup). A session file predating this key restores to the even split.
     pub sidebar_split: f64,
-    /// The window's shared split-pane order (`win.split-swap` — editor/preview
-    /// swapped, or not). WINDOW-scoped: a preference about *where
-    /// the editor sits on screen* outlives any one tab, so unlike
-    /// `TabSession::split_vertical` (the split's H/V orientation, which stays
-    /// per tab) this lives here, one value for the whole window. A pre-this-field
-    /// (v3) session file has it per tab instead; [`migrate_v3_tab_split_swap`]
-    /// recovers it from whichever tab was ACTIVE when that file was saved.
-    pub split_swap: bool,
     pub toolbar_sections: ToolbarSections,
 }
 
@@ -466,7 +449,6 @@ impl Default for ChromeSession {
             outline_visible: true,
             annotations_visible: false,
             sidebar_split: 0.5,
-            split_swap: false,
             toolbar_sections: ToolbarSections::default(),
         }
     }
@@ -529,67 +511,76 @@ fn migrate_v2_app_wide_chrome(session: &mut Session, v2: &V2AppWideChrome) {
     }
 }
 
-/// Deserialize-only view of a v3 file's PER-TAB `split_swap` key, kept solely as a
-/// [`parse`] migration source — no version of this crate writes this
-/// key any more (it lives per WINDOW now, in [`ChromeSession::split_swap`]).
+/// Deserialize-only view of a v3/v4 file's per-window and per-tab split
+/// arrangement keys, kept solely as a [`parse`] migration source — no version of
+/// this crate writes them any more (the arrangement is app-wide, on [`Session`]).
 ///
-/// `Option`, for the same reason as [`V2AppWideChrome`]'s fields: it lets a v3
-/// file that predates `split_swap` entirely (an even older tab shape) migrate
-/// without inventing a value, and it makes reading this struct off a v4 file (no
-/// per-tab key at all) a harmless all-`None` no-op.
+/// Every leaf is an `Option`, for the same reason as [`V2AppWideChrome`]'s fields:
+/// a file predating a key migrates without inventing a value, and reading this off
+/// a v5 file (none of these keys) is a harmless all-`None` no-op.
 #[derive(serde::Deserialize, Default)]
 #[serde(default)]
-struct V3TabSplitSwap {
+struct PreV5Session {
+    windows: Vec<PreV5Window>,
+}
+
+#[derive(serde::Deserialize, Default)]
+#[serde(default)]
+struct PreV5Window {
+    active_tab: usize,
+    /// v4's per-window pane order.
+    chrome: PreV5Chrome,
+    tabs: Vec<PreV5Tab>,
+}
+
+#[derive(serde::Deserialize, Default)]
+#[serde(default)]
+struct PreV5Chrome {
     split_swap: Option<bool>,
 }
 
-/// The one field of [`WindowSession`] [`migrate_v3_tab_split_swap`] needs to pick
-/// the right tab: which one was ACTIVE when the file was saved.
 #[derive(serde::Deserialize, Default)]
 #[serde(default)]
-struct V3WindowSplitSwap {
-    active_tab: usize,
-    tabs: Vec<V3TabSplitSwap>,
+struct PreV5Tab {
+    /// v3's per-tab pane order.
+    split_swap: Option<bool>,
+    /// v3/v4's per-tab orientation.
+    split_vertical: Option<bool>,
 }
 
-#[derive(serde::Deserialize, Default)]
-#[serde(default)]
-struct V3SplitSwapSession {
-    windows: Vec<V3WindowSplitSwap>,
-}
-
-/// Recover each window's split-pane order from a v3 file's per-tab `split_swap`
-/// keys, in the shape of [`migrate_v2_app_wide_chrome`] above.
+/// Recover the app-wide split arrangement from a v3/v4 file, in the shape of
+/// [`migrate_v2_app_wide_chrome`] above.
 ///
-/// **The source is the tab that was ACTIVE when the session was saved** — never
-/// a majority vote across the window's tabs, and never the first/last tab
-/// (last-writer) — because those would both sometimes restore an arrangement the
-/// user was not looking at. A v3 window's tabs each carried their OWN
-/// `split_swap` (the very bug this fix closes: two tabs in one window really
-/// could disagree), so recovering "what the window showed" means recovering
-/// what its active tab showed, matching `active_tab`'s own existing role of
-/// naming which tab (and by extension which layout) was on screen at save time.
-/// An out-of-range `active_tab` (a hand-edited file) or a window with no tabs at
-/// all falls back to the WindowSession's already-defaulted `false`.
+/// **The source is the FIRST window's ACTIVE tab** — the arrangement on screen in
+/// the window the user used last (the writer iterates `app.windows()`, which GTK
+/// orders most-recently-focused first). Never a majority vote across windows or
+/// tabs: that would sometimes restore an arrangement the user was not looking at.
+/// The pane order prefers v4's window-level value and falls back to v3's per-tab
+/// one. An out-of-range `active_tab` (a hand-edited file) still takes a v4 window's
+/// pane order, but fabricates no orientation.
 ///
-/// Not a parse gate, for the same reasons as the v2 migration: it runs AFTER
-/// `windows` is parsed and only ever OVERWRITES `chrome.split_swap`, and on a v4
-/// file every per-tab key is absent so every window's `tabs` here is empty and
-/// this loop's body never runs — no v3-detection test needed to guard it.
-fn migrate_v3_tab_split_swap(session: &mut Session, old: &V3SplitSwapSession) {
-    for (w, old_w) in session.windows.iter_mut().zip(&old.windows) {
-        let Some(active) = old_w.tabs.get(old_w.active_tab) else {
-            continue;
-        };
-        if let Some(on) = active.split_swap {
-            w.chrome.split_swap = on;
-        }
+/// Not a parse gate: it runs after normal parsing and only ever OVERWRITES the two
+/// app-wide fields, and on a v5 file every source key is absent, so nothing is
+/// written — no version-detection test needed to guard it.
+fn migrate_pre_v5_split_arrangement(session: &mut Session, old: &PreV5Session) {
+    let Some(window) = old.windows.first() else {
+        return;
+    };
+    let active = window.tabs.get(window.active_tab);
+    if let Some(on) = window
+        .chrome
+        .split_swap
+        .or_else(|| active.and_then(|t| t.split_swap))
+    {
+        session.split_swap = on;
+    }
+    if let Some(on) = active.and_then(|t| t.split_vertical) {
+        session.split_vertical = on;
     }
 }
 
-/// FIELD ORDER IS LOAD-BEARING for TOML — see [`WindowSession`]'s note. The
-/// scalars `preview_theme` and `play_animations` must stay above the `windows`
-/// array-of-tables.
+/// FIELD ORDER IS LOAD-BEARING for TOML — see [`WindowSession`]'s note. Every
+/// scalar must stay above the `windows` array-of-tables.
 #[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug)]
 #[serde(default)]
 pub(crate) struct Session {
@@ -612,6 +603,14 @@ pub(crate) struct Session {
     /// [`crate::animation::policy::DEFAULT_CHOICE`] — on, matching a genuine first
     /// launch (TDD 27.6).
     pub play_animations: bool,
+    /// Whether the split's editor and preview panes are swapped
+    /// (`app.split-swap`), and whether the split is stacked top/bottom
+    /// (`app.split-orientation`). App-wide like `preview_theme`: one preference for
+    /// every tab of every window (TDD 7.3), since a value scoped to a short-lived
+    /// tab or window never feels saved. A v3/v4 file carries them per window / per
+    /// tab instead; [`migrate_pre_v5_split_arrangement`] recovers them.
+    pub split_swap: bool,
+    pub split_vertical: bool,
     /// One entry per window open when the session was last saved. Empty means
     /// "no saved session yet" (fresh install) — `window::restore::restore_session`
     /// treats that as "fall back to the default single blank window".
@@ -623,6 +622,8 @@ impl Default for Session {
         Self {
             preview_theme: crate::theme::SYSTEM_ID.to_string(),
             play_animations: crate::animation::policy::DEFAULT_CHOICE,
+            split_swap: false,
+            split_vertical: false,
             windows: Vec::new(),
         }
     }
@@ -824,11 +825,10 @@ fn parse(text: &str) -> Session {
     // would be unfalsifiable decoration.
     let v2 = toml::from_str::<V2AppWideChrome>(text).unwrap_or_default();
     migrate_v2_app_wide_chrome(&mut session, &v2);
-    // Same reasoning, one version later: a v4 file has no per-tab `split_swap`
-    // key anywhere, so every window's `tabs` here parses empty and
-    // `migrate_v3_tab_split_swap` is a no-op.
-    let v3 = toml::from_str::<V3SplitSwapSession>(text).unwrap_or_default();
-    migrate_v3_tab_split_swap(&mut session, &v3);
+    // Same reasoning: a v5 file has no per-window or per-tab arrangement key, so
+    // `migrate_pre_v5_split_arrangement` writes nothing.
+    let pre_v5 = toml::from_str::<PreV5Session>(text).unwrap_or_default();
+    migrate_pre_v5_split_arrangement(&mut session, &pre_v5);
     session
 }
 
@@ -1080,6 +1080,9 @@ mod tests {
         Session {
             preview_theme: "sepia".to_string(),
             play_animations: false,
+            // Both non-default, so a writer that drops either fails the round trip.
+            split_swap: true,
+            split_vertical: true,
             windows: vec![
                 WindowSession {
                     width: 1111,
@@ -1092,7 +1095,6 @@ mod tests {
                         outline_visible: false,
                         annotations_visible: true,
                         sidebar_split: 0.25,
-                        split_swap: true,
                         toolbar_sections: ToolbarSections {
                             file: true,
                             edit: false,
@@ -1107,14 +1109,12 @@ mod tests {
                             path: Some("/tmp/a.md".into()),
                             doc_id: None,
                             view_mode: ViewMode::Edit,
-                            split_vertical: false,
                             show_unsafe_images: false,
                         },
                         TabSession {
                             path: None,
                             doc_id: None,
                             view_mode: ViewMode::Split,
-                            split_vertical: true,
                             show_unsafe_images: true,
                         },
                     ],
@@ -1133,7 +1133,6 @@ mod tests {
                         outline_visible: true,
                         annotations_visible: false,
                         sidebar_split: 0.75,
-                        split_swap: false,
                         toolbar_sections: ToolbarSections {
                             file: false,
                             edit: true,
@@ -1206,6 +1205,8 @@ mod tests {
             let shrunk = Session {
                 preview_theme: full.preview_theme.clone(),
                 play_animations: full.play_animations,
+                split_swap: full.split_swap,
+                split_vertical: full.split_vertical,
                 windows: vec![full.windows[0].clone()],
             };
             save(&shrunk);
@@ -1478,12 +1479,13 @@ split_vertical = false
 ";
         let s = parse(legacy);
         assert_eq!(s.windows.len(), 1);
+        // v1 described one window with one tab, so its flat arrangement IS the app's.
+        assert!(s.split_swap);
+        assert!(!s.split_vertical);
         let w = &s.windows[0];
-        // v1 described one window, so its flat chrome IS that window's chrome —
-        // including `split_swap`, which is window-scoped now.
+        // ...and its flat chrome IS that window's chrome.
         assert!(w.chrome.show_toolbar);
         assert!(!w.chrome.show_statusbar);
-        assert!(w.chrome.split_swap);
         assert_eq!(
             (w.width, w.height, w.zoom_level, w.active_tab),
             (1234, 567, 2.0, 0)
@@ -1492,7 +1494,6 @@ split_vertical = false
         let t = &w.tabs[0];
         assert_eq!(t.path, None);
         assert_eq!(t.view_mode, ViewMode::Split);
-        assert!(!t.split_vertical);
         assert!(t.show_unsafe_images);
     }
 
@@ -1655,76 +1656,94 @@ view_mode = \"preview\"
         });
     }
 
-    // ── v3 (per-tab split-swap) → v4 (per-window split-swap) migration ────────
-    // `split_swap` moved from `TabSession` to `ChromeSession`. Same
-    // asymmetric-risk framing as the v2 section above — a lost window is
-    // catastrophic, a mis-recovered pane order is cosmetic.
+    // ── v3/v4 (per-window / per-tab arrangement) → v5 (app-wide) migration ────
+    // Same asymmetric-risk framing as the v2 section above — a lost window is
+    // catastrophic, a mis-recovered arrangement is cosmetic.
 
-    /// A real v3 file: three tabs, each carrying its OWN `split_swap`, and the
-    /// ACTIVE tab (index 0) disagreeing with a MAJORITY of the others (one
-    /// `false`, two `true`) — the shape that tells "read the active tab" apart
-    /// from a majority vote or a last-writer rule.
-    const V3_SPLIT_SWAP_FILE: &str = "\
+    /// A real v4 file: two windows whose pane orders disagree, the FIRST (the one
+    /// used last) swapped; its ACTIVE tab (index 1) vertical while a majority of
+    /// its tabs and the whole second window are not — the shape that tells "first
+    /// window's active tab" apart from a majority vote or a last-writer rule.
+    const V4_FILE: &str = "\
 [[windows]]
-width = 900
-height = 700
-zoom_level = 1.0
-active_tab = 0
+active_tab = 1
+
+[windows.chrome]
+split_swap = true
 
 [[windows.tabs]]
-view_mode = \"split\"
+split_vertical = false
+
+[[windows.tabs]]
+split_vertical = true
+
+[[windows.tabs]]
+split_vertical = false
+
+[[windows]]
+active_tab = 0
+
+[windows.chrome]
 split_swap = false
 
 [[windows.tabs]]
-view_mode = \"preview\"
-split_swap = true
-
-[[windows.tabs]]
-view_mode = \"preview\"
-split_swap = true
+split_vertical = false
 ";
 
     #[test]
-    fn v3_per_tab_split_swap_migrates_from_the_active_tab_not_a_majority_vote() {
-        let s = parse(V3_SPLIT_SWAP_FILE);
-        assert_eq!(s.windows.len(), 1, "a v3 file must not lose a window");
-        // Two of three tabs were swapped, but the ACTIVE one (index 0) was not —
-        // a majority-vote or last-writer migration would both get this backwards.
+    fn v4_arrangement_migrates_from_the_first_windows_active_tab() {
+        let s = parse(V4_FILE);
+        assert_eq!(s.windows.len(), 2, "a v4 file must not lose a window");
         assert!(
-            !s.windows[0].chrome.split_swap,
-            "the window's recovered arrangement must match its ACTIVE tab, not \
-             the majority of its tabs"
+            s.split_swap,
+            "pane order comes from the first window's chrome"
+        );
+        assert!(
+            s.split_vertical,
+            "orientation comes from the first window's ACTIVE tab, not the majority"
         );
     }
 
     #[test]
-    fn v3_per_tab_split_swap_reflects_a_different_active_tab() {
-        // Same file, `active_tab` re-pointed at the (swapped) 2nd tab — proves the
-        // migration actually INDEXES by `active_tab` rather than always reading
-        // tabs[0] (which would coincidentally pass the test above too).
-        let text = V3_SPLIT_SWAP_FILE.replace("active_tab = 0", "active_tab = 1");
-        let s = parse(&text);
-        assert!(
-            s.windows[0].chrome.split_swap,
-            "the window must adopt tab 1's (swapped) arrangement once IT is active"
-        );
+    fn v4_orientation_follows_a_different_active_tab() {
+        // Re-pointed at tab 0 (not vertical): proves the migration INDEXES by
+        // `active_tab` rather than picking any vertical tab.
+        let s = parse(&V4_FILE.replacen("active_tab = 1", "active_tab = 0", 1));
+        assert!(!s.split_vertical);
     }
 
     #[test]
-    fn an_out_of_range_active_tab_leaves_the_default_split_swap_alone() {
-        // A hand-edited file whose `active_tab` no longer fits its own `tabs`
-        // list must not panic and must not fabricate an arrangement — the
-        // window's already-defaulted `false` stands.
-        let text = V3_SPLIT_SWAP_FILE.replace("active_tab = 0", "active_tab = 99");
-        let s = parse(&text);
-        assert!(!s.windows[0].chrome.split_swap);
+    fn v3_per_tab_pane_order_migrates_from_the_active_tab() {
+        // v3 had no window-level pane order: the active tab's own value is it.
+        let v3 = "\
+[[windows]]
+active_tab = 1
+
+[[windows.tabs]]
+split_swap = false
+
+[[windows.tabs]]
+split_swap = true
+split_vertical = true
+";
+        let s = parse(v3);
+        assert!(s.split_swap && s.split_vertical);
+        let s = parse(&v3.replace("active_tab = 1", "active_tab = 0"));
+        assert!(!s.split_swap && !s.split_vertical);
     }
 
     #[test]
-    fn v4_file_is_not_mistaken_for_v3_and_keeps_its_own_chrome_split_swap() {
-        // The migration must not fire on a file this crate wrote itself:
-        // `sample_session`'s two windows deliberately disagree on
-        // `chrome.split_swap`, and a v4 write/read round trip must preserve that.
+    fn an_out_of_range_active_tab_fabricates_no_orientation() {
+        // A hand-edited file must not panic; the window-level pane order still
+        // stands, and the orientation stays at its default.
+        let s = parse(&V4_FILE.replacen("active_tab = 1", "active_tab = 99", 1));
+        assert!(s.split_swap);
+        assert!(!s.split_vertical);
+    }
+
+    #[test]
+    fn v5_file_round_trips_its_app_wide_arrangement() {
+        // The migration must not fire on a file this crate wrote itself.
         let text = toml::to_string(&sample_session()).unwrap();
         assert_eq!(parse(&text), sample_session());
     }

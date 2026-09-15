@@ -253,15 +253,6 @@ pub(crate) fn wire_tab_arrival(window: &ApplicationWindow, tab_view: &TabView) {
                         // calling it is one cheap `set_state` per arrival.
                         if let Some(tab) = winstate::tab_by_content_box(&child) {
                             resync_tab_action_state(&dest, &tab);
-                            // Window-scoped split pane order: the
-                            // arriving tab's own `SplitView` still carries whatever
-                            // order its ORIGIN window had baked into it — `set_chrome`
-                            // above only repointed which chrome it READS, it cannot by
-                            // itself move the widget's own `swapped` flag. Re-apply the
-                            // DESTINATION's value here, mirroring the zoom re-render
-                            // just below (same "adopted from the destination" rule,
-                            // `winstate` module doc state-scope table).
-                            tab.split.set_swapped(dc.split_swap.get());
                         }
                         let dest_zoom = dc.zoom_level.get();
                         if (dest_zoom - source_zoom).abs() > f64::EPSILON {

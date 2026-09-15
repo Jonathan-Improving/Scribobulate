@@ -37,6 +37,8 @@ member. For a stateful action the work is driven by `change-state`, not
 | `app.markdown-help` | — | — | Show the bundled Markdown reference. |
 | `app.preview-theme` | `s` | `s` | The active reading theme, identified by theme id. Radio group backing the theme menu. |
 | `app.pick-preview-theme` | `s` | — | Select the reading theme named by the target; delegates to `app.preview-theme`'s state. |
+| `app.split-swap` | — | `b` | Whether the split panes are swapped, for every tab of every window. |
+| `app.split-orientation` | — | `b` | Whether the split is stacked vertically, for every tab of every window. |
 
 ### Window-scoped actions (`win.`)
 
@@ -68,8 +70,8 @@ member. For a stateful action the work is driven by `change-state`, not
 | `win.next-annotation` | — | — | Go to the next annotation in the document, wrapping at the end. |
 | `win.prev-annotation` | — | — | Go to the previous annotation in the document, wrapping at the start. |
 | `win.view-mode` | `s` | `s` | The window's view mode. Radio group; targets below. |
-| `win.split-swap` | — | `b` | Whether the split panes are swapped. |
-| `win.split-orientation` | — | `b` | Whether the split is oriented vertically rather than horizontally. |
+| `win.split-swap` | — | `b` | Mirrors `app.split-swap`, and forwards a change to it; disabled outside split mode. |
+| `win.split-orientation` | — | `b` | Mirrors `app.split-orientation`, and forwards a change to it; disabled outside split mode. |
 | `win.outline` | — | `b` | Whether the outline sidebar section is shown. |
 | `win.annotations` | — | `b` | Whether the annotations sidebar section is shown. |
 | `win.outline-expand-all` | — | — | Expand every outline node. |

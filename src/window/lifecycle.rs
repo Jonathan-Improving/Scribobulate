@@ -132,7 +132,6 @@ fn persist_all_windows_session(closing: &ApplicationWindow) {
                         // (`swapfile`'s self-sufficiency principle).
                         doc_id: Some(t.doc_id().as_str().to_string()),
                         view_mode: t.view_mode.get(),
-                        split_vertical: t.split_vertical.get(),
                         show_unsafe_images: t.allow_unsafe_images.get(),
                     })
                     .collect(),
@@ -140,7 +139,13 @@ fn persist_all_windows_session(closing: &ApplicationWindow) {
         })
         .collect();
 
+    // App-wide, off the `app.split-*` actions' own state — one value, no "which
+    // window's?" question (TDD 7.3).
+    let crate::window::arrangement::SplitArrangement { swapped, vertical } =
+        crate::window::arrangement::current(&app);
     crate::session::save(&crate::session::Session {
+        split_swap: swapped,
+        split_vertical: vertical,
         // Genuinely app-wide, and read straight off the live active theme rather
         // than off any window's action state: the theme is one app-wide CSS
         // provider, so there is exactly one value and no "which window's?"
@@ -206,6 +211,27 @@ mod tests {
             );
 
             window.destroy();
+        });
+    }
+
+    /// TDD 7.3's persistence half, at the write site: a close saves the app-wide
+    /// split arrangement once, at the top level, whichever window set it.
+    #[gtktest::test]
+    fn persisted_split_arrangement_is_the_app_wide_value() {
+        let dir = tempfile::tempdir().unwrap();
+        crate::session::with_state_home_for_test(dir.path(), || {
+            let app = crate::window::testkit::test_app_suffixed("persistarrangement");
+            let setter = crate::window::new_window(&app, "setter", "# A\n", None);
+            let closing = crate::window::new_window(&app, "closing", "# B\n", None);
+            change_action_state(&setter, "split-swap", &true.to_variant());
+            change_action_state(&setter, "split-orientation", &true.to_variant());
+
+            persist_all_windows_session(&closing);
+
+            let saved = crate::session::load();
+            assert!(saved.split_swap && saved.split_vertical);
+            setter.destroy();
+            closing.destroy();
         });
     }
 }

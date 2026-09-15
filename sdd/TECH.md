@@ -183,6 +183,7 @@ Every module below runs on the GTK main thread; see [Concurrency model](#concurr
 | `window/chrome.rs` | Owns the persistent window layout that survives content and mode swaps, including the content slot tabs mount into. |
 | `window/toolbar.rs` | Owns toolbar construction as one box per visually delimited section. |
 | `window/splitview.rs` | Owns `SplitView`, the per-tab orderable two-pane splitter widget. |
+| `window/arrangement.rs` | Owns the app-wide split arrangement (pane order and orientation): the `app.split-swap` / `app.split-orientation` actions that hold it and re-apply it to every tab of every window. Each window's `win.` actions only forward to them, and exist per window because sensitivity is per window. |
 | `window/tabs/` | Owns tab lifecycle: creation, switching, closing, drag-and-drop between windows, and the per-tab editor build. |
 | `window/restore.rs` | Owns session restore at startup. |
 | `window/lifecycle.rs` | Owns the window close-request path and the session snapshot taken on close. |
