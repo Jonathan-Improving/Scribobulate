@@ -36,7 +36,6 @@ described from a different vantage point.
 | J | Any | Upstream | A paragraph that mixes fonts (any inline-code span) can lay out a few pixels wider than the wrap width it was given, summoning the preview's Automatic horizontal scrollbar and intermittently blanking the pane until a resize | Closed |
 | M | Windows | Production | On a machine with no Visual C++ runtime the app installs and then fails to start; the installer's bootstrapper for it has landed but has never been verified against that condition | Medium |
 | U | Any | Production | The preview is drawn horizontally scrolled (~20px, its left padding gone, a horizontal scrollbar showing) after a mode switch or an explicit Reload rebuilds it — intermittent, pre-existing, seen on Linux and Windows | Low |
-| V | Linux | Production | Opening an annotation card whose marker lies beyond every monitor — a window wider than its screen, or partly off it — logs a `Gdk-CRITICAL` on X11 and the card has no sensible position; the integration suite turns it into a crash | Medium |
 | W | Linux | Production | The tab bar — and at times the whole window — blanks while typing in split mode on some documents; operator-reported with only the File, View and Zoom toolbar sections shown; not yet diagnosed | High |
 
 
@@ -606,28 +605,6 @@ nothing clamps it back when `upper` shrinks.
   building the preview the same way from the view-mode handler might remove it without
   touching adjustments — to be established by that research, not assumed.
 - **Accept it** while it stays cosmetic.
-
----
-
-## V. An annotation card whose marker is off every monitor trips a GDK critical on X11
-
-**Severity**: Medium (a logged `Gdk-CRITICAL` and a card with no sensible position in the shipped app; fatal to the integration suite, which promotes criticals)
-
-When a window is wider than its monitor — the toolbar's minimum width (~1600 px) already forces that on a narrower screen — or sits partly off-screen, a preview annotation marker can lie beyond every monitor's edge. Opening its card then fails `gdk_monitor_get_geometry: assertion 'GDK_IS_MONITOR (monitor)' failed`.
-
-**MEASURED** (GTK 4.6.9, Xvfb 1280×1024, window at root 0,0): chip at window x=1303 in a 1336 px window → critical; chip at x=1265 in a 1298 px window → none. It surfaced when Paste widened the toolbar by one button, as a SIGTRAP in `window::gtk_integration_tests` under `G_DEBUG=fatal-criticals`. Backtrace: `AnnotationCard::present` → `reposition` → `set_visible(true)` → GTK's popover show.
-
-**Cause** (researcher, sourced at the 4.6.9 tag): `gdk_x11_surface_layout_popup` resolves the monitor from the popover's **anchor rectangle in root coordinates** (`gdk_surface_get_layout_monitor` → `get_monitor_for_rect`), keeps the largest intersection, has no fallback when nothing intersects, and passes the NULL on. Whether the *window* overlaps a monitor is irrelevant. Unchanged in 4.12; 4.22 falls back to the first monitor; Windows (since 4.8.2) and macOS fall back too; Wayland never takes this path.
-
-`saferizer::popover_anchor` does not catch it: it clamps an anchor into the widget's own viewport, and this anchor is inside the viewport.
-
-The GTK test display was widened to 1920×1080 so the suite stops tripping on it, which also means the suite no longer sees it.
-
-**Options**:
-- **Resolve the anchor's root position on X11** — the window's XID and `XTranslateCoordinates`, the call GDK itself makes — and hide the card when no monitor's *geometry* (not workarea) intersects it. The only predicate that matches GTK's lookup; needs hand-rolled X11 FFI.
-- Assume the window's left edge is the monitor's left edge, as `window/chrome_fit.rs` does — **rejected**: wrong as soon as a window manager places the window elsewhere, and on multi-monitor layouts.
-
-**Workaround**: View ▸ Toolbar can hide whole toolbar sections, which narrows the window's minimum width until it fits the screen.
 
 ---
 

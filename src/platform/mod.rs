@@ -22,6 +22,36 @@ pub(crate) mod mac;
 #[cfg(windows)]
 pub(crate) mod win32;
 
+// X11 is a display backend rather than an OS, but it is gated here for the same reason:
+// a platform whose GTK has no X11 backend must compile none of it.
+#[cfg(all(unix, not(target_os = "macos")))]
+pub(crate) mod x11;
+
+// ── where a point on a surface is on the screen ─────────────────────────────────────
+
+/// Where `(x, y)` on `surface` lies in screen coordinates — the space `gdk::Monitor`
+/// geometry is in — or `None` where this app has no use for the answer.
+///
+/// Only X11 answers. GTK 4.6–4.12's X11 popup layout resolves a popover's monitor from
+/// its anchor in these coordinates with no fallback (GTK4Rs/AP-26), so
+/// `saferizer::popover_anchor` has to ask first. Wayland has no global coordinates, and
+/// GTK's Windows and macOS backends fall back to a monitor themselves, so `None` there
+/// leaves anchoring exactly as it was.
+pub(crate) fn surface_to_screen(surface: &gtk::gdk::Surface, x: i32, y: i32) -> Option<(i32, i32)> {
+    platform_surface_to_screen(surface, x, y)
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn platform_surface_to_screen(surface: &gtk::gdk::Surface, x: i32, y: i32) -> Option<(i32, i32)> {
+    x11::surface_to_screen(surface, x, y)
+}
+
+#[cfg(not(all(unix, not(target_os = "macos"))))]
+fn platform_surface_to_screen(surface: &gtk::gdk::Surface, x: i32, y: i32) -> Option<(i32, i32)> {
+    let _ = (surface, x, y);
+    None
+}
+
 // ── the system "reduce animations" preference ───────────────────────────────────
 //
 // A second façade beside the per-platform modules above, living here rather than in

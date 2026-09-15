@@ -772,12 +772,20 @@ mod gtk_integration_tests {
     /// A presented window showing the fixture, with the card open on its first annotation.
     /// Returns `(window, view, card)`; the window is returned so the caller keeps it alive.
     fn open_card() -> (gtk::Window, CodePreviewView, AnnotationCard) {
+        open_card_in(|win, _| win.set_default_size(700, 300))
+    }
+
+    /// [`open_card`] with the window sized by `size`, which receives the window and the
+    /// preview pane before the window is presented.
+    fn open_card_in(
+        size: impl FnOnce(&gtk::Window, &gtk::Widget),
+    ) -> (gtk::Window, CodePreviewView, AnnotationCard) {
         use gtk::subclass::prelude::*;
         let pane =
             crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default(), 0);
         let view = view_of(pane.clone());
         let win = gtk::Window::new();
-        win.set_default_size(700, 300);
+        size(&win, &pane);
         win.set_child(Some(&pane));
         win.present();
         // Precondition: the hit-box map is written BY the paint, so there is nothing to
@@ -887,6 +895,74 @@ mod gtk_integration_tests {
         // The re-show half: bringing the chip back into view must bring its card back —
         // this is the assertion a "popdown on any scroll" patch fails.
         settle("the card to come back with its chip", || card.is_visible());
+        win.destroy();
+    }
+
+    /// **A card whose chip is on no monitor stays hidden (TDD 17.48a).**
+    ///
+    /// A window wider than its monitor puts the chip in the right margin past the screen's
+    /// edge. GTK 4.6's X11 popup layout looks the card's monitor up from that anchor, finds
+    /// none and asserts `GDK_IS_MONITOR`, which the suite's `G_DEBUG=fatal-criticals` turns
+    /// into a SIGTRAP — so reverting the monitor clip in `Viewport::of` fails this test by
+    /// killing the run, not by a failed assertion. With the clip the card is refused like a
+    /// chip scrolled off the viewport: still open, not shown.
+    ///
+    /// The precondition is asserted, not assumed: a chip that happened to land on the
+    /// monitor would pass this with the guard deleted.
+    #[gtktest::test]
+    fn a_card_whose_chip_is_on_no_monitor_stays_hidden() {
+        let monitor = gtk::gdk::Display::default()
+            .and_then(|d| d.monitors().item(0))
+            .and_downcast::<gtk::gdk::Monitor>()
+            .expect("the test display has a monitor")
+            .geometry();
+        let screen_right = monitor.x() + monitor.width();
+        // A MINIMUM width, not a default size: MEASURED, a 2320 px default size came out no
+        // wider than the 1920 px screen, while a size request is honoured past it — which
+        // is how the application's own toolbar forces its window wider than a small screen.
+        let wide = screen_right + 400;
+        let (win, view, card) = open_card_in(|win, pane| {
+            win.set_default_size(wide, 300);
+            pane.set_size_request(wide, -1);
+        });
+
+        let native = view.native().expect("the view is in a window");
+        let surface = native.surface().expect("a presented window has a surface");
+        let view_left = view.compute_bounds(&native).and_then(|b| {
+            crate::platform::surface_to_screen(
+                &surface,
+                b.x().floor() as i32 + native.surface_transform().0 as i32,
+                0,
+            )
+        });
+        let Some((view_left, _)) = view_left else {
+            eprintln!(
+                "SKIPPED [TDD 17.48a]: this display does not place popovers by screen \
+                 coordinates, so no chip can be off every monitor in GTK's sense"
+            );
+            win.destroy();
+            return;
+        };
+        let chip = card
+            .chip_rect_now()
+            .expect("the opened annotation still has its chip");
+        assert!(
+            view_left + chip.x() >= screen_right,
+            "precondition: the chip must be past the monitor's right edge ({} >= {screen_right}) \
+             or this test measures nothing",
+            view_left + chip.x()
+        );
+
+        crate::testpump::drain_for(crate::testpump::Clock::Frame, DEFERRED_SHOW_WATCH);
+        assert!(
+            card.is_open(),
+            "a chip off the monitor is not a dismissal — the card is still open"
+        );
+        assert!(
+            !card.is_visible(),
+            "a card whose chip is on no monitor must not be shown: GTK has no monitor to \
+             place it on"
+        );
         win.destroy();
     }
 

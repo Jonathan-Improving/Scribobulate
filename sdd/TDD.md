@@ -2440,6 +2440,13 @@
 - **Then** the card disappears rather than sitting pinned over unrelated text
 - **And when** the reader scrolls back so the chip is visible again, the same card reappears beside it, still showing the same annotation — scrolling past an annotation and back is not a dismissal
 
+### 17.48a An annotation card whose chip is on no monitor stays hidden
+- **Given** a window wider than its screen, or partly off it, with an annotation chip in the part beyond every monitor's edge
+- **When** that annotation's card is opened (by Next/Previous Annotation or the annotations list, since the chip itself cannot be clicked there)
+- **Then** the card is not shown and no GTK assertion is logged, rather than appearing with nothing to anchor it
+- **And** the card is still open, not dismissed — the same state 17.48 leaves a card whose chip scrolled off the viewport
+- **And** a chip on the screen is unaffected: its card opens beside it exactly as before
+
 ### 17.49 Clicking outside an annotation card dismisses it
 - **Given** an open annotation card
 - **When** the reader clicks anywhere outside it — on the document, the toolbar, the editor pane, or the sidebar

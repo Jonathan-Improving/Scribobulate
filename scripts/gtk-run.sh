@@ -124,18 +124,9 @@ trap 'rm -f "$log"' EXIT
 # few seconds. Diagnosing the second as the first sends the reader after a wedge that
 # never happened, which is the one misdiagnosis this project has a written anti-pattern
 # about (GTK4Rs/AP-133).
-#
-# A 1920x1080 screen, not xvfb-run's 1280x1024 default. The window's minimum width follows
-# the toolbar (~1600 px), so at the default a preview annotation marker can sit beyond the
-# only monitor; GTK 4.6's X11 backend resolves a popover's monitor from its anchor in root
-# coordinates, finds none, and logs a Gdk-CRITICAL that G_DEBUG=fatal-criticals turns into a
-# SIGTRAP in whichever test opened the card. That is a real defect on a narrow physical
-# screen, not a harness artefact (GTK4Rs/AP-26's monitor assertion, reached through an
-# anchor that is inside the viewport). This size keeps it out of unrelated test runs; it
-# does not fix it.
 started=$(date +%s)
 timeout --kill-after=60s "$budget" \
-    xvfb-run -a -s "-screen 0 1920x1080x24" \
+    xvfb-run -a \
     dbus-run-session -- \
     env G_DEBUG=fatal-criticals \
     "$@" \

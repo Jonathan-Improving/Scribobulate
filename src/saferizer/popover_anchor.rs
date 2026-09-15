@@ -37,44 +37,142 @@ use gtk::prelude::*;
 /// one axis and forgetting the other, and (once the second axis is added) transposing the
 /// two adjacent integers at a call site, which produces a gate that is wrong but still
 /// plausible. One value, built from the widget itself, admits neither.
+///
+/// **Bounds, not a size.** The extent is `[left, right) × [top, bottom)` in the widget's
+/// own coordinates. For a widget wholly on a monitor that is `[0, width) × [0, height)`;
+/// for one hanging past a monitor's edge — a window wider than its screen, or partly off
+/// it — it is the part that is on the monitor, which need not start at the widget's
+/// origin. GTK looks a popover's monitor up from its ANCHOR (GTK4Rs/AP-26's assertion,
+/// reached through an anchor that is inside the widget), so an anchor inside these bounds
+/// is one GTK can place.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Viewport {
-    width: i32,
-    height: i32,
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
 }
 
 impl Viewport {
-    /// The current visible extent of `widget` — its allocation.
+    /// The current visible extent of `widget` — its allocation, narrowed to the part that
+    /// lies on a monitor wherever GTK places popovers by screen coordinates.
     ///
     /// The **only** constructor reachable from outside this module, deliberately (GTK4Rs/AP-130):
     /// every production anchor is measured against a real widget, and taking the pair from
     /// the widget removes the call site's opportunity to supply the wrong two numbers.
     pub(crate) fn of(widget: &impl IsA<gtk::Widget>) -> Self {
         let widget = widget.as_ref();
-        Self::new(widget.width(), widget.height())
+        let whole = Self::new(widget.width(), widget.height());
+        match on_monitor(widget) {
+            Some(clip) => whole.intersect(clip),
+            None => whole,
+        }
     }
 
     /// Module-private so the transposition hazard stays inside this file; the unit tests
     /// below are the only other user, and they are testing this file's own arithmetic.
     fn new(width: i32, height: i32) -> Self {
-        Self { width, height }
+        Self {
+            left: 0,
+            top: 0,
+            right: width,
+            bottom: height,
+        }
+    }
+
+    /// The overlap of two viewports in the same coordinate space; empty when they do not
+    /// meet, and an empty viewport anchors nothing.
+    fn intersect(self, other: Self) -> Self {
+        Self {
+            left: self.left.max(other.left),
+            top: self.top.max(other.top),
+            right: self.right.min(other.right),
+            bottom: self.bottom.min(other.bottom),
+        }
     }
 }
 
-/// Whether an anchor spanning `[pos, pos + extent)` on ONE axis lies within a viewport of
-/// size `limit` on that axis.
+/// The part of a widget that lies on the monitor it overlaps most, in the widget's own
+/// coordinates — or an empty viewport when it is on no monitor at all.
+///
+/// `widget` and `monitors` are in the same screen space. The largest overlap rather than
+/// every monitor, because a viewport is one rectangle: an anchor inside the result is on
+/// that monitor by construction, so GTK's monitor lookup cannot come back empty. The cost
+/// is that an anchor on a SECOND monitor the widget also spans is refused; a popover not
+/// shown is recoverable, a GDK assertion is not.
+fn monitor_clip(widget: &gdk::Rectangle, monitors: &[gdk::Rectangle]) -> Viewport {
+    let area = |r: &gdk::Rectangle| i64::from(r.width()) * i64::from(r.height());
+    match monitors
+        .iter()
+        .filter_map(|m| widget.intersect(m))
+        .max_by_key(area)
+    {
+        Some(on) => Viewport {
+            left: on.x() - widget.x(),
+            top: on.y() - widget.y(),
+            right: on.x() + on.width() - widget.x(),
+            bottom: on.y() + on.height() - widget.y(),
+        },
+        None => Viewport::new(0, 0),
+    }
+}
+
+/// The part of `widget` that is on a monitor, in its own coordinates, or `None` where the
+/// platform does not place popovers by screen coordinates (`platform::surface_to_screen`)
+/// or the widget is not on screen yet.
+///
+/// The widget's screen rectangle is built exactly as GTK 4.6.9's `create_popup_layout`
+/// builds a popover's anchor (`gtkpopover.c:437-457`, via the private
+/// `gtk_widget_get_surface_allocation`): the widget's bounds in its native, floored, plus
+/// the native's surface transform — integer arithmetic, no graphene transform — then
+/// translated to the screen. An anchor offset added to that origin lands where GTK's does.
+///
+/// A display reporting no monitors yields `None` rather than an empty clip: refusing every
+/// popover because a headless server lists nothing would be a worse failure than the one
+/// this guards.
+fn on_monitor(widget: &gtk::Widget) -> Option<Viewport> {
+    let native = widget.native()?;
+    let surface = native.surface()?;
+    let bounds = widget.compute_bounds(&native)?;
+    let (nx, ny) = native.surface_transform();
+    let (sx, sy) = crate::platform::surface_to_screen(
+        &surface,
+        bounds.x().floor() as i32 + nx as i32,
+        bounds.y().floor() as i32 + ny as i32,
+    )?;
+    let monitors: Vec<gdk::Rectangle> = widget
+        .display()
+        .monitors()
+        .iter::<gdk::Monitor>()
+        .filter_map(Result::ok)
+        .map(|m| m.geometry())
+        .collect();
+    if monitors.is_empty() {
+        return None;
+    }
+    let on_screen = gdk::Rectangle::new(
+        sx,
+        sy,
+        bounds.width().ceil() as i32,
+        bounds.height().ceil() as i32,
+    );
+    Some(monitor_clip(&on_screen, &monitors))
+}
+
+/// Whether an anchor spanning `[pos, pos + extent)` on ONE axis lies within `[lo, hi)` on
+/// that axis.
 ///
 /// Partial visibility counts: an anchor straddling an edge still has an on-screen point to
-/// aim at. Fully before (`pos + extent <= 0`), fully after (`pos >= limit`), or an
-/// unallocated view (`limit == 0`) has none.
+/// aim at. Fully before (`pos + extent <= lo`), fully after (`pos >= hi`), or an empty
+/// extent (`hi <= lo`, e.g. an unallocated view) has none.
 ///
 /// `saturating_add` rather than `+`: `pos` is derived from document content by way of
 /// `buffer_to_window_coords`, and the whole reason this gate exists is that content can put
 /// it absurdly far outside the viewport. An overflow here would wrap to a negative sum and
 /// report an off-viewport anchor as visible — the exact failure, arrived at through the
 /// arithmetic instead of through the missing axis.
-fn axis_visible(pos: i32, extent: i32, limit: i32) -> bool {
-    limit > 0 && pos.saturating_add(extent) > 0 && pos < limit
+fn axis_visible(pos: i32, extent: i32, lo: i32, hi: i32) -> bool {
+    hi > lo && pos.saturating_add(extent) > lo && pos < hi
 }
 
 /// Whether a whole anchor rectangle (`gdk::Rectangle` argument order: x, y, w, h) is
@@ -87,12 +185,12 @@ fn axis_visible(pos: i32, extent: i32, limit: i32) -> bool {
 /// half-application is now unrepresentable rather than merely discouraged (GTK4Rs/AP-130: seal
 /// the exit API once every caller is inside one module).
 fn anchor_visible(vp: Viewport, x: i32, y: i32, w: i32, h: i32) -> bool {
-    axis_visible(x, w, vp.width) && axis_visible(y, h, vp.height)
+    axis_visible(x, w, vp.left, vp.right) && axis_visible(y, h, vp.top, vp.bottom)
 }
 
-/// Clamp a widget-space coordinate into `[0, limit)` — the other half of the guard.
-fn clamp_into(v: i32, limit: i32) -> i32 {
-    v.clamp(0, (limit - 1).max(0))
+/// Clamp a widget-space coordinate into `[lo, hi)` — the other half of the guard.
+fn clamp_into(v: i32, lo: i32, hi: i32) -> i32 {
+    v.clamp(lo, (hi - 1).max(lo))
 }
 
 /// Width of the caret-sliver rectangle [`pin_above`] actually points at.
@@ -120,8 +218,8 @@ pub(crate) fn on_viewport(vp: Viewport, rect: &gdk::Rectangle) -> Option<gdk::Re
         return None;
     }
     Some(gdk::Rectangle::new(
-        clamp_into(rect.x(), vp.width),
-        clamp_into(rect.y(), vp.height),
+        clamp_into(rect.x(), vp.left, vp.right),
+        clamp_into(rect.y(), vp.top, vp.bottom),
         rect.width(),
         rect.height(),
     ))
@@ -181,8 +279,8 @@ impl ViewportRect {
             // and it is kept anyway so the two axes have the same shape. The asymmetry
             // between them is the entire content of H-1; a reader comparing the two lines
             // should find nothing to explain.
-            x: clamp_into(x, vp.width),
-            y: clamp_into(y, vp.height),
+            x: clamp_into(x, vp.left, vp.right),
+            y: clamp_into(y, vp.top, vp.bottom),
             line_h,
         })
     }
@@ -293,11 +391,11 @@ mod tests {
     #[test]
     fn an_overflowing_anchor_coordinate_saturates_rather_than_wrapping() {
         assert!(
-            !axis_visible(i32::MAX, 1, 600),
+            !axis_visible(i32::MAX, 1, 0, 600),
             "far right, no wrap to negative"
         );
         assert!(
-            !axis_visible(i32::MIN, 1, 600),
+            !axis_visible(i32::MIN, 1, 0, 600),
             "far left, no wrap to positive"
         );
         assert!(ViewportRect::at(vp(), i32::MAX, 100, 18).is_none());
@@ -374,6 +472,77 @@ mod tests {
             ViewportRect::at(Viewport::new(0, 400), 30, 10, 18).is_none(),
             "unallocated width"
         );
+    }
+
+    /// The measured off-monitor case (TDD 17.48a): a 1336 px window at screen x=0 on a
+    /// single 1280 px monitor. Its right 56 px are on no monitor, so a chip at x=1303 must
+    /// not anchor while one at x=1265 still does — the two chips GTK 4.6.9 refused and
+    /// accepted.
+    #[test]
+    fn a_widget_wider_than_its_monitor_anchors_only_on_the_monitor() {
+        let window = gdk::Rectangle::new(0, 0, 1336, 720);
+        let monitor = [gdk::Rectangle::new(0, 0, 1280, 1024)];
+        let vp = Viewport::new(1336, 720).intersect(monitor_clip(&window, &monitor));
+        assert_eq!(
+            vp,
+            Viewport {
+                left: 0,
+                top: 0,
+                right: 1280,
+                bottom: 720
+            }
+        );
+        assert!(on_viewport(vp, &gdk::Rectangle::new(1303, 116, 14, 18)).is_none());
+        assert!(on_viewport(vp, &gdk::Rectangle::new(1265, 116, 14, 18)).is_some());
+    }
+
+    /// A window placed past the monitor's LEFT or TOP edge clips from the widget's own
+    /// origin inward, and the clamp keeps an anchor inside that clip — the case a
+    /// size-only viewport could not express.
+    #[test]
+    fn a_widget_hanging_off_the_left_and_top_clips_from_its_origin() {
+        let widget = gdk::Rectangle::new(-200, -50, 800, 600);
+        let monitor = [gdk::Rectangle::new(0, 0, 1920, 1080)];
+        let vp = Viewport::new(800, 600).intersect(monitor_clip(&widget, &monitor));
+        assert_eq!(
+            vp,
+            Viewport {
+                left: 200,
+                top: 50,
+                right: 800,
+                bottom: 600
+            }
+        );
+        assert!(
+            on_viewport(vp, &gdk::Rectangle::new(100, 100, 14, 18)).is_none(),
+            "left of the monitor"
+        );
+        let r =
+            on_viewport(vp, &gdk::Rectangle::new(195, 45, 14, 18)).expect("straddles both edges");
+        assert_eq!((r.x(), r.y()), (200, 50), "clamped onto the monitor");
+    }
+
+    /// Two monitors: the clip is the one the widget overlaps most, and a widget on no
+    /// monitor at all anchors nothing.
+    #[test]
+    fn the_clip_is_the_most_overlapped_monitor_and_nowhere_is_empty() {
+        let monitors = [
+            gdk::Rectangle::new(0, 0, 1920, 1080),
+            gdk::Rectangle::new(1920, 0, 2560, 1440),
+        ];
+        let widget = gdk::Rectangle::new(1700, 100, 1000, 500);
+        assert_eq!(
+            monitor_clip(&widget, &monitors),
+            Viewport {
+                left: 220,
+                top: 0,
+                right: 1000,
+                bottom: 500
+            },
+            "780 px on the second monitor beats 220 px on the first"
+        );
+        let nowhere = monitor_clip(&gdk::Rectangle::new(9000, 9000, 100, 100), &monitors);
+        assert!(on_viewport(nowhere, &gdk::Rectangle::new(10, 10, 14, 18)).is_none());
     }
 }
 
