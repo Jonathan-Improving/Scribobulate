@@ -45,14 +45,33 @@ pub(crate) struct WindowChrome {
     pub(crate) info_toast: InfoToast,
     /// The footer status bar's message stack (unsaved indicator + transient notices).
     pub(crate) status: RefCell<StatusStack>,
-    /// The footer status bar's caret line/column indicator (TDD 9.21) — a
-    /// separate persistent label from [`status`](Self::status), not routed through
-    /// `StatusStack` (whose `sync` shows only its single latest entry, which
-    /// would fight the dirty/reload/conflict messages for the same line
-    /// instead of coexisting with them at the strip's other end). Hidden
-    /// whenever the active tab's mode has no editor pane to report a
-    /// position for; see `window/actions.rs`'s `refresh_position_indicator`.
-    pub(crate) pos_label: gtk::Label,
+    /// The footer status bar's widgets — the message area [`status`](Self::status)
+    /// drives, the export progress bar and Cancel, and the indicators (TDD 16.10).
+    /// Indicators are separate widgets rather than `StatusStack` entries because the
+    /// stack shows only its single latest entry; `window::statusbar` owns one refresh
+    /// choke point per indicator.
+    pub(crate) statusbar: crate::window::StatusBar,
+    /// The annotations viewer's heading label, which counts the annotations
+    /// (TDD 20.22); set by `refresh_annotations`.
+    pub(crate) annotations_title: gtk::Label,
+    /// Debounce for recounting the active document's words and line endings after an
+    /// edit (TDD 16.11).
+    pub(crate) text_stats_timer: RefCell<Option<gtk::glib::SourceId>>,
+    /// Coalesces selection changes before the selection's words are counted.
+    pub(crate) selection_timer: RefCell<Option<gtk::glib::SourceId>>,
+    /// Bumped on every selection recount, so a count that lands after the selection
+    /// changed again is discarded.
+    pub(crate) selection_generation: Cell<u64>,
+    /// The words in the current selection, and which tab it belongs to.
+    pub(crate) selection_count: Cell<Option<(super::TabId, super::statusbar::TextCount)>>,
+    /// The PDF export running in this window, if any — what the status bar's Cancel
+    /// cancels, and what disables `win.export` and defers a close until the export has
+    /// stopped (Deferred-operation CAM row 8).
+    pub(crate) export_op: RefCell<Option<gtk::PrintOperation>>,
+    /// Work deferred until the running export has stopped — a window or tab close that
+    /// arrived during it. Run from an idle once the export returns, outside its stack.
+    #[allow(clippy::type_complexity)] // a plain list of deferred closures
+    pub(crate) after_export: RefCell<Vec<Box<dyn FnOnce()>>>,
     /// The find bar's revealer (shared chrome). Read-only from most call
     /// sites — used to check whether the bar is currently open (QA round-1
     /// M2: `window/tabs/`'s tab-switch handler needs this to know whether
@@ -290,39 +309,16 @@ impl WindowChrome {
     /// seconds. When the window is gone there is no stack left to retract from and
     /// nothing to do, which is exactly what a failed upgrade expresses.
     ///
-    /// Returns a [`TimedNotice`] for a raiser whose condition can end before the timer
-    /// does; dropping it leaves the timer as the only retraction.
-    pub(crate) fn push_timed_notice(self: &Rc<Self>, msg: &str, duration: Duration) -> TimedNotice {
+    /// A condition that can end before its notice's time is up is not a timed notice: it
+    /// belongs in the persistent base line, as a lost file does (TDD 16.16).
+    pub(crate) fn push_timed_notice(self: &Rc<Self>, msg: &str, duration: Duration) {
         let ctx = self.status.borrow_mut().push(msg);
         let chrome = Rc::downgrade(self);
-        let timer_chrome = chrome.clone();
         gtk::glib::timeout_add_local_once(duration, move || {
-            if let Some(chrome) = timer_chrome.upgrade() {
+            if let Some(chrome) = chrome.upgrade() {
                 chrome.status.borrow_mut().pop(ctx);
             }
         });
-        TimedNotice { chrome, ctx }
-    }
-}
-
-/// A notice pushed by [`WindowChrome::push_timed_notice`], retractable before its timer
-/// fires — against the stack that issued it, like the timer, never one re-resolved
-/// through a tab that may since have moved.
-///
-/// Retracting early and then letting the timer fire pops the same entry twice, which
-/// the stack answers as already retracted and ignores, so neither side has to know
-/// whether the other ran.
-pub(crate) struct TimedNotice {
-    chrome: std::rc::Weak<WindowChrome>,
-    ctx: super::StatusCtx,
-}
-
-impl TimedNotice {
-    /// Take the notice down now.
-    pub(crate) fn retract(self) {
-        if let Some(chrome) = self.chrome.upgrade() {
-            chrome.status.borrow_mut().pop(self.ctx);
-        }
     }
 }
 

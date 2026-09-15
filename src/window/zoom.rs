@@ -411,4 +411,7 @@ pub(super) fn apply_zoom(window: &ApplicationWindow, new_zoom: f64) {
 
     // Sync all three zoom action states (ladder boundaries may have changed).
     update_zoom_action_state(window);
+    // Every zoom surface (menu, keys, wheel, the indicator itself) ends here, so the
+    // indicator follows all of them (TDD 16.12).
+    refresh_zoom_indicator(window);
 }

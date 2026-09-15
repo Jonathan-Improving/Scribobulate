@@ -140,6 +140,15 @@ impl MessageStack {
         ctx
     }
 
+    /// Rewrite a pushed notice's text in place, keeping its position in the stack — for
+    /// a notice that reports progress ("Exporting page 3 of 12…") rather than an event.
+    /// A handle this stack does not hold changes nothing.
+    fn update(&mut self, ctx: StatusCtx, msg: &str) {
+        if let Some(entry) = self.entries.iter_mut().find(|e| e.ctx == ctx) {
+            entry.msg = msg.to_string();
+        }
+    }
+
     fn pop(&mut self, ctx: StatusCtx) -> PopOutcome {
         if ctx.stack != self.id {
             return PopOutcome::WrongStack;
@@ -201,6 +210,12 @@ impl StatusStack {
         let ctx = self.stack.push(msg);
         self.sync();
         ctx
+    }
+
+    /// Rewrite a pushed notice's text in place (see [`MessageStack::update`]).
+    pub(crate) fn update(&mut self, ctx: StatusCtx, msg: &str) {
+        self.stack.update(ctx, msg);
+        self.sync();
     }
 
     /// Retract a pushed notice. A handle issued by a *different* window's stack is
@@ -334,6 +349,29 @@ mod tests {
         let ctx = s.push("notice");
         assert_eq!(s.pop(ctx), PopOutcome::Retracted);
         assert_eq!(s.pop(ctx), PopOutcome::AlreadyRetracted);
+    }
+
+    #[test]
+    fn update_rewrites_a_notice_in_place_and_ignores_a_retracted_one() {
+        let mut s = MessageStack::new();
+        s.set_base("base");
+        let progress = s.push("Exporting page 1 of 3…");
+        let later = s.push("later");
+        s.update(progress, "Exporting page 2 of 3…");
+        assert_eq!(
+            s.top(),
+            "later",
+            "an update never moves a notice to the top"
+        );
+        s.pop(later);
+        assert_eq!(s.top(), "Exporting page 2 of 3…");
+        s.pop(progress);
+        s.update(progress, "stale");
+        assert_eq!(
+            s.top(),
+            "base",
+            "updating a retracted notice resurrects nothing"
+        );
     }
 
     #[test]

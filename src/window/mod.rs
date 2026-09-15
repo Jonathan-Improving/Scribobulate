@@ -137,6 +137,12 @@ mod livepreview;
 mod navhistory;
 mod restore;
 mod sidebar;
+mod statusbar;
+pub(crate) use statusbar::{
+    clear_hover_target, defer_until_export_stops, note_buffer_changed, refresh_position_indicator,
+    refresh_status_indicators, refresh_zoom_indicator, schedule_selection_count, set_hover_target,
+    ExportProgress, StatusBar,
+};
 mod splitview;
 mod swap;
 mod swaprecovery;
@@ -659,8 +665,15 @@ fn build_window_chrome_state(
         recovery_toast: chrome.recovery_toast.clone(),
         recovery_toast_label: chrome.recovery_toast_label.clone(),
         info_toast: chrome.info_toast.clone(),
-        status: RefCell::new(winstate::StatusStack::new(chrome.status_label.clone())),
-        pos_label: chrome.pos_label.clone(),
+        status: RefCell::new(winstate::StatusStack::new(chrome.statusbar.message.clone())),
+        statusbar: chrome.statusbar.clone(),
+        annotations_title: chrome.annotations_title.clone(),
+        text_stats_timer: RefCell::new(None),
+        selection_timer: RefCell::new(None),
+        selection_generation: Cell::new(0),
+        selection_count: Cell::new(None),
+        export_op: RefCell::new(None),
+        after_export: RefCell::new(Vec::new()),
         find_bar_revealer: chrome.find_bar_revealer.clone(),
         find_entry: chrome.find_entry.clone(),
         match_count_label: chrome.match_count_label.clone(),
@@ -1204,7 +1217,10 @@ pub(crate) mod gtk_integration_tests {
                 ..Default::default()
             },
         );
-        win.set_default_size(800, 600);
+        // Tall enough that a quarter of the sidebar clears the outline section's minimum
+        // height; asserted below, because under that floor the divider is clamped
+        // (`shrink=false`, TDD 20.21) and this test would be measuring the clamp.
+        win.set_default_size(800, 760);
         win.present();
         crate::testpump::drain_for(
             crate::testpump::Clock::Frame,
@@ -1215,6 +1231,15 @@ pub(crate) mod gtk_integration_tests {
 
         let quarter = crate::session::sidebar_divider_position(0.25, sidebar.height())
             .expect("the sidebar has a height once presented");
+        let (outline_min, _, _, _) = sidebar
+            .start_child()
+            .expect("the outline section is the start child")
+            .measure(gtk::Orientation::Vertical, -1);
+        assert!(
+            quarter >= outline_min,
+            "precondition: a quarter of the sidebar ({quarter}px) must clear the outline \
+             section's minimum ({outline_min}px), or the divider is clamped to that floor"
+        );
         assert_eq!(
             sidebar.position(),
             quarter,

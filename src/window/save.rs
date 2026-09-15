@@ -777,12 +777,19 @@ fn confirm_close_tabs(
         },
     );
 }
-/// Recompute the persistent "Unsaved changes" status-bar message (TDD 4.4) from
-/// the live dirty state.  Called on edit, save, and reload.
+/// Recompute the persistent status-bar line (TDD 4.4, 16.16) from the ACTIVE tab: a
+/// lost file, a file live reload cannot watch, and unsaved edits, composed by
+/// `winstate::statusbar::base_message` so the three coexist instead of overwriting
+/// one another. Called on edit, save, reload, tab switch and every change of loss or
+/// watch state.
 pub(crate) fn refresh_dirty_status(window: &ApplicationWindow) {
     if let Some(st) = state(window) {
-        let msg = if st.is_dirty() { "Unsaved changes" } else { "" };
-        st.chrome().status.borrow_mut().set_base(msg);
+        let msg = crate::winstate::statusbar::base_message(
+            st.backing_loss.get(),
+            st.live_reload_off.get(),
+            st.is_dirty(),
+        );
+        st.chrome().status.borrow_mut().set_base(&msg);
         // The crash-recovery invariant hangs off the same recomputation as the
         // indicator, so every path that changes dirtiness — save, Save As, reload,
         // revert, undo — gets the right swap-file behaviour without being individually

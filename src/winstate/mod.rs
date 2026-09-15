@@ -110,13 +110,14 @@ mod registry;
 mod scrollsync;
 mod selfdelete;
 mod status;
+pub(crate) mod statusbar;
 mod swap;
 mod tab;
 mod viewmode;
 mod writegate;
 
-pub(crate) use busynotice::BusyNotice;
-pub(crate) use chrome::{TimedNotice, WindowChrome};
+pub(crate) use busynotice::{BusyNotice, BUSY_NOTICE_DELAY};
+pub(crate) use chrome::WindowChrome;
 pub(crate) use decisions::{
     edit_actions_enabled, external_change_action, is_blank_welcome, line_col_indicator,
     rename_enabled, save_enabled, save_is_safe, tab_label_markup, window_title_for_tabs,

@@ -142,7 +142,14 @@ pub(crate) fn css() -> &'static str {
      tabbar .tab-handle:hover .tab-close-btn,
      tabbar .tab-handle.active .tab-close-btn { opacity: 1; }
      /* Deferred-tab busy spinner: small, so it doesn't crowd the label. */
-     tabbar .tab-handle .tab-spinner { min-width: 14px; min-height: 14px; }"
+     tabbar .tab-handle .tab-spinner { min-width: 14px; min-height: 14px; }
+     /* The status bar's buttons — the zoom indicator (clicking resets zoom) and export
+        Cancel — are flat and padded down so they line up with the label indicators and
+        showing Cancel does not make the bar taller. Scoped to the status bar's own class
+        (GTK4Rs/AP-77); padding only, since a CSS margin would ADD to the separators'
+        code-set margins (GTK4Rs/AP-161). */
+     .scrib-statusbar button.scrib-statusbar-button { padding: 0 2px; min-height: 0;
+                                                      min-width: 0; }"
 }
 
 // ── generated preview CSS ─────────────────────────────────────────────────────

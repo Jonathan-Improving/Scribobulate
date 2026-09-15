@@ -94,6 +94,13 @@ pub(crate) fn wire_tab_buffer_signals(content_box: &gtk::Box, buffer: &sourcevie
                 // reports — recompute at this boundary too, not only on the
                 // caret-move delta (GTK4Rs/AP-47).
                 update_copy_link_action_state(&w);
+                // Word count and line endings follow the buffer (TDD 16.11, 16.13).
+                if let Some(tab) = cb
+                    .upgrade()
+                    .and_then(|content_box| winstate::tab_by_content_box(content_box.upcast_ref()))
+                {
+                    crate::window::note_buffer_changed(&w, &tab);
+                }
             }
         }
     });
@@ -108,6 +115,9 @@ pub(crate) fn wire_tab_buffer_signals(content_box: &gtk::Box, buffer: &sourcevie
                 // reuses that connection rather than adding a second one for
                 // "cursor-position" (they cover the same events).
                 refresh_position_indicator(&w);
+                // A selection is a pair of marks, so mark-set is also where an
+                // editor selection's word count is re-derived (TDD 16.11).
+                crate::window::schedule_selection_count(&w);
                 // Copy Link Location tracks the caret the same way the Ln/Col
                 // indicator does — mark-set is the caret-move boundary.
                 update_copy_link_action_state(&w);
@@ -469,6 +479,17 @@ pub(super) fn confirm_close_tab(window: &ApplicationWindow, tab: Rc<TabState>) {
 /// Physically remove `tab` from `window`'s tab strip and registry (the shared
 /// tail of both the clean and the confirmed-dirty Close Tab paths).
 fn close_tab_now(window: &ApplicationWindow, tab: &Rc<TabState>) {
+    // A close during a PDF export cancels the export and closes once it has stopped,
+    // rather than tearing the tab down beneath it (Deferred-operation CAM row 8).
+    let reclose = (window.downgrade(), tab.id);
+    if crate::window::defer_until_export_stops(window, move || {
+        let (window, tab_id) = reclose;
+        if let (Some(window), Some(tab)) = (window.upgrade(), winstate::tab_by_id(tab_id)) {
+            close_tab_now(&window, &tab);
+        }
+    }) {
+        return;
+    }
     log::info!(
         "tab {}: closing ({})",
         tab.id,

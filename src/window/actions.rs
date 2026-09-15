@@ -370,43 +370,13 @@ pub(crate) fn apply_mode_action_state(window: &ApplicationWindow, mode: ViewMode
     let split_mode = mode == ViewMode::Split;
     set_action_enabled(window, "split-swap", split_mode);
     set_action_enabled(window, "split-orientation", split_mode);
-    // The footer's Ln/Col indicator depends on the same "is the editor even
-    // visible" fact as everything above, so it's refreshed from this one
-    // place too (TDD 9.21) — covers mode switches AND tab switches for free,
-    // since `on_active_tab_changed` already calls this function.
-    refresh_position_indicator(window);
+    // The footer's indicators depend on the same view-mode and active-tab facts as
+    // everything above — Ln/Col on the editor being visible, zoom on the preview —
+    // so they are refreshed from this one place too (TDD 9.21, 16.10–16.13), covering
+    // mode switches AND tab switches, since `on_active_tab_changed` calls this.
+    refresh_status_indicators(window);
     // The Reading Theme picker is preview-only (like zoom): disabled in edit-only mode.
     refresh_theme_button(window);
-}
-/// Update the footer's caret line/column indicator (TDD 9.21) from the active
-/// tab's OWN editor buffer — never "whichever pane has focus": in split mode
-/// the preview pane can be scrolled/selected independently, but the indicator
-/// always reports the editor's caret, which is the only one that means
-/// anything for "line/column" in a Markdown source document. Hidden entirely
-/// in preview mode (`winstate::line_col_indicator` returns `None` — no editor
-/// pane, nothing to report). Called on every mode switch and tab switch (via
-/// `apply_mode_action_state`) and on every caret move
-/// (`wire_tab_buffer_signals`'s `cursor-position` notify).
-pub(crate) fn refresh_position_indicator(window: &ApplicationWindow) {
-    let Some(st) = state(window) else { return };
-    let chrome = st.chrome();
-    let cursor = st
-        .editor_buf
-        .iter_at_offset(st.editor_buf.property::<i32>("cursor-position"));
-    let line = cursor.line() + 1;
-    let col = st.editor.visual_column(&cursor) + 1;
-    match winstate::line_col_indicator(st.view_mode.get(), line, col) {
-        Some(text) => {
-            chrome.pos_label.set_text(&text);
-            chrome.pos_label.set_visible(true);
-            // On a display narrower than the toolbar's min-width the
-            // window is forced wider than the screen and this right-aligned
-            // indicator would sit past the visible edge — pull it back on screen.
-            // No-op (inset 0) on any normal-width display.
-            super::chrome_fit::apply_visible_area_inset(&chrome.pos_label, 0);
-        }
-        None => chrome.pos_label.set_visible(false),
-    }
 }
 /// Work around a latent GTK 4.6.x `GtkPopoverMenuBar` behaviour:
 /// activating an item in a **nested** submenu can leave a *sibling* top-level menu

@@ -25,7 +25,7 @@ const INFO_TOAST_TIME: Duration = Duration::from_millis(2500);
 /// How long the matching status-bar announcement stays up. Deliberately longer than
 /// the visual toast: the toast is glanceable and its job is done once seen, while
 /// the status line is what a screen reader announces, and that wants a wider window.
-const INFO_STATUS_TIME: Duration = Duration::from_secs(4);
+pub(crate) const INFO_STATUS_TIME: Duration = Duration::from_secs(4);
 
 /// Build the floating toast shell shared by the conflict and info toasts: a hidden,
 /// bottom-right-anchored `GtkBox` with an icon and a label already appended. The icon

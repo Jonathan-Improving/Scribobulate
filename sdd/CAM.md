@@ -268,12 +268,14 @@ The event classes (matrix columns):
 |---|---|:-:|:-:|:-:|:-:|---|
 | 1 | Outline tree (headings) | ✓ | ✓ | ✓ | ✓ | `refresh_outline` |
 | 2 | Outline scroll-spy highlight | ✓ | ✓ | ✓ | ✓ | `wire_scroll_spy`; ScrAP-46/ScrAP-57/ScrAP-89 |
-| 3 | Annotations viewer (flat list) | ✓ | ✓ | ✓ | ✓ | `refresh_annotations`; `preview::refresh_annotations_in_place` |
+| 3 | Annotations viewer (flat list, and the heading's count) | ✓ | ✓ | ✓ | ✓ | `refresh_annotations`; `preview::refresh_annotations_in_place` |
 | 4 | Window title, tab label + tooltip, View ▸ Documents (menu **and** toolbar combo) | ✓ (dirty) | ✓ | — | ✓ | `update_window_title`/`retitle_window`; `refresh_active_tab_label`/`badge_tab_label`; `refresh_documents_menu`; `refresh_documents_button` |
-| 5 | Status bar — dirty/conflict message | ✓ | ✓ | — | ✓ | `refresh_dirty_status` |
+| 5 | Status bar — persistent line (lost file · live reload off · unsaved changes) | ✓ | ✓ | — | ✓ | `refresh_dirty_status` |
 | 6 | Status bar — Ln/Col indicator | ✓ | ✓ | ✓ | ✓ | `refresh_position_indicator` |
 | 7 | Find bar — match count and match highlights | ✓ | ✓ | ✓ | ✓ | `update_match_count_label`; `refresh_preview_find_highlight` (Document Rendering CAM row 8) |
 | 8 | Crash-recovery notice (per-tab prompt + per-window status count) | ✓ | ✓ | ✓ | ✓ | `toast::sync_recovery_toast` |
+| 9 | Status bar — word count and line endings (document, and the selection's words) | ✓ | ✓ | — | ✓ | `refresh_text_indicators` (an edit reaches it through `note_buffer_changed`, a selection through `schedule_selection_count`) |
+| 10 | Status bar — zoom level | — | — | ✓ | ✓ | `refresh_zoom_indicator` |
 
 Rules that give the matrix its teeth:
 
@@ -632,6 +634,8 @@ The interference classes (matrix columns):
 | 5 | **Crash-recovery snapshot write** | ✓ | ◑ | ✓ | ✓ | ✓ | `swap.in_flight` + latest-wins coalescing; `tab_by_id` |
 | 6 | **Startup recovery pass** | ✓ | ✓ | ✓ | ✓ | ✓ | runs once; bumps `DocEpoch` on apply; re-resolves windows/tabs after each await |
 | 7 | **Truncation settle re-read** (TDD 3.5) | ✓ | ✓ | ✓ | ✓ | ✓ | one pending timer per tab, re-armed not stacked, cancelled when a loss is recorded; weak `tab_by_id`; the re-read is an ordinary row-2 read, so its ticket and the active-vs-background split apply unchanged, and a loss is recorded once however many reads conclude it |
+| 8 | **PDF export** (`run(Export)` iterates the main loop while it draws) | ✓ | ✓ | ✓ | ✓ | ✓ | `win.export` disabled while `WindowChrome::export_op` is set; the document is captured before the run, so edits and saves during it do not reach it; a tab or window close cancels the export and is deferred until it returns (`defer_until_export_stops`) |
+| 9 | **Status-bar word count** (on GLib's pool) | ✓ | ✓ | ✓ | ✓ | n/a | one job application-wide, one pending (same-tab requests merge); a result is applied only if the tab's buffer generation is unchanged, re-resolving the tab by id and rendering only if it is still the active one |
 
 Rules that give the matrix its teeth:
 
@@ -715,8 +719,10 @@ intended pop:
 | 2 | Crash-recovery count ("Recovered … in N documents") | event — first interaction with the window | ✓ | ✓ (per-window: the stack dies with the window) | ✓ (per-window, never travels with a tab) | — (once per launch) | `window/swaprecovery.rs` |
 | 3 | Transient info notice (saved / reloaded / recovered) | **timed** (~4 s) | ✓ | ✓ | ✓ | ✓ (each notice is its own ctx) | `window/toast.rs` |
 | 4 | Link-navigation notice | **timed** (~6 s) | ✓ | ✓ | ✓ | ✓ | `window/linknav.rs` |
-| 5 | "File deleted on disk — save to restore it" / "File was truncated — save to restore it" | **timed** (~6 s), or the loss clearing — whichever comes first (one entry, retracted through the handle `push_timed_notice` returns) | ✓ | ✓ | ✓ | ✓ (announced once per loss; a repeat of the same loss is silent) | `window/backingloss.rs` |
+| 5 | Quiet-command confirmation ("Document copied" / "Link location copied" / "Renamed to …") | **timed** (~4 s) | ✓ | ✓ | ✓ | ✓ (each confirmation is its own ctx) | `window/editoractions.rs`, `window/copylink.rs`, `window/rename.rs` |
 | 6 | Operation-in-progress ("Saving…" / "Reloading…" / "Opening…") | **the operation ends** (`Drop`) | ✓ | ✓ | ✓ | ✓ | `winstate::BusyNotice` — armed, not shown: nothing appears unless the operation outlives `BUSY_NOTICE_DELAY`, so a fast save never blinks. `Rc`-backed so ONE notice spans a logical operation made of several futures (the save guard's read, the decision, the write) |
+| 7 | Hovered link target (the URL under the pointer) | **condition** — the pointer leaves the link or the view, or the view unrealizes | ✓ | ✓ (unrealize) | ✓ (retracted against the captured stack) | ✓ (one slot application-wide: a second link replaces the first) | `window::statusbar::set_hover_target` |
+| 8 | Export progress ("Exporting page P of N…" + progress bar + Cancel) | **the export returns** (`ExportProgress::finish`, also run on drop) — armed, not shown, like row 6 | ✓ | ✓ (a close waits for the export to stop) | ✓ (captured stack) | — (Export is disabled while one runs) | `window::statusbar::ExportProgress` |
 
 **Every timed row (3, 4, 5) holds B and C through one mechanism:
 `WindowChrome::push_timed_notice`.** It captures the chrome that issued the handle
@@ -729,11 +735,14 @@ footer line up permanently, with no error. Guarded by TDD 16.8 and its two
 `winstate/chrome.rs` tests, one of which carries a positive control proving the
 re-resolving shape does strand the notice.
 
-Row 5 is here because it was **missing** from this matrix while the two rows either side
-of it were being examined — it is the same notice, in the same shape, written by a
-different hand in a different module. A matrix omits what nobody thought to look for, so
-when a row is added, grep for the *mechanism* (here: every `status…push` paired with a
-timer) rather than enumerating the notices you can remember.
+A matrix omits what nobody thought to look for: the lost-file notice was once missing
+from this one while the rows either side of it were being examined — the same notice, in
+the same shape, written by a different hand in a different module. So when a row is
+added, grep for the *mechanism* (every `status…push` paired with a timer or a handle)
+rather than enumerating the notices you can remember. That notice has since left the
+matrix altogether, which is the rule below applied: a condition that can end before its
+timer is not a timed notice, so a lost file is now part of the persistent line
+(Derived-view CAM row 5) for exactly as long as it holds.
 
 Rules that give the matrix its teeth:
 

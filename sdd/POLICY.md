@@ -1124,8 +1124,9 @@ full account is ScrAP-225; the rule above is what stops it recurring.
   `gio::FileMonitor`, whose `changed` signal is delivered on the main context (main
   thread); the app spawns no worker threads *of its own* — everything that leaves the
   main thread is dispatched to GLib's existing pool and hands only owned data across.
-  Two things do: a crash-recovery snapshot (`replace_contents_async`, an owned
-  `Vec<u8>`), and an **animation frame decode** (`animation::worker`, which moves a
+  Three things do: a crash-recovery snapshot (`replace_contents_async`, an owned
+  `Vec<u8>`), a **status-bar word count** (`window::statusbar`, an owned `String` in and
+  counts out, one job at a time application-wide), and an **animation frame decode** (`animation::worker`, which moves a
   `richimg::Animation` — a type with no GTK in it — and gets an owned `richimg::Frame`
   back). A decode belongs off-thread because it is CPU work measured in milliseconds per
   frame; it is bounded at two concurrent decodes application-wide so it cannot starve the

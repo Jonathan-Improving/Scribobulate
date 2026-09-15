@@ -7,6 +7,16 @@ use super::*;
 pub(super) fn wire_close_request(window: &ApplicationWindow) {
     let force_close = Rc::new(Cell::new(false));
     window.connect_close_request(move |win| {
+        // A close during a PDF export cancels the export and closes once it has
+        // stopped, rather than destroying the window beneath it.
+        let reclose = win.downgrade();
+        if crate::window::defer_until_export_stops(win, move || {
+            if let Some(win) = reclose.upgrade() {
+                win.close();
+            }
+        }) {
+            return glib::Propagation::Stop;
+        }
         log::info!(
             "window close-request ({} tabs, forced: {})",
             winstate::tabs_for_window(win).len(),

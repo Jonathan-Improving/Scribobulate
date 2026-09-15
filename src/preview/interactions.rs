@@ -250,9 +250,13 @@ pub(super) fn wire_link_gestures(view: &CodePreviewView, render_data: &Rc<RefCel
             v.set_hovered_checkbox(None);
             v.set_hovered_code_block(None, None);
             v.set_pointer_position(None);
+            crate::window::clear_hover_target(&v);
         }
     ));
     view.add_controller(motion);
+    // A tab moved or closed under the pointer delivers no leave; unrealize is the view
+    // going away, so the link target it showed goes with it.
+    view.connect_unrealize(crate::window::clear_hover_target);
 
     // The same cursor decision, re-run after a paint that may have created a hit-box the
     // motion event could not see — a code block reveals its copy button on hover, and
@@ -318,6 +322,11 @@ fn apply_pointer_cursor(
 ) {
     let clickable = is_clickable_at(view, render_data, x, y, over_marker, hover);
     view.set_cursor_from_name(Some(if clickable { "pointer" } else { "text" }));
+    // The link's target in the status bar as well as the tooltip, from the tooltip's own
+    // resolver — one hit-test, two surfaces (TDD 2.22, 16.14). Re-derived here because
+    // this also runs after a paint moved the document under a still pointer.
+    let url = link_at(view, &render_data.borrow(), x, y).map(|(_, _, url)| url);
+    crate::window::set_hover_target(view, url.as_deref());
 }
 
 fn is_clickable_at(

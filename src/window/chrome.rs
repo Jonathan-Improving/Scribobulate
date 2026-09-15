@@ -37,9 +37,12 @@ pub(super) struct Chrome {
     /// `reconcile_sidebar_visibility` reaches it by ancestry (`scroller → section →
     /// here`) rather than by handle.
     pub sidebar_paned: gtk::Paned,
-    pub status_label: gtk::Label,
-    pub pos_label: gtk::Label,
+    /// The footer status bar (`window::statusbar`).
+    pub statusbar: super::statusbar::StatusBar,
+    /// The status bar's root box — what View ▸ Status Bar hides and shows (9.17).
     pub status_bar: gtk::Box,
+    /// The annotations viewer's heading label (TDD 20.22).
+    pub annotations_title: gtk::Label,
     pub find_entry: gtk::SearchEntry,
     pub find_prev_btn: gtk::Button,
     pub find_next_btn: gtk::Button,
@@ -354,31 +357,11 @@ pub(super) fn build_chrome(
         }
     });
 
-    // Footer status bar: one accessible label driven by a
-    // StatusStack. Sits outside the overlay as a fixed strip.
-    let status_label = Label::new(None);
-    status_label.set_xalign(0.0);
-    status_label.set_hexpand(true);
-    status_label.set_ellipsize(gtk::pango::EllipsizeMode::End);
-    status_label.set_accessible_role(gtk::AccessibleRole::Status);
-    // Caret line/column indicator (TDD 9.21) — a separate, persistent label
-    // at the strip's far end (status_label's hexpand pushes it there), not
-    // routed through StatusStack: StatusStack shows only its single latest
-    // entry (base or transient), which would make a constantly-updating
-    // position indicator fight over the same line as "Unsaved changes" and
-    // reload/conflict notices instead of coexisting with them. Hidden
-    // whenever the active tab has no editor pane to report a position for
-    // (preview mode) — `refresh_position_indicator` (actions.rs).
-    let pos_label = Label::new(None);
-    pos_label.add_css_class("dim-label");
-    pos_label.set_visible(false);
-    let status_bar = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    status_bar.set_margin_start(6);
-    status_bar.set_margin_end(6);
-    status_bar.set_margin_top(2);
-    status_bar.set_margin_bottom(2);
-    status_bar.append(&status_label);
-    status_bar.append(&pos_label);
+    // Footer status bar: messages at the left, indicators at the right, a fixed strip
+    // outside the overlay. Its layout and refresh choke points are `window::statusbar`.
+    let statusbar = super::statusbar::build();
+    let status_bar = statusbar.root.clone();
+    let annotations_title = annotations_pane.title.clone();
 
     // ── find bar ─────────────────────────────────────────────────────────────
     // A GtkRevealer in outer_box between the content area and the footer.
@@ -487,9 +470,9 @@ pub(super) fn build_chrome(
         outline_section,
         annotations_section,
         sidebar_paned,
-        status_label,
-        pos_label,
+        statusbar,
         status_bar,
+        annotations_title,
         find_entry,
         find_prev_btn,
         find_next_btn,

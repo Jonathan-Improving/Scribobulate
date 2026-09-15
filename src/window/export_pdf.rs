@@ -32,7 +32,7 @@
 
 use crate::export::pdf::{finish, Outcome};
 use crate::export::{self};
-use crate::winstate::{self, TabState};
+use crate::winstate::TabState;
 use gtk::prelude::*;
 use gtk::{ApplicationWindow, PrintOperation, PrintOperationAction};
 use std::path::PathBuf;
@@ -92,6 +92,10 @@ pub(super) fn export_pdf(window: &ApplicationWindow, st: Rc<TabState>, path: Pat
     // the tally only moves on presentation of a `PageDrawn`, which only `draw_page`
     // can make. See its doc comment for what the hand-incremented version promoted.
     let drawn = Rc::new(export::pdf::PageTally::default());
+    // Registers the operation as this window's running export (Cancel, the disabled
+    // Export command, a deferred close) and arms the progress display (TDD 25.23).
+    let progress = Rc::new(super::ExportProgress::arm(&st.chrome(), &op));
+    super::export::update_export_action_state(window);
 
     op.connect_begin_print({
         let paged = Rc::clone(&paged);
@@ -120,6 +124,7 @@ pub(super) fn export_pdf(window: &ApplicationWindow, st: Rc<TabState>, path: Pat
     op.connect_draw_page({
         let paged = Rc::clone(&paged);
         let drawn = Rc::clone(&drawn);
+        let progress = Rc::clone(&progress);
         move |_op, ctx, page| {
             let cr = ctx.cairo_context();
             let paged = paged.borrow();
@@ -129,16 +134,16 @@ pub(super) fn export_pdf(window: &ApplicationWindow, st: Rc<TabState>, path: Pat
             if let Some(proof) = p.draw(&cr, page as usize, &palette) {
                 drawn.record(proof);
             }
+            progress.page_drawn(drawn.count(), p.page_count());
         }
     });
 
-    // Synchronous on the main thread. Against the measured curves — linear across page
-    // count, platform and a 40× range of content weight, no knee through 2,000 pages —
-    // a document must exceed roughly forty dense pages before backgrounding would be
-    // warranted, so this stays synchronous and the busy notice covers the rest.
-    let busy = winstate::BusyNotice::arm(&st.chrome(), "Exporting…");
+    // Synchronous on the main thread, but not frozen: GTK draws one page per idle inside
+    // a nested main loop, so the progress display repaints between pages and Cancel can
+    // be pressed. Never iterate the main context from `draw-page` itself.
     let result = op.run(PrintOperationAction::Export, Some(window));
-    drop(busy);
+    progress.finish();
+    super::export::update_export_action_state(window);
 
     let expected = op.n_pages().max(0) as usize;
     let outcome = finish(result, drawn.count(), expected);

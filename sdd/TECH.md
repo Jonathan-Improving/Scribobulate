@@ -184,6 +184,7 @@ Every module below runs on the GTK main thread; see [Concurrency model](#concurr
 | `app/` | Application-scoped concerns: the command enums, `app.*` action registration, menu-bar and mnemonic construction, accelerators, and file opening. |
 | `window/` | Per-document window UI. `mod.rs` is a thin orchestrator; the submodules below own one concern each. |
 | `window/chrome.rs` | Owns the persistent window layout that survives content and mode swaps, including the content slot tabs mount into. |
+| `window/statusbar.rs` | Owns the footer status bar: its widgets (message area, export progress and Cancel, the indicator group), one refresh choke point per indicator, the hovered-link notice, and the application-wide word-count job. |
 | `window/toolbar.rs` | Owns toolbar construction as one box per visually delimited section. |
 | `window/splitview.rs` | Owns `SplitView`, the per-tab orderable two-pane splitter widget. |
 | `window/arrangement.rs` | Owns the app-wide split arrangement (pane order and orientation): the `app.split-swap` / `app.split-orientation` actions that hold it and re-apply it to every tab of every window. Each window's `win.` actions only forward to them, and exist per window because sensitivity is per window. |
@@ -279,6 +280,7 @@ Every module below runs on the GTK main thread; see [Concurrency model](#concurr
 | `winstate/navhistory/` | Owns the per-window Back/Forward history as display-free data, split by which question each part answers: `place` (what an entry points at, and why its equality is load-bearing), `record` (writing the history), `mod` (walking it), `maintain` (repairing it when a tab leaves or a document's headings change), `decide` (the two decisions the GTK half would otherwise take inline, so they are unit-testable at all). The instance lives in the registry's per-window entry, so a tab's departure prunes it without any call site knowing. |
 | `window/find/plan.rs` | Owns what the preview's find highlight PAINTS, decided from the hit list alone — which body ranges are washed, which one also takes the caret selection, whether a stale selection must be dropped, and each cell span's wash. GTK-free: a cell is an opaque key, never a `GtkLabel`. |
 | `winstate/writegate.rs` | Owns the one-writer-at-a-time gate over a document's file, as a pass released on `Drop` rather than a flag with a rule attached. Display-free, so its release-on-every-exit contract is unit-tested directly. |
+| `winstate/statusbar.rs` | Owns the status bar's display-free decisions: counting a document's readable text over the export pipeline's `ExportDoc`, classifying line endings, the indicators' text, and composing the persistent status line. |
 | `swapfile/` | Owns the display-free crash-recovery core: the swap file's frontmatter codec, its naming scheme, the baseline content digest, and the recovery decisions. Touches no GTK and no filesystem; its module doc states the two invariants the feature turns on. |
 | `window/swap.rs` | Owns the crash-recovery write edge — the debounce, the focus-loss flush, and the write-temp-then-rename that promotes a snapshot only after a complete write — plus the single choke point that applies the dirty↔swap invariant. |
 | `window/swaprecovery.rs` | Owns the startup recovery pass: sweeping incomplete snapshot temps, correlating each surviving header against the restored tabs, applying content, and the per-tab notice plus per-window status message. |
@@ -371,6 +373,11 @@ bounds make that safe on a pool of ten shared with document I/O and the crash-re
 snapshot writer (ScrAP-243): one decode per animation is in flight **by construction**
 (the decoder is moved into the call and returns with the frame), and at most two
 decodes application-wide reach the pool at once.
+
+**The status bar's word count is the third, for the same reason**: counting a
+multi-megabyte document costs more than a frame. `window::statusbar` hands the text to
+the pool as an owned `String` and gets counts back — one job application-wide, one
+waiting — and discards a result whose buffer has changed since it was read.
 
 **Single-threaded does not mean synchronous, and the filesystem is where that
 shows.** Document I/O — Open, session restore, link navigation, Save, Save As,

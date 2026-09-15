@@ -211,9 +211,18 @@ pub(crate) struct TabState {
     /// `window::backingloss`, and cleared by a completed save or an explicit reload.
     /// Always `None` for an untitled document.
     pub(crate) backing_loss: Cell<Option<super::BackingLoss>>,
-    /// The status notice announcing `backing_loss`, held so the notice is taken down
-    /// when the loss clears rather than outliving it on its timer (TDD 15.22).
-    pub(crate) backing_notice: RefCell<Option<super::TimedNotice>>,
+    /// True while live reload could not watch this document's file — GIO refused the
+    /// monitor — so the status bar says so for as long as it holds (TDD 16.16). Set and
+    /// cleared by `app::open::attach_file_backing`, the one place a monitor attaches.
+    /// It cannot see a monitor that attaches and then never fires (ScrAP-275).
+    pub(crate) live_reload_off: Cell<bool>,
+    /// Bumped on every change to the editor buffer, so a word count computed off the
+    /// main thread can tell whether it still describes the buffer (TDD 16.11).
+    pub(crate) text_generation: Cell<u64>,
+    /// The last word count and line-ending classification computed for this document,
+    /// with the generation it describes. A background tab keeps a stale one until it
+    /// is activated (Derived-view CAM deferral rule).
+    pub(crate) text_stats: Cell<Option<super::statusbar::TextStats>>,
     /// The pending re-read that decides whether a file seen blank was truncated or
     /// was caught between a rewrite's truncate and its write (TDD 3.5).
     pub(crate) truncation_settle: Cell<Option<gtk::glib::SourceId>>,
@@ -511,7 +520,9 @@ impl TabState {
             // A freshly loaded/created tab's file is present (or it is untitled).
             backing_loss: Cell::new(None),
             truncation_settle: Cell::new(None),
-            backing_notice: RefCell::new(None),
+            live_reload_off: Cell::new(false),
+            text_generation: Cell::new(0),
+            text_stats: Cell::new(None),
             loading: Cell::new(false),
             write_gate: crate::winstate::WriteGate::default(),
             doc_epoch: crate::winstate::DocEpoch::default(),

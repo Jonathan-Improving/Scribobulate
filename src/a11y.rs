@@ -107,6 +107,15 @@ pub(crate) fn name_field(field: &impl IsA<gtk::Widget>, label: &str) {
     field.as_ref().update_property(&[Property::Label(label)]);
 }
 
+/// Name a status-bar **indicator** whose visible text is a value ("LF", "Ln 12, Col 4")
+/// — the name says what the value is ("Line endings, LF"). No tooltip: one repeating the
+/// visible text adds nothing (TDD 16.17).
+pub(crate) fn name_indicator(indicator: &impl IsA<gtk::Widget>, label: &str) {
+    indicator
+        .as_ref()
+        .update_property(&[Property::Label(label)]);
+}
+
 /// Attach an explanatory **description** — a tooltip that is not a name: why a control
 /// is unavailable, a tab's full path, an image's alt text.
 ///

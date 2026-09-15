@@ -192,7 +192,19 @@ pub(crate) fn attach_file_backing(
 
     // Live reload: watch the file with GIO's built-in monitor.
     let gio_file = gtk::gio::File::for_path(&path);
-    let Some(monitor) = crate::saferizer::DocMonitor::attach(&gio_file) else {
+    let monitor = crate::saferizer::DocMonitor::attach(&gio_file);
+    // Live reload silently not working is indistinguishable from a file nobody is
+    // editing, so the status line says so for as long as it holds (TDD 16.16). Only a
+    // CHANGE re-derives the line, so the ordinary attach costs nothing.
+    if tab.live_reload_off.replace(monitor.is_none()) != monitor.is_none() {
+        crate::window::refresh_dirty_status(window);
+    }
+    let Some(monitor) = monitor else {
+        log::warn!(
+            "tab {}: live reload is off — the file could not be watched: {}",
+            tab.id,
+            path.display()
+        );
         return;
     };
 

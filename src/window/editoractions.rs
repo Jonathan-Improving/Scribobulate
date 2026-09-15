@@ -459,6 +459,11 @@ pub(super) fn register_editor_actions(window: &ApplicationWindow, heading_btn: &
         move |_, _| {
             let Some(st) = state(&window) else { return };
             window.clipboard().set_text(&st.editor_text());
+            // A copy changes nothing on screen, so it is acknowledged (TDD 16.15).
+            st.chrome().push_timed_notice(
+                crate::winstate::statusbar::DOCUMENT_COPIED,
+                super::toast::INFO_STATUS_TIME,
+            );
         }
     ));
     window.add_action(&copy_document_action);

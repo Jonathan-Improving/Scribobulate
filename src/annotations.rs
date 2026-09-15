@@ -120,6 +120,29 @@ pub(crate) fn step_index<T: Ord + Copy>(
     .map(|(index, _)| index)
 }
 
+/// The annotations viewer's heading: "Annotations (N)" counting the rows the viewer
+/// lists — the same [`extract_entries`] list — and plain "Annotations" when there are
+/// none (TDD 20.22).
+pub(crate) fn heading(count: usize) -> String {
+    match count {
+        0 => "Annotations".to_string(),
+        n => format!("Annotations ({n})"),
+    }
+}
+
+#[cfg(test)]
+mod heading_tests {
+    use super::{extract_entries, heading};
+
+    #[test]
+    fn heading_counts_listed_annotations_and_omits_zero() {
+        assert_eq!(heading(0), "Annotations");
+        assert_eq!(heading(3), "Annotations (3)");
+        let md = "{==a==}{>>one<<} and {==b==}{>>two<<}\n";
+        assert_eq!(heading(extract_entries(md).len()), "Annotations (2)");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

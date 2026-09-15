@@ -28,6 +28,9 @@ pub(crate) struct SidebarPane {
     /// placeholder `GtkLabel`) is rebuilt on every document change. Persists across
     /// rebuilds so no signal is orphaned.
     pub(crate) scroller: gtk::ScrolledWindow,
+    /// The section's heading, kept so a section can report a count in it
+    /// (the annotations viewer's "Annotations (N)", TDD 20.22).
+    pub(crate) title: gtk::Label,
 }
 
 impl SidebarPane {
@@ -100,7 +103,11 @@ impl SidebarPane {
         root.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
         root.append(&scroller);
 
-        Self { root, scroller }
+        Self {
+            root,
+            scroller,
+            title: title_label,
+        }
     }
 }
 

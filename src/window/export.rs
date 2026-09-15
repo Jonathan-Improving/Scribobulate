@@ -70,7 +70,10 @@ pub(crate) fn register_export_action(window: &ApplicationWindow) {
 /// never been saved is no impediment — that is TDD-visible behaviour (25.5) rather
 /// than an implementation detail.
 pub(crate) fn export_is_available(window: &ApplicationWindow) -> bool {
-    state(window).is_some()
+    // Not while an export runs: `run(Export)` iterates the main loop, so the command is
+    // reachable mid-export and a second one would nest inside the first.
+    let exporting = crate::winstate::chrome(window).is_some_and(|c| c.export_op.borrow().is_some());
+    state(window).is_some() && !exporting
 }
 
 /// Drive the sensitivity of `win.export` from the one gate above.

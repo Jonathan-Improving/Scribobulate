@@ -24,6 +24,11 @@ pub(crate) fn refresh_annotations(window: &ApplicationWindow) {
     let Some(st) = state(window) else { return };
     let md = st.shown_source(current_mode(window));
     let entries = extract_entries(&md);
+    // The heading counts the same list the rows are built from, at the same choke
+    // point, so it cannot disagree with them (TDD 20.22, Derived-view CAM row 3).
+    st.chrome()
+        .annotations_title
+        .set_label(&crate::annotations::heading(entries.len()));
     // Re-select the previously activated annotation by IDENTITY (src_span start) if it
     // still exists, so the panel keeps its selection across the rebuild; the initial
     // selection is applied inside build_annotations_content *before* the navigation

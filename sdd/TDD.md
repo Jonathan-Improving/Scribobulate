@@ -17,11 +17,11 @@
 | 13 | Preview zoom | 13.1 – 13.12 |
 | 14 | Show Unsafe Images | 14.1 – 14.10 |
 | 15 | Tabbed documents | 15.1 – 15.22 |
-| 16 | Keyboard-shortcuts help & status surfaces | 16.1 – 16.9 |
+| 16 | Keyboard-shortcuts help & status surfaces | 16.1 – 16.17 |
 | 17 | Annotation & review (CriticMarkup) | 17.1 – 17.53 |
 | 18 | Preview reading themes | 18.1 – 18.58 |
 | 19 | Local document-link navigation | 19.1 – 19.13 |
-| 20 | Annotations viewer | 20.1 – 20.18 |
+| 20 | Annotations viewer | 20.1 – 20.22 |
 | 21 | Crash forensics | 21.1 – 21.12 |
 | 22 | Crash recovery (swap files) | 22.1 – 22.18 |
 | 23 | Back / Forward navigation history | 23.1 – 23.14 |
@@ -470,7 +470,7 @@
 ### 2.22 Hovering a link reveals its target
 - **Given** a rendered document containing a hyperlink whose caption differs from its URL
 - **When** the pointer rests over the link text
-- **Then** a tooltip shows the link's URL, so the reader can see where a link leads before committing to a click (a Markdown document is untrusted content — TDD 2.7); hovering ordinary, non-link text shows no tooltip, and existing tooltips on rendered content (e.g. an image placeholder's) are unaffected
+- **Then** the link's URL shows in a tooltip **and** in the status bar (16.14), so the reader can see where a link leads before committing to a click (a Markdown document is untrusted content — TDD 2.7); hovering ordinary, non-link text shows no tooltip, and existing tooltips on rendered content (e.g. an image placeholder's) are unaffected
 
 ### 2.17 Same-document anchor links scroll to their heading
 - **Given** a rendered document with a link whose target is a bare fragment (e.g. `[Skill loading](#2-skill-loading)`) and a heading whose GitHub-style slug matches
@@ -2167,7 +2167,7 @@
 - **And** a shortcut is announced as a shortcut rather than as part of the control's name
 
 ### 16.8 A timed status notice clears from the window that showed it
-- **Given** a transient status-bar notice is up in a window (a "File reloaded"/"File saved" announcement, a link-navigation error, or "File deleted on disk"), and it clears itself after a few seconds
+- **Given** a transient status-bar notice is up in a window (a "File reloaded"/"File saved" announcement, a "Document copied" confirmation, or a link-navigation error — a lost file is not one of them, since it stays reported while it lasts, 16.16), and it clears itself after a few seconds
 - **When** the tab that raised it is dragged to another window, or closed, before the notice's time is up
 - **Then** the notice still clears from the window it appeared in, leaving that window's persistent status (§4.4) intact underneath — it is never left on screen permanently, and it never appears in the window the tab moved to
 
@@ -2177,6 +2177,52 @@
 - **When** the user opens the menu containing it
 - **Then** that item shows the command's shortcut beside its label, in the platform's own spelling (Cmd on macOS, Ctrl elsewhere), and the key shown is the key that command is actually bound to — agreeing with the shortcuts window (§16.2) and the toolbar tooltip (§16.4), the other two discoverability surfaces
 - **And** a command that has no shortcut shows no hint, so a blank is information rather than an omission
+
+### 16.10 Messages on the left, indicators on the right
+- **Given** a window with the status bar shown
+- **Then** messages — the status line, notices, a hovered link's target, export progress — sit at the left, and each indicator is a separate item grouped at the right edge in the order word count, zoom, line and column, line endings
+- **And** a long message is shortened with an ellipsis and never displaces or hides an indicator
+- **And** hiding the status bar (9.17) hides them all
+
+### 16.11 The status bar counts the document's words
+- **Given** a document in any view mode
+- **When** the user types, the document reloads, or the user switches tabs
+- **Then** the right side shows the word count of the document's readable text, updated promptly — Markdown syntax, link and image addresses, image descriptions and annotation comments are not words, while the text an annotation highlights is — and its tooltip gives the character count
+- **And given** text is selected in either pane, a table cell included
+- **Then** it shows "N of M words" for the selection
+
+### 16.12 The status bar shows the zoom level
+- **Given** a preview is visible
+- **Then** the zoom level shows as a percentage and follows every zoom change — menu, keys and wheel (13.12)
+- **When** the user clicks it
+- **Then** the zoom resets to 100% exactly as View ▸ Reset Zoom does
+- **And given** Edit mode, **Then** it is hidden
+
+### 16.13 The status bar shows the document's line endings
+- **Given** a document
+- **Then** the status bar shows `LF`, `CRLF` or `Mixed`, following edits, reloads and tab switches
+- **And** a new document shows `LF` on every platform: the indicator describes the document, not the computer, and a new document's line breaks are line feeds wherever it is saved
+
+### 16.14 A link's target shows in the status bar while hovered
+- **Given** the pointer rests over a link in the preview
+- **Then** its URL shows in the message area, and clears the moment the pointer leaves the link, leaving the underlying status intact
+- **And** moving from one link to another replaces the target rather than stacking a second
+
+### 16.15 Quiet commands are acknowledged
+- **When** Copy Document, Copy Link Location or Rename succeeds
+- **Then** a brief message — "Document copied", "Link location copied", "Renamed to <name>" — appears in the status bar and clears itself after a few seconds
+
+### 16.16 A lost file stays reported while it is lost
+- **Given** the active document's file is deleted or emptied on disk
+- **Then** the status bar says so for as long as that remains true — not for a few seconds — and stops the moment the file returns or the document is saved
+- **And** switching tabs shows each tab's own state
+- **And given** live reload could not watch a document's file, **Then** the status bar says live reload is off for it, wherever the application can tell
+
+### 16.17 Status-bar indicators have accessible names
+- **Given** a screen reader is active
+- **When** focus or review reaches an indicator
+- **Then** it announces what the indicator is along with its value ("Word count, 1,234 words", "Zoom 110%, reset to 100%")
+- **And** indicators do not announce every change — only the message area is a live status region (16.5)
 
 ### 16.6 Online Markdown reference is reachable from Help
 - **Given** any open window
@@ -3085,6 +3131,11 @@ appearance that predates the feature; `Sepia` is the book-like reading theme.
 - **And** with only one section shown there is no divider at all — that section fills the sidebar (20.9), and a window-height change is shared between the two rather than taken entirely from one
 - **And** the state persists across app restarts — each window remembers its own divider position, restored with that window's session; it is stored as a *fraction* of the sidebar's height, so a window restored at a different height keeps the reader's ratio rather than a stale pixel count. A session predating the field, or one whose value is corrupt, restores to the even split rather than to a jammed divider
 
+### 20.22 The annotations viewer's heading counts the annotations
+- **Given** a document with annotations
+- **Then** the viewer's heading reads "Annotations (N)" and follows adds, edits, removals, undo, reloads and tab switches
+- **And given** a document with none, **Then** it reads "Annotations"
+
 ## 21. Crash forensics
 
 > These rubrics cover what the application leaves behind when it dies. They exist
@@ -3639,8 +3690,10 @@ up doing.
 
 ### 25.23 A long export reports progress and can be cancelled
 - **Given** a document long enough that the export crosses the responsiveness threshold
-- **Then** an indicator appears in the **status bar** — not a dialog — driven by pages completed and triggered by **elapsed time**, never by a page count
+- **Then** an indicator appears in the **status bar** — not a dialog — reading "Exporting page P of N…" with a progress bar and a Cancel button in the message area, driven by pages completed and triggered by **elapsed time**, never by a page count
+- **And** the window stays responsive enough to repaint the indicator and to press Cancel
 - **And** the reader can cancel it, which stops after the current page and leaves the destination as 25.21 requires
+- **And** while it runs Export is unavailable, and closing the tab or the window cancels the export first
 
 ### 25.24 A destination another process holds open fails by name
 - **Given** an export destination that another process holds open — the ordinary case being a PDF still open in a viewer

@@ -204,6 +204,13 @@ fn perform_rename(window: &ApplicationWindow, tab: &Rc<TabState>, new_name: Stri
                     old_for_recovery.display(),
                     new_path.display()
                 );
+                // Acknowledged, because the only other trace of a rename is a changed
+                // title (TDD 16.15). Through the chrome, so it clears from the window
+                // it appeared in whatever the tab does next.
+                tab.chrome().push_timed_notice(
+                    &crate::winstate::statusbar::renamed_text(&new_path),
+                    super::toast::INFO_STATUS_TIME,
+                );
                 // One call re-points the path, starts a fresh monitor on the NEW name
                 // and resets the self-delete guard — the existing choke point for
                 // "this document's identity changed", shared with Save As so the two

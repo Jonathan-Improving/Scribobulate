@@ -732,6 +732,10 @@ pub(crate) fn wire_annotation_overlay(
                 // single source of truth so the popover and the action never diverge.
                 if let Some(win) = crate::window::host_window(&v) {
                     crate::window::update_annotate_action_state(&win);
+                    // The same selection change re-derives the status bar's selection
+                    // word count, including a table cell's, which no buffer signal
+                    // reports (TDD 16.11, ScrAP-110).
+                    crate::window::schedule_selection_count(&win);
                 }
                 // Marker popover open (table-cell annotation): a table-cell selection stays
                 // live when its margin marker is clicked, so the create popover must stay
