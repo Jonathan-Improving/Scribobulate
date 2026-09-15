@@ -1598,9 +1598,9 @@ Severity: High
 
 **Root cause**: two, and the second is the general one. The test corpus made the counted structure trivially small, so a linear and a logarithmic lookup performed identically. More fundamentally, the regression being guarded did its work **inside the standard library** (`str::find` scanning the source), which no counter in the project can reach: a reintroduction ticks the counter exactly as often as correct code, leaving the ratio linear while the run takes minutes.
 
-**Resolution**: keep the **absolute** ceiling, which has wide headroom, has never flaked, and is what actually catches the regression; remove the wall-clock **ratio**, whose signal and noise envelope overlap; and address the flake by raising the SAMPLE COUNT on noisy machines rather than the threshold, since the estimator is the minimum of N draws and additive noise only needs more draws to find the same floor.
+**Resolution**: keep the **absolute** ceiling, which has wide headroom, has never flaked, and is what actually catches the regression; keep the ratio but time **equal work** on both sides (one `k·n` run vs `k` runs of `n`), so run-time-proportional noise cancels. More samples cannot fix it: a sample longer than a scheduler slice is preempted on every draw (MEASURED 10/10 at 8.0x; `src/testtiming.rs`).
 
-**Lesson**: "count operations, not time" is right only where the operations that scale are **yours**. Before replacing a timing oracle with a counting one, ask where the work in the regression actually happens — if it is behind an API you do not instrument, the counter measures call frequency, which was never in question. A guard that cannot fail is worse than the flaky one it replaced.
+**Lesson**: "count operations, not time" is right only where the operations that scale are **yours**. Before replacing a timing oracle with a counting one, ask where the work in the regression actually happens — if it is behind an API you do not instrument, the counter measures call frequency, which was never in question. A guard that cannot fail is worse than the flaky one it replaced (GEP-77).
 
 **Cost**: an implementation, a mutation test, and a revert — cheap, and only because the mutation was run. Recorded because the reasoning is persuasive enough to be re-attempted. — Severity: Low
 

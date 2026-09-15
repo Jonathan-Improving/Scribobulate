@@ -66,16 +66,25 @@ pub(crate) fn user_config_dir() -> Option<PathBuf> {
         .clone()
 }
 
-/// POSIX fallback: `~/.config`, per the XDG Base Directory spec.
-#[cfg(unix)]
+/// The platform fallback, read from the process environment.
 fn config_home_fallback() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config"))
+    config_home_fallback_in(|var| std::env::var_os(var))
+}
+
+/// POSIX fallback: `~/.config`, per the XDG Base Directory spec.
+///
+/// Takes the environment as a lookup rather than reading it, so a test can assert the
+/// convention: `.cargo/config.toml` pins `XDG_CONFIG_HOME`, so under Cargo this path is
+/// never reached and nothing else would ever exercise it.
+#[cfg(unix)]
+fn config_home_fallback_in(env: impl Fn(&str) -> Option<std::ffi::OsString>) -> Option<PathBuf> {
+    env("HOME").map(|h| PathBuf::from(h).join(".config"))
 }
 
 /// Windows fallback: **Roaming** AppData, deliberately not Local. Configuration is
 /// the user's stated preferences — themes, view defaults, outline settings — which
 /// should follow them between machines. Session *state* takes the opposite decision;
-/// see `session::state_home_fallback`.
+/// see `session::state_home_fallback_in`.
 ///
 /// Hand-rolled from `std::env` rather than `glib::user_config_dir()` for the reason
 /// in this module's doc comment above: that call is banned project-wide
@@ -83,10 +92,10 @@ fn config_home_fallback() -> Option<PathBuf> {
 /// with GTK's compose table. The ban is unconditional, and this branch keeps it that
 /// way rather than carving out a platform exception.
 #[cfg(windows)]
-fn config_home_fallback() -> Option<PathBuf> {
-    std::env::var_os("APPDATA").map(PathBuf::from).or_else(|| {
-        std::env::var_os("USERPROFILE").map(|p| PathBuf::from(p).join("AppData").join("Roaming"))
-    })
+fn config_home_fallback_in(env: impl Fn(&str) -> Option<std::ffi::OsString>) -> Option<PathBuf> {
+    env("APPDATA")
+        .map(PathBuf::from)
+        .or_else(|| env("USERPROFILE").map(|p| PathBuf::from(p).join("AppData").join("Roaming")))
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -315,6 +324,43 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::Config;
+
+    /// The fallback follows the host's convention. Driven through a fake environment
+    /// because the real one has `XDG_CONFIG_HOME` pinned, which makes the fallback
+    /// unreachable from every other test — its coverage used to come from whichever
+    /// host happened to run the suite. Each platform asserts its own convention.
+    #[test]
+    fn the_config_fallback_follows_the_platform_convention() {
+        use std::ffi::OsString;
+        use std::path::PathBuf;
+        let env = |vars: &'static [(&'static str, &'static str)]| {
+            move |var: &str| {
+                vars.iter()
+                    .find(|(k, _)| *k == var)
+                    .map(|(_, v)| OsString::from(v))
+            }
+        };
+        let fallback = |vars| super::config_home_fallback_in(env(vars));
+
+        assert_eq!(fallback(&[]), None, "no base variable, no directory");
+        if cfg!(windows) {
+            assert_eq!(
+                fallback(&[("APPDATA", "roaming"), ("USERPROFILE", "profile")]),
+                Some(PathBuf::from("roaming")),
+                "APPDATA wins"
+            );
+            assert_eq!(
+                fallback(&[("USERPROFILE", "profile")]),
+                Some(PathBuf::from("profile").join("AppData").join("Roaming")),
+                "without APPDATA, the profile's Roaming directory"
+            );
+        } else {
+            assert_eq!(
+                fallback(&[("HOME", "home")]),
+                Some(PathBuf::from("home").join(".config"))
+            );
+        }
+    }
 
     #[test]
     fn defaults_are_sane() {

@@ -781,24 +781,30 @@ pub(crate) fn create_state_dir(dir: &Path) -> std::io::Result<()> {
     }
 }
 
-/// POSIX fallback: `~/.local/state`, per the XDG Base Directory spec.
-#[cfg(unix)]
+/// The platform fallback, read from the process environment.
 fn state_home_fallback() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local/state"))
+    state_home_fallback_in(|var| std::env::var_os(var))
+}
+
+/// POSIX fallback: `~/.local/state`, per the XDG Base Directory spec.
+///
+/// Takes the environment as a lookup so a test can assert the convention —
+/// `.cargo/config.toml` pins `XDG_STATE_HOME`, so no other test reaches this.
+#[cfg(unix)]
+fn state_home_fallback_in(env: impl Fn(&str) -> Option<std::ffi::OsString>) -> Option<PathBuf> {
+    env("HOME").map(|h| PathBuf::from(h).join(".local").join("state"))
 }
 
 /// Windows fallback: **Local** AppData, deliberately not Roaming. Session state is
 /// window geometry, open tabs and per-monitor layout — machine-specific things that
 /// should not follow a roaming profile onto a different machine with a different
 /// screen setup. User *configuration* takes the opposite decision; see
-/// `config::config_home_fallback`.
+/// `config::config_home_fallback_in`.
 #[cfg(windows)]
-fn state_home_fallback() -> Option<PathBuf> {
-    std::env::var_os("LOCALAPPDATA")
+fn state_home_fallback_in(env: impl Fn(&str) -> Option<std::ffi::OsString>) -> Option<PathBuf> {
+    env("LOCALAPPDATA")
         .map(PathBuf::from)
-        .or_else(|| {
-            std::env::var_os("USERPROFILE").map(|p| PathBuf::from(p).join("AppData").join("Local"))
-        })
+        .or_else(|| env("USERPROFILE").map(|p| PathBuf::from(p).join("AppData").join("Local")))
 }
 
 /// Parse on-disk TOML text into a [`Session`], transparently migrating older
@@ -937,6 +943,42 @@ pub(crate) fn with_state_home_for_test<T>(dir: &std::path::Path, f: impl FnOnce(
 
 #[cfg(test)]
 mod tests {
+
+    /// The fallback follows the host's convention, through a fake environment — the
+    /// real one has `XDG_STATE_HOME` pinned, so nothing else reaches it. Each platform
+    /// asserts its own convention.
+    #[test]
+    fn the_state_fallback_follows_the_platform_convention() {
+        use std::ffi::OsString;
+        use std::path::PathBuf;
+        let env = |vars: &'static [(&'static str, &'static str)]| {
+            move |var: &str| {
+                vars.iter()
+                    .find(|(k, _)| *k == var)
+                    .map(|(_, v)| OsString::from(v))
+            }
+        };
+        let fallback = |vars| super::state_home_fallback_in(env(vars));
+
+        assert_eq!(fallback(&[]), None, "no base variable, no directory");
+        if cfg!(windows) {
+            assert_eq!(
+                fallback(&[("LOCALAPPDATA", "local"), ("USERPROFILE", "profile")]),
+                Some(PathBuf::from("local")),
+                "LOCALAPPDATA wins"
+            );
+            assert_eq!(
+                fallback(&[("USERPROFILE", "profile")]),
+                Some(PathBuf::from("profile").join("AppData").join("Local")),
+                "without LOCALAPPDATA, the profile's Local directory"
+            );
+        } else {
+            assert_eq!(
+                fallback(&[("HOME", "home")]),
+                Some(PathBuf::from("home").join(".local").join("state"))
+            );
+        }
+    }
 
     /// The state directory is private to its owner, and an over-permissive one is
     /// tightened (QA round 5, M-6's Linux half).

@@ -202,14 +202,11 @@ jobs:
     env:
       RUST_BACKTRACE: "1"
       # A hosted runner is a shared vCPU, and the two growth-ratio guards in this tree
-      # measure an algorithmic exponent with a wall clock. Both failed here at 8.6x and
-      # 8.7x against a threshold of 8.0 with the code correct -- ordinary scheduling
-      # noise, not a regression. This raises the SAMPLE COUNT, never the threshold: the
-      # guards take the MINIMUM of N draws, timing noise is strictly additive, so a noisy
-      # machine needs more draws to find the same floor rather than a looser bound. A
-      # threshold that cleared 8.6 would sit inside the quadratic band it exists to
-      # catch. The override announces itself in the log, so a green run here is never
-      # mistakable for a green run at the default. See src/testtiming.rs.
+      # time an algorithm with a wall clock. They compare equal amounts of work, so noise
+      # that scales with run time cancels; what is left strikes single draws, and each
+      # side keeps its MINIMUM draw, so a noisy machine gets more draws rather than a
+      # looser bound. The override announces itself in the log, so a green run here is
+      # never mistakable for a green run at the default. See src/testtiming.rs.
       SCRIBTEST_TIMING_SAMPLES: "25"
     steps:
       - uses: actions/checkout@v4
@@ -332,14 +329,11 @@ jobs:
     env:
       RUST_BACKTRACE: "1"
       # A hosted runner is a shared vCPU, and the two growth-ratio guards in this tree
-      # measure an algorithmic exponent with a wall clock. Both failed here at 8.6x and
-      # 8.7x against a threshold of 8.0 with the code correct -- ordinary scheduling
-      # noise, not a regression. This raises the SAMPLE COUNT, never the threshold: the
-      # guards take the MINIMUM of N draws, timing noise is strictly additive, so a noisy
-      # machine needs more draws to find the same floor rather than a looser bound. A
-      # threshold that cleared 8.6 would sit inside the quadratic band it exists to
-      # catch. The override announces itself in the log, so a green run here is never
-      # mistakable for a green run at the default. See src/testtiming.rs.
+      # time an algorithm with a wall clock. They compare equal amounts of work, so noise
+      # that scales with run time cancels; what is left strikes single draws, and each
+      # side keeps its MINIMUM draw, so a noisy machine gets more draws rather than a
+      # looser bound. The override announces itself in the log, so a green run here is
+      # never mistakable for a green run at the default. See src/testtiming.rs.
       SCRIBTEST_TIMING_SAMPLES: "25"
     steps:
       - uses: actions/checkout@v4
@@ -445,14 +439,11 @@ jobs:
     env:
       RUST_BACKTRACE: "1"
       # A hosted runner is a shared vCPU, and the two growth-ratio guards in this tree
-      # measure an algorithmic exponent with a wall clock. Both failed here at 8.6x and
-      # 8.7x against a threshold of 8.0 with the code correct -- ordinary scheduling
-      # noise, not a regression. This raises the SAMPLE COUNT, never the threshold: the
-      # guards take the MINIMUM of N draws, timing noise is strictly additive, so a noisy
-      # machine needs more draws to find the same floor rather than a looser bound. A
-      # threshold that cleared 8.6 would sit inside the quadratic band it exists to
-      # catch. The override announces itself in the log, so a green run here is never
-      # mistakable for a green run at the default. See src/testtiming.rs.
+      # time an algorithm with a wall clock. They compare equal amounts of work, so noise
+      # that scales with run time cancels; what is left strikes single draws, and each
+      # side keeps its MINIMUM draw, so a noisy machine gets more draws rather than a
+      # looser bound. The override announces itself in the log, so a green run here is
+      # never mistakable for a green run at the default. See src/testtiming.rs.
       SCRIBTEST_TIMING_SAMPLES: "25"
       # The GTK pin. Bump this line to move GTK; nothing else in this job names a version.
       GVSBUILD_VERSION: "2026.8.0"

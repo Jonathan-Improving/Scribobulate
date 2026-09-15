@@ -646,17 +646,16 @@ mod tests {
     /// After indexing the delimiters once per pass: 64 KiB 0.3 ms, 512 KiB
     /// 2.1 ms, 2 MiB 8.5 ms (release) / 92 ms (debug) — 2× per doubling.
     ///
-    /// **Asserted as a RATIO, not a wall-clock bound.** A machine-speed
-    /// threshold is either flaky on a loaded CI box or so generous it stops
-    /// discriminating; the growth exponent is the property that actually
-    /// regressed, and it is machine-independent. Quadratic would be ~16× for 4×
-    /// the input, linear ~4×; the assertion allows up to 8×, which no linear
-    /// implementation approaches and no quadratic one survives. The base input
-    /// is large enough (256 KiB) that timer granularity is not a factor.
-    ///
-    /// **Each sample is a best-of-N**, because a ratio between two single wall-clock
-    /// draws is only as stable as the noisier of the two — see `time_extract` below.
-    /// A ratio being machine-INDEPENDENT does not make it load-independent.
+    /// **Asserted as a growth between DURATION-MATCHED samples, not a wall-clock
+    /// bound.** A machine-speed threshold is either flaky on a loaded CI box or so
+    /// generous it stops discriminating; the growth exponent is the property that
+    /// actually regressed. One 1024 KiB run is compared against eight 128 KiB runs —
+    /// the same work, so linear reads ~1× and quadratic ~8×. It used to compare
+    /// 1024 KiB against ONE 256 KiB run at a threshold of 8×, and that went red on
+    /// correct code 10 runs in 10 with a single busy loop sharing its core: a sample
+    /// longer than a scheduler slice is preempted on every draw while a shorter one
+    /// is not, so the ratio doubled to exactly 8.0 and best-of-N could not help.
+    /// `crate::testtiming` carries the measurement.
     ///
     /// **Parameterised over [`PAIRS`], and over two input SHAPES, because the
     /// first version of this guard was not** (`ScrAP-220`). It built its
@@ -682,69 +681,48 @@ mod tests {
         /// to fail, so two copies could disagree about what "too slow" means.
         const LINEAR_CEILING: std::time::Duration = std::time::Duration::from_millis(3000);
 
-        /// Best-of-N cost of one `extract` pass, N from `crate::testtiming`.
-        ///
-        /// The **minimum**, not a single sample and not a mean, because timing noise on
-        /// a shared machine is strictly ADDITIVE: preemption, cache eviction and
-        /// frequency scaling can only make a run slower than the work actually costs,
-        /// never faster. The floor of the observed distribution is therefore the
-        /// estimate of the noise-free cost, while one sample is a single arbitrary draw
-        /// from a right-skewed one — and a mean would fold the outliers back in, which
-        /// is precisely what a ratio between two samples must not do. It also discards
-        /// first-call warm-up for free, since later iterations run warm.
-        ///
-        /// The ratio assertion below is what makes this necessary. A slow draw on
-        /// `large` inflates the ratio with no algorithmic change at all, and that
-        /// reddened a full parallel test run (~1 in 5, under a concurrent release
-        /// build) with the code correct. The absolute ceiling never flaked; only the
-        /// ratio did. Sampling is the fix rather than a looser threshold, because
-        /// widening the threshold trades the flake for exactly the discriminating power
-        /// the guard exists to have.
-        fn time_extract(src: &str) -> std::time::Duration {
-            crate::testtiming::best_of(
-                || {
-                    let e = extract(src);
-                    // Consume the result so nothing can be optimised away. Only the
-                    // no-closer shape has a pinnable output (see the caller); the
-                    // with-closer shape's output differs per pair, so all this asserts
-                    // is that extraction stays a lossless-or-shrinking transform.
-                    assert!(e.cleaned.len() <= src.len());
-                    assert!(e.annotations.len() <= 1);
-                },
-                // Stop as soon as one sample is already past the ceiling — the failure
-                // case must not cost more than the bug it reports. Sound here because
-                // the ceiling has ~66x headroom over the linear cost; the shared helper
-                // documents why it must not be reused for a tight bound.
-                |best| best > LINEAR_CEILING,
-            )
+        const SPAN: u32 = 8;
+
+        /// One `extract` pass, its result consumed so nothing can be optimised away.
+        /// Only the no-closer shape has a pinnable output (see below); the with-closer
+        /// shape's output differs per pair, so all this asserts is that extraction stays
+        /// a lossless-or-shrinking transform.
+        fn run(src: &str) {
+            let e = extract(src);
+            assert!(e.cleaned.len() <= src.len());
+            assert!(e.annotations.len() <= 1);
+        }
+
+        /// Growth of one `large` pass over `SPAN` `small` passes. A draw past the ceiling
+        /// stops sampling — the failure case must not cost more than the bug it reports.
+        /// Sound here because the ceiling has ~66x headroom over the linear cost.
+        fn growth(small: &str, large: &str) -> crate::testtiming::Growth {
+            crate::testtiming::matched_growth(SPAN, || run(small), || run(large), LINEAR_CEILING)
         }
 
         for (open, close) in PAIRS {
             // Shape A: openers only. The closer is never found, so the failure
             // is in the closer lookup itself.
             let repeats = |kib: usize| open.repeat(kib * 1024 / open.len());
-            let bare_small = time_extract(&repeats(256));
-            let bare_large = time_extract(&repeats(1024)); // 4x the input
+            let bare = growth(&repeats(128), &repeats(1024));
 
             // Shape B: the same openers with ONE closer at the end. Now the
             // closer resolves for every opener, so each one is parsed further —
             // this is the shape that reaches `{~~`'s arrow scan, and the shape
             // the original guard had no analogue of.
             let closed = |kib: usize| repeats(kib) + close;
-            let closed_small = time_extract(&closed(256));
-            let closed_large = time_extract(&closed(1024));
+            let closed = growth(&closed(128), &closed(1024));
 
-            for (shape, small, large) in [
-                ("openers only", bare_small, bare_large),
-                ("openers + one closer", closed_small, closed_large),
-            ] {
-                let ratio = large.as_secs_f64() / small.as_secs_f64().max(1e-9);
+            for (shape, growth) in [("openers only", bare), ("openers + one closer", closed)] {
+                let crate::testtiming::Growth { small, large, .. } = growth;
                 assert!(
-                    ratio < 8.0,
-                    "`{open}` … `{close}` ({shape}): extraction time grew \
-                     {ratio:.1}x for 4x the input ({small:?} -> {large:?}). \
-                     Linear is ~4x, quadratic ~16x — this looks like the \
-                     scan-per-opener regression (QA R3 D-2) has come back."
+                    growth.is_linear(),
+                    "`{open}` … `{close}` ({shape}): one 1024 KiB extraction cost \
+                     {ratio:.1}x eight 128 KiB ones ({small:?} -> {large:?}, limit \
+                     {limit:.2}). Linear is ~1x, quadratic ~{SPAN}x — this looks like \
+                     the scan-per-opener regression (QA R3 D-2) has come back.",
+                    ratio = growth.ratio(),
+                    limit = growth.limit(),
                 );
                 // A ratio alone can be defeated by a CONSTANT-FACTOR speedup on
                 // a still quadratic algorithm (qa's point): make it 4x faster

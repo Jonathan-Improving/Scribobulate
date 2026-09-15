@@ -630,48 +630,38 @@ mod normalize_inline_tabs_tests {
     /// 200 KiB 5.89 s, 400 KiB 23.8 s — 4x per doubling. After carrying the
     /// predicate forward as one bit of state: 400 KiB 0.7 ms, 4 MiB 6.4 ms.
     ///
-    /// Asserted as a growth RATIO for the same reason as the sibling guard in
-    /// `annotate::scan` — the exponent is the property that regressed and it is
-    /// machine-independent, where a wall-clock bound is either flaky or blind.
+    /// Asserted as the growth between two DURATION-MATCHED samples — one 512 KiB run
+    /// against eight 64 KiB runs — for the reason `crate::testtiming` records: a ratio
+    /// between samples of different lengths reads the scheduler, and this guard went red
+    /// on correct code that way.
     #[test]
     fn tab_normalisation_over_a_single_enormous_line_grows_linearly() {
         /// Absolute ceiling for the 512 KiB input, shared by the sampler's early exit
         /// and the assertion below so the two cannot disagree about "too slow".
         const LINEAR_CEILING: std::time::Duration = std::time::Duration::from_millis(3000);
+        const SPAN: u32 = 8;
 
-        /// Best-of-N, N from `crate::testtiming`.
-        ///
-        /// This guard took a SINGLE draw until a hosted CI runner failed it at 8.7x
-        /// against a threshold of 8.0 with the code correct. Its sibling in
-        /// `annotate::scan` had grown a documented best-of-5 sampler for exactly this
-        /// reason and this one never inherited it — a remedy written into one of two
-        /// consumers, which is why the sampler now lives in a shared module instead of
-        /// inside whichever guard was fixed first.
-        fn time_norm(kib: usize) -> std::time::Duration {
-            let src = "\t".repeat(kib * 1024);
-            crate::testtiming::best_of(
-                || {
-                    let out = normalize_inline_tabs(&src);
-                    // Consume the result, and pin the BEHAVIOUR: every one of these
-                    // tabs is leading whitespace on its (single, endless) line, so not
-                    // one of them is rewritten.
-                    assert_eq!(out.len(), src.len());
-                    assert!(!out.contains(' '), "leading tabs must not be rewritten");
-                },
-                // Pre-fix cost here was tens of seconds against a post-fix ~5 ms, so a
-                // draw past the ceiling is a regression rather than a slow sample.
-                |best| best > LINEAR_CEILING,
-            )
-        }
-
-        let small = time_norm(128);
-        let large = time_norm(512); // 4x the input
-        let ratio = large.as_secs_f64() / small.as_secs_f64().max(1e-9);
+        let run = |src: &str| {
+            let out = normalize_inline_tabs(src);
+            // Consume the result, and pin the BEHAVIOUR: every one of these tabs is
+            // leading whitespace on its (single, endless) line, so not one is rewritten.
+            assert_eq!(out.len(), src.len());
+            assert!(!out.contains(' '), "leading tabs must not be rewritten");
+        };
+        let small = "\t".repeat(64 * 1024);
+        let large = "\t".repeat(512 * 1024);
+        // Pre-fix cost here was tens of seconds against a post-fix ~5 ms, so a draw past
+        // the ceiling is a regression rather than a slow sample.
+        let growth =
+            crate::testtiming::matched_growth(SPAN, || run(&small), || run(&large), LINEAR_CEILING);
+        let crate::testtiming::Growth { small, large, .. } = growth;
         assert!(
-            ratio < 8.0,
-            "normalisation grew {ratio:.1}x for 4x the input ({small:?} -> \
-             {large:?}). Linear is ~4x, quadratic ~16x — this looks like the \
-             per-tab backwards line walk (QA R3 D-3) has come back."
+            growth.is_linear(),
+            "one 512 KiB normalisation cost {ratio:.1}x eight 64 KiB ones ({small:?} -> \
+             {large:?}, limit {limit:.2}). Linear is ~1x, quadratic ~{SPAN}x — this looks \
+             like the per-tab backwards line walk (QA R3 D-3) has come back.",
+            ratio = growth.ratio(),
+            limit = growth.limit(),
         );
         // A ratio alone can be defeated by a CONSTANT-FACTOR speedup on a still
         // quadratic algorithm (qa's point): make it 4x faster and the ratio
