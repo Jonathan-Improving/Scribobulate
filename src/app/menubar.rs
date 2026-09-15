@@ -838,6 +838,16 @@ mod tests {
         );
     }
 
+    /// The shipped Edit menu offers Cut, Copy and Paste (TDD 9.37) — walked off the
+    /// model itself, so a Paste that leaves the menu by any route fails here.
+    #[test]
+    fn the_menu_bar_offers_cut_copy_and_paste() {
+        let present: BTreeSet<String> = menu_actions().into_iter().collect();
+        for action in ["win.cut", "win.copy", "win.paste"] {
+            assert!(present.contains(action), "no menu-bar item drives {action}");
+        }
+    }
+
     /// TDD 27.5: Play Animations sits beside Show Unsafe Images (same section) and
     /// targets `app.play-animations` — walked off the model itself, not a mirror of
     /// it, for the same reason [`menu_actions`] is (a guard whose input is a copy of

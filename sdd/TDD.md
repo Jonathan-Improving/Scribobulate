@@ -967,12 +967,12 @@
 ### 7.12 A tab's right-click context menu offers per-tab commands
 - **Given** any tab in the strip
 - **When** the user right-clicks it
-- **Then** a context menu appears with Save, Save As, Close Tab, Close Other Tabs, Move to New Window, Copy Full Path, Reload, and Rename, each acting on THAT tab specifically (not necessarily the active one) — Close Other Tabs is disabled when it is the window's only tab, and Move to New Window is disabled under the same single-tab condition View ▸ Move Tab to New Window already uses (TDD 15.4)
+- **Then** a context menu appears with Save, Save As, Close Tab, Close Other Tabs, Move to New Window, Copy Full Path, Copy Document, Reload, and Rename, each acting on THAT tab specifically (not necessarily the active one) — Close Other Tabs is disabled when it is the window's only tab, and Move to New Window is disabled under the same single-tab condition View ▸ Move Tab to New Window already uses (TDD 15.4)
 
 ### 7.13 The tab context menu is keyboard-navigable
 - **Given** a tab's right-click context menu is open, each row showing one letter underlined
 - **When** the user presses that bare letter (no modifier)
-- **Then** the corresponding command runs on that tab — `s` = Save, `a` = Save As, `c` = Close Tab, `o` = Close Other Tabs, `m` = Move to New Window, `f` = Copy Full Path, `r` = Reload, `n` = Rename — with each letter matching the access letter of the same command's File-menu (or View-menu, for Move to New Window) surface where one exists
+- **Then** the corresponding command runs on that tab — `s` = Save, `a` = Save As, `c` = Close Tab, `o` = Close Other Tabs, `m` = Move to New Window, `f` = Copy Full Path, `d` = Copy Document, `r` = Reload, `n` = Rename — with each letter matching the access letter of the same command's File-menu (or View-menu, for Move to New Window) surface where one exists and is not already taken in this menu
 - **And** a disabled row (Close Other Tabs on the window's only tab; Save on a clean tab with its backing file present) ignores its access key
 
 ### 7.14 Close Other Tabs prompts for dirty tabs sequentially
@@ -1428,6 +1428,14 @@
 - **And given** any other platform
 - **Then** the shortcuts are unchanged — Ctrl+S saves, and every surface reads "Ctrl"
 - **And** on no platform do two different commands share one keystroke
+
+### 9.37 Paste is on every Edit surface
+- **Given** any document
+- **When** the user looks at the Edit menu, the toolbar's Edit section and the editor's right-click context menu
+- **Then** each offers **Paste** beside Cut and Copy, and the three always agree on whether it is enabled
+- **And** Paste is disabled in preview-only mode, which has no editor to paste into, and enabled whenever the editor is visible (edit or split), whatever the clipboard holds
+- **When** the user invokes Paste from any of those surfaces
+- **Then** the clipboard's text is inserted at the editor caret, replacing any editor selection — the same result as Ctrl+V
 
 ## 10. Markdown formatting commands
 

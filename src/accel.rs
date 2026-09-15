@@ -25,11 +25,11 @@
 //! ## Why it is a SWAP and not a one-way rename
 //!
 //! The naive rewrite — `<Primary>` → `<Meta>` and nothing else — silently
-//! **collides**. `win.copy-document` is declared `<Primary><Meta><Alt>c`, where
-//! `<Meta>` is the Super key used purely to hold that command apart from
-//! `win.format::task-list`'s `<Primary><Alt>c`. Rewrite only `<Primary>` and both
-//! become `<Meta><Alt>c`: two commands, one keystroke, whichever GTK reaches
-//! first. Nothing warns.
+//! **collides** for any command that declares `<Meta>` beside `<Primary>`: a command
+//! declared `<Primary><Meta><Alt>c` next to another declared `<Primary><Alt>c` would
+//! both become `<Meta><Alt>c` — two commands, one keystroke, whichever GTK reaches
+//! first. Nothing warns. No descriptor declares `<Meta>` today; the swap is what keeps
+//! a future one from colliding.
 //!
 //! The two modifiers therefore swap, which is also what they *mean*: each
 //! platform has a primary command modifier (Ctrl on Linux/Windows, Command on
@@ -210,9 +210,9 @@ mod tests {
     /// it. `gtk_accelerator_parse` ORs each modifier into one `GdkModifierType`
     /// mask, so a repeated modifier collapses and order is irrelevant:
     /// `<Meta><Meta><Alt>c` and `<Meta><Alt>c` are two strings and one keystroke.
-    /// A one-way `<Primary>`→`<Meta>` rename produces precisely that pair from
-    /// `win.copy-document` and `win.format::task-list` — which is why the guard
-    /// must normalise before it compares.
+    /// A one-way `<Primary>`→`<Meta>` rename produces precisely that pair from a
+    /// `<Primary><Meta><Alt>c` and a `<Primary><Alt>c` declaration — which is why the
+    /// guard must normalise before it compares.
     ///
     /// Display-free by design: it models GTK's parse rather than calling it, so
     /// the guard stays a plain `cargo test` unit test with no display and no
@@ -262,8 +262,8 @@ mod tests {
         assert_eq!(map("<Alt><Shift>2", Platform::Mac), "<Alt><Shift>2");
         assert_eq!(map("F9", Platform::Mac), "F9");
         assert_eq!(map("", Platform::Mac), "");
-        // The collision case this whole module exists for: a one-way rename would
-        // fold this onto task-list's `<Primary><Alt>c`.
+        // The collision case the swap exists for: a one-way rename would fold a
+        // `<Primary><Meta><Alt>c` declaration onto a `<Primary><Alt>c` one.
         assert_eq!(
             map("<Primary><Meta><Alt>c", Platform::Mac),
             "<Meta><Primary><Alt>c"
@@ -336,9 +336,10 @@ mod tests {
     ///
     /// Compares [`keystroke`]s, never strings — see that function for why the
     /// string comparison this started as was permanently green.
-    /// MUTATION-CHECKED: deleting the `"<Meta>" => "<Primary>"` arm from [`map`]
-    /// (i.e. reverting to a one-way `<Primary>`→`<Meta>` rename) fails this test
-    /// on `Mac` with `win.copy-document` against `win.format::task-list`.
+    /// It only sees the descriptors as they are: no command declares `<Meta>` today, so
+    /// deleting the `"<Meta>" => "<Primary>"` arm from [`map`] does not fail it. That arm
+    /// is pinned by `mac_swaps_the_command_modifier_with_the_spare_one` instead, and this
+    /// test catches the collision the day a descriptor does declare `<Meta>`.
     #[test]
     fn bindings_are_unique_on_every_platform() {
         for platform in [Platform::Other, Platform::Mac] {

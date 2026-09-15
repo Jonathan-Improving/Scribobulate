@@ -333,9 +333,9 @@ mod tests {
 
     #[test]
     fn command_option_left_is_someone_elses_combination() {
-        // A `<Meta><Alt>` accelerator (this app declares several, e.g.
-        // `win.copy-document`'s `<Primary><Meta><Alt>c` family on other keys) must
-        // never be reinterpreted as word movement just because Option is held.
+        // A `<Meta><Alt>` accelerator — every declared `<Primary><Alt>` shortcut
+        // becomes one on macOS — must never be reinterpreted as word movement just
+        // because Option is held.
         assert_eq!(
             word_movement(Key::Left, ModifierType::ALT_MASK | ModifierType::META_MASK),
             None

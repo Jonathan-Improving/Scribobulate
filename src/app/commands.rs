@@ -236,7 +236,7 @@ pub(crate) const VIEW_CMDS: [ViewCmd; 3] = [
 /// reorder without reordering the section boxes to match.
 pub(crate) const TBTN_SECTION_IDS: [&str; 6] = ["file", "edit", "format", "view", "split", "zoom"];
 
-pub(crate) const EDIT_CMDS: [Cmd; 10] = [
+pub(crate) const EDIT_CMDS: [Cmd; 11] = [
     Cmd {
         action: "win.undo",
         label: "Undo",
@@ -269,16 +269,29 @@ pub(crate) const EDIT_CMDS: [Cmd; 10] = [
         section_start: false,
         is_toggle: false,
     },
+    // Paste into the editor at its caret. No declared accelerator, the same as Cut:
+    // Ctrl+V stays the text widget's own binding, as Ctrl+X does for Cut. Enabled
+    // whenever the editor is visible, never gated on what the clipboard holds.
+    Cmd {
+        action: "win.paste",
+        label: "Paste",
+        accel: "",
+        icon: Icon::EditPaste,
+        section_start: false,
+        is_toggle: false,
+    },
     // Copies the WHOLE document's raw Markdown source (never the rendered
     // preview text) to the clipboard, regardless of the tab's current view
     // mode — distinct from win.copy, which only ever copies the current
     // *selection* (operator-requested). Bundled
     // "copy-document-symbolic" icon (data/icons) — no standard "copy whole
     // document" icon exists on any common icon theme, researcher-verified.
+    // Ctrl+Shift+C (Cmd+Shift+C on macOS): Ctrl+Alt+C is Task List's, and a third
+    // modifier to tell them apart has no key most Linux and Windows keyboards press.
     Cmd {
         action: "win.copy-document",
         label: "Copy Document",
-        accel: "<Primary><Meta><Alt>c",
+        accel: "<Primary><Shift>c",
         icon: Icon::CopyDocument,
         section_start: false,
         is_toggle: false,
@@ -772,6 +785,21 @@ mod tests {
             for b in &INLINE_ACCEL_CMDS[i + 1..] {
                 assert_ne!(a.action, b.action, "duplicate inline action {:?}", a.action);
             }
+        }
+    }
+
+    /// Cut, Copy and Paste are Edit-table rows. The table is what builds the Edit menu,
+    /// the toolbar's Edit section and the editor's context menu, so a row missing here
+    /// is missing from all three at once — which is how Paste was absent from every
+    /// surface but the keyboard (TDD 9.37).
+    #[test]
+    fn the_edit_table_carries_cut_copy_and_paste() {
+        for action in ["win.cut", "win.copy", "win.paste"] {
+            assert!(
+                EDIT_CMDS.iter().any(|c| c.action == action),
+                "{action} is missing from EDIT_CMDS, so from the Edit menu, toolbar and \
+                 context menu"
+            );
         }
     }
 }

@@ -99,8 +99,11 @@ Before any change is considered valid, run these steps in order:
    INSIDE.**
 
    ```sh
-   xvfb-run -a dbus-run-session -- cargo test --features gtk-integration-tests
+   xvfb-run -a -s "-screen 0 1920x1080x24" dbus-run-session -- cargo test --features gtk-integration-tests
    ```
+
+   Keep the screen size: at `xvfb-run`'s default the suite trips a GTK critical that has
+   nothing to do with the change under test — `scripts/gtk-run.sh` records why.
 
    The reverse — `dbus-run-session -- xvfb-run …` — is the order that reads more
    naturally and it LEAKS. The bus then starts before the display exists, inherits the

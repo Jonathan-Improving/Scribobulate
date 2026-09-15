@@ -55,19 +55,21 @@ pub(crate) enum TabMenuItem {
     CloseOthers,
     MoveToNewWindow,
     CopyFullPath,
+    CopyDocument,
     Reload,
     Rename,
 }
 
 impl TabMenuItem {
     /// Every item this menu ships, in the order it presents them.
-    pub(crate) const ALL: [Self; 8] = [
+    pub(crate) const ALL: [Self; 9] = [
         Self::Save,
         Self::SaveAs,
         Self::Close,
         Self::CloseOthers,
         Self::MoveToNewWindow,
         Self::CopyFullPath,
+        Self::CopyDocument,
         Self::Reload,
         Self::Rename,
     ];
@@ -86,7 +88,8 @@ impl TabMenuItem {
     /// "Save", "Save As…", "Close Tab", "Move to New Window" and "Reload" reuse their
     /// menu-bar marks so the letters match; "Copy Full Path" uses `F` to match the
     /// `win.copy-path` accelerator; `S`/`A`/`C`/`O`/`M`/`F`/`R` being taken is why
-    /// Rename's is `n`.
+    /// Rename's is `n`. Copy Document's Edit-menu letter `m` belongs to Move to New
+    /// Window here, so it takes `D`.
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::Save => "_Save",
@@ -95,6 +98,7 @@ impl TabMenuItem {
             Self::CloseOthers => "Close _Other Tabs",
             Self::MoveToNewWindow => "_Move to New Window",
             Self::CopyFullPath => "Copy _Full Path",
+            Self::CopyDocument => "Copy _Document",
             Self::Reload => "_Reload",
             Self::Rename => "Re_name…",
         }
@@ -299,6 +303,23 @@ fn show_tab_context_menu(
                     }
                 ));
             }
+            // `win.copy-document` has no enable gate — every tab holds a document — so
+            // the row is always sensitive; like Copy Full Path it focuses the clicked tab
+            // first, because the action copies the active one.
+            TabMenuItem::CopyDocument => {
+                btn.connect_clicked(glib::clone!(
+                    #[weak(rename_to = po)]
+                    popover,
+                    #[weak(rename_to = w)]
+                    window,
+                    #[strong]
+                    tab,
+                    move |_| {
+                        dismiss_context_popover(&po);
+                        copy_document_for_tab(&w, &tab);
+                    }
+                ));
+            }
             TabMenuItem::Reload => {
                 btn.set_sensitive(tab.has_path());
                 btn.connect_clicked(glib::clone!(
@@ -379,6 +400,18 @@ fn copy_full_path_for_tab(window: &ApplicationWindow, tab: &Rc<TabState>) {
     };
     chrome.tabs.focus_page(&tab.content_box);
     if let Some(action) = simple_action(window, "copy-path") {
+        action.activate(None);
+    }
+}
+
+/// Drive `win.copy-document` for `tab` — same focus-first requirement as
+/// [`copy_full_path_for_tab`]: the action copies the active tab's source.
+fn copy_document_for_tab(window: &ApplicationWindow, tab: &Rc<TabState>) {
+    let Some(chrome) = winstate::chrome(window) else {
+        return;
+    };
+    chrome.tabs.focus_page(&tab.content_box);
+    if let Some(action) = simple_action(window, "copy-document") {
         action.activate(None);
     }
 }
@@ -557,6 +590,62 @@ mod gtk_integration_tests {
             result.borrow().as_deref(),
             Some(file_b.path().to_string_lossy()).as_deref(),
             "clipboard must hold tab B's path, not tab A's"
+        );
+
+        window.destroy();
+    }
+
+    /// Same rubric, for Copy Document (TDD 7.12): the menu offers it, and choosing it
+    /// on an INACTIVE tab copies THAT tab's source, not the active tab's.
+    #[gtktest::test]
+    fn copy_document_for_tab_acts_on_the_clicked_tab_not_the_active_one() {
+        assert!(
+            TabMenuItem::ALL.contains(&TabMenuItem::CopyDocument),
+            "the tab context menu offers Copy Document"
+        );
+        let app = gtk::Application::new(
+            Some("com.extollit.scribobulate.integrationtest.tabcontextmenu.copydocument"),
+            gtk::gio::ApplicationFlags::NON_UNIQUE,
+        );
+        app.register(gtk::gio::Cancellable::NONE)
+            .expect("register (emits startup) before building any window");
+
+        let window = crate::window::new_window(&app, "IT", "# A", None);
+        let tab_a = state(&window).expect("state registered after new_window");
+        let tab_b_id = crate::window::create_tab_in_window(&window, "# B", None, false, false)
+            .expect("create_tab_in_window returns the new tab's id");
+        let tab_b = winstate::tab_by_id(tab_b_id).expect("tab B registered");
+
+        let chrome = winstate::chrome(&window).expect("chrome registered");
+        chrome.tabs.focus_page(&tab_a.content_box);
+        assert_eq!(state(&window).map(|s| s.id), Some(tab_a.id));
+
+        copy_document_for_tab(&window, &tab_b);
+
+        assert_eq!(
+            state(&window).map(|s| s.id),
+            Some(tab_b.id),
+            "copy_document_for_tab must focus the CLICKED tab (B)"
+        );
+        let result: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
+        {
+            let result = result.clone();
+            window
+                .clipboard()
+                .read_text_async(gtk::gio::Cancellable::NONE, move |text| {
+                    *result.borrow_mut() = text.ok().flatten().map(|s| s.to_string());
+                });
+        }
+        let ctx = glib::MainContext::default();
+        for _ in 0..200 {
+            if result.borrow().is_some() || !ctx.iteration(false) {
+                break;
+            }
+        }
+        assert_eq!(
+            result.borrow().as_deref(),
+            Some("# B"),
+            "clipboard must hold tab B's source, not tab A's"
         );
 
         window.destroy();

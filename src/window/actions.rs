@@ -291,7 +291,7 @@ pub(crate) fn update_edit_action_state(window: &ApplicationWindow) {
     set_action_enabled(window, "change-case", enabled);
 }
 /// Apply the enabled state of every editor-only action for `mode`, in ONE place:
-/// Save and Insert Emoji (editor-visible), plus Cut/Delete/Change Case (editor +
+/// Save, Insert Emoji and Paste (editor-visible), plus Cut/Delete/Change Case (editor +
 /// selection). Each is a single `SimpleAction` that all surfaces — menu bar,
 /// toolbar, and context menu — reference by name, so this one call keeps all three
 /// in sync (POLICY: single source of truth for action enablement). MUST be called
@@ -340,6 +340,7 @@ pub(crate) fn apply_mode_action_state(window: &ApplicationWindow, mode: ViewMode
     // on every edit), gated on dirtiness rather than on `mode`.
     update_save_action_state(window);
     set_action_enabled(window, "insert-emoji", editor_visible);
+    set_action_enabled(window, "paste", editor_visible);
     // Formatting (and Go To Line) need the editor visible AND focused;
     // the focus gate enables them on editor focus. But that gate is sticky over the
     // menubar, so switching to preview *via the View menu* (focus stays in the

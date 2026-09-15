@@ -126,6 +126,8 @@ pub(crate) enum Icon {
     EditCopy,
     /// Edit ▸ Cut.
     EditCut,
+    /// Edit ▸ Paste.
+    EditPaste,
     /// Edit ▸ Copy Document (bundled fallback — no standard whole-document-copy
     /// icon exists on the common themes; ships in `data/icons`).
     CopyDocument,
@@ -226,6 +228,7 @@ impl Icon {
             Icon::EditRedo => "edit-redo-symbolic",
             Icon::EditCopy => "edit-copy-symbolic",
             Icon::EditCut => "edit-cut-symbolic",
+            Icon::EditPaste => "edit-paste-symbolic",
             Icon::CopyDocument => "copy-document-symbolic",
             Icon::EditDelete => "edit-delete-symbolic",
             Icon::EditSelectAll => "edit-select-all-symbolic",
@@ -320,7 +323,8 @@ impl Icon {
             Icon::EditUndo => Some(Icon::EditRedo),
             Icon::EditRedo => Some(Icon::EditCopy),
             Icon::EditCopy => Some(Icon::EditCut),
-            Icon::EditCut => Some(Icon::CopyDocument),
+            Icon::EditCut => Some(Icon::EditPaste),
+            Icon::EditPaste => Some(Icon::CopyDocument),
             Icon::CopyDocument => Some(Icon::EditDelete),
             Icon::EditDelete => Some(Icon::EditSelectAll),
             Icon::EditSelectAll => Some(Icon::EditFind),
@@ -413,6 +417,7 @@ impl Icon {
             | Icon::EditRedo
             | Icon::EditCopy
             | Icon::EditCut
+            | Icon::EditPaste
             | Icon::CopyDocument
             | Icon::EditDelete
             | Icon::EditSelectAll

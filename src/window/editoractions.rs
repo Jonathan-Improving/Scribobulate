@@ -1,4 +1,4 @@
-//! Registration of the editor / document `win.*` actions (copy, cut, delete,
+//! Registration of the editor / document `win.*` actions (copy, cut, paste, delete,
 //! undo/redo, select-all, auto-reload, reload, insert-emoji, change-case, format,
 //! save, save-all, save-as, copy-path, copy-document). The state-enablement helpers these
 //! drive live in `actions.rs`; Copy Link Location keeps its registration and its
@@ -46,6 +46,23 @@ pub(super) fn register_editor_actions(window: &ApplicationWindow, heading_btn: &
         }
     ));
     window.add_action(&cut_action);
+
+    // Paste targets the editor View explicitly, like Cut, and is enabled whenever the
+    // editor is visible (`apply_mode_action_state`). It emits the view's own
+    // `paste-clipboard`, the signal Ctrl+V is bound to, so the menu, toolbar and
+    // context menu cannot paste differently from the keyboard.
+    let paste_action = SimpleAction::new("paste", None);
+    paste_action.set_enabled(false);
+    paste_action.connect_activate(glib::clone!(
+        #[weak(rename_to = w)]
+        window,
+        move |_, _| {
+            if let Some(st) = state(&w) {
+                st.editor.emit_paste_clipboard();
+            }
+        }
+    ));
+    window.add_action(&paste_action);
 
     let delete_action = SimpleAction::new("delete", None);
     delete_action.set_enabled(false);
@@ -647,6 +664,61 @@ mod gtk_integration_tests {
             !select_all_enabled(&window),
             "select-all must stand down while the editor annotation card's entry holds focus"
         );
+
+        window.destroy();
+    }
+
+    /// Paste follows the view mode and hands the paste to the editor's own
+    /// `paste-clipboard` — the signal Ctrl+V is bound to — so every Edit surface pastes
+    /// exactly as the keyboard does (TDD 9.37). Every surface binds `win.paste` by name, so
+    /// this is the one action they all show and run.
+    ///
+    /// Asserted on the SIGNAL, with the emission stopped before GTK reads the clipboard,
+    /// because the emission is the whole of what this action owns: what a paste then inserts
+    /// is GTK's behaviour, covered by `clipboard`'s own paste tests and the running-app check.
+    /// Stopping it also keeps this test from writing the host's system clipboard, which on
+    /// macOS and Windows is the developer's own live desktop; `clipboard`'s own tests still
+    /// write it, since the clipboard is what they test.
+    #[gtktest::test]
+    fn paste_follows_the_view_mode_and_hands_the_paste_to_the_editor() {
+        let app = gtk::Application::new(
+            Some("com.extollit.scribobulate.integrationtest.paste"),
+            gtk::gio::ApplicationFlags::NON_UNIQUE,
+        );
+        app.register(gtk::gio::Cancellable::NONE)
+            .expect("register (emits startup) before building any window");
+        let window = crate::window::new_window(&app, "IT", "ab\n", None);
+        let paste = || simple_action(&window, "paste").expect("win.paste registered");
+
+        change_action_state(&window, "view-mode", &"preview".to_variant());
+        assert!(
+            !paste().is_enabled(),
+            "preview-only has no editor to paste into"
+        );
+        change_action_state(&window, "view-mode", &"edit".to_variant());
+        assert!(
+            paste().is_enabled(),
+            "the editor is visible, so Paste is available"
+        );
+
+        let st = state(&window).expect("state registered after new_window");
+        let pastes = std::rc::Rc::new(std::cell::Cell::new(0u32));
+        let handler = st.editor.connect_paste_clipboard(glib::clone!(
+            #[strong]
+            pastes,
+            move |view| {
+                pastes.set(pastes.get() + 1);
+                // Stop before GTK's own handler reads the system clipboard.
+                view.stop_signal_emission_by_name("paste-clipboard");
+            }
+        ));
+        paste().activate(None);
+        assert_eq!(
+            pastes.get(),
+            1,
+            "win.paste must hand exactly one paste to the editor's own paste-clipboard"
+        );
+        st.editor.disconnect(handler);
 
         window.destroy();
     }

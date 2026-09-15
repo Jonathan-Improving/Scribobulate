@@ -33,7 +33,7 @@ const MENU_MNEMONICS: &[(&str, &str)] = &[
     ("Export", "_Export"), ("PDF", "_PDF"), ("HTML", "_HTML"),
     // Edit
     ("Undo", "_Undo"), ("Redo", "_Redo"), ("Copy", "_Copy"), ("Cut", "Cu_t"),
-    ("Copy Document", "Copy Docu_ment"),
+    ("Paste", "Pa_ste"), ("Copy Document", "Copy Docu_ment"),
     ("Copy Link Location", "Copy _Link Location"), ("Delete", "_Delete"),
     ("Select All", "Select _All"), ("Find", "_Find"),
     ("Find & Replace", "Find & Re_place"), ("Insert Emoji", "Insert _Emoji"),
