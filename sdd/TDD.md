@@ -3702,12 +3702,20 @@ up doing.
 - **Then** per-page cost does not grow with document length
 - **And** the assertion is never a wall-clock number, which a slower machine or a denser page would fail while the contract held — the same page count is some forty times apart in cost between dense and sparse content
 
-### 25.23 A long export reports progress and can be cancelled
+### 25.23 A long export reports progress, and a close during it cancels it
 - **Given** a document long enough that the export crosses the responsiveness threshold
-- **Then** an indicator appears in the **status bar** — not a dialog — reading "Exporting page P of N…" with a progress bar and a Cancel button in the message area, driven by pages completed and triggered by **elapsed time**, never by a page count
-- **And** the window stays responsive enough to repaint the indicator and to press Cancel
-- **And** the reader can cancel it, which stops after the current page and leaves the destination as 25.21 requires
-- **And** while it runs Export is unavailable, and closing the tab or the window cancels the export first
+- **Then** an indicator appears in the **status bar** — not a dialog — reading "Exporting page P of N…" with a progress bar in the message area, driven by pages completed and triggered by **elapsed time**, never by a page count
+- **And** the window stays responsive enough to repaint the indicator
+- **And** while it runs Export is unavailable, and closing the tab or the window cancels the export first, which stops after the current page and leaves the destination as 25.21 requires
+
+> **There is deliberately no way for the reader to cancel an export directly.** A status-bar
+> Cancel button was built, tested on all three platforms and then withdrawn: flat and
+> borderless in a status bar, it did not read as a button, and the operator could not click
+> it by hand. The command behind it was sound — cancellation stopped cleanly and left the
+> destination byte-identical — so what failed was the affordance, not the mechanism.
+> Reinstating direct cancellation is a UI question first: what does the reader click, and
+> how do they know they can? Until that is answered, the close path above is the only
+> cancellation, and it is the one this rubric gates.
 
 ### 25.24 A destination another process holds open fails by name
 - **Given** an export destination that another process holds open — the ordinary case being a PDF still open in a viewer

@@ -37,6 +37,7 @@ described from a different vantage point.
 | M | Windows | Production | On a machine with no Visual C++ runtime the app installs and then fails to start; the installer's bootstrapper for it has landed but has never been verified against that condition | Medium |
 | U | Any | Production | The preview is drawn horizontally scrolled (~20px, its left padding gone, a horizontal scrollbar showing) after a mode switch or an explicit Reload rebuilds it — intermittent, pre-existing, seen on Linux and Windows | Low |
 | V | Windows, Mac | Upstream | No screen reader on Windows or macOS can read the app's accessible names: neither backend publishes a provider tree (no UIA there, no NSAccessibility tree here), so every name the app sets is correct and unreachable. Linux/AT-SPI reads them | Closed |
+| X | Mac | Test | The macOS integration suite hangs part-way through a run, at a varying site, in roughly two to four runs in five. Independent of any one feature — it survives removing the surface it was first blamed on | High |
 
 
 ## A. Tables are selection islands
@@ -181,6 +182,23 @@ markup-dense) burns ~11 s and then **settles by itself**; `large-doc.md` (41,785
 never converges; the 200,000-line plain-prose file above settles in ~30 s. A reproduction
 attempt that varies only line count can therefore miss this entirely — vary the construct
 mix too.
+
+**This is not confined to the ordinary idle context, which widens both its reach and its
+reproduction.** MEASURED 2026-09-16 on macOS/Quartz: exporting an 18.5 MB document of the
+spin-prone shape ran past 100 s without completing, three times, where the same export had
+taken 47 s the day before; `sample(1)` put the main thread in
+`gtk_print_operation_run` → `print_pages` → `g_main_loop_run` — GtkPrintOperation's **own
+nested main loop** — and one of the sources that loop was dispatching was GtkSourceView's
+`idle_scan_cb` → `scan_region_forward` → `scan_subregion`, i.e. this entry's highlighter
+idle, still re-arming. So the spin competes for any loop that services the same main
+context, not just the one the application runs; an export on such a document is a *faster*
+reproduction than waiting for it to show up as idle CPU.
+
+⚠ **Do not read a stalled export as a broken Cancel.** The two are separable and look
+identical from outside: MEASURED on Linux, a 31 MB export drew no pages for minutes while
+the window repainted normally and a Cancel click WAS delivered and logged — cancel takes
+effect only between pages, so with no page ever drawn a delivered cancel sits idle. Judge
+that path by a log line at the click handler, never by the export ending.
 
 ⚠ **The `Any` classification rests on TWO platforms, not three.** Reproduced on macOS and
 Linux; **Windows has never been asked**. `Any` is still the right call — the trace lands in
@@ -664,3 +682,47 @@ these checks as "not observed" is reporting this gap, not a defect in the code u
   platform gap in the run rather than as missing coverage.
 - **Re-check on a future GTK** — if the Windows backend ever gains a UIA bridge this
   reopens at Low/Medium/High, since the names are already in place to be read.
+
+
+## X. The macOS integration suite hangs intermittently, at a varying site
+
+**Severity**: High (it is the reason a macOS ratification cannot be read at face value. A
+hung run produces no verdict, so every macOS result now costs several runs to interpret,
+and a real regression introduced on that platform would be indistinguishable from this.)
+
+A full macOS integration run stops part-way through and never finishes. The site moves
+between runs — `copy_full_path_for_tab` twice in the most recent set, elsewhere before
+that. Measured rates across one day of arms, five runs each: **3 in 5**, **4 in 5** and
+**2 in 5** under three different tree configurations.
+
+**It is NOT caused by the status bar, and the effort to prove otherwise is the useful part
+of this entry.** The hang first appeared alongside the status bar's arrival, so the surface
+was the obvious suspect. Four separate hypotheses were each armed and measured — destroy-time
+timers, the pooled counter's latch, the mark-set handler's attachment, and finally the
+status bar's mere *presence in the widget tree*, via a diagnostic environment flag that
+builds the window without it. **With the whole strip absent from the tree, 2 of 5 runs still
+hung.** No configuration tested has ever been hang-free.
+
+⚠ **The original attribution was a small-sample artefact, and this is the trap to avoid on
+the next one.** It rested on a parent commit going 3-for-3 green against a child going
+3-for-4 red. Against a background rate that varies between 40% and 80%, **neither result
+carried information** — a 3-run green streak is unremarkable when the true pass rate is
+one in two, and the whole investigation that followed was chasing a difference that was
+never measured to exist. Before attributing an intermittent to a change, establish the
+background rate FIRST, on enough runs to tell two rates apart; a clean baseline of three is
+not a baseline.
+
+**Possibly the same defect as the macOS autorelease-pool crash recorded elsewhere in this
+register** — both are macOS-only, both fire at a varying site, and both land in a similar
+fraction of runs. One kills the process and one stops it, which is a real difference, but
+the register's own warning about one defect filed twice applies: check them together before
+treating either as understood.
+
+**Mitigation options**:
+
+- **Establish the background rate properly** — a run of ten on an untouched tree, which is
+  the measurement every arm so far has been missing.
+- **Capture a stack from a hung run** rather than recording where the output stopped; the
+  site is the one thing that has moved every time and it is being read as a clue.
+- **Accept slower macOS ratification** in the meantime: read a macOS result only from
+  several runs, never from one, and never treat a hang as a verdict about the change.

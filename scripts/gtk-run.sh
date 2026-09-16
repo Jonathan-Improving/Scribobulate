@@ -109,11 +109,103 @@ shift 2
 # is actually made of.
 label_safe=${label//[^A-Za-z0-9_-]/_}
 log=$(mktemp -t "scrib-$label_safe.XXXXXX")
+# Where the run records the private bus address and display it actually got, so teardown
+# can find the daemons that bus activated. Written from INSIDE the session because
+# `xvfb-run -a` and `dbus-run-session` both choose their values themselves.
+session=$(mktemp -t "scrib-$label_safe-session.XXXXXX")
+
+# ── 5. IT ENDS WHAT THE RUN LEFT BEHIND ──────────────────────────────────────────────
+#
+# Note 2 keeps the bus-activated daemons off the caller's stdout; it does not end them.
+# Nothing here does either, so this exists to bound the run in PROCESSES the way note 4
+# bounds it in time. Two separate leaks, and the measurements say opposite things about
+# them — which is the point of writing both down.
+#
+# THE DAEMONS: measured 2026-09-16, they do NOT survive this script. A run that activates
+# `portal.Desktop`, `portal.Documents`, PermissionStore, portal-gnome and gvfs leaves ZERO
+# processes holding the private bus address — on the clean path AND on the timeout-kill
+# path. So the sweep below is INSURANCE, not a fix for an observed leak here: it is proven
+# against a deliberately detached child (`setsid`, re-parented away, found and killed), and
+# it is kept because the population of services is desktop-dependent and grows, and one
+# that does hold on costs a developer their whole login session to notice.
+#
+# ⚠ The orphan crowds that prompted this were NOT from this script. Measured the same day:
+# 34 `xdg-desktop-portal`/`gvfsd` processes on displays `:71` and `:77`, none carrying an
+# `xvfb-run` XAUTHORITY — hand-picked display numbers, i.e. ad-hoc `dbus-run-session`
+# rigs run outside this script. Do not read this section as evidence the callers leak.
+#
+# THE X SERVER outlives the run BRIEFLY, and its directory outlives it for good. Measured:
+# a timed-out run's `Xvfb :99` was still resident minutes after the run ended, and then
+# exited by itself; meanwhile the host carried 21 stale `/tmp/xvfb-run.XXXXXX` directories
+# going back a fortnight. Both come from the same skipped EXIT trap — `xvfb-run` kills its
+# server AND removes that directory there, and bash defers a trap until the foreground
+# child returns, so a SIGKILL to the wrapper skips both. The server dies anyway (`timeout`
+# signals the whole PROCESS GROUP); the directory has nothing to clean it up, so THAT is
+# the leak with a body count.
+#
+# So the server reap is a backstop, proven correct — it finds the server and re-verifies
+# the PID — but never observed to fire, and it is kept for the run where the group signal
+# does not reach. The directory removal beside it is the part that was actually leaking.
+#
+# BOTH are keyed on identity, never on a name: the daemons on the private bus address
+# (a per-run GUID, inherited by everything the bus activates), the X server on a PID
+# captured during the run and re-verified against its own `/proc` entry before the signal.
+# A `pkill Xvfb` or `pkill xdg-desktop-portal` would reach the developer's `:0` session,
+# which is the one outcome this must never have.
+reap_stranded_xserver() {
+    local display="$1" pid="$2" auth="$3" cmdline
+    # THE DIRECTORY FIRST, and unconditionally. It is the leak that actually persists, and
+    # it outlives the server — so hanging its removal off "is the server still alive?"
+    # would clean up in exactly the case that does not need it and skip the usual one.
+    # Pattern-matched rather than trusted: this is a variable from a child's environment
+    # reaching `rm -rf`, and only `xvfb-run`'s own shape may pass.
+    case "$auth" in
+        /tmp/xvfb-run.*/Xauthority) rm -rf "${auth%/Xauthority}" ;;
+    esac
+    [ -n "$display" ] && [ -n "$pid" ] || return 0
+    cmdline=$({ tr '\0' ' ' < "/proc/$pid/cmdline"; } 2>/dev/null) || return 0
+    case "$cmdline" in
+        "Xvfb $display "* | *"/Xvfb $display "*) ;;
+        # The PID was captured while the run was alive, so by now it may name nothing, or
+        # — after enough turnover — something else entirely. A PID is not an identity once
+        # the process it named has exited, so it is re-verified, not merely signalled.
+        *) return 0 ;;
+    esac
+    kill "$pid" 2>/dev/null
+    echo "$label: reaped the stranded X server on $display (pid $pid)."
+}
+
+reap_session_daemons() {
+    [ -s "$session" ] || return 0
+    local display bus xvfb xauth pid environ victims=()
+    { read -r display; read -r bus; read -r xvfb; read -r xauth; } < "$session" || return 0
+    reap_stranded_xserver "$display" "$xvfb" "$xauth"
+    # An empty address would match every process that has no such variable at all.
+    [ -n "$bus" ] || return 0
+    for pid in /proc/[0-9]*; do
+        pid=${pid#/proc/}
+        [ "$pid" = "$$" ] && continue
+        # Most of /proc belongs to root or to other users, and `2>/dev/null` on the `tr`
+        # does NOT silence this: the failure is the SHELL's, refused while opening the
+        # redirect, so it is the shell's stderr that carries it. Unsilenced it buried a
+        # measured run in 553 `Permission denied` lines. Read-test first, and redirect the
+        # whole compound in case the process exits between the test and the read.
+        [ -r "/proc/$pid/environ" ] || continue
+        environ=$({ tr '\0' '\n' < "/proc/$pid/environ"; } 2>/dev/null) || continue
+        case "$environ" in *"$bus"*) victims+=("$pid") ;; esac
+    done
+    [ "${#victims[@]}" -eq 0 ] && return 0
+    kill "${victims[@]}" 2>/dev/null
+    # A daemon that ignores SIGTERM is the case this exists for, so do not stop at asking.
+    sleep 0.5
+    kill -9 "${victims[@]}" 2>/dev/null
+    echo "$label: reaped ${#victims[@]} bus-activated daemon(s) from this run's private session."
+}
 # Single-quoted, so `$log` expands when the trap FIRES rather than being pasted into the
 # trap's source now. It is still in scope then, which is what makes the deferred
 # expansion both safe and correct — and it is why the SC2064 suppression that used to
 # sit here is gone rather than moved.
-trap 'rm -f "$log"' EXIT
+trap 'reap_session_daemons; rm -f "$log" "$session"' EXIT
 
 # `--kill-after` so a command ignoring SIGTERM still dies rather than becoming the hang
 # this script exists to prevent.
@@ -124,12 +216,26 @@ trap 'rm -f "$log"' EXIT
 # few seconds. Diagnosing the second as the first sends the reader after a wedge that
 # never happened, which is the one misdiagnosis this project has a written anti-pattern
 # about (GTK4Rs/AP-133).
+#
+# The innermost shell records what section 5's teardown needs, and records it from INSIDE
+# the session because that is the only place it exists: both wrappers choose their own
+# values, and the X server's PID is discoverable only while the run is alive. It `exec`s
+# the command, so it costs a process image, not a process.
 started=$(date +%s)
 timeout --kill-after=60s "$budget" \
     xvfb-run -a \
     dbus-run-session -- \
     env G_DEBUG=fatal-criticals \
-    "$@" \
+    bash -c '
+        d=${DISPLAY:-}; x=
+        for p in /proc/[0-9]*; do
+            [ -r "$p/cmdline" ] || continue
+            c=$({ tr "\0" " " < "$p/cmdline"; } 2>/dev/null) || continue
+            case "$c" in "Xvfb $d "*|*"/Xvfb $d "*) x=${p#/proc/}; break;; esac
+        done
+        printf "%s\n%s\n%s\n%s\n" "$d" "${DBUS_SESSION_BUS_ADDRESS:-}" "$x" "${XAUTHORITY:-}" > "$1"
+        shift; exec "$@"' \
+    gtk-run "$session" "$@" \
     >"$log" 2>&1
 rc=$?
 elapsed=$(( $(date +%s) - started ))

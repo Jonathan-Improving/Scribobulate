@@ -48,8 +48,6 @@ pub(crate) struct StatusBar {
     pub(crate) message: gtk::Label,
     /// Export progress, beside the message and hidden until an export is slow.
     pub(crate) progress: gtk::ProgressBar,
-    /// Cancels the running export.
-    pub(crate) cancel: gtk::Button,
     /// The indicator group, pinned to the right edge.
     pub(crate) indicators: gtk::Box,
     pub(crate) words: gtk::Label,
@@ -82,31 +80,22 @@ pub(super) fn build() -> StatusBar {
     progress.set_visible(false);
     crate::a11y::name(&progress, "Export progress");
 
-    let cancel = gtk::Button::with_label("Cancel");
-    cancel.add_css_class("flat");
-    cancel.add_css_class(STATUSBAR_BUTTON_CLASS);
-    cancel.set_valign(gtk::Align::Center);
-    cancel.set_visible(false);
-    crate::a11y::name(&cancel, "Cancel export");
-    cancel.connect_clicked(|button| {
-        let Some(chrome) =
-            crate::window::host_window(button).and_then(|w| crate::winstate::chrome(&w))
-        else {
-            return;
-        };
-        let op = chrome.export_op.borrow().clone();
-        if let Some(op) = op {
-            log::info!("export: cancel requested from the status bar");
-            // Only sets a flag: GTK stops after the page being drawn (TDD 25.23).
-            op.cancel();
-        }
-    });
-
+    // NO CANCEL BUTTON HERE, and no cancel command behind it — both were built, tested
+    // and then withdrawn by operator ruling. Not because the cancel mechanism was wrong:
+    // it was measured sound, and an export driven to cancel stopped cleanly and left the
+    // destination file byte-identical. The button was withdrawn because it DID NOT READ AS
+    // A BUTTON — flat, borderless, 17px tall in a status bar — and could not be clicked by
+    // hand. A control the user does not recognise as clickable is not an affordance,
+    // however correct its wiring.
+    //
+    // ⚠ The lesson generalises to anything else placed in this strip: a flat control here
+    // is indistinguishable from the labels beside it. Restoring a cancel affordance is a
+    // UI question first — what does the user click, and how do they know they can? — not
+    // a matter of re-adding a widget beside the progress bar.
     let message_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     message_box.set_hexpand(true);
     message_box.append(&message);
     message_box.append(&progress);
-    message_box.append(&cancel);
 
     let words = indicator_label();
     let zoom = gtk::Button::with_label("100%");
@@ -154,7 +143,6 @@ pub(super) fn build() -> StatusBar {
         root,
         message,
         progress,
-        cancel,
         indicators,
         words,
         zoom,
@@ -677,7 +665,6 @@ impl ExportProgress {
             bar.progress
                 .set_fraction(core::export_progress_fraction(done, total));
             bar.progress.set_visible(true);
-            bar.cancel.set_visible(true);
         });
         inner.timer.set(Some(id));
         Self { inner }
@@ -723,7 +710,6 @@ impl ProgressInner {
             chrome.status.borrow_mut().pop(ctx);
         }
         chrome.statusbar.progress.set_visible(false);
-        chrome.statusbar.cancel.set_visible(false);
         chrome.export_op.borrow_mut().take();
         let deferred: Vec<Box<dyn FnOnce()>> = chrome.after_export.borrow_mut().drain(..).collect();
         if !deferred.is_empty() {

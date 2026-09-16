@@ -65,6 +65,14 @@ pub(crate) fn register_export_action(window: &ApplicationWindow) {
     window.add_action(&action);
 }
 
+// THERE IS NO `win.export-cancel` COMMAND. A user cannot stop an export once it starts;
+// the only cancel left is the implicit one in `cancel_export_then`, when a close arrives
+// mid-export. Both the action and the status bar button it drove were built, tested and
+// then withdrawn by operator ruling — the button did not read as a button and could not
+// be clicked by hand, and with no surface left to reach it the action was latent code
+// rather than a command. Re-adding it is a UI question first (what does the user click?),
+// not a plumbing one; `GtkPrintOperation::cancel` is the easy half.
+
 /// Whether Export can act: whenever the tab holds a document, **including untitled
 /// and unsaved ones**. An export reads the buffer and never the disk file, so having
 /// never been saved is no impediment — that is TDD-visible behaviour (25.5) rather
