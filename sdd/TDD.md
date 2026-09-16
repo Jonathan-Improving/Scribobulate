@@ -44,6 +44,8 @@
 - **When** the user opens a Markdown file via File ▸ Open (the file chooser)
 - **Then** the file lands as a tab of THAT window — reusing a blank/untouched tab if one exists (1.5), otherwise added as a genuinely new tab — never spawning a separate window merely because no tab happened to be blank
 - **And** this differs from a CLI/D-Bus batch launch's narrower rule (1.6/15.15): File ▸ Open is always invoked from a specific window the user is already working in, so it always targets that window, while a batch launch has no such window in mind and falls back to a brand-new one when nothing blank is available to reuse
+- **And** the chooser accepts **several files at once**: the whole selection lands in that same window as one batch — the first as the visible tab (reusing the blank one if there is one), the rest as background tabs rendered by the deferred mechanism of 1.7 — so a multi-selection differs from a single one only in how many tabs it produces, never in which window they land in
+- **And** a selection that is already open is focused rather than duplicated (8.2/15.16), per file, so a selection mixing open and unopened files opens only the ones that are not open yet
 
 ### 1.3 Open a path that does not exist
 - **Given** a launch argument pointing to a file that does not exist

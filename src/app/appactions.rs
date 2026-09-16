@@ -48,12 +48,20 @@ pub(super) fn add_open_action(app: &Application) {
             let Some(a) = app_weak.upgrade() else { return };
             let parent = a.active_window();
             let dialog = FileChooserNative::new(
-                Some("Open Markdown file"),
+                Some("Open Markdown files"),
                 parent.as_ref(),
                 FileChooserAction::Open,
                 Some("Open"),
                 Some("Cancel"),
             );
+            // The reader may pick several documents at once. Nothing downstream is
+            // new: one `open` invocation has always carried a whole batch (a
+            // glob-expanded command line is the same shape), so the selection lands
+            // as tabs of one window with the first rendered eagerly and the rest
+            // deferred (TDD 1.2/1.7). Enabling it here is deliberately the ONLY
+            // change to the open path — a second, multi-file-only route would be
+            // the parallel path POLICY § Architecture rules forbids.
+            dialog.set_select_multiple(true);
             let filter = FileFilter::new();
             filter.add_pattern("*.md");
             filter.add_pattern("*.markdown");
@@ -66,17 +74,31 @@ pub(super) fn add_open_action(app: &Application) {
             let app_weak2 = app_weak.clone();
             crate::saferizer::native_dialog::NativeDialogHolder::show(&dialog, move |d, resp| {
                 if resp == ResponseType::Accept {
-                    if let Some(file) = d.file() {
-                        if let Some(path) = file.path() {
+                    // `files()` covers both cases — a single-selection chooser
+                    // answers with a one-item model — so there is one read here
+                    // rather than a branch on how many the user picked.
+                    if let Some(files) = super::openselection::chosen_files(&d.files()) {
+                        // Any of them would do (a chooser selects within one
+                        // folder), so the FIRST is taken for determinism rather
+                        // than for a property of that file.
+                        if let Some(path) = files[0].path() {
                             remember_dialog_dir(&path);
                         }
                         if let Some(a) = app_weak2.upgrade() {
+                            // ONE invocation carrying the whole selection, never one
+                            // per file. `openbatch` builds a batch in a single
+                            // uninterrupted pass, so N separate invocations would be N
+                            // batches racing each other for the same window — the
+                            // interleaving that module exists to prevent (and its 1/A
+                            // cell in the Deferred-operation CAM, where two overlapping
+                            // opens can duplicate a tab).
+                            //
                             // The "interactive" hint (GIO's free-form open()
                             // hint string) tells connect_open this came from
                             // File ▸ Open, not a CLI/D-Bus batch launch — see
                             // its own comment for why that changes reuse
                             // behavior (TDD 1.2).
-                            a.open(&[file], "interactive");
+                            a.open(&files, "interactive");
                         }
                     }
                 }

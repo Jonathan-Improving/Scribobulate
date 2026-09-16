@@ -60,6 +60,7 @@ src/annotations_view.rs
 src/app/commands.rs
 src/app/mnemonics.rs
 src/app/mod.rs
+src/app/openselection.rs
 src/app/shortcuts.rs
 src/atomic_io.rs
 src/config.rs

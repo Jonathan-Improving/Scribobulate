@@ -11,6 +11,7 @@ mod menubar;
 mod mnemonics;
 mod open;
 mod openbatch;
+mod openselection;
 mod setup;
 mod shortcuts;
 
