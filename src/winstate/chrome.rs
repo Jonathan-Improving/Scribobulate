@@ -65,11 +65,6 @@ pub(crate) struct WindowChrome {
     /// Debounce for recounting the active document's words and line endings after an
     /// edit (TDD 16.11).
     pub(crate) text_stats_timer: RefCell<Option<gtk::glib::SourceId>>,
-    /// Coalesces selection changes before the selection's words are counted.
-    pub(crate) selection_timer: RefCell<Option<gtk::glib::SourceId>>,
-    /// Bumped on every selection recount, so a count that lands after the selection
-    /// changed again is discarded.
-    pub(crate) selection_generation: Cell<u64>,
     /// The words in the current selection, and which tab it belongs to.
     pub(crate) selection_count: Cell<Option<(super::TabId, super::statusbar::TextCount)>>,
     /// The PDF export running in this window, if any — what the status bar's Cancel

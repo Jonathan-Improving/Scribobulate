@@ -735,7 +735,7 @@ pub(crate) fn wire_annotation_overlay(
                     // The same selection change re-derives the status bar's selection
                     // word count, including a table cell's, which no buffer signal
                     // reports (TDD 16.11, ScrAP-110).
-                    crate::window::schedule_selection_count(&win);
+                    crate::window::note_selection_changed(&win);
                 }
                 // Marker popover open (table-cell annotation): a table-cell selection stays
                 // live when its margin marker is clicked, so the create popover must stay

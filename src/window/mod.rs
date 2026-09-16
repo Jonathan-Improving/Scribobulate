@@ -139,9 +139,9 @@ mod restore;
 mod sidebar;
 mod statusbar;
 pub(crate) use statusbar::{
-    clear_hover_target, defer_until_export_stops, note_buffer_changed, refresh_position_indicator,
-    refresh_status_indicators, refresh_zoom_indicator, schedule_selection_count, set_hover_target,
-    ExportProgress, StatusBar,
+    clear_hover_target, defer_until_export_stops, note_buffer_changed, note_selection_changed,
+    refresh_position_indicator, refresh_status_indicators, refresh_zoom_indicator,
+    set_hover_target, ExportProgress, StatusBar,
 };
 mod splitview;
 mod swap;
@@ -671,8 +671,6 @@ fn build_window_chrome_state(
         statusbar: chrome.statusbar.clone(),
         annotations_title: chrome.annotations_title.clone(),
         text_stats_timer: RefCell::new(None),
-        selection_timer: RefCell::new(None),
-        selection_generation: Cell::new(0),
         selection_count: Cell::new(None),
         export_op: RefCell::new(None),
         after_export: RefCell::new(Vec::new()),
@@ -773,14 +771,13 @@ fn register_window_destroy_handlers(window: &ApplicationWindow, zoom_provider: g
             if let Some(id) = chrome.format_overlay_timer.borrow_mut().take() {
                 id.remove();
             }
-            // The status bar's two debounce timers, for the same reason: both are
-            // armed per window by `refresh_status_indicators`, so a window built and
-            // destroyed without ever settling leaves them running against a chrome
-            // nobody can see. `take()` no-ops if one already fired.
-            for cell in [&chrome.text_stats_timer, &chrome.selection_timer] {
-                if let Some(id) = cell.borrow_mut().take() {
-                    id.remove();
-                }
+            // The status bar's word-count debounce, for the same reason: it is armed
+            // per window from the buffer's `changed`, so a window built and destroyed
+            // without ever settling leaves it running against a chrome nobody can see.
+            // `take()` no-ops if it already fired. The selection count arms no timer at
+            // all — see `window::statusbar::note_selection_changed`.
+            if let Some(id) = chrome.text_stats_timer.borrow_mut().take() {
+                id.remove();
             }
             // popdown-then-unparent (ScrAP-144), via the handle — the prior raw
             // `unparent()` here skipped the close path.

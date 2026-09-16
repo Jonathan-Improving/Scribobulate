@@ -116,8 +116,11 @@ pub(crate) fn wire_tab_buffer_signals(content_box: &gtk::Box, buffer: &sourcevie
                 // "cursor-position" (they cover the same events).
                 refresh_position_indicator(&w);
                 // A selection is a pair of marks, so mark-set is also where an
-                // editor selection's word count is re-derived (TDD 16.11).
-                crate::window::schedule_selection_count(&w);
+                // editor selection's word count is re-derived (TDD 16.11). It counts
+                // synchronously and attaches NO GLib source — see
+                // `window::statusbar::note_selection_changed` for why a timer armed
+                // from this handler wedges the main loop on Quartz.
+                crate::window::note_selection_changed(&w);
                 // Copy Link Location tracks the caret the same way the Ln/Col
                 // indicator does — mark-set is the caret-move boundary.
                 update_copy_link_action_state(&w);

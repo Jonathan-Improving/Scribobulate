@@ -27,8 +27,6 @@ const ZOOM_HIDDEN: &str = "hidden";
 /// Recount delay after an edit — the live preview's own debounce, so a burst of typing
 /// costs one count.
 const TEXT_STATS_DEBOUNCE: Duration = Duration::from_millis(300);
-/// Coalescing delay for selection changes, which arrive per motion event during a drag.
-const SELECTION_DEBOUNCE: Duration = Duration::from_millis(80);
 /// A selection at most this long is counted on the main thread, where it costs well
 /// under a millisecond; a longer one goes to the pool like a document.
 const INLINE_SELECTION_BYTES: usize = 16 * 1024;
@@ -201,7 +199,7 @@ pub(crate) fn refresh_status_indicators(window: &ApplicationWindow) {
     refresh_position_indicator(window);
     refresh_zoom_indicator(window);
     refresh_text_indicators(window);
-    schedule_selection_count(window);
+    note_selection_changed(window);
 }
 
 /// Line/column choke point (TDD 9.21): the active tab's own editor caret, hidden when
@@ -264,7 +262,6 @@ pub(crate) fn refresh_text_indicators(window: &ApplicationWindow) {
             tab: st.id,
             generation: st.text_generation.get(),
             source: Some(st.editor_text()),
-            selection: None,
         });
     }
 }
@@ -288,19 +285,35 @@ pub(crate) fn note_buffer_changed(window: &ApplicationWindow, tab: &Rc<TabState>
     });
 }
 
-/// A selection changed in either pane: recount the selection's words shortly.
-pub(crate) fn schedule_selection_count(window: &ApplicationWindow) {
-    let Some(chrome) = crate::winstate::chrome(window) else {
-        return;
-    };
-    restart_timer(&chrome, &chrome.selection_timer, SELECTION_DEBOUNCE, {
-        let window = window.downgrade();
-        move || {
-            if let Some(window) = window.upgrade() {
-                count_selection(&window);
-            }
+/// A selection changed in either pane (TDD 16.11).
+///
+/// **This attaches no GLib source, and that is the whole point.** It runs from GTK's own
+/// `mark-set` emission, which on the Quartz backend can be executing inside a nested
+/// `CFRunLoop` — GDK-macOS replaces GLib's poll with `nextEventMatchingMask` and drives
+/// `g_main_context_prepare`/`check` from a CFRunLoop observer that falls through at any
+/// nesting level above the first. A recursive `check()` warns and returns *before*
+/// draining the wakeup, so the wakeup stays readable and `n_ready > 0` sticks; the loop
+/// then refuses to sleep for the rest of its life. Anything that attaches a source from
+/// here pokes that wakeup, so a `g_timeout_add` per caret move — which is what this
+/// function used to do — turns a sleeping nested loop into a spin.
+///
+/// A small selection is therefore counted **synchronously**: plain CPU on this stack
+/// costs no wakeup, changes no timeout, and pumps no run loop. Anything larger keeps the
+/// figure it had; the `changed`-armed debounce and every tab or mode switch recount it,
+/// and neither of those is on the input-method reset path this handler sits on.
+pub(crate) fn note_selection_changed(window: &ApplicationWindow) {
+    let Some(st) = state(window) else { return };
+    let chrome = st.chrome();
+    match selected_text(window, &st) {
+        None => chrome.selection_count.set(None),
+        Some(selection) if selection.len() <= INLINE_SELECTION_BYTES => {
+            chrome.selection_count.set(Some((st.id, selection.count())));
         }
-    });
+        // Too large to count on the caret path, and deferring it would mean attaching a
+        // source from exactly the place that must not.
+        Some(_) => {}
+    }
+    render_text_indicators(&st);
 }
 
 /// (Re)start a one-shot timer held in `cell` on `chrome`. The timer clears its own
@@ -315,15 +328,9 @@ fn restart_timer(
         id.remove();
     }
     let weak: Weak<WindowChrome> = Rc::downgrade(chrome);
-    let is_stats = std::ptr::eq(cell, &chrome.text_stats_timer);
     let id = glib::timeout_add_local_once(delay, move || {
         if let Some(chrome) = weak.upgrade() {
-            let cell = if is_stats {
-                &chrome.text_stats_timer
-            } else {
-                &chrome.selection_timer
-            };
-            cell.borrow_mut().take();
+            chrome.text_stats_timer.borrow_mut().take();
         }
         fire();
     });
@@ -388,29 +395,6 @@ fn selected_text(window: &ApplicationWindow, st: &TabState) -> Option<SelectionT
     })
 }
 
-fn count_selection(window: &ApplicationWindow) {
-    let Some(st) = state(window) else { return };
-    let chrome = st.chrome();
-    let generation = chrome.selection_generation.get().wrapping_add(1);
-    chrome.selection_generation.set(generation);
-    match selected_text(window, &st) {
-        None => {
-            chrome.selection_count.set(None);
-            render_text_indicators(&st);
-        }
-        Some(selection) if selection.len() <= INLINE_SELECTION_BYTES => {
-            chrome.selection_count.set(Some((st.id, selection.count())));
-            render_text_indicators(&st);
-        }
-        Some(selection) => submit(CountJob {
-            tab: st.id,
-            generation: st.text_generation.get(),
-            source: None,
-            selection: Some((generation, selection)),
-        }),
-    }
-}
-
 /// Put `tab`'s cached counts on screen. Callers pass the ACTIVE tab.
 fn render_text_indicators(tab: &TabState) {
     let chrome = tab.chrome();
@@ -450,8 +434,6 @@ struct CountJob {
     generation: u64,
     /// The whole document, when its counts are stale.
     source: Option<String>,
-    /// The selection, with the selection generation it was read at.
-    selection: Option<(u64, SelectionText)>,
 }
 
 impl CountJob {
@@ -466,9 +448,6 @@ impl CountJob {
         if newer.source.is_some() {
             self.source = newer.source;
             self.generation = newer.generation;
-        }
-        if newer.selection.is_some() {
-            self.selection = newer.selection;
         }
         self
     }
@@ -535,12 +514,7 @@ fn run(job: CountJob) {
         tab,
         generation,
         source,
-        selection,
     } = job;
-    let (selection_generation, selection_text) = match selection {
-        Some((selection_generation, text)) => (Some(selection_generation), Some(text)),
-        None => (None, None),
-    };
     glib::MainContext::default().spawn_local(async move {
         // Held for the future's whole life, so the latch is released on EVERY exit —
         // completion, panic, or the future being dropped with its main context — and
@@ -548,16 +522,11 @@ fn run(job: CountJob) {
         // path only.
         let _latch = RunningLatch;
         let outcome = gtk::gio::spawn_blocking(move || {
-            let total =
-                source.map(|text| (TextCount::of_markdown(&text), LineEndings::classify(&text)));
-            let selection = selection_text.map(|text| text.count());
-            (total, selection)
+            source.map(|text| (TextCount::of_markdown(&text), LineEndings::classify(&text)))
         })
         .await;
         match outcome {
-            Ok((total, selection)) => {
-                apply(tab, generation, total, selection_generation.zip(selection))
-            }
+            Ok(total) => apply(tab, generation, total),
             Err(_) => log::error!(
                 "status bar: counting tab {tab}'s words panicked; the indicator keeps its \
                  last value"
@@ -566,12 +535,7 @@ fn run(job: CountJob) {
     });
 }
 
-fn apply(
-    tab_id: TabId,
-    generation: u64,
-    total: Option<(TextCount, LineEndings)>,
-    selection: Option<(u64, TextCount)>,
-) {
+fn apply(tab_id: TabId, generation: u64, total: Option<(TextCount, LineEndings)>) {
     let Some(tab) = crate::winstate::tab_by_id(tab_id) else {
         return;
     };
@@ -584,12 +548,6 @@ fn apply(
                 count,
                 endings,
             }));
-        }
-    }
-    if let Some((selection_generation, count)) = selection {
-        let chrome = tab.chrome();
-        if chrome.selection_generation.get() == selection_generation {
-            chrome.selection_count.set(Some((tab_id, count)));
         }
     }
     render_if_active(&tab);
