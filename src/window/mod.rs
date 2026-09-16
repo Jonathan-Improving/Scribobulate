@@ -751,10 +751,13 @@ fn wire_format_surface_updates(window: &ApplicationWindow) {
 /// Register all of the window's teardown handlers in one place, in the order
 /// their firing depends on. `connect_destroy` handlers fire in connection order,
 /// so this order is load-bearing:
-/// 1. Unparent the single caret-overlay popover while the chrome is still
-///    registered — a `set_parent`ed popover is NOT auto-unparented, so its host
-///    editor would otherwise finalize "with children left" and leak the popover
-///    subtree (GTK4Rs/AP-106).
+/// 1. Cancel this window's pending per-window timers, and unparent the single
+///    caret-overlay popover, while the chrome is still registered — a
+///    `set_parent`ed popover is NOT auto-unparented, so its host editor would
+///    otherwise finalize "with children left" and leak the popover subtree
+///    (GTK4Rs/AP-106). Destroying a window does not remove a GLib source armed
+///    against it: every timer left running here outlives the window and fires
+///    into a torn-down one, which is the class GTK4Rs/AP-128 records.
 /// 2. Remove this window's zoom CSS rule from the shared display (the provider
 ///    reference is held by this closure so it outlives the window).
 /// 3. Unregister the window's typed state LAST, so both handlers above still
@@ -767,6 +770,15 @@ fn register_window_destroy_handlers(window: &ApplicationWindow, zoom_provider: g
             // own `is_realized()` gate; `take()` no-ops if it already fired.
             if let Some(id) = chrome.format_overlay_timer.borrow_mut().take() {
                 id.remove();
+            }
+            // The status bar's two debounce timers, for the same reason: both are
+            // armed per window by `refresh_status_indicators`, so a window built and
+            // destroyed without ever settling leaves them running against a chrome
+            // nobody can see. `take()` no-ops if one already fired.
+            for cell in [&chrome.text_stats_timer, &chrome.selection_timer] {
+                if let Some(id) = cell.borrow_mut().take() {
+                    id.remove();
+                }
             }
             // popdown-then-unparent (ScrAP-144), via the handle — the prior raw
             // `unparent()` here skipped the close path.

@@ -36,6 +36,7 @@ described from a different vantage point.
 | J | Any | Upstream | A paragraph that mixes fonts (any inline-code span) can lay out a few pixels wider than the wrap width it was given, summoning the preview's Automatic horizontal scrollbar and intermittently blanking the pane until a resize | Closed |
 | M | Windows | Production | On a machine with no Visual C++ runtime the app installs and then fails to start; the installer's bootstrapper for it has landed but has never been verified against that condition | Medium |
 | U | Any | Production | The preview is drawn horizontally scrolled (~20px, its left padding gone, a horizontal scrollbar showing) after a mode switch or an explicit Reload rebuilds it — intermittent, pre-existing, seen on Linux and Windows | Low |
+| V | Windows, Mac | Upstream | No screen reader on Windows or macOS can read the app's accessible names: neither backend publishes a provider tree (no UIA there, no NSAccessibility tree here), so every name the app sets is correct and unreachable. Linux/AT-SPI reads them | Closed |
 
 
 ## A. Tables are selection islands
@@ -164,6 +165,22 @@ Surfaced during the macOS-port bring-up, where a stack sample suggested a GtkSou
 incremental-highlighter feedback loop (its progress `mark-set` re-dirtying the highlighter's own
 region). Confirmed here to reproduce on Linux — so it is **not platform-specific** — but an
 independent trace on this side **does not support the highlighter theory**.
+
+**That disagreement is now sharper, not resolved — read it with the Pango-shaping claim
+below, which it contradicts.** MEASURED 2026-09-15 on 4f90bfe: the macOS seat's `sample(1)`
+put the main thread in 2320 of 2332 samples under `g_application_run` →
+`g_main_context_iteration` → `idle_worker` (libgtksourceview-5.0) → `update_syntax` →
+`gtk_source_region_add_subregion` → `gtk_text_buffer_set_mark` → `g_signal_emit`, on this
+fixture with no interaction — the first trace to NAME the highlighter. The Linux side
+re-measured the same fixture that day: 100% of one core across 60 s with no settling,
+against 0% for a one-page control. So two traces of one symptom point at different
+machinery; reconcile them before choosing a mechanism, and do not treat either as settled.
+
+**The threshold is not size alone, in both directions.** `sdd/TDD.md` (~3,800 lines,
+markup-dense) burns ~11 s and then **settles by itself**; `large-doc.md` (41,785 lines)
+never converges; the 200,000-line plain-prose file above settles in ~30 s. A reproduction
+attempt that varies only line count can therefore miss this entirely — vary the construct
+mix too.
 
 ⚠ **The `Any` classification rests on TWO platforms, not three.** Reproduced on macOS and
 Linux; **Windows has never been asked**. `Any` is still the right call — the trace lands in
@@ -613,3 +630,37 @@ nothing clamps it back when `upper` shrinks.
 - **Accept it** while it stays cosmetic.
 
 ---
+
+## V. No screen reader on Windows or macOS can read the app's accessible names
+
+**Severity**: Closed (inherent to GTK4's Windows and Quartz backends — the app sets the
+names correctly and neither platform publishes a tree that can carry them)
+
+⚠ The `Platform` cell reads `Windows, Mac` rather than one of the four single values the
+header defines: the consequence is identical on both and the causes are backend-specific,
+so filing it twice would be the header's own "one defect filed twice" trap, and `Any` would
+be false — Linux/AT-SPI reads these names correctly.
+
+MEASURED on both seats while ratifying the status bar (4f90bfe). **Windows** (GTK 4.22.4
+gvsbuild, Win10 19045): UI Automation returns the toplevel (class `gdkSurfaceToplevel`)
+with **zero descendants**, against a positive control of Notepad returning two. **macOS**
+(GTK 4.22.4/Quartz): the window exposes 4 chrome elements and its "entire contents" is
+**empty**, with the reader validated in the same run (the native menu bar enumerates, and
+Save/Save As report their real enabled states). So no screen reader on either platform
+reaches any control — not the toolbar, not the sidebars, not the status-bar indicators.
+
+The consequence for verification is the part that misleads: the accessibility rubrics
+(TDD 16.5, 16.7, 16.17) are **unrunnable** on Windows rather than failing. Their names
+ARE set — `a11y.rs` is the single choke point and `clippy.toml` bans the bare tooltip
+setter — and they are read correctly by AT-SPI on Linux, so a Windows run that reports
+these checks as "not observed" is reporting this gap, not a defect in the code under test.
+
+**Mitigation options**:
+
+- **Accept it** — the position taken. Every exit is walled outside this project: the
+  provider tree is GTK's to publish, there is no application-side API to attach one, and
+  writing a UIA provider for another toolkit's widgets is a different project.
+- **Verify these rubrics on Linux and macOS only**, and record the Windows limb as a
+  platform gap in the run rather than as missing coverage.
+- **Re-check on a future GTK** — if the Windows backend ever gains a UIA bridge this
+  reopens at Low/Medium/High, since the names are already in place to be read.

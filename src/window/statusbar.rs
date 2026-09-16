@@ -504,6 +504,32 @@ fn submit(job: CountJob) {
     }
 }
 
+/// Releases the application-wide "a count is running" latch when the future that
+/// claimed it goes away — completed, cancelled, or dropped with its main context.
+///
+/// Without this the latch is set by [`submit`] and cleared only on the completion
+/// path, so a future dropped before it finishes strands `running` at `true` and every
+/// later count parks in `pending` forever: the indicator silently stops updating for
+/// the rest of the process. That is unreachable in a running application, which never
+/// drops that future, and reachable in a test binary, which builds and tears down
+/// hundreds of windows in one process — the shape POLICY § Unit tests forbids, where
+/// process-global state outlives the test that installed it.
+struct RunningLatch;
+
+impl Drop for RunningLatch {
+    fn drop(&mut self) {
+        let next = COUNTER.with(|counter| {
+            let mut counter = counter.borrow_mut();
+            let next = counter.pending.take();
+            counter.running = next.is_some();
+            next
+        });
+        if let Some(next) = next {
+            run(next);
+        }
+    }
+}
+
 fn run(job: CountJob) {
     let CountJob {
         tab,
@@ -516,6 +542,11 @@ fn run(job: CountJob) {
         None => (None, None),
     };
     glib::MainContext::default().spawn_local(async move {
+        // Held for the future's whole life, so the latch is released on EVERY exit —
+        // completion, panic, or the future being dropped with its main context — and
+        // the next pending job is started from one place rather than from the happy
+        // path only.
+        let _latch = RunningLatch;
         let outcome = gtk::gio::spawn_blocking(move || {
             let total =
                 source.map(|text| (TextCount::of_markdown(&text), LineEndings::classify(&text)));
@@ -531,15 +562,6 @@ fn run(job: CountJob) {
                 "status bar: counting tab {tab}'s words panicked; the indicator keeps its \
                  last value"
             ),
-        }
-        let next = COUNTER.with(|counter| {
-            let mut counter = counter.borrow_mut();
-            let next = counter.pending.take();
-            counter.running = next.is_some();
-            next
-        });
-        if let Some(next) = next {
-            run(next);
         }
     });
 }
@@ -782,6 +804,38 @@ pub(crate) fn defer_until_export_stops(
     op.cancel();
     chrome.after_export.borrow_mut().push(Box::new(then));
     true
+}
+
+#[cfg(test)]
+mod latch_tests {
+    use super::{Counter, RunningLatch, COUNTER};
+
+    /// The strand this guard exists to make unrepresentable: a future that claimed the
+    /// application-wide latch and then went away without completing must still release
+    /// it, or every later count parks in `pending` forever and the indicator silently
+    /// stops updating for the rest of the process.
+    ///
+    /// Display-free on purpose — the bug is in the latch, not in GTK, so it is provable
+    /// without a window. The paired "a pending job is started on release" path needs a
+    /// main context to dispatch into and is covered by the GTK bodies below.
+    #[test]
+    fn dropping_the_guard_releases_the_latch_even_when_the_job_never_finished() {
+        COUNTER.with(|counter| {
+            *counter.borrow_mut() = Counter {
+                running: true,
+                pending: None,
+            }
+        });
+
+        drop(RunningLatch);
+
+        let running = COUNTER.with(|counter| counter.borrow().running);
+        assert!(
+            !running,
+            "a dropped future must release the latch; leaving it set strands every \
+             later count in `pending` with nothing to start it"
+        );
+    }
 }
 
 #[cfg(all(test, feature = "gtk-integration-tests"))]
