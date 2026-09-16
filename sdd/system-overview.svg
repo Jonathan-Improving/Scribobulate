@@ -174,7 +174,7 @@
   <text class="lbl" x="644" y="592" font-size="9.5">thread, no channel. One monitor per tab, per file.</text>
   <text class="lbl" x="644" y="608" font-size="9.5"><tspan class="mono" font-weight="bold">winstate::external_change_action</tspan> — a pure, GTK-free</text>
   <text class="lbl" x="644" y="620" font-size="9.5">decision core (unit-tested headlessly):</text>
-  <text class="lbl" x="644" y="631" font-size="8.8">same → Ignore · dirty or lost → Toast · clean → Reload · blank → keep ⚠</text>
+  <text class="lbl" x="644" y="631" font-size="8.8">same → Ignore · dirty or lost → Toast · clean → Reload · blank or gone → settle, then keep ⚠</text>
 
   <path class="flow" d="M 246 578 L 288 578" stroke-width="1.4" marker-end="url(#a)"/>
   <path class="flow" d="M 288 600 L 246 600" stroke-width="1.4" marker-end="url(#a)"/>
@@ -186,7 +186,7 @@
   <text class="lbl" x="812" y="538" font-size="9">reload / conflict toast</text>
   <text class="lbl" x="144" y="540" font-size="9">open / save</text>
 
-  <text class="lbl" x="300" y="652" font-size="9" font-style="italic">A save's own rename looks exactly like an external delete to GIO — the monitor is told to expect it.</text>
+  <text class="lbl" x="300" y="652" font-size="9" font-style="italic">Any rename looks exactly like a delete to GIO — ours is expected, a stranger's is re-read before it means anything.</text>
   <text class="lbl" x="300" y="664" font-size="9" font-style="italic">Every arrow above runs on GLib's I/O thread pool via docio — never on the main thread, and capped so it cannot delay a recovery snapshot.</text>
 
   <!-- ── environment row ────────────────────────────────────────────────── -->

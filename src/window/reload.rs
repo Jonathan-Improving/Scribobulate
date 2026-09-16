@@ -182,8 +182,8 @@ pub(crate) fn check_and_reload_tab(tab: &Rc<TabState>) {
 }
 
 /// [`check_and_reload_tab`]'s body. `settled` marks the re-read
-/// [`arm_truncation_settle`] schedules, which is the only read allowed to conclude a
-/// blank file was truncated rather than caught mid-rewrite (TDD 3.5).
+/// [`arm_backing_settle`] schedules, which is the only read allowed to conclude a
+/// document lost its backing rather than being caught mid-replacement (TDD 3.4, 3.5).
 fn check_disk(tab: &Rc<TabState>, settled: bool) {
     let Some(path) = tab.path.borrow().clone() else {
         return;
@@ -191,20 +191,31 @@ fn check_disk(tab: &Rc<TabState>, settled: bool) {
     let ticket = tab.doc_epoch.claim();
     let tab_id = tab.id;
     gtk::glib::MainContext::default().spawn_local(async move {
-        // Silent on failure, deliberately — see `reload_from_disk`'s note: nobody
-        // is awaiting a specific gesture here.
-        let Ok(content) = crate::docio::read_document_text(path).await else {
-            return;
+        let read = crate::docio::read_document_text(path).await;
+        // `NotFound` is an ANSWER, not a failure: this is the whole of how a deletion
+        // is detected, and routing it through the same decision as every other read is
+        // what keeps the delete-shaped half of a rename from being concluded on sight
+        // (`winstate::BACKING_SETTLE`). Every other failure — permissions, transient
+        // I/O, a path that is no longer an admissible document — answers nothing, and
+        // stays silent deliberately: see `reload_from_disk`'s note, nobody is awaiting
+        // a specific gesture here.
+        let content = match read {
+            Ok(content) => Some(content),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(_) => return,
         };
+        let seen = content
+            .as_deref()
+            .map_or(winstate::DiskRead::Absent, winstate::DiskRead::Content);
         let Some(tab) = winstate::tab_by_id(tab_id) else {
             return;
         };
         if !tab.doc_epoch.is_current(ticket) {
             return;
         }
-        let decision = decide(&tab, &content, settled);
+        let decision = decide(&tab, seen, settled);
         match window_for_tab(&tab).filter(|w| state(w).is_some_and(|a| a.id == tab.id)) {
-            Some(window) => apply_for_active(&window, &tab, &content, decision),
+            Some(window) => apply_for_active(&window, &tab, seen, decision),
             None => apply_for_background(&tab, decision),
         }
     });
@@ -212,11 +223,11 @@ fn check_disk(tab: &Rc<TabState>, settled: bool) {
 
 /// Gather `tab`'s side of the external-change decision. The borrows end with this
 /// function, before anything acts on the answer and mutates the same cells.
-fn decide(tab: &TabState, content: &str, settled: bool) -> winstate::ExternalChange {
+fn decide(tab: &TabState, seen: winstate::DiskRead<'_>, settled: bool) -> winstate::ExternalChange {
     let source = tab.source();
     let baseline = tab.saved_baseline.borrow();
     winstate::external_change_action(&winstate::DiskObservation {
-        disk: content,
+        disk: seen,
         source: source.as_str(),
         baseline: baseline.as_str(),
         dirty: tab.is_dirty(),
@@ -231,18 +242,25 @@ fn decide(tab: &TabState, content: &str, settled: bool) -> winstate::ExternalCha
 fn apply_for_active(
     window: &ApplicationWindow,
     tab: &Rc<TabState>,
-    content: &str,
+    seen: winstate::DiskRead<'_>,
     decision: winstate::ExternalChange,
 ) {
     use winstate::ExternalChange;
     match decision {
         ExternalChange::Ignore => {}
         ExternalChange::Toast => show_conflict_toast(window),
-        ExternalChange::Reload => apply_external_reload(window, content),
-        ExternalChange::AwaitSettle => arm_truncation_settle(tab),
-        ExternalChange::Truncated => {
-            crate::window::mark_backing_lost(tab, winstate::BackingLoss::Truncated)
-        }
+        ExternalChange::Reload => match seen {
+            // Total by construction: an absent read decides `AwaitSettle` or `Lost`
+            // and can never reach here. Spelled out rather than unwrapped so that if
+            // the decision core ever grows a path that could, the compiler shows this
+            // site instead of a blank page reaching the buffer.
+            winstate::DiskRead::Content(content) => apply_external_reload(window, content),
+            winstate::DiskRead::Absent => {
+                log::error!("tab {}: Reload decided from an absent read", tab.id)
+            }
+        },
+        ExternalChange::AwaitSettle => arm_backing_settle(tab),
+        ExternalChange::Lost(loss) => crate::window::mark_backing_lost(tab, loss),
         ExternalChange::Restored => {
             // A prompt raised by an earlier, different refill no longer describes the
             // file, and its Reload button would act on that expired premise.
@@ -272,10 +290,8 @@ fn apply_for_background(tab: &Rc<TabState>, decision: winstate::ExternalChange) 
             tab.pending_external.set(true);
             badge_tab_label(tab);
         }
-        ExternalChange::AwaitSettle => arm_truncation_settle(tab),
-        ExternalChange::Truncated => {
-            crate::window::mark_backing_lost(tab, winstate::BackingLoss::Truncated)
-        }
+        ExternalChange::AwaitSettle => arm_backing_settle(tab),
+        ExternalChange::Lost(loss) => crate::window::mark_backing_lost(tab, loss),
         ExternalChange::Restored => {
             tab.suppress_conflict.set(false);
             tab.pending_external.set(false);
@@ -284,30 +300,34 @@ fn apply_for_background(tab: &Rc<TabState>, decision: winstate::ExternalChange) 
     }
 }
 
-/// Re-read `tab`'s file once a writer has had [`winstate::TRUNCATION_SETTLE`] to finish
-/// rewriting it, replacing any re-read already pending (TDD 3.5).
-fn arm_truncation_settle(tab: &Rc<TabState>) {
-    cancel_truncation_settle(tab);
+/// Re-read `tab`'s file once a writer has had [`winstate::BACKING_SETTLE`] to finish
+/// replacing it, replacing any re-read already pending (TDD 3.4, 3.5).
+///
+/// Re-armed rather than stacked, which is what makes a backend that reports one
+/// replacement as several events (Win32 delivers two `Deleted`s for one
+/// replace-existing rename) cost one re-read rather than several.
+fn arm_backing_settle(tab: &Rc<TabState>) {
+    cancel_backing_settle(tab);
     log::debug!(
-        "tab {}: file read blank; re-reading after {:?}",
+        "tab {}: file read blank or gone; re-reading after {:?}",
         tab.id,
-        winstate::TRUNCATION_SETTLE
+        winstate::BACKING_SETTLE
     );
     let tab_id = tab.id;
-    let id = gtk::glib::timeout_add_local_once(winstate::TRUNCATION_SETTLE, move || {
+    let id = gtk::glib::timeout_add_local_once(winstate::BACKING_SETTLE, move || {
         let Some(tab) = winstate::tab_by_id(tab_id) else {
             return;
         };
         // Dispatched, so the id is spent: removing it later would be a GLib critical.
-        tab.truncation_settle.set(None);
+        tab.backing_settle.set(None);
         check_disk(&tab, true);
     });
-    tab.truncation_settle.set(Some(id));
+    tab.backing_settle.set(Some(id));
 }
 
 /// Drop `tab`'s pending settle re-read, if any.
-pub(super) fn cancel_truncation_settle(tab: &TabState) {
-    if let Some(id) = tab.truncation_settle.take() {
+pub(super) fn cancel_backing_settle(tab: &TabState) {
+    if let Some(id) = tab.backing_settle.take() {
         id.remove();
     }
 }
@@ -599,9 +619,9 @@ mod gtk_integration_tests {
 
     /// Whether `tab` has a truncation re-read pending, read without disturbing it.
     fn settle_armed(tab: &TabState) -> bool {
-        let id = tab.truncation_settle.take();
+        let id = tab.backing_settle.take();
         let armed = id.is_some();
-        tab.truncation_settle.set(id);
+        tab.backing_settle.set(id);
         armed
     }
 
@@ -763,6 +783,50 @@ mod gtk_integration_tests {
                 tab.backing_loss.get(),
                 None,
                 "no truncation was ever recorded"
+            );
+            assert!(!tab.needs_close_prompt());
+            window.destroy();
+        });
+    }
+
+    /// TDD 3.1 through the real monitor, for the way most editors actually write:
+    /// write a temp beside the file and `rename` it over the top. GIO's local monitor
+    /// expands that into `Deleted`(old) + `Created`(new) + `ChangesDoneHint`
+    /// (`glocalfilemonitor.c` — `WATCH_MOVES` is off), so the deletion event is an
+    /// artefact of the inode swap and not a deletion the user could ever observe.
+    #[gtktest::test]
+    fn an_external_rewrite_by_rename_reloads_and_never_reads_as_a_deletion() {
+        const ORIGINAL: &str = "# Plan\n\nold\n";
+        const REWRITTEN: &str = "# Plan\n\nnew\n";
+        let state_home = tempfile::tempdir().expect("state home");
+        let docs = tempfile::tempdir().expect("docs");
+        crate::session::with_state_home_for_test(state_home.path(), || {
+            let (window, tab, path) = window_over(
+                "com.extollit.scribobulate.it.renameover",
+                docs.path(),
+                ORIGINAL,
+            );
+            crate::app::attach_file_backing(&window, &tab, path.clone());
+            // A freshly attached monitor is not yet watching (ScrAP-269).
+            drain(std::time::Duration::from_millis(200));
+
+            // What every atomic external writer does.
+            let temp = docs.path().join("plan.md.tmp");
+            std::fs::write(&temp, REWRITTEN).expect("stage");
+            std::fs::rename(&temp, &path).expect("promote");
+
+            settle("the rewrite reloads (TDD 3.1)", || {
+                tab.editor_text() == REWRITTEN
+            });
+            drain(std::time::Duration::from_millis(800));
+            assert_eq!(
+                tab.backing_loss.get(),
+                None,
+                "an ordinary external rewrite is not a deletion"
+            );
+            assert!(
+                !tab.chrome().conflict_toast.is_visible(),
+                "nor a conflict: the buffer was clean"
             );
             assert!(!tab.needs_close_prompt());
             window.destroy();

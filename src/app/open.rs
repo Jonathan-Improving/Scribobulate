@@ -263,8 +263,23 @@ pub(crate) fn attach_file_backing(
             return;
         }
 
-        // 3.4: the file was deleted on disk. Inform the user via a transient
-        // status notice and keep the buffer — it is recoverable by saving.
+        // 3.4: the file MAY have been deleted on disk. The event alone does not say
+        // so, and this arm deliberately decides nothing about it — it only settles
+        // whether the deletion is OURS, then falls through to the common re-read,
+        // which is where a genuine loss is concluded (from the file still being
+        // absent a `BACKING_SETTLE` later) and an ordinary external rewrite is
+        // reloaded.
+        //
+        // **A `Deleted` event is not evidence of a deletion**, which is what this arm
+        // used to treat it as. Every careful external writer — vim, VS Code, a `git
+        // checkout` — writes a temp beside the file and renames it over the top, and
+        // `glocalfilemonitor.c:419-450` expands that rename into `DELETED`(old) plus a
+        // synthetic `CREATED`(new) whenever `WATCH_MOVES` is off, which it is here. So
+        // flagging the document here condemned every such save as a deletion, and the
+        // `CREATED` that followed then read as a deleted file coming back with other
+        // content — TDD 3.6's conflict prompt — leaving the reader told the file was
+        // deleted AND asked whether to reload it, over a clean buffer that should
+        // simply have reloaded (TDD 3.1). MEASURED on this project's own suite.
         //
         // GTK4Rs/AP-62: `write_atomic`'s write-temp-then-`rename` (the
         // crash-safety guarantee, QA round-1 H4) replaces the watched path's
@@ -300,9 +315,8 @@ pub(crate) fn attach_file_backing(
                 );
                 return;
             }
-            // The backing file is genuinely gone, so the buffer is its only copy
-            // (TDD 3.4, 15.22).
-            crate::window::mark_backing_lost(&tab, crate::winstate::BackingLoss::Deleted);
+            // Not ours, so it is a question for the re-read below to answer.
+            crate::window::check_and_reload_tab(&tab);
             return;
         }
 

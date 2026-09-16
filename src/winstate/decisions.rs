@@ -253,12 +253,19 @@ impl BackingLoss {
 /// variable's `echo`.
 const BLANK_CHARS: [char; 5] = [' ', '\t', '\n', '\r', '\u{FEFF}'];
 
-/// How long a file must stay blank before it is treated as truncated (TDD 3.5).
+/// How long a file must stay blank, or stay gone, before the buffer is treated as its
+/// only copy (TDD 3.4, 3.5).
 ///
-/// A writer that truncates and then succeeds refills the file within milliseconds,
-/// and one that failed leaves it blank indefinitely, so a short wait separates the
-/// two without the reader noticing it.
-pub(crate) const TRUNCATION_SETTLE: std::time::Duration = std::time::Duration::from_millis(500);
+/// **Both losses need this wait, and for one reason.** A writer replacing a file passes
+/// through a state indistinguishable from having destroyed it — truncating leaves the
+/// file blank, and the write-temp-then-`rename` every careful writer performs makes the
+/// watched path momentarily absent and, on Linux and Windows, reports a `DELETED` event
+/// whether or not it was ever absent (`glocalfilemonitor.c` expands a rename into a
+/// delete plus a synthetic create when `WATCH_MOVES` is off). A writer that succeeds is
+/// finished within milliseconds; one that failed leaves the file blank or gone
+/// indefinitely. So a short wait separates them without the reader noticing it, and
+/// nothing may conclude a loss from the first observation alone.
+pub(crate) const BACKING_SETTLE: std::time::Duration = std::time::Duration::from_millis(500);
 
 /// Whether `text` holds nothing a reader could lose — see [`BLANK_CHARS`].
 pub(crate) fn is_blank_content(text: &str) -> bool {
@@ -269,29 +276,45 @@ pub(crate) fn is_blank_content(text: &str) -> bool {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum ExternalChange {
     /// No actionable change — content identical, a dirty buffer whose conflict
-    /// notice the user already dismissed, or a flagged document still blank.
+    /// notice the user already dismissed, or a flagged document still blank or gone.
     Ignore,
     /// Content changed under a buffer that must not be replaced silently — raise the
     /// conflict toast.
     Toast,
     /// Content changed and the buffer is clean — reload silently.
     Reload,
-    /// The file just read blank over a document that was not. Re-read after
-    /// [`TRUNCATION_SETTLE`] before deciding anything, so a rewrite caught between its
-    /// truncate and its write neither reloads a blank page nor raises a warning.
+    /// The file just read blank, or read as gone, over a document that was neither.
+    /// Re-read after [`BACKING_SETTLE`] before deciding anything, so a rewrite caught
+    /// between its truncate and its write — or between its unlink and its rename —
+    /// neither reloads a blank page nor raises a warning.
     AwaitSettle,
-    /// Still blank after the settle — keep the buffer and flag the loss.
-    Truncated,
+    /// Still blank, or still gone, after the settle — keep the buffer and flag the
+    /// loss. Carries the *reason* rather than splitting into two variants, for the
+    /// same reason [`BackingLoss`] does: one arm applies both, so no caller can handle
+    /// one loss and forget the other.
+    Lost(BackingLoss),
     /// A flagged document's file is back with exactly the content last loaded or
     /// saved — retire the flag; there is nothing to reload.
     Restored,
 }
 
+/// What one read of a document's path found. A read that fails *because the file is
+/// not there* is an observation, not an error — it is the whole of how a deletion is
+/// detected — whereas every other failure (permissions, transient I/O, a path that is
+/// no longer an admissible document) answers nothing and never reaches here.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum DiskRead<'a> {
+    /// The file was read, and holds this.
+    Content(&'a str),
+    /// The file is not there.
+    Absent,
+}
+
 /// Everything [`external_change_action`] decides from: one read of the file, and the
 /// document it was read for.
 pub(crate) struct DiskObservation<'a> {
-    /// The file's content as just read.
-    pub(crate) disk: &'a str,
+    /// What the read of the file just found.
+    pub(crate) disk: DiskRead<'a>,
     /// The text the preview was rendered from.
     pub(crate) source: &'a str,
     /// The content last loaded from or saved to disk.
@@ -302,26 +325,46 @@ pub(crate) struct DiskObservation<'a> {
     pub(crate) suppressed: bool,
     /// Whether the buffer is already known to be the only copy.
     pub(crate) backing_loss: Option<BackingLoss>,
-    /// Whether this read is the re-read taken after [`TRUNCATION_SETTLE`].
+    /// Whether this read is the re-read taken after [`BACKING_SETTLE`].
     pub(crate) settled: bool,
 }
 
 /// Decide how to respond to an external file change. Pure decision core of
-/// `window::check_and_reload_tab` (TDD 3.1, 3.5, 3.6, 4.6, 5.1, 9.13).
+/// `window::check_and_reload_tab` (TDD 3.1, 3.4, 3.5, 3.6, 4.6, 5.1, 9.13).
 ///
 /// A flagged document is decided as though it were dirty whatever its buffer says:
 /// its buffer is the only copy of what the file held, so new content is a conflict to
 /// raise, never a reload to apply (3.6).
+///
+/// **A loss is never concluded from one observation.** Absent and blank are the two
+/// states a file passes *through* while it is being replaced, so each costs a
+/// [`BACKING_SETTLE`] re-read before it means anything — see that constant for why
+/// the delete-shaped one is not optional on any platform this runs on.
 pub(crate) fn external_change_action(seen: &DiskObservation) -> ExternalChange {
-    if is_blank_content(seen.disk) && !is_blank_content(seen.baseline) {
+    let disk = match seen.disk {
+        DiskRead::Absent => {
+            return match (seen.backing_loss, seen.settled) {
+                // Already recorded as gone: a backend that reports one deletion twice
+                // (Win32 does, for a single replace-existing rename) re-decides nothing.
+                (Some(BackingLoss::Deleted), _) => ExternalChange::Ignore,
+                // Including a document already flagged Truncated — its file has gone
+                // from blank to absent, which is a different loss with a different
+                // notice, so it is re-decided rather than left reading "truncated".
+                (_, false) => ExternalChange::AwaitSettle,
+                (_, true) => ExternalChange::Lost(BackingLoss::Deleted),
+            };
+        }
+        DiskRead::Content(disk) => disk,
+    };
+    if is_blank_content(disk) && !is_blank_content(seen.baseline) {
         return match (seen.backing_loss, seen.settled) {
             (Some(_), _) => ExternalChange::Ignore,
             (None, false) => ExternalChange::AwaitSettle,
-            (None, true) => ExternalChange::Truncated,
+            (None, true) => ExternalChange::Lost(BackingLoss::Truncated),
         };
     }
     if seen.backing_loss.is_some() {
-        return if seen.disk == seen.baseline {
+        return if disk == seen.baseline {
             ExternalChange::Restored
         } else if seen.suppressed {
             ExternalChange::Ignore
@@ -329,7 +372,7 @@ pub(crate) fn external_change_action(seen: &DiskObservation) -> ExternalChange {
             ExternalChange::Toast
         };
     }
-    if seen.disk == seen.source {
+    if disk == seen.source {
         ExternalChange::Ignore
     } else if !seen.dirty {
         ExternalChange::Reload
@@ -455,7 +498,7 @@ mod tests {
     /// first (unsettled) pass.
     fn seen<'a>(disk: &'a str, baseline: &'a str) -> DiskObservation<'a> {
         DiskObservation {
-            disk,
+            disk: DiskRead::Content(disk),
             source: baseline,
             baseline,
             dirty: false,
@@ -469,6 +512,14 @@ mod tests {
         DiskObservation {
             backing_loss: Some(loss),
             ..seen(disk, "doc")
+        }
+    }
+
+    /// The same document, read back as no longer there.
+    fn gone(baseline: &str) -> DiskObservation<'_> {
+        DiskObservation {
+            disk: DiskRead::Absent,
+            ..seen(baseline, baseline)
         }
     }
 
@@ -519,7 +570,10 @@ mod tests {
             settled: true,
             ..seen("", "doc")
         };
-        assert_eq!(external_change_action(&still_blank), Truncated);
+        assert_eq!(
+            external_change_action(&still_blank),
+            Lost(BackingLoss::Truncated)
+        );
         let dirty_dismissed = DiskObservation {
             settled: true,
             dirty: true,
@@ -528,7 +582,7 @@ mod tests {
         };
         assert_eq!(
             external_change_action(&dirty_dismissed),
-            Truncated,
+            Lost(BackingLoss::Truncated),
             "unsaved edits and a dismissed prompt do not stop the warning"
         );
 
@@ -546,6 +600,74 @@ mod tests {
             ..seen("", "")
         };
         assert_eq!(external_change_action(&blank_again), Ignore);
+    }
+
+    /// TDD 3.4, and the twin of the blank-read case above. A read that comes back
+    /// absent is the *same* ambiguity: every careful external writer replaces a file
+    /// by renaming a temp over it, which reports as a deletion (and is briefly one),
+    /// so concluding a loss from the first absent read condemns ordinary saves by
+    /// vim, VS Code and `git checkout` as deletions.
+    #[test]
+    fn an_absent_read_is_a_deletion_only_once_it_survives_the_settle() {
+        use ExternalChange::*;
+        assert_eq!(external_change_action(&gone("doc")), AwaitSettle);
+        let dirty = DiskObservation {
+            dirty: true,
+            ..gone("doc")
+        };
+        assert_eq!(
+            external_change_action(&dirty),
+            AwaitSettle,
+            "unsaved edits do not make the first absent read conclusive either"
+        );
+
+        let still_gone = DiskObservation {
+            settled: true,
+            ..gone("doc")
+        };
+        assert_eq!(
+            external_change_action(&still_gone),
+            Lost(BackingLoss::Deleted)
+        );
+
+        // The replacement landed before the settle re-read ran: an ordinary change,
+        // and the negative control for the whole mechanism (TDD 3.1).
+        let replaced = DiskObservation {
+            settled: true,
+            ..seen("new", "doc")
+        };
+        assert_eq!(external_change_action(&replaced), Reload);
+    }
+
+    /// The two ways an already-flagged document answers an absent read.
+    #[test]
+    fn an_absent_read_over_a_flagged_document_re_decides_only_the_other_loss() {
+        use ExternalChange::*;
+        // Win32 reports ONE replace-existing rename as TWO `Deleted`s; a second
+        // observation of a deletion already recorded must decide nothing.
+        let already = DiskObservation {
+            backing_loss: Some(BackingLoss::Deleted),
+            ..gone("doc")
+        };
+        assert_eq!(external_change_action(&already), Ignore);
+        let already_settled = DiskObservation {
+            settled: true,
+            ..already
+        };
+        assert_eq!(external_change_action(&already_settled), Ignore);
+
+        // A truncated file that is then removed is a different loss with a different
+        // notice, so it is re-decided rather than left reading "truncated".
+        let emptied_then_removed = DiskObservation {
+            backing_loss: Some(BackingLoss::Truncated),
+            ..gone("doc")
+        };
+        assert_eq!(external_change_action(&emptied_then_removed), AwaitSettle);
+        let settled = DiskObservation {
+            settled: true,
+            ..emptied_then_removed
+        };
+        assert_eq!(external_change_action(&settled), Lost(BackingLoss::Deleted));
     }
 
     /// TDD 3.6, for both losses: a flagged document is decided as though dirty.

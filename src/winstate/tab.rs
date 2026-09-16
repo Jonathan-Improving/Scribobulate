@@ -223,9 +223,9 @@ pub(crate) struct TabState {
     /// with the generation it describes. A background tab keeps a stale one until it
     /// is activated (Derived-view CAM deferral rule).
     pub(crate) text_stats: Cell<Option<super::statusbar::TextStats>>,
-    /// The pending re-read that decides whether a file seen blank was truncated or
-    /// was caught between a rewrite's truncate and its write (TDD 3.5).
-    pub(crate) truncation_settle: Cell<Option<gtk::glib::SourceId>>,
+    /// The pending re-read that decides whether a file seen blank or seen gone really
+    /// lost its backing, or was only caught mid-replacement (TDD 3.4, 3.5).
+    pub(crate) backing_settle: Cell<Option<gtk::glib::SourceId>>,
     /// True while the editor buffer is being replaced programmatically (load /
     /// external reload), so the split-preview debounce ignores that change.
     pub(crate) loading: Cell<bool>,
@@ -519,7 +519,7 @@ impl TabState {
             expect_self_delete: SelfDeleteGuard::default(),
             // A freshly loaded/created tab's file is present (or it is untitled).
             backing_loss: Cell::new(None),
-            truncation_settle: Cell::new(None),
+            backing_settle: Cell::new(None),
             live_reload_off: Cell::new(false),
             text_generation: Cell::new(0),
             text_stats: Cell::new(None),

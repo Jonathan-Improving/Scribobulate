@@ -15,8 +15,8 @@ use crate::winstate::BackingLoss;
 /// A repeat of the loss already recorded changes nothing, so a backend that reports
 /// one deletion twice re-derives nothing.
 pub(crate) fn mark_backing_lost(tab: &Rc<TabState>, loss: BackingLoss) {
-    // A recorded loss supersedes a pending "is it still blank?" re-read.
-    super::reload::cancel_truncation_settle(tab);
+    // A recorded loss supersedes a pending "is it still blank, or still gone?" re-read.
+    super::reload::cancel_backing_settle(tab);
     if tab.backing_loss.replace(Some(loss)) == Some(loss) {
         return;
     }

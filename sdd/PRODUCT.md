@@ -38,7 +38,11 @@ is to show formatted text, that trade-off is indefensible.
   truncated the file and then failed is the case this exists for — the buffer is
   kept rather than reloaded blank, its tab is flagged with a warning marker, and —
   since the open buffer now holds the only copy — closing it prompts to save first,
-  exactly as an unsaved document would, and a crash cannot lose it either.
+  exactly as an unsaved document would, and a crash cannot lose it either. A loss
+  is only ever announced once the file has *stayed* gone or blank for a moment,
+  because both are states an ordinary rewrite passes through, and warning that a
+  document was destroyed when it was merely being saved is its own kind of lost
+  trust.
 - **Unsaved work lost to an unclean exit**: Every safeguard above protects a
   document from being overwritten; none of them protected it from the application
   simply dying. A crash, an out-of-memory kill or a power cut discarded everything

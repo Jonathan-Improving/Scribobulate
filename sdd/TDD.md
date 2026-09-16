@@ -576,6 +576,7 @@
 - **Given** a document is open with no unsaved edits in the editor pane
 - **When** an external process modifies the file on disk
 - **Then** the preview and editor update to reflect the new content without the user taking any action
+- **And** this holds however the writer wrote it — in place, or by writing a temp beside the file and renaming it over the top (what vim, VS Code and `git checkout` do) — with no warning that the file was deleted and no conflict prompt
 
 ### 3.2 Reading position is preserved
 - **Given** the user has scrolled partway through a long document
@@ -589,8 +590,9 @@
 
 ### 3.4 File removed externally
 - **Given** an open document
-- **When** the file is deleted on disk
-- **Then** the user is informed and the current content is retained in the editor (recoverable by saving)
+- **When** the file is deleted on disk **and is still gone about half a second later**
+- **Then** the user is told "File deleted on disk — save to restore it" and the current content is retained in the editor (recoverable by saving)
+- **And** a file that is gone only momentarily — the gap inside another program's replace-by-rename — raises no warning at all: the wait is what separates a replacement from a deletion, exactly as it does for an emptied file (3.5), and a watcher event reporting a deletion is not on its own evidence that one happened
 
 ### 3.5 File emptied externally
 - **Given** an open document whose content as last loaded from disk is not blank
@@ -606,6 +608,7 @@
 - **Then** if that content is exactly what was last loaded or saved, the warning clears quietly and nothing reloads
 - **And** otherwise the editor keeps its content and the external-change conflict prompt appears (§5), exactly as for a document with unsaved edits; the warning, the close prompt and the crash-recovery snapshot all stay until the user chooses Reload or saves — dismissing the prompt keeps them
 - **And** a reappearance that is still blank changes nothing
+- **And** this applies only to a document that was *flagged* — a loss that was never concluded because the file came back inside 3.4's/3.5's wait is an ordinary external edit and reloads silently (3.1)
 
 ---
 

@@ -85,7 +85,9 @@ see Help ▸ Keyboard Shortcuts in the app for the exact mapping.)*
 - **Light on your machine** — native rendering on the CPU, not a browser engine.
   Leaves GPU memory free for the models and tools you actually care about.
 - **Live reload** — when an agent (or anything else) rewrites an open file, the
-  preview updates immediately and your place in the document is kept.
+  preview updates immediately and your place in the document is kept. However it
+  was written — in place, or the temp-and-rename dance most editors do — it reads
+  as one edit, not as the file being destroyed and rebuilt.
 - **Your edits stay yours**
   - **Conflicts** — if a file changes while you have unsaved work, you're asked
     whether to reload or keep your version. Never a silent overwrite.

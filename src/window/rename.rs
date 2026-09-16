@@ -243,9 +243,10 @@ fn perform_rename(window: &ApplicationWindow, tab: &Rc<TabState>, new_name: Stri
 
                 if matches!(err, RenameError::SourceMissing) {
                     // The file went away between the command being enabled and the
-                    // rename running. That is exactly the state the monitor's own
-                    // Deleted arm produces, so produce it the same way rather than a
-                    // second, subtly different version of it (TDD 24.8).
+                    // rename running. Recorded outright, with no `BACKING_SETTLE`
+                    // re-read, because unlike the monitor's `Deleted` event this is
+                    // not an ambiguous signal to interpret — the rename itself just
+                    // looked for the file and did not find it (TDD 24.8).
                     crate::window::mark_backing_lost(&tab, crate::winstate::BackingLoss::Deleted);
                 }
                 report_rename_error(&window, &err);

@@ -121,7 +121,8 @@ pub(crate) use chrome::WindowChrome;
 pub(crate) use decisions::{
     edit_actions_enabled, external_change_action, is_blank_welcome, line_col_indicator,
     rename_enabled, save_enabled, save_is_safe, tab_label_markup, window_title_for_tabs,
-    BackingLoss, DiskObservation, ExternalChange, TabBadgeState, APP_NAME, TRUNCATION_SETTLE,
+    BackingLoss, DiskObservation, DiskRead, ExternalChange, TabBadgeState, APP_NAME,
+    BACKING_SETTLE,
 };
 pub(crate) use docepoch::DocEpoch;
 pub(crate) use fmtinsert::FmtInsertKind;
