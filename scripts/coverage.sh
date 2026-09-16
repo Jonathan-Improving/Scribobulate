@@ -134,7 +134,8 @@ cd "$(dirname "$0")/.."
 # never to, and an unexplained drop is indistinguishable from the silent drift that rule
 # exists to catch — so this is the deliberate exception, not the failure mode recurring.
 #
-# Cause: 6d73875 added two modules whose tests are real but INVISIBLE to this gate —
+# Cause: "Re-issue far scrolls once GTK has laid the document out" (2026-08-07) added two
+# modules whose tests are real but INVISIBLE to this gate —
 # src/farscroll.rs and src/saferizer/scrollpos.rs are GTK machinery (idle sources,
 # adjustments, scroll calls) exercised by `#[gtktest::test]` bodies behind the
 # `gtk-integration-tests` feature, which this unit-only run deliberately does not enable.
@@ -142,7 +143,7 @@ cd "$(dirname "$0")/.."
 # alone took the total from >=76.76 to 76.20.
 #
 # What was measured before choosing this (so nobody re-derives it):
-#   76.20  as 6d73875 left it
+#   76.20  as that change left it
 #   76.31  after extracting farscroll's pure decision cores and unit-testing them (15
 #          tests, all mutation-verified). Small because test bodies count in the
 #          DENOMINATOR too — 58 added lines bought 2 net covered production lines.
@@ -365,7 +366,8 @@ cd "$(dirname "$0")/.."
 #
 # ratchet DOWN 2026-08-20 (79.50 -> 79.00), operator's decision. The line above records a
 # measurement of 79.57 behind the 79.50 ratchet; that figure does not reproduce. Measured
-# on this canonical platform at `1a19546` and at every commit since: **79.31%**. So the
+# on this canonical platform when the export feature landed (2026-08-19) and at every
+# commit since: **79.31%**. So the
 # ratchet was set roughly 0.2pt ABOVE what the tree achieves, and step 6 was red on the
 # only platform that runs it from the moment the export feature landed — macOS and Windows
 # both contract-declare the step not-applicable, so neither seat was a witness to it.
@@ -387,7 +389,8 @@ cd "$(dirname "$0")/.."
 #
 # 2026-08-21, 79.60 -> 79.70, AND the correction of a ratchet this log never recorded.
 # QA round 1 (F-GATE-007, found by three reviewers independently) established that
-# `b890c9c` moved FLOOR 79.00 -> 79.40 in the SAME commit that added `clipboard` to
+# "Stop a lone carriage return from collapsing a document" (2026-08-20) moved FLOOR
+# 79.00 -> 79.40 in the SAME commit that added `clipboard` to
 # IGNORE below, with no entry here. Re-measured on this machine: the clipboard exclusion
 # is worth +0.40pt (79.64% with the file in scope, 80.04% with it out), which is the
 # whole of that move. So the floor did not rise against a constant scope — the SCOPE
@@ -429,7 +432,7 @@ cd "$(dirname "$0")/.."
 # `theme/` picked up the per-level heading fold, the line-style vocabulary and their
 # clamp/merge/floor cases; `export/html.rs`, `export/markup.rs` and `preview/css.rs`
 # each gained sink tests for the new keys, including two that assert the generated Pango
-# markup PARSES rather than merely spelling right. Measured 80.97% before (at `35aab05`,
+# markup PARSES rather than merely spelling right. Measured 80.97% before (2026-08-25,
 # in a clean worktree), 81.46% after. Raised by half the gain, per the 2026-08-20 entry.
 # Worth noting for whoever reads this next: the floor was already ~1pt behind the tree
 # at 79.95, and this entry does not close that gap — closing it is a deliberate decision
@@ -440,15 +443,15 @@ cd "$(dirname "$0")/.."
 # PDF marker-ink prerequisite). Test-only again, on already-scoped modules: `theme/`
 # picked up the tier map and the shallower-tier fallback cases, `codeview/gutter.rs` the
 # per-depth substitution and ink, `export/pdf/decide.rs` the marker ink and the per-depth
-# arms, and `export/html.rs` the depth-scoped selectors. Measured 81.45% before (at
-# `ed0f7c3`, in a clean worktree), 81.67% after. Raised by half the gain, per the
+# arms, and `export/html.rs` the depth-scoped selectors. Measured 81.45% before
+# (2026-08-25, in a clean worktree), 81.67% after. Raised by half the gain, per the
 # 2026-08-20 entry above. The ~1pt standing margin the 2026-08-25 entry names is
 # unchanged and still deliberate.
 #
 # 2026-08-26, 80.30 -> 80.33, TDD 18.27/18.28 plus 18.25's band-padding fix. The SMALLEST
 # move this log records, and deliberately made rather than skipped: the work added about
 # as much code as it did test (three decorations across the theme model, the gutter and
-# both sinks), so measured 81.68% before (at `51caea6`, clean worktree) and 81.74% after.
+# both sinks), so measured 81.68% before (2026-08-26, clean worktree) and 81.74% after.
 # Half the gain is +0.03. Skipping a move because it is small is how a ratchet quietly
 # stops tracking; the ~1.4pt standing margin the 2026-08-25 entry names absorbs it either
 # way.
@@ -459,10 +462,11 @@ cd "$(dirname "$0")/.."
 # THREE things, because this entry answers a finding rather than logging a feature:
 #
 #   1. THE 0.9pt DROP THE LOG NEVER RECORDED. The previous entry claims 81.74% at
-#      `51caea6`. MEASURED at `7f6b09d` — the branch tip this round started from, in a
+#      81.74% on 2026-08-26. MEASURED at the branch tip this round started from, in a
 #      clean worktree — the tree was at 80.85%, and the gate stayed green the whole way
-#      because the slack absorbed it. The three commits between them (`f61a7fa`'s
-#      panel/header/rule, `595d517`'s registry rewrite, `7f6b09d`'s module split) added
+#      because the slack absorbed it. The three changes between them (the blockquote
+#      panel/header/rule, the theme-registry rewrite, and the theme-engine module split,
+#      all 2026-08-26) added
 #      about 780 gated lines and their tests did not keep pace. Nothing was wrong with
 #      the gate; the gate simply was not tracking, which is exactly what the 2026-08-26
 #      entry above warns a small skipped move leads to.

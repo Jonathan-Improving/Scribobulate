@@ -156,7 +156,11 @@ mod tests {
     fn sample() -> Identity {
         Identity {
             version: "0.1.0",
-            commit: "a24471e",
+            // Deliberately not a real hash from this repository. The `commit` field is
+            // a GENERATED build stamp — the one sanctioned use of a hash here (POLICY
+            // § SDD register writes) — but a fixture carrying a REAL one reads as a
+            // citation to every later reader and to any sweep looking for them.
+            commit: "0badc0de",
             profile: "release",
             executable: "/home/jonathan/.local/bin/scribobulate".to_owned(),
             executable_stat: Some(ExecutableStat {
@@ -177,7 +181,7 @@ mod tests {
         // Each of these answers a distinct question the recorded crashes could not:
         // which source, which binary, which GTK, which renderer, which journald pid.
         for expected in [
-            "scribobulate 0.1.0 (a24471e, release)",
+            "scribobulate 0.1.0 (0badc0de, release)",
             "executable: /home/jonathan/.local/bin/scribobulate",
             "12345678 bytes, modified 2026-07-29T01:54:39.000Z",
             "gtk: runtime 4.6.9 (gtk4 crate 0.10.3)",

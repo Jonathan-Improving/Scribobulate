@@ -110,7 +110,7 @@ identical verdict:
 
 | | staged files | rows | gate verdict |
 |---|---|---|---|
-| before (`26ea7d9`) | 865 | 34 | 1 problem — `msvc-runtime`, conditions 1/2/4 clean |
+| before (2026-08-14) | 865 | 34 | 1 problem — `msvc-runtime`, conditions 1/2/4 clean |
 | after | 902 | 35 | 1 problem — `msvc-runtime`, conditions 1/2/4 clean |
 
 **Adding 37 licence texts to the artefact did not move the gate's answer by one

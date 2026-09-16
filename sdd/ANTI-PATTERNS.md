@@ -1,6 +1,6 @@
 # Anti-Patterns
 
-Scribobulate's register of costly dead ends. It is a **project index, not an essay collection**: each entry is a few lines — the trap, where *this* tree implements the fix, and a pointer to the reusable home of the full lesson. The full essays live in this file's git history (`git show f725e67:sdd/ANTI-PATTERNS.md` is the last long-form revision). Read the table of contents, then only the entries whose titles match the task (SDD principle 7).
+Scribobulate's register of costly dead ends. It is a **project index, not an essay collection**: each entry is a few lines — the trap, where *this* tree implements the fix, and a pointer to the reusable home of the full lesson. The full essays live in this file's git history — `git log --diff-filter=M --format='%h %ad %s' -- sdd/ANTI-PATTERNS.md` finds the revisions, and the last long-form one predates the compression to this index (2026-08-28). Read the table of contents, then only the entries whose titles match the task (SDD principle 7).
 
 **Citation convention.** An entry here is `ScrAP-N` (bare `#N` only inside this file); a `gtk4-rs` skill entry is `GTK4Rs/AP-N`, one of its techniques `GTK4Rs/T-N`; a `general-engineering-principles` entry is `GEP-N`. A bare `AP-N` or `T-N` is illegal anywhere in the tree (`cargo xtask lint-references` check 8). Skills are named, never pathed — they may not be installed on every machine. When both registers hold a lesson, cite `ScrAP-N`; it is always resolvable.
 
@@ -496,7 +496,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **See**: gtk4-rs skill → app-lifecycle-and-env (GTK4Rs/AP-30); findings: popover-teardown-in-handler.md.
 
 ## 31. Resolving an untrusted document's local image `src` against the CWD (or with a lexical-only containment check)
-**Routed**: GEP-46 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-46 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: the contained-image resolver joins the document directory with the source path, then `dunce::canonicalize`s it (resolves `..` **and** symlinks), admitting the result only if it `starts_with` the canonicalized document directory — **component-wise `Path::starts_with`**, never a string prefix.
 
 ## 32. Anchoring a `GtkPicture` in a `GtkTextView` without a nonzero width request
@@ -543,7 +543,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **See**: gtk4-rs skill → threading-async-and-memory (GTK4Rs/AP-41, and GTK4Rs/AP-304 for the Quartz ownership defect that makes the visible-teardown path costly — unfixed upstream in every GTK 4.x, inherited b…
 
 ## 42. Predictable, reused path under the shared temp dir for a config-redirect workaround (security)
-**Routed**: GEP-47 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-47 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: the temp-dir helper prefers `$XDG_RUNTIME_DIR` (0700) and makes a PID+timestamp dir with exclusive no-clobber semantics (`DirBuilder::mode(0o700).create`, fails on `AlreadyExists`).
 
 ## 43. Relying on `GtkNotebook`'s `create-window` signal for "drag a tab to the desktop to spawn a new window" on Wayland
@@ -925,11 +925,11 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **Resolution**: `xmllint --noout file.svg` is the gate for any hand-authored/generated SVG, run BEFORE ever trusting a render; confirm in the actual (strict) consumer, never the lenient authoring tool.
 
 ## 131. A refactor that REDEFINES what an existing field means keeps compiling at every call site, and silently changes behaviour
-**Routed**: GEP-40 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-40 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: the preview palette no longer carries a page-lightness field; a comment records why, and anything outside the preview probes the desktop's lightness through a dedicated helper. TDD 18.7.
 
 ## 132. A guard test whose INPUT SET is not the thing it polices — a wrong scope filter, or a hand-maintained mirror — passes forever
-**Routed**: GEP-1 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-1 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `app::mnemonics::menu_access_keys_unique_per_popover` now DERIVES its popover grouping from `app::menubar::build_top_level_menus` — the same models `build_menubar` ships — instead of mirroring them, and pins its own non-vacuity plus the dynamic-popover exemptions; deriving found the collision on its…
 
 ## 133. A hard-coded Xvfb display lets one crashed run orphan a server that silently serves stale windows to every run after it
@@ -945,7 +945,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **See**: gtk4-rs skill → actions-and-commands (GTK4Rs/AP-120).
 
 ## 136. Seeding live UI state from the persisted-session snapshot
-**Routed**: GEP-41 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-41 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `session::LiveChrome` + `update_live_chrome` (a `thread_local`; GTK is single-threaded), read by `window/mod.rs`'s `build_window` — **since retired.** The live app-wide cache was a correct fix to the *read* staleness and a wrong answer to the underlying question: the state was never app-wide.
 
 ## 137. A window `GAction` accelerator BEATS a focused `GtkText`'s own keybinding — and *disabling* the action is what hands the key back
@@ -961,11 +961,11 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **See**: gtk4-rs skill → actions-and-commands (GTK4Rs/AP-124); #106 (same GTK select-on-focus behaviour, `GtkLabel` in a popover), #138 (the wrapper's `has_focus()` is not the delegate's).
 
 ## 140. A security gate answering a DIFFERENT question than the one being asked
-**Routed**: GEP-45 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-45 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `links.rs` (`is_allowed_url` / `resolve_doc_link` / `scheme_of`) + `window/linknav.rs` (the dispatcher).
 
 ## 141. A "this will misbehave" theory read from a construction site, never executed
-**Routed**: GEP-15 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-15 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 142. A capture-phase ancestor gesture cannot pre-empt a child's gesture and hand it back cleanly — "one similar event will be emulated" preserves event COHERENCE, not gesture STATE
@@ -973,7 +973,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **See**: gtk4-rs skill → controllers-and-bindings (GTK4Rs/AP-171).
 
 ## 143. A PERMANENT register entry citing an EPHEMERAL artifact (an ISSUES entry, a PLAN file)
-**Routed**: GEP-23 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-23 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: #142 was filed citing a plan file that was deleted ~20 minutes later, when the probe killed the design and its findings were folded into the issue register. The entry now inlines the gesture trace and the reduced repro and cites nothing ephemeral.
 
 ## 144. `unparent()` on an OPEN GtkPopover does not emit `closed` — it skips the close path entirely
@@ -981,7 +981,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **See**: gtk4-rs skill.
 
 ## 145. Two registers numbering their entries with the SAME prefix — every cross-citation is wrong-but-plausible
-**Routed**: GEP-24 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-24 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: this register's `ScrAP-N` citation prefix and the citation-convention paragraph at the top of this file; `lint-references` check 8, which makes the ambiguous bare form illegal rather than defaulted.
 
 ## 146. Assuming `GdkTexture::from_file` ignores installed gdk-pixbuf loaders, and adding a manual `Pixbuf` fallback
@@ -1012,7 +1012,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **See**: gtk4-rs skill → textview-layout-and-drawing (GTK4Rs/AP-127).
 
 ## 151. Detecting a URL scheme with "the text before the first colon" (`split_once(':')`)
-**Routed**: GEP-46 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-46 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `links::scheme_of` (now the single source, shared by `is_allowed_url`, the doc-link gate, and `resolve_image` — the last had inlined its own `split_once(':')`).
 
 ## 152. A deferred idle closure that strong-captures a widget fires against it after teardown — and the reflexive guards each miss
@@ -1072,19 +1072,19 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **See**: gtk4-rs skill → widgets-and-composites (GTK4Rs/AP-154); `winstate/decisions.rs::tab_label_markup` (pure, escaped-name + colour param) and its unit tests; `window/tabs/documents.rs::tab_display_markup`…
 
 ## 164. Committing a test fixture whose filename is itself the invalid input breaks checkout on other platforms
-**Routed**: GEP-29 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-29 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `src/links.rs` tests (`scheme_of`/`is_allowed_url` string literals = the cross-platform guard; the `#[cfg(unix)]` `resolve_image` colon temp-file test = the run-time-file precedent); TDD §19.7a (now marked unit-verified, fixture-free); `tests/fixtures/doc-links.md` + `tests/MANUAL-TEST.md` (colon ca…
 
 ## 165. Clearing an env var the wrong way gives a false confirmation
-**Routed**: GEP-30 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-30 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `packaging/windows/README.md` ("Two things that will bite you"), which states the non-working alternative explicitly so nobody re-derives it.
 
 ## 166. Never diagnose a hung test suite from a parallel run
-**Routed**: GEP-31 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-31 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `scripts/pipeline.steps` carries `--test-threads=1` on `cmd.windows integration`, with the reason recorded at the step — a serialised run prints test names as it goes, so a wedge names the body it wedged on instead of producing the silence that invited the wrong diagnosis.
 
 ## 167. An `Option`-returning lookup whose `None` is also a legitimate answer will fail silently forever
-**Routed**: GEP-42 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-42 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `src/config.rs` (`config_home_fallback`), `src/session.rs` (`state_home_fallback`, `state_directory_resolves_without_any_xdg_override`); `sdd/TECH.md` § platform notes.
 
 ## 168. A popover's layout pass resizes the TOPLEVEL — from GTK's stale remembered size — collapsing a natively-maximized window
@@ -1104,7 +1104,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **See**: gtk4-rs skill → threading-async-and-memory (GTK4Rs/AP-159).
 
 ## 172. A synthesized-click UI-automation tool can be silently broken, making a real bug look unfixable across several attempts
-**Routed**: GEP-12 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-12 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 173. Freezing a drag icon with `current_image()` AFTER dimming the source widget captures a blank — `queue_draw` has already cleared the render node
@@ -1116,7 +1116,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **See**: gtk4-rs skill → app-lifecycle-and-env (GTK4Rs/AP-157).
 
 ## 175. A defect whose CONSEQUENCE is platform-dependent while the defect itself is not — the platform that never triggers it never tests for it, and a guard written on the triggering platform's symptom is permanently green where the bug actually lives
-**Routed**: GEP-16 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-16 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `src/window/tabs/dnd.rs` — the `detach_overlay_from` call in `move_tab_to_new_window`, and `move_tab_to_new_window_detaches_the_source_windows_format_overlay` (the guard, with the "green for the wrong reason" argument in its doc comment).
 
 ## 180. A `set_parent`'d child left on a `GtkTextView` at dispose is an INFINITE loop, not a warning — and the suite that stayed green was the one never disposing anything
@@ -1124,7 +1124,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **See**: gtk4-rs skill → state-and-subclassing (GTK4Rs/AP-80).
 
 ## 181. A suite that has never RUN on a platform is full of assertions that only look portable
-**Routed**: GEP-18 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-18 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: neither fix lives in this branch. Both are platform-neutral — a `canonical_tempdir` helper for the temp-dir case, a `#[cfg]`'d `PRIMARY_LABEL` constant for the accelerator one — and were conveyed to the shared branch rather than carried here, per the rule that a platform branch holds no platform-neu…
 
 ## 182. A readiness probe stronger than the behaviour it gates fails on its own terms — `has_focus()` needs an ACTIVE toplevel, `notify::focus-widget` does not
@@ -1132,11 +1132,11 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **See**: gtk4-rs skill → ui-testing (GTK4Rs/AP-119).
 
 ## 183. A mutation that fails on an earlier precondition proves nothing about the guard under test
-**Routed**: GEP-11 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-11 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 184. Four green checks, none of them the outcome — the plumbing was verified and the user-visible result was not
-**Routed**: GEP-10 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-10 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 185. An idle queued from a native OS callback is not dispatched for seconds — and deferring the *read* answers the event with the wrong value
@@ -1150,7 +1150,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **Lesson**: an index into mutable content is a *reference*, and a bare integer is the one form of reference that cannot be checked. The moment such an index outlives the instant it was computed — stored in a closure, a widget's state, a queued message, a row model — it needs an identity that can be re-establish…
 
 ## 188. "It broke when I removed X, so X was providing it" — a temporal correlation dressed as a mechanism
-**Routed**: GEP-15 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-15 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 189. A GTK doc comment promised scroll-tracking the code never implemented — and the same API silently feeds the view's minimum size
@@ -1195,11 +1195,11 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **See**: TDD 17.18 (claim extent, including the marker-stripped case); MANUAL-TEST 17.39; `annotate::kept_chars` / `map_cleaned_highlight_to_local`; siblings #194 (one rule, N copies) and #195 (two tokenisers,…
 
 ## 197. A `#[path]`-included module's children resolve against the attribute's directory, not the module's own name
-**Routed**: GEP-34 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-34 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: the second crate root sits beside `lib.rs` in `src/` (`src/gtk_suite.rs`), not under a relocated `#[path]`, so `mod` declarations resolve exactly as `lib.rs` resolves them.
 
 ## 198. `pub use` cannot widen `pub(crate)` visibility — there is no test-façade shortcut around it
-**Routed**: GEP-34 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-34 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `src/gtk_suite.rs` is compiled as part of the crate (`[[test]] harness = false`, sharing `lib.rs`'s module tree) rather than as an external façade re-exporting internals.
 
 ## 199. Treating an `insert-text` of `"\n"` as "the user pressed Enter" — a paste is many `insert-text`s, one of them a bare newline, and acting on it is undefined behaviour
@@ -1213,7 +1213,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **Lesson**: the discriminator that saves the hour is **re-run the crash with an empty vfunc body**. A segfault inside a freshly written subclass reads as "my code is wrong" and invites a long bisect of one's own logic; if it still crashes doing *nothing*, the binding is the defect and the correct move is to rou…
 
 ## 201. A custom `harness = false` runner that ignores libtest's `--skip` turns a carve-out into a selection — silently, and green
-**Routed**: GEP-32 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-32 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `src/gtk_suite.rs::parse_args` — an explicit `VALUE_FLAGS` list whose values are consumed before filtering, and `--skip`/`--skip=` honoured as a repeatable exclusion; guarded by its own `parse_args` unit tests.
 
 ## 202. A gate in front of a paint-carried dispatch: the settled state is the one that queues no paint
@@ -1221,11 +1221,11 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **See**: gtk4-rs skill → deferred-work-and-ordering (GTK4Rs/AP-202).
 
 ## 203. Restoring `SIG_DFL` and re-raising inside a fatal-signal handler exits *normally* with status 139 — the signal is blocked for the handler's own duration
-**Routed**: GEP-35 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-35 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `src/forensics/signal.rs::die` — the signal is unblocked between restoring the default disposition and re-raising it, so the process dies by the signal rather than exiting normally with its status.
 
 ## 204. Resolving a kernel segfault `ip` against `nm` output — the kernel's VMA base is the executable *segment*, not the ELF load base
-**Routed**: GEP-36 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-36 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 205. Predicting one platform's rendering from another's at the same toolkit version — the distributor's theme decides, not the version number
@@ -1233,87 +1233,87 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **See**: gtk4-rs skill → theming-and-css (GTK4Rs/AP-205).
 
 ## 206. A reference gate whose pattern demands a file extension the codebase's citations never write — clean, green, and blind to every dangler of that shape
-**Routed**: GEP-2 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-2 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `cargo xtask lint-references` check 6a — the plan pattern matches the bare `PLAN.<topic>` citation form as well as the full filename, `.md` listed first so a whole filename still matches under both regex engines.
 
 ## 207. Two ports of one gate that share a pattern but not a file ENUMERATION — the parity claim is false, and the platform nobody runs is the lenient one
-**Routed**: GEP-3 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-3 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `scripts/lint-references.scan` — one enumeration definition the gate reads rather than restates, with `maxdepth` as a hard tripwire rather than a filter.
 
 ## 208. A proc macro that moves the annotated item's attributes onto the generated BODY instead of the harness item — `#[ignore]` silently does nothing
-**Routed**: GEP-33 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-33 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 209. A guard test whose setup prevents the resource from ever existing cannot observe the leak it guards — it passes with the fix deleted
-**Routed**: GEP-1 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-1 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 210. Windows PowerShell converting a value on your behalf instead of failing — the call site reads correctly in every instance
-**Routed**: GEP-28 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-28 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `packaging/windows/pipeline.ps1` — every conversion pinned rather than defaulted: `-Encoding` on both halves of a round-trip, quoting around native arguments containing braces, `$m.Success` tested before a capture is read, and `$LASTEXITCODE` checked deliberately.
 
 ## 211. A verification whose result nothing consumes — it reported the mismatch, and the corrupted payload was applied one line later
-**Routed**: GEP-6 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-6 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 212. `#[cfg(unix)]` on a test and "skipped on Windows" are indistinguishable in the report, and only one of them is true
-**Routed**: GEP-4 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-4 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 213. An artifact that describes what you meant to do, shipped beside what you actually did, and never reconciled
-**Routed**: GEP-21 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-21 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 214. `backtrace_symbols`'s BSD twin is not the safe half of the pair — the async-signal-safety argument you inherited is about a different hazard
-**Routed**: GEP-37 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-37 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 215. Verifying a behaviour-preserving refactor with hand-written expectations tests your belief about the code, not the change you made
-**Routed**: GEP-8 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-8 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 216. A gate that checks a citation EXISTS cannot see one that points at the wrong real thing
-**Routed**: GEP-24 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-24 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `lint-references` check 8 plus this file's citation convention — the two legal forms are single unique tokens and the ambiguous bare form is illegal, so a citation's register is decided by its text rather than by when it was written.
 
 ## 217. A negative result is worthless without a positive control — "it was prevented" and "I cannot see it" produce identical output
-**Routed**: GEP-12 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-12 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: the positive control accompanying every negative result in `packaging/windows/pipeline.ps1`'s verification steps — the same probe re-run with the guard removed, required to show the effect.
 
 ## 218. Confidence ratchets across a relay — the hedge is dropped by whoever summarises, and nobody does anything wrong
-**Routed**: GEP-19 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-19 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 219. A remedy that lives inside one consumer reaches the consumers that already knew about it
-**Routed**: GEP-25 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-25 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 220. A regression guard built from the instance you fixed has coverage exactly equal to the fix
-**Routed**: GEP-5 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-5 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 221. A comment explaining why a test asserts less than its name promises is where a false premise hides
-**Routed**: GEP-9 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-9 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 222. Two gates, each correct, enforcing opposite things — and neither can see the other
-**Routed**: GEP-26 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-26 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 223. Write a finding as a testable proposition, not as a conclusion — a conclusion recruits agreement, a proposition recruits a measurement
-**Routed**: GEP-20 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-20 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 224. A squash makes single-seat authorship unprovable — on a deadline nobody is watching
-**Routed**: GEP-22 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-22 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 225. Four denial-of-service paths in four subsystems were one omission: nobody had said the project had an opinion about input size
-**Routed**: GEP-27 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-27 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 226. The check your self-test does not cover is the one that ships broken — and a single-file corpus cannot falsify a multi-file bug
-**Routed**: GEP-3 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-3 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 227. A two-axis hazard gated on one axis — the seam passes, and the assertion it exists to prevent fires through it
@@ -1326,7 +1326,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **Scribobulate**: `src/forensics/report.rs` — `seen_set` applies one `extant` predicate on every branch and owns the bound in its own doc comment; the writer's comment now points at it rather than restating it.
 
 ## 229. A seam named for a guarantee it delivers on one platform — and the permission model that lives in the directory, not the file
-**Routed**: GEP-38 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-38 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 230. A clippy method ban does not cover the builder property of the same name
@@ -1334,7 +1334,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **See**: gtk4-rs skill → widgets-and-composites (GTK4Rs/AP-130).
 
 ## 231. Retiring an ambiguous citation form by LEGALISING it instead of banning it — and a completeness claim with no predicate
-**Routed**: GEP-24 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-24 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `cargo xtask lint-references` check 8 (the per-site migration rule and the audit's limits are documented at the check, next to the gate that enforces the form); the citation-convention paragraphs at the top of this file and at "Numbering reconciliation"; POLICY step 9.
 
 ## 232. `g_file_replace_contents` is atomic only under the right flags — and its one remaining fallback deletes the previous file before failing
@@ -1349,7 +1349,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **Scribobulate**: `src/swapfile/codec.rs` — `to_wire`/`from_wire` (construction) and the `encode` fence check (verification); the invariant is stated in the module doc. Sibling of #232, which came from the same feature: both are cases of a convenience API's advertised behaviour being narrower than its name.
 
 ## 234. Asserting one of a feature's two representations, and reading the green suite as evidence about both
-**Routed**: GEP-10 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-10 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 235. Wiring a startup feature into one framework entry point and assuming it covers launch
@@ -1361,7 +1361,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **See**: gtk4-rs skill → ui-testing (GTK4Rs/AP-236).
 
 ## 237. A `cfg`-gated gate proves nothing about the branches it did not compile
-**Routed**: GEP-4 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-4 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 238. Activating on a click gesture's `released` alone — the release that ends a drag is not a click
@@ -1369,19 +1369,19 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **See**: gtk4-rs skill → controllers-and-bindings (GTK4Rs/AP-169).
 
 ## 239. `git stash pop` restores the source, not the binary — a control run that silently drives the old build
-**Routed**: GEP-14 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-14 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `tests/MANUAL-TEST.md` §1.7 — the control build is copied and named explicitly before the fix is applied, rather than assumed to still be on disk.
 
 ## 240. A detector that enumerates the VOCABULARY of a free-text citation is defeated by a synonym
-**Routed**: GEP-2 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-2 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `cargo xtask lint-references` check 1 — the pattern matches the *shape* of a reference rather than enumerating the connecting nouns a citation might use.
 
 ## 241. A process NAME is not an identity — pid reuse defeats every liveness probe, on every platform
-**Routed**: GEP-17 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-17 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 242. `clippy --all-targets` WITHOUT the feature flag reports dead-code errors in files you never touched
-**Routed**: GEP-4 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-4 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 243. GLib's I/O thread pool is one process-wide pool of ten — moving I/O off the main thread makes it contend with the crash-recovery writer
@@ -1389,7 +1389,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **See**: gtk4-rs skill → threading-async-and-memory (GTK4Rs/AP-243). Findings: `~/Documents/Projects/AI/Research/Gtk4Rust/researcher-findings-gio-task-thread-pool-sharing-starvation.md` (GLib 2.72, rig `_src/g…
 
 ## 244. Making a window-scoped operation async turns "which tab is active?" into two different questions
-**Routed**: GEP-43 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-43 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `src/window/save.rs` — every step takes an explicit `Rc<TabState>`, resolved once when the user acts and carried through the read, the dialog and the write.
 
 ## 245. An Xvfb UI drive can deliver nothing and look exactly like one that delivered everything
@@ -1405,11 +1405,11 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **See**: gtk4-rs skill → ui-testing (GTK4Rs/AP-247).
 
 ## 248. A randomly-minted identity correlates only with the mechanism that persisted it
-**Routed**: GEP-44 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-44 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `swapfile::recovery::disposition`'s `tab_at_same_path` parameter (the decision) and `window::swaprecovery::tab_id_at_same_path` (the filesystem half, kept out of the display-free core). Contract is TDD 22.17, with 22.16 as the boundary.
 
 ## 249. A capability whose backend is a HELPER EXECUTABLE is a packaging obligation, and the dev tree cannot fail the test
-**Routed**: GEP-39 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-39 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `packaging\windows\stage.ps1` `$helpers` (hard-fails like the DLL list, so a future gvsbuild layout change is a build error rather than a silent regression); the corrected claims in [TECH.md](TECH.md) (platform table + the single-instance architecture bullet) and `tests/MANUAL-TEST.md` (§A *Launch &…
 
 ## 250. A widget swapped in for one feature's sake moves its text out of every text-walker's reach
@@ -1429,7 +1429,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **See**: gtk4-rs skill → ui-testing (GTK4Rs/AP-253).
 
 ## 254. An invariant held by two sufficient mechanisms is mutation-proof one at a time — so the mutation test calls each of them dead code
-**Routed**: GEP-11 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-11 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 255. A construct whose glyphs are buffered at its `End` event is not opaque — it is char-precise in a coordinate space nobody wrote down
@@ -1438,7 +1438,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **Resolution**: `copymap::code_block_node` lays the interior events' source runs out across the `End` event's buffer range, in order, producing one leaf per run — and **proves the layout before trusting it**: the flushed char count must equal the body's, mirroring `insert_code_block`'s own rule (trailing blank line…
 
 ## 256. A gate's threshold is copied by hand out of a multi-metric report — so maintaining the gate is how you break it
-**Routed**: GEP-7 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-7 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 257. `Trying to snapshot GtkGizmo … without a current allocation` is GTK's own scrollbar trough — the one benign member of a warning family whose other members are real bugs
@@ -1466,7 +1466,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **See**: kin #52 (the same two rebuild shapes, reached through a stale *signal* rather than a missing hook — different root cause, same architectural fact); TDD 23.14.
 
 ## 262. A restore seam's "nothing to do at the boundary" shortcut is a claim about its first caller, and the second caller loses a real destination
-**Routed**: GEP-53 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-53 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `preview/scroll.rs`'s `restore_preview_scroll_to_line` (no `line <= 0` return; negatives clamped), reached from `window/navhistory/traverse.rs`'s `restore_place` for a `NavSpot::Line`, and from `window/zoom.rs` for the zoom re-render it was originally written for.
 
 ## 263. `line_at_y` on a not-yet-allocated `GtkTextView` reports the buffer's LAST line, so a viewport read taken in the turn a view is built in is maximally wrong
@@ -1478,7 +1478,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **See**: gtk4-rs skill → controllers-and-bindings (GTK4Rs/AP-264, woven 2026-08-09; it sits beside **GTK4Rs/AP-53**, which already owns the general propagation rule — a focused composite's own class-level keyb…
 
 ## 265. A test that arms a process-global fatal-signal handler and never disarms it re-points the rest of the suite — and displaces the runtime's own stack-overflow guard, so a later overflow stops naming itself
-**Routed**: GEP-54 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-54 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `forensics::signal::tests::ArmedHandler` — an RAII guard that takes the install lock, snapshots every fatal disposition in `FATAL_SIGNALS` (four when this was written, five since ScrAP-268) **and** the calling thread's alternate signal stack, arms, and restores both on drop.
 
 ## 266. A focused popover that is its own `GtkNative` is an application-keyboard dead zone
@@ -1506,15 +1506,15 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **See**: gtk4-rs skill → app-lifecycle-and-env (GTK4Rs/AP-271). Kin: ScrAP-270 (the fix this was found inside).
 
 ## 272. A plan obligation written as a property of an artefact, which reads as done once the artefact exists
-**Routed**: GEP-67 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-67 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `docio::rename::recover_rename_orphan` is the missing recogniser, called from `docio::read_document_blocking` — the module's only door, so one placement covers Open, session restore, link navigation and crash recovery, and ordered *ahead* of the admission check so a recovered file is stat'd and size…
 
 ## 273. A runtime skip announcement shredded by libtest's own progress output — and one shred read `SKIPPED [rubric]: ok`
-**Routed**: GEP-25 (module-name half); the platform half in its platform entry — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-25 (module-name half); the platform half in its platform entry — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `testsymlink::skipped` builds the whole line — newline included — and emits it with a single `std::io::stderr().lock().write_all()`; a sub-`PIPE_BUF` write is atomic on the pipe the pipeline reads through. Verified 6/6 clean on the same command that produced 2/4 corrupt.
 
 ## 274. A provenance tally that counts measurements instead of outcomes, and so reports the opposite of its evidence
-**Routed**: folded into GEP-20 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: folded into GEP-20 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: ScrAP-269's macOS paragraph now splits the correction from the confirmation explicitly and states the semantics/multiplicity distinction; the rename feature's platform-gap record had its monitor-event-count row reopened for Windows after being closed wholesale on the strength of a *macOS* measuremen…
 
 ## 275. A `GFileMonitor` created while its parent DIRECTORY is absent is permanently dead on Windows, and self-heals everywhere else
@@ -1689,11 +1689,11 @@ Severity: High
 **See**: project-specific (process/tooling; the routing rule keeps these here). POLICY § Build pipeline step 6 for the rule, `scripts/coverage.sh` for the floor, the scope and the per-module rationale.
 
 ## 295. A PID-qualified AppleScript process reference decays to name resolution once stored
-**Routed**: folded into GEP-17 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: folded into GEP-17 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: no code — a harness rule for `tests/MANUAL-TEST.md` §A.2. Re-derive the PID-qualified reference **inside every `tell` block**; never bind it to a variable and reuse it.
 
 ## 296. A derived screen coordinate is only as trustworthy as the derivation behind it
-**Routed**: folded into GEP-61 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: folded into GEP-61 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `tests/MANUAL-TEST.md` §1 and §A.3 — derive the coordinate rather than estimating it, **and give the derivation its own sanity check**: grow along a column the content cannot interrupt, and confirm the derived rectangle against the image before any assertion rests on it.
 
 ## 297. Finalizing a cancelled `GFileMonitor` after the main context has dispatched corrupts the process heap (Windows)
@@ -1707,11 +1707,11 @@ Severity: High
 **See**: project-specific; the fix and its rationale live in code comments at `src/export/walk.rs` (`Open::ImplicitParagraph`, `Builder::flush_implicit`, `is_block_start`).
 
 ## 299. A suite-ordering defect that is deterministic on one platform and invisible in the canonical platform's full suite
-**Routed**: folded into GEP-54 (+GEP-4, GEP-16) — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: folded into GEP-54 (+GEP-4, GEP-16) — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `src/saferizer/file_monitor.rs` — the `changed`-adapter test enters its own `MainContext` before attaching. **The honest limit of that guard**: it pins the *fix*, not the *class*. Nothing in the tree asserts that no other test borrows the default context, and no claim is made that anything does.
 
 ## 300. A driven UI step that misses its target does not fail — it acts somewhere else, and a loop that does nothing produces a perfectly stable measurement
-**Routed**: GEP-61 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-61 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: none — harness discipline, with no implementation in this tree. (Stated rather than omitted: an absent field and a dropped one look identical.)
 
 ## 301. A save chooser returns a foreign extension unchanged, so an export default derived from the document's filename overwrites the reader's source
@@ -1727,11 +1727,11 @@ Severity: High
 **See**: gtk4-rs skill → printing-and-export (GTK4Rs/AP-296).
 
 ## 304. cairo's Windows colour-glyph path wraps colour glyphs in a Type3 `d0` font, and one 2017 extractor mishandles it
-**Routed**: folded into GEP-63/GEP-49; toolkit half in gtk4-rs — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: folded into GEP-63/GEP-49; toolkit half in gtk4-rs — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: accepted as an out-of-scope limit by operator ruling, on a hands-on Acrobat test (TDD 25.19).
 
 ## 305. A `#[gtk::test]` body and a plain `#[test]` calling `gtk::init()` cannot share a binary
-**Routed**: folded into GEP-54 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: folded into GEP-54 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: not hit on the shipped tree — this project writes `#[gtktest::test]` everywhere and `cargo xtask lint-references` check 5 enforces it. Measured while evaluating whether the export path was reachable from a test.
 
 ## 306. A chooser's `set_current_folder` is best-effort and its failure is unobservable
@@ -1742,11 +1742,11 @@ Severity: High
 **See**: gtk4-rs skill → printing-and-export (GTK4Rs/AP-299).
 
 ## 307. macOS embeds a colour emoji as a bare Image XObject, so its text is absent by construction
-**Routed**: folded into GEP-63/GEP-49; toolkit half in gtk4-rs — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: folded into GEP-63/GEP-49; toolkit half in gtk4-rs — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: accepted as the stricter of the two platform limits (TDD 25.18b), asserted as measured behaviour to catch a *change*, not as an aspiration.
 
 ## 308. A font's Unicode flag does not predict whether its text extracts
-**Routed**: GEP-52 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-52 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: TDD 25.18's method note forbids gating on font metadata, and the §25 checks assert the round-trip per line.
 
 ## 309. A cancelled export destroys the destination, and the wreckage is a valid file
@@ -1754,7 +1754,7 @@ Severity: High
 **See**: gtk4-rs skill.
 
 ## 310. An extraction failure is not evidence about appearance
-**Routed**: GEP-60 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-60 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: TDD 25.11a makes the pairing a rubric rather than a habit.
 
 ## 311. Which of two same-key bindings wins is a property of the BACKEND, not of the toolkit
@@ -1796,7 +1796,7 @@ Severity: High
 **See**: gtk4-rs skill → controllers-and-bindings (GTK4Rs/AP-303), landed as skill commit `8fd296b` and read back from the installed copy on this host rather than taken on report; attribution there is split th…
 
 ## 317. A counter that stops being able to SEE its subject reports the intervention as a success
-**Routed**: GEP-68 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-68 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `probes/native-chooser-rss.m` grew `--track-dealloc` (a `DeallocSpy` associated object) precisely to catch this, and `--track-dealloc` against `--reap` is the reproduction.
 
 ## 318. Silencing a whole log DOMAIN to arm a gate also silences the defects that domain is the only signal for
@@ -1804,19 +1804,19 @@ Severity: High
 **See**: gtk4-rs skill → app-lifecycle-and-env (GTK4Rs/AP-305); sibling trap ScrAP-268 (a custom log writer silently disarms promoted fatality).
 
 ## 319. A portability gate whose verdict depends on which `grep` is first on PATH — and the seat that should catch the bug is the seat that hides it
-**Routed**: folded into GEP-57 (+GEP-1) — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: folded into GEP-57 (+GEP-1) — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: the check is now two POSIX-ERE stages behind `win_illegal_path` (character rule case-sensitive with the control range built by the shell; reserved device names as their own `grep -i` pass, since ERE has no inline flag) plus the `--self-test` corpus it shipped without — 18 cases, mirrored string-for-…
 
 ## 320. The unresolvable pointer — a reference whose target the reader cannot dereference, mistaken for a delivery
-**Routed**: folded into GEP-23 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: folded into GEP-23 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: five incidents in one session, across two agents. The load-bearing one for generality is **this seat's**, not the researcher's: `docs/` is gitignored (`.gitignore:16`), and both platform seats were dispatched their QA work by being pointed at `docs/code-review.md`, which reaches neither clone.
 
 ## 321. The spurious kill — a mutation run that scores its own breakage as detection, and certifies coverage that does not exist
-**Routed**: folded into GEP-11 (+GEP-2, GEP-3, GEP-64) — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: folded into GEP-11 (+GEP-2, GEP-3, GEP-64) — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: three instances, one seat, one session, on Windows PowerShell 5.1. (1) A check-12 predicate harness wrote mutants to a scratch directory while the script resolves its scan set from `$PSScriptRoot`, so every mutant died on a missing `.scan` and five of six clauses reported "killed" — the BASELINE die…
 
 ## 322. A control is a property of a CLAIM, not of a probe — and one control makes every other claim feel covered
-**Routed**: folded into GEP-12 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: folded into GEP-12 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `probes/textview-primary-overwrite.c` carries all five modes and the retraction in its own header, so the corrected reading is where the wrong one was.
 
 ## 323. `Clipboard::formats()` answers a question about the PROCESS, not about the content
@@ -1829,12 +1829,12 @@ Severity: High
 **See**: kin to ScrAP-317/319/320/321 (this register's own family of checks/mechanisms that cannot go red for the right reason) — here the mechanism that went silently right was a *resolution step*, not a test…
 
 ## 325. A whole-struct `{:?}` in a completeness digest degenerates the guard into a restatement of what the producer already guarantees
-**Routed**: folded into GEP-10 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: folded into GEP-10 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `src/theme/tests/sinks.rs` — `decoration_digest` enumerates the metrics the preview's paint pass scales and nothing else, with the measurement above stated in the function's own comment so the next agent does not "simplify" it back; everything typographic is proven through the tag digest beside it,…
 
 ## 326. A `const`-evaluated constructor scores ZERO in llvm-cov, so code exercised at every build reads as dead
-**Routed**: folded into GEP-4 (+GEP-7) — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
-**Scribobulate**: `src/theme/keys.rs`'s registry is the const-evaluated table; its runtime-construction test asserts the registry's shape as well as restoring the measurement, and `scripts/coverage.sh`'s FLOOR was re-armed upward (81.45) rather than relaxed. Commit `4b17fde`.
+**Routed**: folded into GEP-4 (+GEP-7) — the lesson lives in the `general-engineering-principles` skill; essay in git history.
+**Scribobulate**: `src/theme/keys.rs`'s registry is the const-evaluated table; its runtime-construction test asserts the registry's shape as well as restoring the measurement, and `scripts/coverage.sh`'s FLOOR was re-armed upward (81.45) rather than relaxed — that log entry, dated 2026-08-27, carries the numbers.
 
 ## 327. `TextTag::property_value("*-rgba")` formats a POINTER under `Debug`, not the colour
 **Scribobulate**: `src/theme/tests/sinks.rs`'s tag digest reads colours typed as `property::<Option<gdk::RGBA>>` and formats the RGBA; the `Debug` spelling is confined to the non-colour properties beside it, where it is faithful.
@@ -1853,11 +1853,11 @@ Severity: High
 **See**: cargo-llvm-cov and shell invocation. Kin — ScrAP-321's family (a green that means nothing) and ScrAP-326, the other way a coverage number misleads: 326 is a real…
 
 ## 330. A seam that exists is not a seam that is called
-**Routed**: GEP-67 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-67 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `CssSafeFontStack::pango_family` (`src/theme/value.rs`) is the sole projection, and the PDF sink's layout specs carry that type rather than `String`. The guard asserts the face Pango *resolved* in the artefact, and separately asserts its own fixture came back quoted so it cannot rot into the weaker…
 
 ## 331. A vocabulary rename that reaches a selector
-**Routed**: folded into GEP-10 (+GEP-40) — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: folded into GEP-10 (+GEP-40) — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: the table-cell link selectors (`src/preview/css.rs`) name GTK's own `link` class on `GtkLinkButton`, not this project's `link_color` key; the constant carries a warning saying so, because the two are one blanket rename apart.
 
 ## 332. Re-styling a background view in place, and trusting a headless run to prove it
@@ -1882,7 +1882,7 @@ Severity: High
 **See**: gtk4-rs skill.
 
 ## 337. A precondition implicit in a whole script is reported by whichever line violates it first, at that line's layer, after everything before it has run
-**Routed**: GEP-69 — the lesson lives in the `general-engineering-principles` skill; essay in git history (f725e67).
+**Routed**: GEP-69 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: `install.sh` at the repo root is a `uname -s` router holding no install logic, dispatching to `packaging/linux/install.sh` and `packaging/macos/install.sh`; each body ALSO guards itself, because it stays directly runnable and a direct run must not be the lenient path. Found by the macOS seat: the pre-router script spent a full `cargo build --release` and then died on `install -Dm755` with exit 71 and a message naming a path, because BSD install has no `-D`.
 
 ## 338. A settle wait pointed at a value the code records SYNCHRONOUSLY ahead of the work it waits for — it observes a constant, reports converged on the first turns, and leaves fixed drains doing the real waiting

@@ -146,7 +146,7 @@ normal use rather than a corner case.)
 
 Opening a large document leaves the process at ~100% CPU **forever, even after it is fully
 rendered and sitting idle with no input**. Characterised headless (Xvfb, release build of
-`442ae1f`) on `tests/fixtures/large-doc.md` (3 MB / 41,785 lines): `pidstat` averaged **99.83%**
+2026-07-26) on `tests/fixtures/large-doc.md` (3 MB / 41,785 lines): `pidstat` averaged **99.83%**
 across a 60 s idle window (20 samples, all ~100%, process alive throughout). A normal document
 (`tests/fixtures/lists.md`) opened the same way idles at **~0%**, isolating the spin to document
 size.
@@ -167,7 +167,7 @@ region). Confirmed here to reproduce on Linux — so it is **not platform-specif
 independent trace on this side **does not support the highlighter theory**.
 
 **That disagreement is now sharper, not resolved — read it with the Pango-shaping claim
-below, which it contradicts.** MEASURED 2026-09-15 on 4f90bfe: the macOS seat's `sample(1)`
+below, which it contradicts.** MEASURED 2026-09-15 on the status-bar build: the macOS seat's `sample(1)`
 put the main thread in 2320 of 2332 samples under `g_application_run` →
 `g_main_context_iteration` → `idle_worker` (libgtksourceview-5.0) → `update_syntax` →
 `gtk_source_region_add_subregion` → `gtk_text_buffer_set_mark` → `g_signal_emit`, on this
@@ -535,14 +535,14 @@ problem arrives with the DLLs.
 registry probe finds the runtime absent or below the embedded redist's version, its
 `dontcopy` source entry, and the redist discovery in `package.ps1`. Running Microsoft's
 installer is what satisfies the click-through, which is why that shape was chosen — the
-project never becomes a redistributor. The `stage.ps1` half of `1fd4f5c` is *removal* of an
+project never becomes a redistributor. The `stage.ps1` half of "Stop redistributing Microsoft's C runtime" (2026-08-14) is *removal* of an
 app-local copy, and it merged as such: nothing in the staged tree copies a CRT DLL.
 
 **A FIELD DISCRIMINATOR, so a future report can be placed without a clean image.** The
 bootstrapper is EMBEDDED, so it shows up in the artefact's size: a `ci`-line installer
-measures ~37.7 MB (39,509,846 bytes, measured by the Windows seat on 6604ae5) against
+measures ~37.7 MB (39,509,846 bytes, measured by the Windows seat, 2026-08-30) against
 ~15.7 MB for a master-line build with no bootstrapper. Cite the SIZE CLASS, never the
-constant — the same build shape already moved from 38,595,643 bytes at `1fd4f5c`. That is
+constant — the same build shape already moved from 38,595,643 bytes at that change. That is
 also independent evidence the bootstrapper is WIRED rather than merely present in the
 `.iss`, which the `.iss` alone cannot show.
 
@@ -576,10 +576,10 @@ verification remains.
 **Severity**: Low (cosmetic: the content is shifted about 20px left — the pane's left padding —
 and a horizontal scrollbar shows; nothing is lost, and a width change corrects it)
 
-First reported by the Windows seat (GTK 4.22.4 gvsbuild, release build of `bca4b6f`) on the
+First reported by the Windows seat (GTK 4.22.4 gvsbuild, release build, 2026-09-13) on the
 first entry into Split after launch. **Now measured on Linux and Windows, and pre-existing**:
-the Windows seat reproduced it identically on `8d45d05` and `e173aaa`, and Linux (Xvfb,
-`e173aaa`) shows both triggers below. **macOS not yet checked.**
+the Windows seat reproduced it identically across two successive builds (2026-09-14), and
+Linux (Xvfb, the later of the two) shows both triggers below. **macOS not yet checked.**
 
 **Measured**:
 
@@ -641,7 +641,7 @@ header defines: the consequence is identical on both and the causes are backend-
 so filing it twice would be the header's own "one defect filed twice" trap, and `Any` would
 be false — Linux/AT-SPI reads these names correctly.
 
-MEASURED on both seats while ratifying the status bar (4f90bfe). **Windows** (GTK 4.22.4
+MEASURED on both seats while ratifying the status bar (2026-09-15). **Windows** (GTK 4.22.4
 gvsbuild, Win10 19045): UI Automation returns the toplevel (class `gdkSurfaceToplevel`)
 with **zero descendants**, against a positive control of Notepad returning two. **macOS**
 (GTK 4.22.4/Quartz): the window exposes 4 chrome elements and its "entire contents" is

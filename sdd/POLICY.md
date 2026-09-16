@@ -1440,6 +1440,38 @@ collapse defect and makes no such claim. The gate passed, as it must. This is th
 twin of trusting an instrument's reading without checking what it measured — and it is one
 step past the rule below, which covers a number a seat has *not* been given.
 
+**NEVER CITE A GIT COMMIT HASH.** Not in `sdd/`, not in a source comment, not in a
+script header, not in a packaging note, not in a message to another seat or to a skill
+register. A hash is ephemeral: this project lands work by `git merge --squash`
+(§ One commit per batch), so the commit a measurement was actually taken on is a
+*development* commit that ceases to exist the moment the batch lands — and a rebase,
+an amend or a history rewrite does the same to anything else. The failure is silent and
+it is the worst shape available: `git cat-file` still resolves the object in the clone
+where it was written, so the citation looks sound to whoever checks it *there*, and
+resolves to nothing for anyone who clones fresh. MEASURED: an audit of this tree found
+**20 hash citations across 7 files, 6 of them already orphaned**, including two carried
+as the provenance of measurements in `sdd/ISSUES.md` and `sdd/ANTI-PATTERNS.md` — nobody
+had noticed, because nothing can notice.
+
+Cite the **durable** thing instead, in this order of preference:
+
+1. **The fact itself.** "Measured at 80.97% before the change" needs no commit at all;
+   the number is the claim, and the hash was never carrying it.
+2. **A register entry** — `ScrAP-N`, `GTK4Rs/AP-N`, `GEP-N`, `TDD §N`. These are frozen
+   by policy and are the project's designed answer to "point at a durable thing".
+3. **The commit SUBJECT plus its date**, when a specific change genuinely must be named
+   — *"Keep a document's buffer when its file is emptied or deleted out from under it
+   (2026-09-14)"*. A subject survives a squash, a rebase and an amend, and `git log
+   --grep` finds it; a reader who needs the hash can obtain it, which is the right way
+   round.
+
+Two things this does **not** cover, because neither is a citation. A **generated build
+stamp** — `forensics::Identity`'s `commit` field, which a crash report embeds to say
+which binary died — identifies an artefact at runtime rather than pointing a reader at
+history, and is exactly what a hash is for. And an **operational instruction** whose
+subject is the current working tree ("rebase onto the tip", "your branch is at …") is
+transient by nature and never written down.
+
 **A number a seat has been TOLD is not a number that seat can CITE.** The writing
 seat allocates an ID in its own clone, so until that clone's register reaches the
 other seat, an entry cited there resolves to nothing — and `lint-references` check

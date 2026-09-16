@@ -651,7 +651,7 @@ mod tests {
         write_report(
             &path,
             "SIGSEGV",
-            "scribobulate 0.1.0 (a24471e, release)\npid: 1227729\n",
+            "scribobulate 0.1.0 (0badc0de, release)\npid: 1227729\n",
             "signal: SIGSEGV\nfault address: 0x30",
             &ring,
             Some("frame #0 …"),

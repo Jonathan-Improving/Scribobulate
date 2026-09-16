@@ -2492,8 +2492,11 @@ redirecting from a console build. The app's own log under
 identity stamp at every run start carries the version, profile, executable path/size/mtime,
 the resolved GTK **runtime** version, the renderer and the pid, which is what tells you
 whether the binary you are looking at is the one you meant to launch. **It does carry the
-commit SHA** — MEASURED on the Windows seat ratifying 4f90bfe, where the identity line read
-`scribobulate 0.1.0 (4f90bfe, release)`. This section denied that for a while, which sent a
+commit SHA** — MEASURED on the Windows seat ratifying the status-bar work (2026-09-15), where
+the identity line read `scribobulate 0.1.0 (<short-sha>, release)`. That stamp is GENERATED at
+build time to identify the running binary, which is the one sanctioned use of a hash in this
+project (POLICY § SDD register writes) — do not copy a real one into this document as an
+example. This section denied the stamp existed for a while, which sent a
 reader to the executable's mtime and size as the only discriminator; those still work and are
 worth reading too, since they distinguish two builds of the SAME commit.
 
