@@ -276,6 +276,7 @@ The event classes (matrix columns):
 | 8 | Crash-recovery notice (per-tab prompt + per-window status count) | ✓ | ✓ | ✓ | ✓ | `toast::sync_recovery_toast` |
 | 9 | Status bar — word count and line endings (document, and the selection's words) | ✓ | ✓ | — | ✓ | `refresh_text_indicators` (an edit reaches it through `note_buffer_changed`, a selection through `schedule_selection_count`) |
 | 10 | Status bar — zoom level | — | — | ✓ | ✓ | `refresh_zoom_indicator` |
+| 11 | Backing-loss prompt (per-tab floating Save/Dismiss) | ✓ | ✓ | ✓ | ✓ | `toast::sync_backing_loss_toast`. Row 5's twin: **one fact, two surfaces, different jobs** — the line states the condition, this carries the control. Both derive from `backing_loss` and nothing else, so neither can report a loss the other does not; a second condition source here would be the drift this matrix exists to prevent. Column C is load-bearing (window-shared widget, per-tab state) and the prompt yields its corner to the conflict prompt, which shares it |
 
 Rules that give the matrix its teeth:
 

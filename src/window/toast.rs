@@ -74,6 +74,11 @@ pub(super) fn make_conflict_toast(window: &ApplicationWindow) -> gtk::Box {
                 st.suppress_conflict.set(true);
                 st.chrome().conflict_toast.set_visible(false);
             }
+            // The backing-loss prompt stood down while this one was up (they share a
+            // corner). Answering this one is what lets it back, and nothing else would
+            // re-derive it here — a document can be BOTH lost and in conflict, which
+            // is exactly the state a flagged file returning with other content is in.
+            sync_backing_loss_toast(&w);
         }
     ));
     toast
@@ -121,6 +126,89 @@ pub(super) fn make_recovery_toast(window: &ApplicationWindow) -> (gtk::Box, Labe
         }
     ));
     (toast, label)
+}
+
+/// Build the floating **backing-loss** prompt: the file behind this document was
+/// truncated or deleted, so the buffer is now its only copy, and Save puts it back.
+///
+/// **Why a prompt and not just the status line.** The loss already has a persistent
+/// status-bar line, and that line NAMES the remedy ("save to restore it") without
+/// offering it. This is the actionable surface: two surfaces, one fact, different jobs
+/// — the line states the condition for as long as it holds, the prompt carries the
+/// control. That division is the Derived-view CAM's shape rather than a duplication,
+/// and it is why this toast must never grow a second copy of the *condition* logic:
+/// both derive from `backing_loss` and nothing else.
+///
+/// **Save is the ACTION, not a handler.** The button binds `win.save` by name, so its
+/// sensitivity is GTK's to drive from the one `SimpleAction` every other Save surface
+/// uses (POLICY § single source of truth). Wiring a click handler here would be a
+/// second Save path that could diverge from the menu's — and it would have to
+/// re-derive an enablement rule `save_enabled` already owns, which is precisely the
+/// rule that makes Save live for a clean buffer over a lost file.
+///
+/// Contrast the recovery prompt above, whose Keep/Discard are genuinely not actions
+/// and so are hand-wired correctly.
+pub(super) fn make_backing_loss_toast(window: &ApplicationWindow) -> (gtk::Box, Label) {
+    let (toast, _icon, label) = build_toast_shell(Icon::DialogWarning.name(), "");
+
+    let save = gtk::Button::with_label("Save");
+    save.add_css_class("suggested-action");
+    save.set_action_name(Some("win.save"));
+    let dismiss = gtk::Button::with_label("Dismiss");
+    toast.append(&save);
+    toast.append(&dismiss);
+
+    dismiss.connect_clicked(glib::clone!(
+        #[weak(rename_to = w)]
+        window,
+        move |_| {
+            // Retires the PROMPT, never the protection. The buffer is still the only
+            // copy, so the ⚠ badge, the close prompt and the crash-recovery snapshot
+            // all stay — they derive from `backing_loss`, which this does not touch.
+            // Same rule as the conflict prompt's Dismiss: answering a question must
+            // never quietly reduce what is guarding the document.
+            if let Some(st) = state(&w) {
+                st.suppress_backing_toast.set(true);
+                st.chrome().backing_loss_toast.set_visible(false);
+            }
+        }
+    ));
+    (toast, label)
+}
+
+/// Show or hide the backing-loss prompt for `window`'s active tab.
+///
+/// Derived from `backing_loss` ALONE — never from a monitor event — so a loss that was
+/// never concluded (a file gone only for the instant of somebody's rename-over) cannot
+/// raise a prompt any more than it can raise the status line (TDD 3.4, 3.5). One bound,
+/// both surfaces.
+///
+/// Called on every tab switch as well as whenever the loss changes, because the widget
+/// is window-shared while the state it reports is per tab — the same obligation
+/// [`sync_recovery_toast`] carries, for the same reason.
+pub(crate) fn sync_backing_loss_toast(window: &ApplicationWindow) {
+    let Some(st) = state(window) else { return };
+    let chrome = st.chrome();
+    let Some(loss) = st.backing_loss.get() else {
+        // The file is back. Retire the suppression with the condition, so a LATER loss
+        // raises a fresh prompt instead of being swallowed by an answer the user gave
+        // about a different event.
+        st.suppress_backing_toast.set(false);
+        chrome.backing_loss_toast.set_visible(false);
+        return;
+    };
+    // Every toast is bottom-end aligned in one overlay, so two visible at once would
+    // sit on top of each other. The conflict prompt wins while it is up: it asks about
+    // content that would be DISCARDED by the wrong answer, which is the more
+    // consequential question, and it retires by itself. This one returns on the next
+    // sync once that is answered.
+    if st.suppress_backing_toast.get() || chrome.conflict_toast.is_visible() {
+        chrome.backing_loss_toast.set_visible(false);
+        return;
+    }
+    chrome.backing_loss_toast_label.set_text(loss.prompt());
+    super::chrome_fit::apply_visible_area_inset(&chrome.backing_loss_toast, TOAST_MARGIN_END);
+    chrome.backing_loss_toast.set_visible(true);
 }
 
 /// Clear the recovery notice for the active tab and hide the shared widget.

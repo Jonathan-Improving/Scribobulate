@@ -93,8 +93,9 @@ see Help ▸ Keyboard Shortcuts in the app for the exact mapping.)*
     whether to reload or keep your version. Never a silent overwrite.
   - **Emptied or deleted files** — if an open file is deleted, or wiped blank by
     a write that went wrong, the open copy is kept rather than reloaded blank:
-    the tab is flagged, closing it asks first, a crash can't lose it, and one
-    save puts the file back.
+    the tab is flagged, closing it asks first, a crash can't lose it, and a
+    prompt offers the one save that puts the file back. Dismiss it and the
+    guards all stay — you're still holding the only copy.
   - **Crash recovery** — unsaved edits come back after a crash, still marked
     unsaved, with the choice to keep or discard. Your file is never written
     without an explicit save.

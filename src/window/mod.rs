@@ -114,7 +114,7 @@ pub(crate) use tabs::update_window_title;
 #[cfg(test)]
 pub(crate) use tabs::TabMenuItem;
 pub(crate) use tabs::{host_window, window_of_content_box};
-pub(crate) use toast::sync_recovery_toast;
+pub(crate) use toast::{sync_backing_loss_toast, sync_recovery_toast};
 pub(crate) use zoom::rerender_preview_from_live_edit;
 pub(crate) use zoom::rerender_preview_in_place;
 pub(crate) use zoom::rerender_tab_preview_in_place;
@@ -664,6 +664,8 @@ fn build_window_chrome_state(
         conflict_toast: chrome.conflict_toast.clone(),
         recovery_toast: chrome.recovery_toast.clone(),
         recovery_toast_label: chrome.recovery_toast_label.clone(),
+        backing_loss_toast: chrome.backing_loss_toast.clone(),
+        backing_loss_toast_label: chrome.backing_loss_toast_label.clone(),
         info_toast: chrome.info_toast.clone(),
         status: RefCell::new(winstate::StatusStack::new(chrome.statusbar.message.clone())),
         statusbar: chrome.statusbar.clone(),

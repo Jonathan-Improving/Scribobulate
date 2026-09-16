@@ -226,11 +226,15 @@ fn replay_background_notifications(window: &ApplicationWindow, st: &Rc<TabState>
     chrome.conflict_toast.set_visible(false);
     chrome.info_toast.hide();
     chrome.recovery_toast.set_visible(false);
+    chrome.backing_loss_toast.set_visible(false);
     // …then re-show the recovery prompt if the tab being switched TO is one that was
     // recovered and whose notice the user has not answered yet. Same shape as the
     // conflict replay below, for the same reason: a window-shared widget reporting
     // per-document state has to be re-derived at every switch, never carried over.
     super::super::toast::sync_recovery_toast(window);
+    // Same obligation, same reason: a window-shared prompt reporting per-document state
+    // is re-derived at every switch, never carried over.
+    super::super::toast::sync_backing_loss_toast(window);
 
     // Replay an external-file check that was decided while THIS tab was in
     // the background (TDD 15.13) — now that it IS the active tab,

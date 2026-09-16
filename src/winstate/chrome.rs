@@ -38,6 +38,14 @@ pub(crate) struct WindowChrome {
     /// The recovery prompt's label, retargeted per notice so it can name the time the
     /// recovered content was captured.
     pub(crate) recovery_toast_label: gtk::Label,
+    /// The backing-loss prompt ("File was truncated. This window has the only copy."
+    /// · Save · Dismiss), hidden until a document's file is truncated or deleted out
+    /// from under it. Window-shared and re-synced from the active tab's own
+    /// `backing_loss` on every tab switch, like the two prompts above.
+    pub(crate) backing_loss_toast: gtk::Box,
+    /// The backing-loss prompt's label, retargeted per loss so it can name which of the
+    /// two happened.
+    pub(crate) backing_loss_toast_label: gtk::Label,
     /// The one transient informational toast, retargeted per notice and shown
     /// briefly after a *clean* reload from disk (TDD §5.4) or a successful save,
     /// then auto-dismissed. See [`InfoToast`] for why the notices share a single

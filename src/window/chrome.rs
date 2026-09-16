@@ -17,6 +17,8 @@ pub(super) struct Chrome {
     pub conflict_toast: gtk::Box,
     pub recovery_toast: gtk::Box,
     pub recovery_toast_label: gtk::Label,
+    pub backing_loss_toast: gtk::Box,
+    pub backing_loss_toast_label: gtk::Label,
     pub info_toast: winstate::InfoToast,
     /// The outline section's scroller (child swapped by `refresh_outline`).
     pub outline_scroller: gtk::ScrolledWindow,
@@ -219,12 +221,15 @@ pub(super) fn build_chrome(
     // validation, independent of the tab strip entirely).
     let conflict_toast = super::toast::make_conflict_toast(window);
     let (recovery_toast, recovery_toast_label) = super::toast::make_recovery_toast(window);
+    let (backing_loss_toast, backing_loss_toast_label) =
+        super::toast::make_backing_loss_toast(window);
     let info_toast = super::toast::make_info_toast();
     let content_overlay = gtk::Overlay::new();
     content_overlay.set_vexpand(true);
     content_overlay.set_child(Some(tabs.widget()));
     content_overlay.add_overlay(&conflict_toast);
     content_overlay.add_overlay(&recovery_toast);
+    content_overlay.add_overlay(&backing_loss_toast);
     content_overlay.add_overlay(info_toast.widget());
 
     // ── sidebar: two stacked collapsible sections ──────────────────────────────
@@ -464,6 +469,8 @@ pub(super) fn build_chrome(
         conflict_toast,
         recovery_toast,
         recovery_toast_label,
+        backing_loss_toast,
+        backing_loss_toast_label,
         info_toast,
         outline_scroller,
         annotations_scroller,

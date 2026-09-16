@@ -246,6 +246,20 @@ impl BackingLoss {
             Self::Truncated => "File was truncated — save to restore it",
         }
     }
+
+    /// The floating prompt's wording for this loss.
+    ///
+    /// Deliberately NOT [`notice`](Self::notice): that line has to carry its own remedy
+    /// because nothing next to it can, whereas this one sits beside a Save button, so
+    /// repeating "save to restore it" would name the control the reader is already
+    /// looking at. Same fact, two surfaces, and the wording follows what each surface
+    /// can do rather than being one string shared for the look of it.
+    pub(crate) fn prompt(self) -> &'static str {
+        match self {
+            Self::Deleted => "File deleted on disk. This window has the only copy.",
+            Self::Truncated => "File was truncated. This window has the only copy.",
+        }
+    }
 }
 
 /// Every character a file may consist of and still count as blank (TDD 3.5): the

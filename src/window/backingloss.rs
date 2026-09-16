@@ -54,6 +54,10 @@ fn refresh_guards(tab: &Rc<TabState>) {
         // line is composed from the ACTIVE tab, so a background loss shows the moment
         // its tab is switched to (Derived-view CAM row 5).
         refresh_dirty_status(&window);
+        // Save's own enablement was re-derived above, which is what the prompt's Save
+        // button binds to — so the prompt is raised after it, never before, or it would
+        // appear for a beat offering a control GTK still had greyed.
+        sync_backing_loss_toast(&window);
     }
     badge_tab_label(tab);
     sync_tab_swap(tab);

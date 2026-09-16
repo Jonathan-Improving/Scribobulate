@@ -610,6 +610,17 @@
 - **And** a reappearance that is still blank changes nothing
 - **And** this applies only to a document that was *flagged* — a loss that was never concluded because the file came back inside 3.4's/3.5's wait is an ordinary external edit and reloads silently (3.1)
 
+### 3.7 A lost file offers its remedy, not just a description of it
+- **Given** a document whose file was truncated (3.5) or deleted (3.4), so the buffer is the only copy
+- **When** the loss is recorded
+- **Then** a floating prompt appears naming which loss happened and offering **Save** and **Dismiss**, alongside the persistent status line that states the condition — two surfaces with different jobs, the line naming the condition for as long as it holds and the prompt carrying the control
+- **And** its Save is the same `win.save` command every other surface uses, so it is enabled exactly when Save is (which, over a lost file, is true even with a clean buffer — 9.13)
+- **And** **Dismiss retires the prompt and nothing else**: the ⚠ badge, the close prompt and the crash-recovery snapshot all stay, because the buffer is still the only copy
+- **And** the dismissal retires when the loss does, so a *later* loss raises a fresh prompt rather than being swallowed by an answer given about an earlier one
+- **And** where a document is both lost and in conflict (3.6), the conflict prompt takes precedence while it is shown and the loss prompt returns once it is answered — they share one corner, and the conflict prompt asks the question whose wrong answer discards content
+- **And** the prompt is derived from the recorded loss alone, so a loss that was never concluded (3.4, 3.5) raises no prompt any more than it raises the status line
+- **And** saving restores the file, which retires the loss, the prompt and the badge together
+
 ---
 
 ## 4. Editing & saving

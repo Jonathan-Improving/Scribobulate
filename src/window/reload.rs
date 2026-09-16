@@ -138,6 +138,11 @@ pub(super) fn show_conflict_toast(window: &ApplicationWindow) {
     // display.
     super::chrome_fit::apply_visible_area_inset(toast, super::toast::TOAST_MARGIN_END);
     toast.set_visible(true);
+    // Both prompts are bottom-end aligned in one overlay, so a document that is BOTH
+    // lost and in conflict — a flagged file returning with other content, TDD 3.6 —
+    // would otherwise draw them on top of each other. This one takes the corner while
+    // it is up; the sync stands the other down and gives it back when this is answered.
+    super::toast::sync_backing_loss_toast(window);
 }
 
 /// Re-read `window`'s active tab's file and apply the external-change decision.
@@ -785,6 +790,135 @@ mod gtk_integration_tests {
                 "no truncation was ever recorded"
             );
             assert!(!tab.needs_close_prompt());
+            window.destroy();
+        });
+    }
+
+    /// The backing-loss prompt: raised by the loss, retired by the file coming back,
+    /// and dismissible without lowering any guard (TDD 3.7).
+    ///
+    /// Each leg forces a divergence the happy path hides: Dismiss is asserted to leave
+    /// the badge, the close guard and Save exactly as it found them, and the
+    /// suppression is asserted to retire WITH the loss so a second loss is not
+    /// swallowed by an answer given about the first.
+    #[gtktest::test]
+    fn the_backing_loss_prompt_offers_save_without_weakening_any_guard() {
+        const ORIGINAL: &str = "# Plan\n\nThe only copy.\n";
+        let state_home = tempfile::tempdir().expect("state home");
+        let docs = tempfile::tempdir().expect("docs");
+        crate::session::with_state_home_for_test(state_home.path(), || {
+            let (window, tab, path) = window_over(
+                "com.extollit.scribobulate.it.lossprompt",
+                docs.path(),
+                ORIGINAL,
+            );
+            let toast = tab.chrome().backing_loss_toast.clone();
+            assert!(!toast.is_visible(), "nothing is lost yet");
+
+            std::fs::write(&path, "\n").expect("truncate");
+            check_and_reload_tab(&tab);
+            settle("the truncation raises the prompt", || toast.is_visible());
+            assert_eq!(
+                tab.chrome().backing_loss_toast_label.text(),
+                winstate::BackingLoss::Truncated.prompt(),
+                "and it names WHICH loss"
+            );
+            // The prompt's Save is the one `win.save` action, so it is live exactly
+            // when Save is — which for a lost file is true although the buffer is clean.
+            assert!(
+                window.lookup_action("save").is_some_and(|a| a.is_enabled()),
+                "the prompt's Save button is bound to an enabled action"
+            );
+
+            // Dismiss retires the PROMPT and nothing else.
+            tab.suppress_backing_toast.set(true);
+            crate::window::sync_backing_loss_toast(&window);
+            assert!(!toast.is_visible(), "dismissed");
+            assert_eq!(
+                tab.backing_loss.get(),
+                Some(winstate::BackingLoss::Truncated),
+                "the loss itself is untouched"
+            );
+            assert!(tab.needs_close_prompt(), "the close guard still holds");
+            assert!(
+                window.lookup_action("save").is_some_and(|a| a.is_enabled()),
+                "and Save is still the remedy"
+            );
+            assert_eq!(
+                tab.chrome().status.borrow().label_text(),
+                winstate::BackingLoss::Truncated.notice(),
+                "the persistent line still states the condition (it is the other surface)"
+            );
+
+            // The file comes back with its own content: prompt and suppression both go.
+            std::fs::write(&path, ORIGINAL).expect("restore");
+            check_and_reload_tab(&tab);
+            settle("the restore retires the loss", || {
+                tab.backing_loss.get().is_none()
+            });
+            assert!(!toast.is_visible());
+            assert!(
+                !tab.suppress_backing_toast.get(),
+                "the dismissal retires with the loss it answered"
+            );
+
+            // So a SECOND loss raises a fresh prompt rather than being swallowed.
+            std::fs::remove_file(&path).expect("delete");
+            check_and_reload_tab(&tab);
+            settle("a second, different loss prompts again", || {
+                toast.is_visible()
+            });
+            assert_eq!(
+                tab.chrome().backing_loss_toast_label.text(),
+                winstate::BackingLoss::Deleted.prompt(),
+                "and names the new reason, not the old one"
+            );
+            window.destroy();
+        });
+    }
+
+    /// Two prompts, one corner. A flagged document whose file returns with OTHER
+    /// content is both lost and in conflict (TDD 3.6), so without a precedence rule
+    /// they would draw on top of each other.
+    #[gtktest::test]
+    fn the_conflict_prompt_takes_the_corner_and_gives_it_back() {
+        const ORIGINAL: &str = "# Plan\n\nThe only copy.\n";
+        let state_home = tempfile::tempdir().expect("state home");
+        let docs = tempfile::tempdir().expect("docs");
+        crate::session::with_state_home_for_test(state_home.path(), || {
+            let (window, tab, path) = window_over(
+                "com.extollit.scribobulate.it.twoprompts",
+                docs.path(),
+                ORIGINAL,
+            );
+            let loss_toast = tab.chrome().backing_loss_toast.clone();
+            let conflict = tab.chrome().conflict_toast.clone();
+
+            std::fs::remove_file(&path).expect("delete");
+            check_and_reload_tab(&tab);
+            settle("the loss prompt is up", || loss_toast.is_visible());
+
+            std::fs::write(&path, "# Somebody else's plan\n").expect("recreate");
+            check_and_reload_tab(&tab);
+            settle("the conflict prompt takes over", || conflict.is_visible());
+            assert!(
+                !loss_toast.is_visible(),
+                "both visible would overlap: they share one bottom-end corner"
+            );
+            assert_eq!(
+                tab.backing_loss.get(),
+                Some(winstate::BackingLoss::Deleted),
+                "standing the prompt down is not retiring the loss"
+            );
+
+            // Answering the conflict gives the corner back — the document is still lost.
+            tab.suppress_conflict.set(true);
+            conflict.set_visible(false);
+            crate::window::sync_backing_loss_toast(&window);
+            assert!(
+                loss_toast.is_visible(),
+                "the loss is still true, so its prompt returns"
+            );
             window.destroy();
         });
     }
