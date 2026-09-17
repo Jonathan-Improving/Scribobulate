@@ -1,0 +1,105 @@
+name: Bug report
+description: Something behaves differently than you expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. Only the first four fields are
+        required — fill in what you know, and send it even if the rest is blank.
+        A vague report that arrives beats a precise one that doesn't.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead.
+      placeholder: |
+        The preview went blank after I switched themes. I expected the document to
+        still be there.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to reproduce it
+      description: >
+        The steps someone else would follow to see the same thing. If it only happens
+        sometimes, say roughly how often.
+      placeholder: |
+        1. Open a document with an image in it
+        2. View ▸ Theme ▸ Sepia
+        3. Scroll down
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Linux
+        - macOS
+        - Windows
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Scribobulate version
+      description: Help ▸ About shows it.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: os-version
+    attributes:
+      label: Operating system version
+      description: The distribution and release on Linux, or the OS version on macOS and Windows.
+      placeholder: "Ubuntu 24.04 / macOS 15.2 / Windows 11 23H2"
+
+  - type: dropdown
+    id: install-method
+    attributes:
+      label: How you installed it
+      options:
+        - Linux — .deb package
+        - Linux — .rpm package
+        - Linux — install.sh from source
+        - macOS — .app bundle
+        - Windows — installer
+        - Built from source myself
+        - Other / not sure
+
+  - type: textarea
+    id: document
+    attributes:
+      label: Markdown that triggers it
+      description: >
+        If it depends on document content, the smallest piece of Markdown that still
+        shows the problem. This is usually the single most useful thing in a report.
+      render: markdown
+
+  - type: textarea
+    id: crash-report
+    attributes:
+      label: Crash report or log output
+      description: >
+        If the application crashed, it writes a report you can attach — look for
+        `crash-*.log` in `~/.local/state/scribobulate` on Linux and macOS, or in
+        `%LOCALAPPDATA%\scribobulate` on Windows. Terminal output helps too, if you
+        launched it from one.
+      render: shell
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before you send it
+      options:
+        - label: I searched the existing issues for this
+          required: false
+        - label: It still happens with a freshly installed configuration
+          required: false

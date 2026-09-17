@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Question or general feedback
+    url: https://github.com/MadMartian/Scribobulate/discussions
+    about: Ask how something works, or say how you are using it — Discussions is the better room for that.

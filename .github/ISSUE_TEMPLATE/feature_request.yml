@@ -1,0 +1,49 @@
+name: Feature request
+description: Suggest something the application should do
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Scribobulate is deliberately narrow: a Markdown viewer and editor that renders
+        on the CPU and keeps a small memory footprint. Suggestions are welcome, and
+        the ones that land are usually the ones that describe a task rather than a
+        control — what you were trying to get done matters more than where a button
+        goes.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do
+      description: The task or situation, not the solution you have in mind.
+      placeholder: >
+        I review long documents and lose my place every time I switch between two of
+        them.
+    validations:
+      required: true
+
+  - type: textarea
+    id: today
+    attributes:
+      label: What happens today
+      description: How you handle it now, and where that falls short.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you have in mind
+      description: >
+        Optional. If you already have a shape in mind, describe it — but the two
+        fields above are what decide whether this gets built.
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform you use
+      multiple: true
+      options:
+        - Linux
+        - macOS
+        - Windows

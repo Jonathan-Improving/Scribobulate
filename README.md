@@ -300,6 +300,13 @@ explicit save. Crash reports land in your state directory
 (`~/.local/state/scribobulate/` or `%LOCALAPPDATA%\scribobulate\`) and do not
 include document text — safe to attach to a bug report.
 
+## Feedback
+
+Bugs and suggestions go in [GitHub issues](https://github.com/MadMartian/Scribobulate/issues) —
+there is a short form for each. Questions and anything that isn't quite either belong in
+[Discussions](https://github.com/MadMartian/Scribobulate/discussions). Rough reports are
+welcome; a problem nobody mentions is a problem nobody fixes.
+
 ## Documentation
 
 Detailed documentation lives in the `sdd/` directory:
