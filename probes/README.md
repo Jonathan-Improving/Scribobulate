@@ -1137,3 +1137,179 @@ synthetic-pointer-move harness is at fault; and motion events are delivered and 
 throughout, since hover affordances light and repaint under the pointer while the cursor
 stays an arrow. So the break sits in GDK's per-surface cursor push, below GTK's widget
 layer — which is also why no application-side setting reaches it.
+
+---
+
+## `macos-window-weld/` — do two toplevels' tooltips fuse into one AppKit ordering group?
+
+**macOS only.** `twotop.m` is the synthetic repro; `capture-weld.sh`, `click.c`, `mmove.c`
+and `warp.c` are the supporting rig for catching the same question live, against a running
+Scribobulate, if the synthetic repro ever needs a real-app counterpart.
+
+**Question:** does hovering tooltips in two independent GTK4 toplevels on Quartz weld them
+into one AppKit ordering group (a shared or cross-owned `childWindow`), and does a
+destroyed tooltip leave a zombie `NSWindow` sitting in its old parent's `childWindows`
+after it should have detached?
+
+**Answer, for the plain hover case: no to both.** MEASURED 2026-09-17, GTK 4.22.4 /
+GdkMacosDisplay. Two toplevels (`ALPHA`, `BETA`), each with three tooltip-bearing buttons,
+positioned apart so hover targets are unambiguous, driven by real `CGEventCreateMouseEvent`
+moves (not synthesised GTK signals) and read back by `twotop.m`'s own periodic `[NSApp
+windows]` walk:
+
+- Hovering `ALPHA` opens a tooltip window correctly parented to `ALPHA`; moving off closes
+  it and it drops out of the window list entirely — not `!visible` and lingering, gone.
+- Hovering `BETA` immediately after opens a tooltip correctly parented to `BETA`. No
+  window is ever listed as a child of one toplevel while parented to the other (the dump's
+  own `MISMATCH` check, which flags exactly that, never fires).
+- Miniaturizing `BETA` detaches its live tooltip (`parent=nil`, `!visible`) rather than
+  carrying it along. Interacting with `ALPHA` afterward does not de-miniaturize `BETA` —
+  the specific symptom `capture-weld.sh`'s reading notes describe ("raising one raises the
+  other and de-miniaturizes it") does not occur under this sequence.
+
+**What this does and does not settle.** The mechanism this probe was built to isolate —
+tooltip hover across two independent toplevels — does not weld them on 4.22.4/Quartz.
+`capture-weld.sh` exists for a different situation: if the fault recurs live in the
+running application, it attaches with `lldb`, reads `[NSApp windows]` the same way
+`twotop.m` does, and writes a readable table without needing the application stopped for
+more than a second or two. That path is unexercised here — this run only rules out the
+plain-hover mechanism as the cause, not the live symptom itself.
+
+```sh
+clang -ObjC -O1 -g -o /tmp/twotop probes/macos-window-weld/twotop.m \
+   $(pkg-config --cflags --libs gtk4) -framework AppKit
+/tmp/twotop &                       # prints its own arm at startup, then dumps every 3s
+
+# drive real input against it — no synthetic GTK signals:
+cc probes/macos-window-weld/mmove.c -o /tmp/mmove -framework ApplicationServices
+cc probes/macos-window-weld/click.c -o /tmp/click -framework ApplicationServices
+cc probes/macos-window-weld/warp.c  -o /tmp/warp  -framework ApplicationServices
+/tmp/mmove X Y [steps]              # real mouseMoved events along a path
+/tmp/click X Y                      # real down+up at a point
+/tmp/warp X Y                       # hardware cursor warp, no motion event posted
+
+# against a LIVE Scribobulate instead of the synthetic rig:
+probes/macos-window-weld/capture-weld.sh [output-file]
+```
+
+Needs a real, unlocked desktop session — `CGEventPost` and the AppKit window walk both
+require one, same as the PRIMARY-selection probes above. `capture-weld.sh` needs to be run
+the moment the fault is visually on screen; it attaches, dumps, and detaches in about a
+second, so the running application is not meaningfully disturbed.
+
+---
+
+## `macos-fullscreen-first-click.c` — does entering fullscreen eat the first click?
+
+**macOS only.** Zero application code: one `GtkApplicationWindow`, one toolbar row of
+three plain `GtkButton`s driven by `set_action_name`, nothing else. Same toolbar-as-
+first-row shape as this project's macOS chrome (`menubar.bar` is `None`, toolbar is the
+window's first child — `src/window/chrome.rs`), but none of this project's own code runs
+in this binary. Written for ScrAP entry Y (operator-reported: in fullscreen, the first
+click on the menu bar/toolbar does nothing or lands wrong; the second click works).
+
+**Question:** on GTK4/Quartz, does the transition into fullscreen leave the *first*
+click on an in-window toolbar button undelivered to that button's own click machinery —
+and is that a property of this project's code, or of GTK/GDK itself?
+
+**Answer: two distinct, unrelated phenomena share this one surface symptom.
+MEASURED 2026-09-17 on GTK 4.22.4 (Homebrew) / macOS 27.0 / arm64**, identically to the
+real Scribobulate binary in both cases. Separating them is the point of this entry —
+they were conflated for most of a day before the timing sweep below told them apart.
+
+### 1. Clicking promptly after the zoom button — AppKit, not GTK, not a defect
+
+A real click on the native zoom button, pointer left completely untouched afterward (the
+window positioned so the resting point sits over a real toolbar button — verified live by
+that button's own tooltip appearing before any second click), then one more click at that
+same never-moved point, **timed from the zoom button's mouse-up**:
+
+| delay | result |
+|---|---|
+| 0 ms | **silent** — no output at all, not even from a window-level capture-phase controller added purely for instrumentation |
+| 100 ms | silent |
+| 250 ms | silent |
+| 500 ms | clean |
+| 1000 ms | clean |
+| 2000 ms | clean |
+
+Boundary sits between 250 ms and 500 ms — an ordinary NSWindow fullscreen transition
+animation's duration. Below it, the click never reaches GTK's event pipeline at all,
+which is the signature of AppKit simply not delivering input during its own window-frame
+animation: universal Cocoa behaviour, present in any app that animates a frame change, not
+specific to GTK, GDK, or this project. A person who clicks the zoom button and reaches
+straight for a toolbar command is clicking inside that window more often than not — which
+is what the filed report describes. **Space-switching away to another application and
+back, once the window is on its own fullscreen Space, then one click: clean, 3/3,
+including with the pointer positioned by a warp (see below) on the return click.**
+Re-entering the Space carries none of the staleness the transition itself produces.
+
+### 2. `CGWarpMouseCursorPosition` well after the transition — real, reproducible, not reachable by ordinary input
+
+A **separate** effect, only visible **after** the transition has visibly finished (≥500ms,
+per the boundary above): positioning the pointer with `CGWarpMouseCursorPosition` (which
+posts no motion event) immediately before a click desyncs GTK's click dispatch from its
+own `gtk_widget_pick` answer — `pick()` resolves to the right widget, the press/release
+pair is delivered to the toplevel, but the target button's own `GtkGestureClick` never
+begins. The very next click, same spot, always recovers.
+
+- **Two independent entry mechanisms reproduce it**, checked separately and paired in the
+  same process: a real click on the native zoom button, and `F7` in this window (wired to
+  call `gtk_window_fullscreen()` directly — no mouse, no accessibility API). Both need the
+  warp; neither reproduces from a stationary or naturally-arrived pointer (§1 above).
+- **One entry mechanism never reproduces it:** the `AXFullScreen` accessibility attribute.
+  This project has no fullscreen command of its own — checked — so this path is
+  automation-tool-only and does not describe anything a user does; it was an uncontrolled
+  variable in this investigation's own rig for most of a day, not a real ours-vs-upstream
+  split.
+- **No ordinary mouse or trackpad gesture teleports the pointer without posting motion —
+  `CGWarpMouseCursorPosition` has no everyday-input equivalent.** Every scenario that
+  resembles an actual person (§1, both timing and Space-switch) came back clean, every
+  time tried. This is a real, repeatable GTK/GDK-Quartz defect and worth the researcher's
+  time as a toolkit question, but it does not explain the filed report.
+- **Candidate mechanism, unverified against source:** `pointercrossing.rs` in this tree
+  documents exactly two writers of GDK-Quartz's `surface_under_pointer` — a real
+  crossing/motion event, and the ungrab branch of an implicit button grab when a click's
+  own release lands. That would explain why the *second* click always recovers regardless
+  of pointer history (its predecessor's own release is writer #2), and why a real
+  traversal onto the target avoids it (writer #1). **Treat as a hypothesis, not a
+  finding** — under `F7` entry specifically this split did not hold reliably across
+  repeated trials (mixed pass/fail), so whatever the mechanism is, it is not a clean
+  function of warp-vs-motion alone. Left open for whoever reads GTK's C source next.
+
+```sh
+clang -O1 -g -o /tmp/fsclick probes/macos-fullscreen-first-click.c \
+   $(pkg-config --cflags --libs gtk4) -framework AppKit
+/tmp/fsclick &                      # prints its own configuration at startup
+
+# entry mechanism 1: real click, reuse the weld probe's tools
+cc probes/macos-window-weld/click.c -o /tmp/click -framework ApplicationServices
+cc probes/macos-window-weld/mmove.c -o /tmp/mmove -framework ApplicationServices
+cc probes/macos-window-weld/warp.c  -o /tmp/warp  -framework ApplicationServices
+
+# §1 (AppKit animation, not GTK): click the zoom button, then click a toolbar
+# button at a measured delay after the zoom click returns — silent below the
+# transition's own duration (~250-500ms here), clean above it. No warp needed.
+/tmp/click ZOOM_X ZOOM_Y && sleep 0.SECONDS && /tmp/click BTN_X BTN_Y
+
+# §2 (GDK-Quartz, real but rig-only): wait for the transition to finish, THEN:
+/tmp/warp X Y && /tmp/click X Y     # warp arrival — reproduces
+/tmp/mmove X Y STEPS && /tmp/click X Y   # real-motion arrival — does not
+
+# entry mechanism 2: F7 in the probe's own window (no mouse, no AX)
+#   — send it however your automation posts keys; System Events "key code 98" works.
+# Shift+F7 leaves fullscreen the same way (gtk_window_unfullscreen()).
+
+# entry mechanism 3, for a human only: Ctrl+Cmd+F is wired to app.toggle-fullscreen.
+# Synthetic input could not trigger it here — tried System Events `key code` and
+# `keystroke`, and raw CGEventPost at the HID tap both globally and via
+# CGEventPostToPid straight at the process. AXFullScreen never went true under any
+# of them. Reads like a WindowServer-level symbolic hot key that will not take a
+# synthetic origin, not an app-level block — Cmd+F (Find) delivered fine via the
+# same System Events call in the same session. Untested with a real keypress.
+```
+
+Needs a real, unlocked desktop session, same as every other live-input probe here.
+`GtkWindow::is_fullscreen()`/`is_active()` are read straight off the widget in the click
+log line, so a transcript states the window's own belief about its state at the moment of
+each click rather than leaving it inferred.
