@@ -7,6 +7,7 @@
 
 pub mod architecture;
 pub mod manpage;
+pub mod packaging;
 pub mod references;
 pub mod register;
 
@@ -37,6 +38,7 @@ pub fn run_all(tree: &Tree) -> bool {
         manpage::documented_vocabulary(tree),
         manpage::about_dialog_parity(tree),
         register::duplicate_entry_numbers(tree),
+        packaging::desktop_categories(tree),
     ];
     verdicts.into_iter().all(|ok| ok)
 }

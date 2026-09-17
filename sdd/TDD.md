@@ -27,7 +27,7 @@
 | 23 | Back / Forward navigation history | 23.1 – 23.14 |
 | 24 | Renaming an open document | 24.1 – 24.14 |
 | 25 | Exporting a document | 25.1 – 25.24 |
-| 26 | Self-contained macOS bundle | 26.1 – 26.10 |
+| 26 | Self-contained macOS bundle | 26.1 – 26.11 |
 | 27 | Animated images | 27.1 – 27.9 |
 
 ---
@@ -3821,6 +3821,14 @@ up doing.
 - **And** what it puts on PATH is the artefact it just built, never one it merely found
 - **And** nothing it installs resolves into the build directory, so emptying that directory cannot silently break the install
 - **And** a dangling link is reported as a hazard rather than treated as absent
+
+### 26.11 An installed Scribobulate is filed under every menu its audience looks in
+- **Given** a Linux desktop whose application menu is built from the installed desktop entries
+- **When** the menu is rebuilt after an install
+- **Then** Scribobulate is reachable from Office and from Development, as well as from Utilities — the two halves of its audience look in different places, and Utilities alone files a Markdown editor among the calculators and archive managers
+- **And** appearing in more than one menu is the intent rather than a defect, so the desktop-entry validator's advisory hint about declaring several main categories must not be resolved by collapsing the list back to one
+- **And** an unrecognised category is caught before an install rather than after: a misspelling there is an error nowhere else in the toolchain — the menu builder ignores what it does not know, every other gate stays green, and the only symptom is a menu that is silently absent
+- **And given** Windows or macOS, **then** there is no counterpart to assert and none is missing: neither platform exposes a category taxonomy an installer can set, so the desktop entry is the only surface in the project that carries one. macOS's nearest key is single-valued and feeds only App Store listing metadata — measured against a registered bundle, Finder, Launchpad and Spotlight neither group nor filter by it — and Windows' nearest analogue is a Start Menu folder name, which is a plain directory the shell assigns no meaning to
 
 ---
 

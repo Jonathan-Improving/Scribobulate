@@ -1933,6 +1933,13 @@ installed desktop entry are the **absolute** binary path, not the bare command.
 
 Open both manual pages from the installed tree (`man scribobulate` and `man 5 scribobulate`) and confirm each renders with a version and a date in its footer — an unsubstituted `@VERSION@` means the staging step's placeholder substitution silently missed one.
 
+**Menu placement.** In the desktop's application menu, confirm Scribobulate appears
+under **Office** and under **Development** as well as Utilities — it is meant to be in
+all three, and the throwaway-`HOME` install above is visible to the menu only after
+`update-desktop-database "$XDG_DATA_HOME/applications"`. Check 19 of
+`cargo xtask lint-references` already gates what the entry *declares*; this item is the
+other half, that the desktop environment agrees. (TDD 26.11)
+
 Then `packaging/linux/uninstall.sh` and confirm every one of them is gone. A generated
 `applications/mimeinfo.cache` legitimately remains — it is the desktop database's, not
 ours. (TDD 26.9)

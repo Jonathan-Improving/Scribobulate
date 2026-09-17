@@ -53,6 +53,9 @@ mod corpus_manpage;
 // The entry-numbering corpus, check 18's.
 #[cfg(test)]
 mod corpus_numbering;
+// The desktop-entry corpus, check 19's. Separate for the same reason as the man-page one.
+#[cfg(test)]
+mod corpus_packaging;
 mod patterns;
 pub mod vocab;
 

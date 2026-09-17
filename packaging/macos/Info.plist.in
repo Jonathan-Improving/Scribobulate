@@ -30,6 +30,16 @@
   <key>NSHighResolutionCapable</key><true/>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
 
+  <!-- The macOS counterpart of the .desktop file's Categories= line, and a far
+       weaker one: it is single-valued, so it cannot express that this app belongs
+       under both Office and Development the way the Linux entry does. Measured on
+       GTK 4.22.4/macOS 26 against a bundle registered with lsregister: the key feeds
+       only Launch Services' internal `category:` field and the Spotlight attribute
+       `kMDItemAppStoreCategory`, whose name is literal — Finder, Launchpad and
+       Spotlight neither group nor filter by it. It is therefore App Store submission
+       metadata and nothing else; do not expect setting it to move the app anywhere. -->
+  <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
+
   <!-- Markdown document association — the macOS counterpart of the .desktop
        file's MimeType= line. Declaring the type is what makes "Open With ▸
        Scribobulate" appear; making it the DEFAULT handler additionally needs a
