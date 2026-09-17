@@ -1,9 +1,9 @@
-//! WP4 / TDD 2.23a-b, 6.9 (GIF): an over-cap logical screen must refuse
+//! TDD 2.23a-b, 6.9 (GIF): an over-cap logical screen must refuse
 //! with `Error::TooLarge` from `Animation::new` and `first_frame` WITHOUT
 //! ever allocating a canvas-sized buffer, and `probe` must read the (bogus)
 //! dimensions without allocating anything canvas-sized either. A counting
 //! `#[global_allocator]` proves this directly, in its own test binary
-//! target for the same reason `no_oversized_alloc.rs` (WP2) uses one: it
+//! target for the same reason `no_oversized_alloc.rs` uses one: it
 //! instruments every allocation this whole process makes, so sharing it
 //! with other richimg tests would make "no huge allocation happened"
 //! depend on what else happened to run in the same binary. Only one

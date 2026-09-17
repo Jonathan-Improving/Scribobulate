@@ -95,8 +95,8 @@ fn sample_loads(path: &Path, n: usize, cache: CachePath) -> Option<Vec<u64>> {
 #[gtktest::test]
 fn growth_slope_animated_webp_ttd_6_6() {
     // Every host decodes this now — `richimg` is pure Rust, not a host gdk-pixbuf
-    // loader, so there is no longer a decoder-absent skip arm here (WP6,
-    // sdd/PLAN.memory-gates.md; a skip would now be dead code hiding a failure).
+    // loader, so there is no longer a decoder-absent skip arm here; a skip
+    // would now be dead code hiding a failure.
     let path = fixture("anim.webp");
     let samples = sample_loads(&path, SAMPLE_COUNT, CachePath::Warm)
         .expect("richimg decodes anim.webp on every host; a None here is a broken fixture");

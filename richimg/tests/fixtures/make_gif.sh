@@ -4,7 +4,7 @@
 # generation time, i.e. when this script is re-run after a deliberate
 # change). Re-running it is idempotent: it recreates every generated file
 # from scratch in a throwaway temp directory and only then copies the
-# results over the committed ones. Mirrors `make.sh`'s scheme (WP2) for the
+# results over the committed ones. Mirrors `make.sh`'s scheme for the
 # WebP fixtures, one directory over: `gif/*.gif` and `gif/refs/*.rgba`.
 #
 # Tools used: python3 (hand-built GIF89a + LZW encoding — gifsicle is not

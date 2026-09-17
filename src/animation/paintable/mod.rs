@@ -9,7 +9,7 @@
 //!
 //! # The tick-callback oracle: `gtk_widget_has_tick_callback` is not bound
 //!
-//! The plan this WP implements assumes `has_tick_callback()` is a readable
+//! The obvious implementation assumes `has_tick_callback()` is a readable
 //! oracle for "is this animation's callback installed right now". It is not, on
 //! this project's floor: `gtk_widget_has_tick_callback` does not exist in GTK
 //! 4.6.9's public headers at all (`grep -n has_tick_callback
@@ -27,8 +27,7 @@
 //! bookkeeping, not an independent read of GTK's internal callback table, so a
 //! bug that installed a callback without setting the flag (or vice versa)
 //! would not be caught by asserting on the flag alone. The tests below pair it
-//! with the corroborating fact the module doc comment for WP7b's oracle
-//! verification calls for: that the displayed texture stops changing across
+//! with the corroborating fact this oracle's verification calls for: that the displayed texture stops changing across
 //! real wall-clock time once paused, and resumes changing once resumed — a
 //! functional check of the frame clock's actual behaviour, not just of this
 //! type's self-report.
@@ -48,9 +47,9 @@ mod drive;
 /// Open `bytes` as a fresh `richimg::Animation`, positioned at frame 0, with
 /// frame 0's own texture and delay — the exact sequence [`AnimatedPaintable::new`]
 /// performs once at construction, and the one [`drive::ensure_decoded`] repeats
-/// every time visibility returns after WP8 dropped the decoder: "coming back
-/// into view restarts from frame 0" (PLAN.memory-gates.md's "Animation state: per
-/// picture") — never resuming mid-loop, which would mean re-decoding every delta
+/// every time visibility returns after invisibility dropped the decoder: "coming back
+/// into view restarts from frame 0" (TDD 27.3) — never resuming mid-loop, which
+/// would mean re-decoding every delta
 /// frame since the last full-canvas one.
 fn open_from_frame0(
     bytes: &Arc<[u8]>,
@@ -82,13 +81,13 @@ mod imp {
         /// policy re-check, not just the first.
         pub(super) app: glib::WeakRef<gtk::Application>,
         /// The whole ENCODED file, shared by reference with every other picture
-        /// showing it (`animation::source`) — the one thing WP8's visibility
+        /// showing it (`animation::source`) — the one thing the visibility
         /// controller never drops. Kept here, independent of `animation`
         /// (the decoder), for two reasons: it is what lets this picture rebuild
         /// from frame 0 after `animation`/`texture` are dropped for invisibility
         /// (see `drive::ensure_decoded`), and it is this picture's own strong
         /// hold on the shared registry entry — if the ONLY strong holder were
-        /// `animation` (which WP8 drops while invisible), the registry would see
+        /// `animation` (dropped while invisible), the registry would see
         /// zero strong holders and silently stop sharing with a second picture
         /// of the same file that asks while this one is off-screen.
         pub(super) bytes: RefCell<Option<Arc<[u8]>>>,
@@ -109,7 +108,7 @@ mod imp {
         /// The frame's own pixel dimensions, cached OUTSIDE `texture` so
         /// `intrinsic_width`/`intrinsic_height` stay truthful to the `SIZE`
         /// flag's promise ("the intrinsic size will never change") across a
-        /// WP8 visibility drop — `flags()` never changes what it returns, so
+        /// a visibility drop — `flags()` never changes what it returns, so
         /// the values it is promising about must not depend on whether
         /// `texture` currently exists.
         pub(super) width: Cell<i32>,
@@ -139,7 +138,7 @@ mod imp {
         /// F-R2-2).
         pub(super) decoder_generation: Cell<u64>,
         pub(super) policy_watch: RefCell<Option<policy::PolicyWatch>>,
-        /// WP8: the live subscription to `animation::visibility`'s signals for
+        /// The live subscription to `animation::visibility`'s signals for
         /// this picture's own `host`. Set up in `try_bootstrap`, alongside
         /// `policy_watch` — dropping it (in `dispose`) disconnects everything
         /// it installed.
@@ -147,20 +146,20 @@ mod imp {
         /// Disconnected in `dispose`; see [`AnimatedPaintable::try_bootstrap`].
         pub(super) root_notify: RefCell<Option<glib::SignalHandlerId>>,
         /// "Is this picture somewhere visibility considers on screen" —
-        /// WP7b's own default (`true`) is what a picture starts at before
+        /// The paintable's own default (`true`) is what a picture starts at before
         /// `try_bootstrap` seeds it with `visibility::current`, and what
-        /// `AnimatedPaintable::set_should_play` (WP8's own seam, driven by
+        /// `AnimatedPaintable::set_should_play` (the visibility seam, driven by
         /// `visibility_watch`'s callback) updates from then on.
         pub(super) play_wanted: Cell<bool>,
         /// TDD 27.8's own trigger, set ONLY by `drive::recompute`'s
         /// policy-off branch: `true` exactly while playback is frozen
         /// because Play Animations is off or "reduce animations" is on —
-        /// the two cases PLAN.memory-gates.md's badge section names. Never
+        /// the two cases the badge answers for. Never
         /// set for an invisible picture (nothing is painted there — see
         /// `recompute`'s doc comment on why that is a different state) nor
         /// for a schedule that stopped on its own after a finite loop count
         /// finished (TDD 27.1: "stays on its last frame", not a badge
-        /// state this WP was asked to cover). `snapshot` below is the one
+        /// state the badge covers). `snapshot` below is the one
         /// reader.
         pub(super) paused_by_policy: Cell<bool>,
     }
@@ -215,7 +214,7 @@ mod imp {
         }
 
         /// Reads the cached `width`/`height`, never `texture`'s own dimensions —
-        /// see the field doc comment on `width`. WP8 drops `texture` while
+        /// see the field doc comment on `width`. Invisibility drops `texture` while
         /// invisible; this must not change when that happens, or it breaks the
         /// promise `flags()` makes below.
         fn intrinsic_width(&self) -> i32 {
@@ -346,7 +345,7 @@ impl AnimatedPaintable {
         Some(obj)
     }
 
-    /// WP8's seam: "is this picture, right now, somewhere visibility considers
+    /// The visibility seam: "is this picture, right now, somewhere visibility considers
     /// on screen". Driven by `try_bootstrap`'s `visibility::watch` callback —
     /// a picture arranges its own visibility watching from its own `host`, so
     /// nothing outside this module calls this. It only re-asks the combined
@@ -371,10 +370,10 @@ impl AnimatedPaintable {
         self.imp().tick_installed.get()
     }
 
-    /// WP8's own test oracle, the same shape as [`Self::tick_installed`]
+    /// The test oracle for visibility-driven decoder release, the same shape as [`Self::tick_installed`]
     /// above: whether this paintable currently holds a `richimg::Animation`
-    /// (the decoder AND canvas, per PLAN.memory-gates.md's "Each on-screen
-    /// animation owns its decoder and one working canvas") — `false` exactly
+    /// (the decoder AND canvas — each on-screen animation owns its own
+    /// decoder and one working canvas) — `false` exactly
     /// while `drive::drop_decoder_state` has cleared it for invisibility.
     /// `animation` is private to `imp`, so nothing outside this module can
     /// observe this any other way; a test asserting "the decoder was
@@ -383,7 +382,7 @@ impl AnimatedPaintable {
     /// does not exist either).
     #[allow(
         dead_code,
-        reason = "the test oracle for WP8's visibility-driven decoder release; no production caller"
+        reason = "the test oracle for visibility-driven decoder release; no production caller"
     )]
     pub(crate) fn decoder_active(&self) -> bool {
         self.imp().animation.borrow().is_some()

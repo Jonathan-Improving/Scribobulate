@@ -1,4 +1,4 @@
-//! WP2 / TDD 2.23a-b, 6.9: animated WebP — dimensions/metadata, per-frame
+//! TDD 2.23a-b, 6.9: animated WebP — dimensions/metadata, per-frame
 //! fidelity against `magick -coalesce`, the delay floor, and the wrap/rewind
 //! contract (`next_frame` after the last frame behaves as `rewind()` then
 //! frame 0; `rewind` clears the canvas, not merely the frame pointer).

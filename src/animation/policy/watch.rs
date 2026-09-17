@@ -266,7 +266,7 @@ mod gtk_tests {
     /// `platform::watch_reduced_motion` keeps on EVERY platform (see
     /// `platform::listeners`) via `platform::testing::inject_reduced_motion`. What it proves
     /// is that `PolicyWatch` really did subscribe to the platform façade and
-    /// re-fires when THAT source signals a change — the one new wiring this WP adds
+    /// re-fires when THAT source signals a change — the one wiring the façade adds
     /// — not what value it reports (Linux has no real value to report, and
     /// `current`'s own test above already covers that side separately).
     #[gtktest::test]

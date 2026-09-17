@@ -765,11 +765,10 @@ impl Renderer {
         pic.set_halign(gtk::Align::Start);
         pic.set_size_request(seed.w, seed.h);
         pic.set_can_shrink(true);
-        // WP7b (sdd/PLAN.memory-gates.md): an animated richimg-owned format gets an
-        // `AnimatedPaintable` instead of the plain still texture above — everything
-        // else about this anchor (sizing, the selection-tint overlay, the buffer
-        // insert below) is UNCHANGED for both cases, per this WP's contract ("a
-        // still image is completely unchanged"). The encoded bytes are deduped
+        // An animated richimg-owned format gets an `AnimatedPaintable` instead of
+        // the plain still texture above — everything else about this anchor
+        // (sizing, the selection-tint overlay, the buffer insert below) is
+        // UNCHANGED for both cases: a still image behaves exactly as before. The encoded bytes are deduped
         // against any other picture currently showing the same file
         // (`animation::source::shared`) before the paintable opens its own
         // decoder — decoder state itself is never shared (TDD "Animation state").

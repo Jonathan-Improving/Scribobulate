@@ -1,13 +1,13 @@
 //! Playback memory gates (TDD 6.10), and TDD 6.7's finalization half extended
-//! to the whole animation state — WP11, `sdd/PLAN.memory-gates.md`.
+//! to the whole animation state.
 //!
 //! Compiled only under `--features memory-gates`, alongside [`super::gtk`].
-//! Every body here drives the REAL `AnimatedPaintable` (WP7b) — a leak here is
+//! Every body here drives the REAL `AnimatedPaintable` — a leak here is
 //! a leak in the object that actually plays an animation, not in a hand-rolled
-//! stand-in for it. `do not touch src/animation/**` (this WP's brief) means
-//! these tests reach it only through its existing `pub(crate)` seams
+//! stand-in for it. These gates never touch `src/animation/**`, so they
+//! reach it only through its existing `pub(crate)` seams
 //! (`AnimatedPaintable::new`, `set_should_play`, `tick_installed`,
-//! `decoder_active`) — never a new one added for this WP's convenience.
+//! `decoder_active`) — never a new one added for their own convenience.
 
 use gtk::prelude::*;
 use std::path::PathBuf;
@@ -28,8 +28,8 @@ fn anim_bytes() -> Arc<[u8]> {
 
 /// A realized, mapped window hosting `pic` — the same shape
 /// `animation::paintable::gtk_tests::realize` uses. Duplicated rather than
-/// exported: this WP owns `src/memgate/**` only, not a new cross-module seam
-/// into `animation::paintable`.
+/// exported: a gate lives in `src/memgate/**` and does not earn a new
+/// cross-module seam into `animation::paintable`.
 fn realize(app: &gtk::Application, pic: &gtk::Picture) -> gtk::ApplicationWindow {
     let window = gtk::ApplicationWindow::new(app);
     window.set_child(Some(pic));
@@ -135,11 +135,11 @@ fn playback_slope_across_many_loops_ttd_6_10() {
 /// `animation::paintable::drive::recompute` reduces "not visible" to
 /// `drop_decoder_state` (releases the decoder AND the canvas) and "visible
 /// again" to `ensure_decoded` (rebuilds both from the shared encoded bytes,
-/// restarting at frame 0) — PLAN.memory-gates.md's "Animation state: per
-/// picture, bounded by what is on screen". This drives
+/// restarting at frame 0) — TDD 27.3's "holds no more memory than its file"
+/// and "plays again from its first frame". This drives
 /// `AnimatedPaintable::set_should_play` directly rather than through a real
 /// scroll/tab/window-state signal: verifying that a real such event reaches
-/// this call is `animation::visibility`'s own job (WP8); `set_should_play` IS
+/// this call is `animation::visibility`'s own job; `set_should_play` IS
 /// the seam its watch callback drives (`drive.rs`'s `try_bootstrap`), so
 /// calling it directly targets exactly what this rubric is about — the
 /// memory behaviour of the drop/rebuild cycle — with no wall-clock cost at
@@ -186,7 +186,7 @@ fn scroll_away_and_back_cycles_do_not_grow_footprint_ttd_6_10() {
         .unwrap_or_else(|err| panic!("TDD 6.10 scroll-away/back cycles: {err}"));
 }
 
-/// TDD 6.7, extended to the whole animation state (WP11): once the picture
+/// TDD 6.7, extended to the whole animation state: once the picture
 /// holding an animation is dropped, its `AnimatedPaintable` AND the current
 /// frame's own texture must finalize — a weak-ref assertion for each, with no
 /// main-loop pump, the same shape `memgate::gtk`'s
@@ -204,7 +204,7 @@ fn scroll_away_and_back_cycles_do_not_grow_footprint_ttd_6_10() {
 /// The decoder itself (`richimg::Animation`) is a plain Rust value — a
 /// `Box<dyn Codec>`, not a `GObject` — so it has no identity a weak reference
 /// can name independently of the paintable that owns it. Its release is
-/// evidenced by the SAME paintable weak-ref going empty: WP7b's own
+/// evidenced by the SAME paintable weak-ref going empty: the paintable's own
 /// `dispose()` (`src/animation/paintable/mod.rs`) unconditionally
 /// `self.animation.take()`s in the same call that releases everything else,
 /// so a paintable that finalizes has, by that code path, already dropped its

@@ -57,7 +57,7 @@ mod paint;
 mod pending;
 mod quotes;
 
-/// WP10 (TDD 27.9): the animated-sprite integration tests — whether a heading/disclosure
+/// TDD 27.9: the animated-sprite integration tests — whether a heading/disclosure
 /// band's sprite actually plays, freezes under policy, and is released once its
 /// decoration scrolls out of `decorplan`'s own viewport gate. A sibling module for the
 /// same reason `ordertests` is: a different question over the same paint

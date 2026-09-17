@@ -156,8 +156,8 @@ fn on_startup(app: &Application) {
     // default and re-rendering (TDD 18.12).
     add_preview_theme_action(app);
     // No ordering constraint like `add_preview_theme_action` above: nothing renders
-    // differently off this action's initial state (WP3 owns only the control and the
-    // policy later work packages subscribe to — no picture exists yet that reads it).
+    // differently off this action's initial state (the action owns only the control
+    // and the policy the paintables subscribe to — no picture exists yet that reads it).
     add_play_animations_action(app);
     register_accelerators(app);
 

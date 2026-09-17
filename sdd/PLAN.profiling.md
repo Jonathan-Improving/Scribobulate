@@ -167,8 +167,16 @@ anything to attribute at all; the interposer last, because it is a tool to write
 **The C4 gate rung has shipped** in pipeline step 5b (TDD 6.6–6.8). This plan's
 remaining work is C1/C2 (turn latency, idle CPU) plus T3 as a *diagnostic* ladder
 for attributing a leak that gate has already caught — not as the thing that
-catches it. The measured defect, the rejected approaches, and the gate's
-construction stay in [PLAN.memory-gates.md](PLAN.memory-gates.md).
+catches it. The measured defect that drove that rung, and why a slope gate was
+the only honest shape for it, are ScrAP-351.
+
+**Separating retention from allocator slack, on the T3 ladder's first rung.**
+`VmRSS` from `/proc/<pid>/status` is the slope's own quantity and `/proc/<pid>/smaps`
+attributes it per mapping; `VmHWM` equal to `VmRSS` means the process is at its peak
+and has returned nothing. Re-run a suspected leak with `MALLOC_ARENA_MAX=1`,
+`MALLOC_TRIM_THRESHOLD_=65536` and `MALLOC_MMAP_THRESHOLD_=65536`: if RSS barely
+moves, the memory is genuinely referenced rather than sitting in allocator slack.
+This is what makes the difference between "we leak" and "glibc has not trimmed".
 
 Approach 3 stays recorded and unrecommended as a *standing* tier. If the spin
 investigation exhausts sampling without naming the driver, it becomes the next step

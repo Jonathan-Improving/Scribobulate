@@ -2,8 +2,7 @@
 //!
 //! Bytes in; dimensions and composited RGBA8 frames out. No GTK, no glib, no
 //! dependency on the application crate — moving this crate out-of-tree later
-//! is a `Cargo.toml` change, not a refactor. See
-//! `sdd/PLAN.memory-gates.md` ("Phase 2 — decisions", "The richimg contract").
+//! is a `Cargo.toml` change, not a refactor.
 //!
 //! Every decoder call in this crate — `sniff` excepted, which does no
 //! decoding — runs under `std::panic::catch_unwind` centrally, here, so the

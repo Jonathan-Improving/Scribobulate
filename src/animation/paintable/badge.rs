@@ -1,5 +1,4 @@
-//! The paused-animation corner badge (TDD 27.8; `sdd/PLAN.memory-gates.md`
-//! "What a paused animation looks like: a corner 'paused' badge"). Split out
+//! The paused-animation corner badge (TDD 27.8). Split out
 //! of `mod.rs` at POLICY's 500-line soft limit, the same reason `drive.rs`
 //! and `gtk_tests.rs` are their own files.
 //!
@@ -14,7 +13,7 @@
 //! **The glyph is the STATE, never the action.** `Icon::MediaPlaybackPause`
 //! (`media-playback-pause-symbolic`) says "this is frozen", not
 //! `media-playback-start-symbolic`'s "click me to play" — an interaction
-//! this paintable does not offer (PLAN.memory-gates.md's own wording). Both
+//! this paintable does not offer. Both
 //! names ship in GTK's own icon set; [`icon_used_for_test`] exists so a test
 //! can assert on the literal name actually painted rather than trusting a
 //! doc comment not to drift, and [`paint`] verifies the lookup actually
@@ -34,12 +33,11 @@ use gtk::prelude::*;
 /// should.
 pub(super) const MIN_PAINTED_SIDE: f64 = 48.0;
 
-/// The glyph's own box (PLAN.memory-gates.md: "a 16 px symbolic icon").
+/// The glyph's own box: a 16 px symbolic icon.
 const ICON_SIZE: f64 = 16.0;
 
-/// The circular `.osd` well the glyph sits inside (PLAN.memory-gates.md: "a
-/// small circular `.osd` well (~32 px)"). Fixed regardless of the image's
-/// paint size — PLAN.memory-gates.md: "it does not scale with the image".
+/// The circular `.osd` well the glyph sits inside, ~32 px. Fixed regardless
+/// of the image's paint size: the badge does not scale with the image.
 const WELL_DIAMETER: f64 = 32.0;
 
 /// Inset from the picture's own edge to the well's edge, so the badge does
@@ -49,8 +47,8 @@ const EDGE_MARGIN: f64 = 4.0;
 /// The well's own fill — a plain translucent dark circle standing in for
 /// the `.osd` CSS class's usual background, since this is raw `GdkPaintable`
 /// snapshot painting with no widget/style-context to source it from
-/// (PLAN.memory-gates.md: "no scrim" describes the IMAGE, not this badge —
-/// the badge is explicitly "a small circular `.osd` well").
+/// (the decided look is a small circular `.osd` well over an unscrimmed
+/// image — the badge has a fill, the image behind it does not).
 const WELL_FILL: gtk::gdk::RGBA = gtk::gdk::RGBA::new(0.0, 0.0, 0.0, 0.55);
 
 /// The glyph's own colour inside the well — light-on-dark, matching the
@@ -80,8 +78,8 @@ pub(super) fn should_paint(paused: bool, painted_width: f64, painted_height: f64
 
 /// Where the circular well sits, in the paintable's own
 /// `(0,0)..(width,height)` snapshot space — the bottom-END corner,
-/// text-direction-aware (PLAN.memory-gates.md: "use the text direction, do
-/// not hardcode"; end = right in LTR, left in RTL). Only
+/// text-direction-aware (end = right in LTR, left in RTL; never a hardcoded
+/// side). Only
 /// [`gtk::TextDirection::Rtl`] flips it; `Ltr` and the unresolved `None`
 /// both take the LTR (right) placement, matching GTK's own default.
 pub(super) fn well_rect(
@@ -173,7 +171,7 @@ mod tests {
     use super::*;
 
     /// TDD 27.8: the STATE glyph, never the click-to-play action icon.
-    /// Mutation test 3 (WP9 report): swapping [`ICON`] for
+    /// Mutation test: swapping [`ICON`] for
     /// `Icon::MediaPlaybackStart` must turn this red.
     #[test]
     fn paints_the_pause_state_not_the_play_action() {
@@ -198,7 +196,7 @@ mod tests {
         );
     }
 
-    /// Mutation test 2 (WP9 report): dropping the 48px rule (always `true`
+    /// Mutation test: dropping the 48px rule (always `true`
     /// once `paused`) must turn this red.
     #[test]
     fn under_the_floor_on_either_side_suppresses_the_badge() {
@@ -207,8 +205,8 @@ mod tests {
         assert!(!should_paint(true, 10.0, 10.0));
     }
 
-    /// PLAN.memory-gates.md: "use the text direction, do not hardcode" —
-    /// bottom-END corner, end = right in LTR, left in RTL.
+    /// The bottom-END corner follows the text direction rather than a
+    /// hardcoded side: end = right in LTR, left in RTL.
     #[test]
     fn well_sits_bottom_end_and_follows_text_direction() {
         let width = 200.0;

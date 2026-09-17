@@ -41,7 +41,7 @@ impl imp::AnimatedPaintable {
         );
         self.policy_watch.replace(Some(watch));
 
-        // WP8: a picture arranges its own visibility watching from its own
+        // A picture arranges its own visibility watching from its own
         // `host` — `AnimatedPaintable::set_should_play` is this module's one
         // seam for it, so wiring lives here rather than at any picture-
         // construction call site (`renderer::start` never mentions
@@ -65,7 +65,7 @@ impl imp::AnimatedPaintable {
         obj.set_should_play(visibility::current(&host));
     }
 
-    /// The single point that reconciles "is this picture visible" (WP8) with
+    /// The single point that reconciles "is this picture visible" with
     /// "does policy currently allow playing" and acts on the result — called
     /// on bootstrap, on every `policy::watch`/`visibility::watch` firing, and
     /// by [`super::AnimatedPaintable::set_should_play`].
@@ -73,8 +73,8 @@ impl imp::AnimatedPaintable {
     /// Visibility is checked FIRST and is unconditional: an invisible picture
     /// drops its decoder and canvas regardless of what policy says, because
     /// there is nothing to preserve visually for a picture nobody can see —
-    /// PLAN.memory-gates.md's "everything the paintable owns beyond the
-    /// shared bytes is dropped" is not qualified by whether Play Animations
+    /// dropping everything the paintable owns beyond the shared bytes is
+    /// not qualified by whether Play Animations
     /// happened to be off at the time. A policy-only pause (visible, but
     /// paused) is the FREEZE case ([`Self::maybe_reset_for_reduce_animations`]
     /// only actually resets for the "reduce animations" system setting, never
@@ -125,10 +125,10 @@ impl imp::AnimatedPaintable {
         }
     }
 
-    /// WP8: everything this paintable owns beyond the shared encoded bytes,
-    /// dropped — the decoder AND the canvas (both live inside `animation`:
-    /// PLAN.memory-gates.md's "Each on-screen animation owns its decoder and
-    /// one working canvas"), plus the currently-displayed and frame-0
+    /// Everything this paintable owns beyond the shared encoded bytes,
+    /// dropped — the decoder AND the canvas (both live inside `animation`;
+    /// each on-screen animation owns one decoder and one working canvas),
+    /// plus the currently-displayed and frame-0
     /// textures. `bytes` stays (the one thing kept), and so does `schedule` —
     /// it holds only a due-time and small counters, no decoded pixels, and
     /// [`Self::ensure_decoded`] resets it with `Schedule::restart` rather than
@@ -148,7 +148,7 @@ impl imp::AnimatedPaintable {
     }
 
     /// Rebuild the decoder, canvas and schedule from the shared encoded bytes
-    /// if [`Self::drop_decoder_state`] cleared them — WP8's "coming back into
+    /// if [`Self::drop_decoder_state`] cleared them — "coming back into
     /// view restarts from frame 0", never resuming mid-loop. A no-op if a
     /// decoder is already held (the ordinary case: visibility was never lost,
     /// or this already ran for the current visible spell).
@@ -253,7 +253,7 @@ impl imp::AnimatedPaintable {
     /// that function collapses "the reader's own choice" and "the system
     /// setting" into one effective boolean, and this decision needs to tell
     /// the two apart (`policy.rs`'s private helper doing the equivalent read
-    /// is not `pub(crate)`, and widening it is out of scope for this WP —
+    /// is not `pub(crate)`, and widening it buys nothing here —
     /// this reads the same public GTK property directly instead).
     ///
     /// Only reachable while VISIBLE (`recompute` calls this only after

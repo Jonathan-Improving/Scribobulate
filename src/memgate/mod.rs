@@ -13,7 +13,7 @@
 //!
 //! The GTK drivers that *produce* the samples live in [`gtk`] (6.6–6.9, and
 //! 6.7's still-image half) and [`playback`] (6.10, and 6.7 extended to the
-//! animation state — WP11, `sdd/PLAN.memory-gates.md`), compiled only under
+//! animation state), compiled only under
 //! the `memory-gates` feature, so pipeline step 5 never runs either. The
 //! decision cores here run as ordinary unit tests (step 4) and stay inside
 //! the coverage ratchet.

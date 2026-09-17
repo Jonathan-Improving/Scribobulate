@@ -1,6 +1,6 @@
 //! GIF codec (`gif` 0.14.x, image-rs; MIT OR Apache-2.0), behind the same
-//! [`crate::codec::Codec`] seam `webp.rs` uses. Carried obligations from
-//! `sdd/PLAN.memory-gates.md` (WP4) this module exists to satisfy:
+//! [`crate::codec::Codec`] seam `webp.rs` uses. Carried obligations of that
+//! crate this module exists to satisfy:
 //!
 //! - The `gif` crate decodes RGBA8 per-frame rectangles but does **not**
 //!   composite them; that is entirely this module's job (see [`dispose`]).

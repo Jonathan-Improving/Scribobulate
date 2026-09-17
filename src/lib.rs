@@ -70,7 +70,7 @@ pub(crate) mod format;
 pub(crate) mod gtk_log_harness;
 pub(crate) mod icons;
 pub(crate) mod imagecache;
-/// The application's one decode choke point (WP6, sdd/PLAN.memory-gates.md): sniffs
+/// The application's one decode choke point: sniffs
 /// encoded image bytes by content and routes WebP/GIF/APNG to `richimg`, everything
 /// else to GTK. Every current decode site — local/remote document images
 /// (`renderer::start`), theme sprites (`sprite.rs`), and PDF export (`export::pdf`) —

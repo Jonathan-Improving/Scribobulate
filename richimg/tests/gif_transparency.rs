@@ -1,4 +1,4 @@
-//! WP4 / TDD 2.23a-b, 27.1 (GIF): the transparent-index checkerboard over a
+//! TDD 2.23a-b, 27.1 (GIF): the transparent-index checkerboard over a
 //! prior opaque frame, checked pixel-for-pixel against `magick -coalesce`.
 #[path = "support/mod.rs"]
 mod support;

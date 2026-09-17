@@ -1,4 +1,4 @@
-//! WP2 / TDD 2.23a-b: an over-cap VP8X canvas must refuse with
+//! TDD 2.23a-b: an over-cap VP8X canvas must refuse with
 //! `Error::TooLarge` from `Animation::new` and `first_frame` WITHOUT ever
 //! allocating a canvas-sized buffer. A counting `#[global_allocator]` proves
 //! this directly rather than inferring it from timing or from reading the

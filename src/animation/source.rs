@@ -9,7 +9,7 @@
 //! the same way `imagecache` keys a local file (path+mtime+size) or a remote
 //! one (its URL) — `imagecache::loader` computes that key and calls [`shared`]
 //! (a fresh decode already has bytes in hand) or [`shared_or_else`] (a cache HIT
-//! recovering a local file's bytes, WP6b: cheap when a holder is alive, a bounded
+//! recovering a local file's bytes: cheap when a holder is alive, a bounded
 //! re-read otherwise) with it, so this module stays pure and knows nothing about
 //! paths or URLs.
 //!
@@ -60,7 +60,7 @@ pub(crate) fn shared(key: &str, fresh: Arc<[u8]>) -> Arc<[u8]> {
 /// Like [`shared`], but the fresh bytes are computed LAZILY, only when no live
 /// picture is already holding this key's bytes.
 ///
-/// `imagecache`'s local-animation cache-hit recovery (WP6b, TDD 27.1) needs exactly
+/// `imagecache`'s local-animation cache-hit recovery (TDD 27.1) needs exactly
 /// this ordering: a cache hit's cheap path — another picture is still alive — must
 /// never pay for the bounded re-read `imagedecode::read_local` performs, and the
 /// expensive path must run at most once even when nobody is holding the bytes.
@@ -102,8 +102,8 @@ mod tests {
     /// on ONE allocation — the sharing this module exists to provide.
     ///
     /// Mutation: making `shared` always insert-and-return `fresh` (never checking
-    /// the registry for an existing live entry) reddens this — see
-    /// `sdd/PLAN.memory-gates.md`'s WP7b mutation-test list, item 3.
+    /// the registry for an existing live entry) reddens this — the mutation this
+    /// test exists to catch.
     #[test]
     fn two_pictures_of_the_same_file_share_one_arc() {
         reset_for_test();
@@ -185,7 +185,7 @@ mod tests {
     }
 
     /// [`shared_or_else`]'s cheap path: a live holder answers with NO call to `fresh`
-    /// at all — the whole point, since `imagecache`'s cache-hit recovery (WP6b) uses
+    /// at all — the whole point, since `imagecache`'s cache-hit recovery uses
     /// `fresh` for a bounded disk re-read that must never run when it isn't needed.
     #[test]
     fn shared_or_else_never_calls_fresh_while_a_holder_is_alive() {

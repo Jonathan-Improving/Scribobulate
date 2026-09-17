@@ -717,7 +717,7 @@ mod paper_resolution_tests {
         assert!(w > 0.0 && h > 0.0);
     }
 
-    /// WP6 (sdd/PLAN.memory-gates.md): an embedded WebP image routes through
+    /// An embedded WebP image routes through
     /// `crate::imagedecode` here too, and takes its FIRST frame (PDF export never
     /// animates) — asserted at the seam by the surface's own natural size.
     #[test]

@@ -1,4 +1,4 @@
-//! WP8's live verification suite, split out at POLICY's 500-line soft limit —
+//! The visibility decision's live verification suite, split out at POLICY's 500-line soft limit —
 //! `mod.rs` keeps the decision core and its display-free tests, exactly like
 //! `paintable`'s own `mod.rs`/`gtk_tests.rs` split.
 //!

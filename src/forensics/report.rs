@@ -289,8 +289,8 @@ pub(crate) fn write_report(
 /// running) would still write a crash report **naming a crash that did not happen**.
 /// [`richimg::contained_panic_in_progress`] is true for the duration of such a call,
 /// including while the panic is unwinding through it — i.e. exactly when this hook
-/// runs — so it is checked first and the panic is logged instead (sdd/PLAN.memory-gates.md,
-/// "The richimg contract").
+/// runs — so it is checked first and the panic is logged instead (`richimg`
+/// contains every decoder panic and reports it as an ordinary error).
 pub(crate) fn install_panic_hook(
     report_path: Option<PathBuf>,
     header: String,

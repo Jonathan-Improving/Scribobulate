@@ -1,4 +1,4 @@
-//! WP5 / TDD 2.23a-b, 27.1 (APNG): everything besides raw compositing —
+//! TDD 2.23a-b, 27.1 (APNG): everything besides raw compositing —
 //! frame-count/loop-count reporting, fractional and floored delays,
 //! color-type normalisation (palette+tRNS, 16-bit), the "default image is
 //! not a frame" rule, the `frame_count == 1` still path, wrap-after-last,

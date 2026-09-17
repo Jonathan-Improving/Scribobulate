@@ -1,7 +1,7 @@
 use std::time::Duration;
 
 /// Default cap: an 8192x8192 canvas. Matches the application's `MAX_IMAGE_PIXELS`
-/// intent (sdd/PLAN.memory-gates.md, "Own the decode — richimg"); the caller
+/// intent; the caller
 /// supplies its own value from `limits.rs`/`config.toml`, this is only the
 /// crate's standalone default.
 const DEFAULT_MAX_DIMENSION_PIXELS: u64 = 8192;
@@ -10,9 +10,8 @@ const DEFAULT_MAX_DIMENSION_PIXELS: u64 = 8192;
 const DEFAULT_SHORT_DELAY_SUBSTITUTE_MS: u64 = 50;
 
 /// A declared delay strictly below this is replaced by `Limits::short_delay_substitute`.
-/// Fixed by the format decision (sdd/PLAN.memory-gates.md, "Frame timing: a delay
-/// under 20 ms means 50 ms") — unlike `short_delay_substitute` this threshold is not
-/// configurable.
+/// Fixed by TDD 27.2 (a declared delay under 20 ms is shown for 50 ms) — unlike
+/// `short_delay_substitute`, which is configurable, this threshold is not.
 const SHORT_DELAY_THRESHOLD_MS: u64 = 20;
 
 /// Below this declared per-frame delay, [`Limits::short_delay_substitute`] is used

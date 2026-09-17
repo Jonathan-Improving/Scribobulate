@@ -5,7 +5,7 @@
 //! [`richimg::Frame`] — on the main context. No GTK object ever crosses a thread:
 //! only the plain owned `Animation`/`Frame` data does (POLICY § Architecture rules,
 //! "All GTK access on the main thread"). No widget, no paintable and no tick
-//! callback live here — those are WP7b's.
+//! callback live here — those are the paintable's.
 //!
 //! # Following `docio`'s shape, not inventing a second one
 //!

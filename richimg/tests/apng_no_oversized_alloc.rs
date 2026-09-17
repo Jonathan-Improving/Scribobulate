@@ -1,4 +1,4 @@
-//! WP5 / TDD 2.23a-b: an over-cap IHDR (16384x16384, tiny file) must refuse
+//! TDD 2.23a-b: an over-cap IHDR (16384x16384, tiny file) must refuse
 //! with `Error::TooLarge` from `Animation::new` and `first_frame` WITHOUT
 //! ever allocating a canvas-sized buffer, and `probe` itself must read the
 //! (bogus) dimensions without allocating a pixel row that big either. A

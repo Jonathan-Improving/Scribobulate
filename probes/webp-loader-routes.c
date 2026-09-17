@@ -1,7 +1,7 @@
 /* webp-loader-routes.c — which gdk-pixbuf entry points leak on an animated WebP?
  *
  * WHY THIS EXISTS
- * PLAN.memory-gates.md's route table was measured once, on assets/splash.webp.
+ * ScrAP-352's route table was measured once, on assets/splash.webp.
  * The fix is "use the flat route", so this probe is the thing that names the
  * decode-side route the application may take. It prints footprint after each
  * iteration of one named arm; a climbing arm is a leak, a plateau is usable.

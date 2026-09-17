@@ -1,4 +1,4 @@
-//! WP4 / TDD 2.23a-b (GIF): `probe`'s `Info` (dimensions, `animated`,
+//! TDD 2.23a-b (GIF): `probe`'s `Info` (dimensions, `animated`,
 //! `frame_count`, `loop_count`) without decoding any pixels, the three-way
 //! loop-count mapping, and the frame-delay floor.
 #[path = "support/mod.rs"]

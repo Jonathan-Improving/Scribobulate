@@ -25,7 +25,7 @@
 //!
 //! [`effective_play`] is the pure reconciliation of the three ("reduce animations" and
 //! "reduce motion" both always win), [`current`] reads all three live inputs for one
-//! caller, and [`watch`] is the change-notification subscription WP7b's paintables use
+//! caller, and [`watch`] is the change-notification subscription the animated paintables use
 //! to know when to re-ask.
 //!
 //! **A directory, not a file**, for the same reason as `platform/win32/` and
@@ -203,9 +203,9 @@ mod tests {
     /// must answer `None` here, exactly as it did before this change added the
     /// input at all — so folding it through `reduced_motion_of` lands on `false`,
     /// which is the value [`current`]'s conjunction always had for this term prior
-    /// to this WP. No display needed: neither function touches GTK.
+    /// to the platform façade. No display needed: neither function touches GTK.
     ///
-    /// This is mutation-test #1 from the task brief: claim the façade sees
+    /// Mutation test: claim the façade sees
     /// reduced-motion on Linux (make `platform`'s Linux fallback answer
     /// `Some(true)` instead of `None`) and this assertion goes red.
     ///

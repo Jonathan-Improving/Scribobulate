@@ -6,8 +6,7 @@
 //! (`sprite.rs`), and a PDF-export embed (`export::pdf`). Content is sniffed by
 //! [`richimg::sniff`], never by file extension or MIME claim — a WebP saved with a
 //! `.png` name still routes to `richimg`, and a `.webp`-named file that is really a
-//! still PNG still routes to GTK (sdd/PLAN.memory-gates.md "Route by content, through
-//! one choke point").
+//! still PNG still routes to GTK — routing is by content, through one choke point.
 //!
 //! WebP, GIF and APNG go to [`richimg`], which has no GTK in it and cannot enter the
 //! leaking gdk-pixbuf incremental-WebP path this module exists to make unreachable
@@ -64,11 +63,12 @@ pub(crate) use probe::{probe_dimensions, probe_pixel_size, probe_vector_dimensio
 // `Refusal` and `AnimationSource`/`DecodedImage` are named at every current call site
 // only implicitly (`Err(refusal) => …`, `.map(|decoded| decoded.texture)`), so nothing
 // in this tree yet spells `imagedecode::Refusal` or `imagedecode::AnimationSource` —
-// but they are still part of this module's declared contract (WP6,
-// sdd/PLAN.memory-gates.md), and `AnimationSource` in particular is exactly what
-// WP7a's playback core will need to import by name. Re-exported with an explicit
+// but they are still part of this module's declared contract, and
+// `AnimationSource` in particular is exactly what the playback core needs to
+// import by name. Re-exported with an explicit
 // allow rather than silently dropped, so the contract stays readable from one place.
 #[allow(unused_imports)] // part of the contract; not yet named outside this module
 pub(crate) use admission::Refusal;
-#[allow(unused_imports)] // part of the contract; AnimationSource is WP7a's first caller
+#[allow(unused_imports)]
+// part of the contract; the playback core is AnimationSource's first caller
 pub(crate) use decode::{AnimationSource, DecodedImage};

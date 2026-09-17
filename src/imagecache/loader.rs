@@ -2,7 +2,7 @@
 //! image cache ([`super::get_or_fetch`]) and its one decode choke point
 //! ([`crate::imagedecode`]).
 //!
-//! Relocated here from `renderer::start` (WP6b, sdd/PLAN.memory-gates.md) because it
+//! Relocated here from `renderer::start` because it
 //! is fundamentally cache-client code — every function here exists to decide what to
 //! hand [`super::get_or_fetch`] and what to do with what comes back — and because that
 //! file was already well past POLICY's soft 500-line limit; this module is a better
@@ -17,7 +17,7 @@
 //! (dimensions from [`crate::imagedecode::probe_vector_dimensions`]) or the ordinary
 //! raster one (below) — see [`load_local`]'s own doc comment for why (Finding 1 /
 //! TDD 2.23b). Raster decode is [`crate::imagedecode`], the application's one choke
-//! point (WP6, sdd/PLAN.memory-gates.md): it sniffs by content and routes WebP/GIF/APNG
+//! point: it sniffs by content and routes WebP/GIF/APNG
 //! to `richimg` — never `Texture::from_file`, which leaked ~12 MB/call on a valid
 //! animated WebP and SIGSEGVed on a truncated one (`Pixbuf::from_file` errored
 //! outright and was never a fallback — ScrAP-146 / GTK4Rs/AP-66, now superseded by
@@ -31,7 +31,7 @@
 //! load. Remote fetches block the main thread for the request (accepted for the
 //! opt-in "Show Unsafe Images" path, ScrAP-34, its 34a half).
 //!
-//! ## Animation on a cache hit (TDD 27.1, WP6b)
+//! ## Animation on a cache hit (TDD 27.1)
 //!
 //! A cache MISS always resolves its own animation bytes directly (see
 //! [`decode_local_raster`] and [`load_remote_texture`]). A cache HIT answers from
@@ -228,8 +228,8 @@ fn decode_local_raster(
 /// `fresh` is a side channel, not a return value, because [`super::get_or_fetch`]'s
 /// closure signature is fixed at `Option<(gtk::gdk::Texture, super::AnimationHint)>`
 /// — the cache stores only the hint, deliberately: a playing animation is not a cache
-/// entry (sdd/PLAN.memory-gates.md, "Animation state: per picture, bounded by what is
-/// on screen"). This function runs ONLY on a cache MISS, so it is the one place that
+/// entry — animation state is per picture, bounded by what is on screen (TDD 27.3).
+/// This function runs ONLY on a cache MISS, so it is the one place that
 /// ever needs to actually resolve a local animated file's bytes from scratch; a cache
 /// HIT recovers them separately, in [`recover_local_animation`].
 fn decode_local_raster_bytes(
@@ -303,7 +303,7 @@ pub(crate) struct LoadedImage {
     /// `Some` only for an animated richimg-owned format — the shared,
     /// already-deduped encoded bytes
     /// [`crate::animation::paintable::AnimatedPaintable::new`] needs, resolved the
-    /// same way whether this render was a cache miss or a hit (TDD 27.1, WP6b).
+    /// same way whether this render was a cache miss or a hit (TDD 27.1).
     /// `None` for a still image, unconditionally.
     pub(crate) animation: Option<Arc<[u8]>>,
 }
@@ -430,7 +430,7 @@ fn load_remote_texture(uri: &str) -> Option<LoadedImage> {
         // runs BEFORE any decode (`imagefetch`'s byte cap bounds the transfer and says
         // nothing about what it expands to, F-SEC-206), and content sniffing routes
         // WebP/GIF/APNG to `richimg` — a remote animated image animates like a local
-        // one (sdd/PLAN.memory-gates.md).
+        // one.
         let decoded = imagedecode::decode(&bytes, uri)?;
         let hint = match decoded.animation {
             Some(anim_source) => {
@@ -458,7 +458,7 @@ mod tests {
             .join(name)
     }
 
-    /// **TDD 27.1, the red-before-fix demonstration.** On today's (pre-WP6b) code,
+    /// **TDD 27.1, the red-before-fix demonstration.** On the pre-fix code,
     /// `decode_local_raster` only ever resolves animation bytes on a MISS — a HIT
     /// returns `LoadedImage::animation == None` unconditionally, so a re-render
     /// (theme switch, zoom, a fold toggle) freezes the animation. Every picture from

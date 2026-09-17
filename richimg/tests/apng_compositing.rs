@@ -1,4 +1,4 @@
-//! WP5 / TDD 2.23a-b, 27.1 (APNG): the three dispose ops and two blend ops,
+//! TDD 2.23a-b, 27.1 (APNG): the three dispose ops and two blend ops,
 //! against `ffmpeg`'s independent APNG decode. Fixtures are hand-assembled
 //! byte-for-byte by `tests/fixtures/make_apng.sh` (no encoder exposes
 //! per-frame dispose/blend/sequence-number control), and every canvas here

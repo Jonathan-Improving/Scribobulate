@@ -1,4 +1,4 @@
-//! WP4 / TDD 2.23a-b, 27.1 (GIF): each of the four disposal modes
+//! TDD 2.23a-b, 27.1 (GIF): each of the four disposal modes
 //! (`Any`, `Keep`, `Background`, `Previous`), including `Previous` on frame
 //! 0 specifically, and a frame rect partly outside the logical screen.
 //! Every fixture's every frame is checked against `magick -coalesce`

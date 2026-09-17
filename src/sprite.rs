@@ -571,8 +571,8 @@ thread_local! {
     /// PDF sink. See [`surface`].
     static SURFACES: RefCell<HashMap<SpriteRef, Option<Raster>>> = RefCell::new(HashMap::new());
     /// Reference → the whole ENCODED file, but only for a sprite [`texture`] found to
-    /// be an animated WebP/GIF/APNG — `None` for a still sprite (WP10,
-    /// sdd/PLAN.memory-gates.md "Theme sprites animate too"). Populated inside
+    /// be an animated WebP/GIF/APNG — `None` for a still sprite (TDD 27.9:
+    /// animated theme sprites play). Populated inside
     /// [`texture`]'s own decode, from the SAME `imagedecode::decode` call, never a
     /// second one: `DecodedImage::animation` already answers "is this animated" and
     /// already carries the bytes a `richimg::Animation` needs, so this is free
@@ -635,8 +635,7 @@ pub(crate) fn surface(r: &SpriteRef) -> Option<Raster> {
 /// The dimension probe runs **before** the real decode, so an image bomb is refused
 /// without ever being expanded — see [`crate::imagedecode::probe_dimensions`] for the
 /// one spelling that makes that true, content-aware so a WebP sprite is measured
-/// correctly even on a host with no gdk-pixbuf WebP loader (WP6,
-/// sdd/PLAN.memory-gates.md).
+/// correctly even on a host with no gdk-pixbuf WebP loader.
 fn admit_for_decode(r: &SpriteRef) -> Option<std::borrow::Cow<'static, [u8]>> {
     let raw = bytes(r)?;
     match crate::imagedecode::probe_dimensions(raw.as_ref()) {
@@ -656,7 +655,7 @@ fn admit_for_decode(r: &SpriteRef) -> Option<std::borrow::Cow<'static, [u8]>> {
 
 /// The natural pixel dimensions an image's header declares, without decoding it.
 ///
-/// **Moved to [`crate::imagedecode::probe_pixel_size`] (WP6)** — the same probe now
+/// **Moved to [`crate::imagedecode::probe_pixel_size`]** — the same probe now
 /// serves the document/remote-image path as well as the theme-sprite path, so the two
 /// cannot disagree about what an image's header says (ScrAP-328). Re-exported here so
 /// `preview::build`'s pinned test (`the_shared_byte_probe_and_the_cap_agree_about_an_oversized_image`)
@@ -670,7 +669,7 @@ pub(crate) use crate::imagedecode::probe_pixel_size;
 
 /// The decoded texture for a resolved sprite reference, at its natural size.
 ///
-/// **Decodes through [`crate::imagedecode::decode`] (WP6)**, the application's one
+/// **Decodes through [`crate::imagedecode::decode`]**, the application's one
 /// choke point: content-sniffed, so a WebP sprite routes to `richimg` rather than the
 /// gdk-pixbuf loader chain `Texture::from_bytes` used to reach (the same leak
 /// `renderer::start`'s document-image path had — GTK4Rs/AP-66). The file arm went
@@ -686,7 +685,7 @@ pub(crate) fn texture(r: &SpriteRef) -> Option<gdk::Texture> {
                 let raw = admit_for_decode(r)?;
                 let origin = format!("sprite {r}");
                 let decoded = crate::imagedecode::decode(raw.as_ref(), &origin)?;
-                // WP10: stash whether this decode came back animated, and its whole
+                // Stash whether this decode came back animated, and its whole
                 // encoded file if so — see `ANIMATION_BYTES`'s own doc comment for why
                 // this rides the SAME decode rather than a second one.
                 ANIMATION_BYTES.with(|a| {
@@ -706,8 +705,8 @@ pub(crate) fn texture(r: &SpriteRef) -> Option<gdk::Texture> {
 /// practice the answer is always populated by the time it matters).
 ///
 /// **One `HashMap` lookup, nothing else** — no disk read, no `richimg` call — which is
-/// what keeps a still sprite's paint doing no new work at all (WP10's "byte-identical
-/// rendering" requirement): [`crate::animation::sprites::Frames`] calls this first and
+/// what keeps a still sprite's paint doing no new work at all (a still sprite must
+/// render byte-identically to before animation existed): [`crate::animation::sprites::Frames`] calls this first and
 /// returns the still texture verbatim on `None`.
 pub(crate) fn animated_bytes(r: &SpriteRef) -> Option<std::sync::Arc<[u8]>> {
     ANIMATION_BYTES.with(|c| c.borrow().get(r).cloned().flatten())
@@ -716,7 +715,7 @@ pub(crate) fn animated_bytes(r: &SpriteRef) -> Option<std::sync::Arc<[u8]>> {
 /// The sprite resampled to exactly `w × h` with nearest-neighbour filtering. `w`/`h`
 /// must both be positive; anything else is not a size and returns `None`.
 ///
-/// Decodes through [`crate::imagedecode::decode_pixbuf`] (WP6) — the `Pixbuf` shape
+/// Decodes through [`crate::imagedecode::decode_pixbuf`] — the `Pixbuf` shape
 /// [`gtk::gdk_pixbuf::Pixbuf::scale_simple`] needs, content-sniffed the same way
 /// [`texture`] is, so a WebP sprite resamples through `richimg` too rather than the
 /// leaking `Pixbuf::from_stream` chain.
@@ -1314,7 +1313,7 @@ mod tests {
     }
 
     /// A WebP sprite (`ALLOWED_EXTENSIONS` has always named it) decodes through
-    /// [`crate::imagedecode`]'s choke point too (WP6) — both the natural-size texture
+    /// [`crate::imagedecode`]'s choke point too — both the natural-size texture
     /// and the resample, at the seam this module owns. Never exercised by a WebP
     /// fixture before this: the pixel cap probe, the decode, and the resample all had
     /// zero coverage over this extension until now.
@@ -1337,7 +1336,7 @@ mod tests {
         assert_eq!((small.width(), small.height()), (16, 9));
     }
 
-    /// WP10: [`animated_bytes`] answers `Some` for an animated sprite and carries the
+    /// [`animated_bytes`] answers `Some` for an animated sprite and carries the
     /// whole encoded file — the exact input a `richimg::Animation` needs — but ONLY
     /// after [`texture`] has actually decoded it (never a fresh disk read of its own).
     #[test]

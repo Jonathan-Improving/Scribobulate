@@ -1,4 +1,4 @@
-//! WP5 / TDD 2.23a-b, 27.1 (APNG): a truncated file must degrade to
+//! TDD 2.23a-b, 27.1 (APNG): a truncated file must degrade to
 //! `Error::Malformed` from every entry point, never panic.
 #[path = "support/mod.rs"]
 mod support;

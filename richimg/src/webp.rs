@@ -1,6 +1,5 @@
-//! WebP codec (`image-webp` 0.2.4), still and animated. Carried obligations
-//! from `sdd/PLAN.memory-gates.md` ("Decoder: image-webp 0.2.4") that this
-//! module exists to satisfy:
+//! WebP codec (`image-webp` 0.2.4), still and animated. Carried obligations of
+//! that pinned decoder that this module exists to satisfy:
 //!
 //! - Dispose-to-background clears to transparent ([`DISPOSE_CLEAR`]); 0.2.4 makes
 //!   it a no-op unless a colour is set.

@@ -1,4 +1,4 @@
-//! WP2 / TDD 2.23a-b, 6.9: truncated input and the image-webp#182 crafted
+//! TDD 2.23a-b, 6.9: truncated input and the image-webp#182 crafted
 //! panic — both must degrade to an `Error`, never bring the process down,
 //! and a panic must poison the `Animation` it came from.
 #[path = "support/mod.rs"]

@@ -157,8 +157,7 @@ pub(crate) enum Icon {
     InsertImage,
     /// Format ▸ Insert Table.
     ViewGrid,
-    /// The paused-animation corner badge (TDD 27.8, `sdd/PLAN.memory-gates.md`
-    /// "What a paused animation looks like: a corner 'paused' badge"). The
+    /// The paused-animation corner badge (TDD 27.8). The
     /// STATE glyph, never `media-playback-start-symbolic` — that is the
     /// click-to-play idiom, and this paint-only badge offers no interaction
     /// to promise. Both names ship in GTK's own icon set; verified by

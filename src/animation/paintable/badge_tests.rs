@@ -3,7 +3,7 @@
 //! assertion here renders the paintable's OWN `snapshot()` into real pixels
 //! and inspects the result, never reading `AnimatedPaintable`'s internal
 //! flags (POLICY's "assert on the running behaviour, not your own
-//! bookkeeping" instinct, and this WP's own instruction).
+//! bookkeeping" instinct).
 //!
 //! Shares its fixture/harness helpers with `gtk_tests.rs` (`anim_bytes`,
 //! `test_app`, `realize`, `add_play_animations_action`) rather than
@@ -327,8 +327,8 @@ fn the_pause_icon_actually_renders() {
     );
 }
 
-/// PLAN.memory-gates.md: "bottom-end corner ... use the text direction, do
-/// not hardcode" — end = right in LTR, left in RTL.
+/// The bottom-end corner follows the text direction rather than a hardcoded
+/// side — end = right in LTR, left in RTL.
 ///
 /// Compares each corner against its OWN playing (no-badge) baseline rather
 /// than comparing the two corners to EACH OTHER at a single moment — the

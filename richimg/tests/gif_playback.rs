@@ -1,4 +1,4 @@
-//! WP4 / TDD 2.23a-b, 27.1 (GIF): a still GIF always yields frame 0; an
+//! TDD 2.23a-b, 27.1 (GIF): a still GIF always yields frame 0; an
 //! animated GIF wraps to a freshly-cleared frame 0 after its last frame,
 //! matching the first decode of frame 0 exactly; and `Animation::rewind`
 //! does the same on demand.

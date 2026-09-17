@@ -6,7 +6,7 @@ use crate::limits::Limits;
 use crate::types::{Frame, Info};
 use crate::{apng, gif, webp};
 
-/// One decoder implementation per format, so WP4 (GIF) and WP5 (APNG) each own
+/// One decoder implementation per format, so GIF and APNG each own
 /// a single file behind this seam. `Send` so an `Animation` (which holds a
 /// `Box<dyn Codec>`) can move to a worker thread.
 pub(crate) trait Codec: Send {

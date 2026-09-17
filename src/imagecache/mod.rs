@@ -29,10 +29,10 @@
 //! nothing ever proactively expires one; the only way a decoded texture leaves
 //! the cache is LRU eviction under [`IMAGE_CACHE_BUDGET_BYTES`].
 //!
-//! ## Animation (WP6b, TDD 27.1)
+//! ## Animation (TDD 27.1)
 //!
 //! Each entry carries an [`AnimationHint`] alongside its texture — "a playing
-//! animation is not a cache entry" (sdd/PLAN.memory-gates.md): the encoded bytes an
+//! animation is not a cache entry": the encoded bytes an
 //! `AnimatedPaintable` needs live elsewhere, EXCEPT for a remote entry, where
 //! retaining them is cheaper than the only alternative a hit has (a second network
 //! fetch on the opt-in "Show Unsafe Images" path). [`AnimationHint::Still`] and
@@ -134,7 +134,7 @@ fn decoded_byte_size(width: i32, height: i32) -> usize {
 
 /// [`decoded_byte_size`] plus, for an [`AnimationHint::Remote`] entry, the
 /// retained encoded bytes — the accounting the byte budget must include so the
-/// LRU prunes against the cache's real footprint (WP6b). Before this, a retained
+/// LRU prunes against the cache's real footprint. Before this, a retained
 /// remote animation's bytes counted against nothing at all.
 fn cached_bytes(texture: &gtk::gdk::Texture, animation: &AnimationHint) -> usize {
     let retained = match animation {
@@ -301,7 +301,7 @@ mod gtk_integration_tests {
     }
 
     /// A still image on a cache hit still carries no animation bytes — the counterpart
-    /// to the animated hit tests in `imagecache::loader` and below (WP6b, TDD 27.1).
+    /// to the animated hit tests in `imagecache::loader` and below (TDD 27.1).
     #[gtktest::test]
     fn a_still_image_carries_no_animation_hint_on_a_hit() {
         reset_for_test();
@@ -314,15 +314,14 @@ mod gtk_integration_tests {
         assert!(matches!(hit.animation, AnimationHint::Still));
     }
 
-    /// **TDD 27.1 / WP6b.** A remote animated image's cache entry retains its encoded
+    /// **TDD 27.1.** A remote animated image's cache entry retains its encoded
     /// bytes, so a HIT answers with them directly — its only alternative is a second
     /// network fetch on the opt-in "Show Unsafe Images" path, which is worse (see the
     /// module doc's "Animation" section).
     ///
     /// Mutation: leaving the retained bytes out of the STORED hint (storing
     /// `AnimationHint::Still` instead of `AnimationHint::Remote(bytes)` on a miss)
-    /// reddens the second assertion — see `sdd/PLAN.memory-gates.md`'s WP6b mutation
-    /// list, item 1.
+    /// reddens the second assertion — the mutation this test exists to catch.
     #[gtktest::test]
     fn a_remote_animation_hit_never_re_fetches_and_shares_the_bytes() {
         reset_for_test();
@@ -357,14 +356,14 @@ mod gtk_integration_tests {
         assert_eq!(fetch_calls.get(), 1, "a hit must not re-fetch");
     }
 
-    /// **TDD 6.6-family / WP6b.** Retained remote animation bytes must be charged
+    /// **TDD 6.6-family.** Retained remote animation bytes must be charged
     /// against the cache's own byte budget, or an oversized entry never gets evicted.
     ///
     /// Mutation: computing this entry's cached size from [`decoded_byte_size`] alone
     /// (never adding the retained bytes) reddens this — the second entry then fits
     /// alongside the first under the (wrong) accounting, the first is never evicted,
     /// and the final re-request answers from the stale cache with `refetched` staying
-    /// `false` — see `sdd/PLAN.memory-gates.md`'s WP6b mutation list, item 2.
+    /// `false` — the mutation this test exists to catch.
     #[gtktest::test]
     fn retained_remote_bytes_are_charged_against_the_budget_and_can_evict() {
         reset_for_test();

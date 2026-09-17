@@ -388,7 +388,7 @@ fn sniff_image_mime(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
         return Some("image/gif");
     }
-    // Content-sniffed through `richimg::sniff` (WP6, sdd/PLAN.memory-gates.md) rather
+    // Content-sniffed through `richimg::sniff` rather
     // than a hand-rolled RIFF/WEBP magic check, so this project has exactly one
     // definition of "these bytes are a WebP" rather than two that could drift.
     if richimg::sniff(bytes) == Some(richimg::Format::WebP) {

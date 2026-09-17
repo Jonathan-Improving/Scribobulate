@@ -4,7 +4,7 @@
 //! No GTK, no display, no clock of its own — every method takes the current time as
 //! a parameter, monotonic **microseconds** as `i64` (exactly what
 //! `GdkFrameClock::frame_time` returns), so the whole thing is unit-tested with no
-//! main loop. WP7b drives it from the real frame clock; these tests drive it with
+//! main loop. The paintable drives it from the real frame clock; these tests drive it with
 //! supplied times.
 //!
 //! # Fall behind by skipping, never by queueing
@@ -169,7 +169,7 @@ impl Schedule {
     }
 
     /// Resume playback from frame 0 at `now`, as if freshly [`Self::start`]ed —
-    /// for a stopped or paused animation coming back (WP3/visibility decide
+    /// for a stopped or paused animation coming back (policy and visibility decide
     /// *when*; this only answers *what happens once it does*).
     pub(crate) fn restart(&mut self, now: Micros, first_delay: Duration) {
         self.completed_loops = 0;
@@ -433,7 +433,7 @@ mod tests {
     }
 
     /// A stopped animation resumes exactly like a fresh one once restarted —
-    /// WP3/visibility decide when that happens; this is only what happens next.
+    /// Policy and visibility decide when that happens; this is only what happens next.
     #[test]
     fn restart_after_a_stop_resumes_normal_playback() {
         let mut s = Schedule::start(0, DELAY, LoopCount::Finite(1));

@@ -29,7 +29,7 @@ pub(crate) struct AnimationSource {
     pub(crate) bytes: Arc<[u8]>,
     #[allow(
         dead_code,
-        reason = "playback is a later WP; wired and tested here first"
+        reason = "read by playback, which lands later; wired and tested here first"
     )]
     pub(crate) info: richimg::Info,
 }
@@ -52,8 +52,7 @@ pub(crate) fn richimg_limits() -> richimg::Limits {
 /// `origin` is a caller-chosen description of where the bytes came from — a path, a
 /// URL, a sprite reference — folded into every log line so a decode failure can be
 /// traced back to what failed to load. **Never used to route the decode**: routing is
-/// by content alone (sdd/PLAN.memory-gates.md "Route by content, through one choke
-/// point").
+/// by content alone, through this one choke point.
 pub(crate) fn decode(bytes: &[u8], origin: &str) -> Option<DecodedImage> {
     // Finding 2 / TDD 6.8: the ONE increment for the test-only decode counter, so a
     // memory-gate test can assert "the second load was a cache HIT" by counting real
@@ -537,8 +536,8 @@ mod tests {
         );
     }
 
-    /// GIF/APNG may still be `Unsupported` stub codecs in this tree (WP4/WP5, a
-    /// parallel WP) — routing must degrade to the placeholder, never fall back to
+    /// GIF/APNG may still be `Unsupported` stub codecs in this tree — routing
+    /// must degrade to the placeholder, never fall back to
     /// GTK and never panic, once content sniffing has claimed the format.
     #[test]
     fn a_gif_that_richimg_cannot_yet_decode_degrades_to_none_not_a_gtk_fallback() {

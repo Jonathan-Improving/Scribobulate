@@ -10,8 +10,7 @@ pub const RGBA_CHANNELS: usize = 4;
 
 /// Per-channel tolerance for comparing richimg's decode against `magick
 /// -coalesce`: YUV/blend rounding differences of up to 1 LSB are expected
-/// and documented (sdd/PLAN.memory-gates.md, "Fidelity evidence so far is
-/// weak for animation"); a lossless, unblended fixture should in practice
+/// and documented; a lossless, unblended fixture should in practice
 /// come out exact, but the tolerance is not tightened per-fixture.
 pub const CHANNEL_TOLERANCE: i16 = 1;
 
@@ -125,10 +124,10 @@ pub fn pixel(rgba: &[u8], width: u32, x: u32, y: u32) -> [u8; 4] {
     [rgba[idx], rgba[idx + 1], rgba[idx + 2], rgba[idx + 3]]
 }
 
-// --- WP4 (GIF) additions below: the same scheme as the WebP helpers above,
+// --- GIF additions below: the same scheme as the WebP helpers above,
 // but GIF's fixtures and references live one directory down
 // (`tests/fixtures/gif/` and `tests/fixtures/gif/refs/`, built by
-// `make_gif.sh`) so they don't mix with WP2's WebP fixtures.
+// `make_gif.sh`) so they don't mix with the WebP fixtures.
 
 pub fn gif_fixture_path(name: &str) -> PathBuf {
     fixtures_dir().join("gif").join(name)

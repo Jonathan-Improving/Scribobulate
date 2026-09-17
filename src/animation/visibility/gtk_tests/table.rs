@@ -45,7 +45,7 @@ fn table_scrolled_out_of_viewport_stops_playing_and_releases_the_decoder() {
     );
     assert!(
         !animated.decoder_active(),
-        "no decoder held while scrolled away — PLAN.memory-gates.md: \
+        "no decoder held while scrolled away — TDD 27.3: \
          \"holds no more memory than its file\""
     );
     let _ = pic;

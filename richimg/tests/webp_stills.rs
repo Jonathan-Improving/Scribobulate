@@ -1,4 +1,4 @@
-//! WP2 / TDD 2.23a-b: still WebP (lossy, lossless, and with alpha) decode
+//! TDD 2.23a-b: still WebP (lossy, lossless, and with alpha) decode
 //! correctly and report `Info` per the still-image contract.
 #[path = "support/mod.rs"]
 mod support;

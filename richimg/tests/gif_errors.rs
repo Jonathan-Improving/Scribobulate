@@ -1,4 +1,4 @@
-//! WP4 / TDD 2.23a-b (GIF): truncated input must degrade to
+//! TDD 2.23a-b (GIF): truncated input must degrade to
 //! `Error::Malformed` from every entry point, never panic.
 #[path = "support/mod.rs"]
 mod support;

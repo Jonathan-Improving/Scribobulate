@@ -2,8 +2,7 @@
 //! frames per the APNG spec (<https://wiki.mozilla.org/APNG_Specification>):
 //! three dispose ops (none, background, previous) and two blend ops (source,
 //! over) live in [`compose`]; this module owns decoding through the `png`
-//! crate and the two APNG-specific rules from `sdd/PLAN.memory-gates.md`
-//! ("APNG animates too, through the pure-Rust `png` crate"):
+//! crate and the two APNG-specific rules an animated PNG imposes:
 //!
 //! - **The default image may not be a frame.** When no `fcTL` precedes
 //!   `IDAT`, that `IDAT` is the non-APNG-aware fallback, not part of the

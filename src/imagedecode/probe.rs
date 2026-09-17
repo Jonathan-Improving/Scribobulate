@@ -36,7 +36,7 @@ pub(crate) fn probe_dimensions(bytes: &[u8]) -> Option<(i32, i32)> {
 }
 
 /// The natural pixel dimensions a GTK-decodable image's header declares, without
-/// decoding it. Moved here from `sprite.rs` (WP6) — the same probe now serves the
+/// decoding it. Moved here from `sprite.rs` — the same probe now serves the
 /// document/remote-image path as well as the theme-sprite path, so the two cannot
 /// disagree about what an image's header says (ScrAP-328).
 ///

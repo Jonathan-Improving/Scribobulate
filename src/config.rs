@@ -158,8 +158,8 @@ pub(crate) struct CodeConfig {
     pub dark_theme: String,
 }
 
-/// `[images]` — the two knobs `src/imagedecode` and `richimg` need from the operator,
-/// per sdd/PLAN.memory-gates.md WP6. Both are clamped after parsing
+/// `[images]` — the two knobs `src/imagedecode` and `richimg` need from the
+/// operator. Both are clamped after parsing
 /// ([`Config::parse`]'s `clamped`), on the same "a malformed config must never
 /// prevent startup" principle every other section here follows.
 #[derive(serde::Deserialize)]
@@ -377,7 +377,7 @@ mod tests {
     }
 
     /// Absent-safe: a config file with no `[images]` section at all — every config
-    /// this project shipped before WP6 — must still parse to the documented
+    /// this project shipped before that section existed — must still parse to the documented
     /// defaults rather than erroring or zeroing the section.
     #[test]
     fn a_config_with_no_images_section_gets_the_documented_defaults() {

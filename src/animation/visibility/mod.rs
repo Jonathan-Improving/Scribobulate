@@ -1,5 +1,5 @@
-//! "Can anyone see this picture right now?" (TDD 27.3, WP8 of
-//! `sdd/PLAN.memory-gates.md`, "Never animate what is not visible").
+//! "Can anyone see this picture right now?" (TDD 27.3 — an animation nobody
+//! can see costs nothing, and never animate what is not visible).
 //!
 //! This is a small decision core — [`current`] — plus the wiring that re-asks it
 //! from exactly the signals that can change its answer, so a picture can arrange

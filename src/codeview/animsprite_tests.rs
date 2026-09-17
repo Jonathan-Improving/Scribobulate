@@ -1,8 +1,7 @@
-//! WP10 (TDD 27.9, `sdd/PLAN.memory-gates.md` "Theme sprites animate too") — does an
-//! animated heading-band sprite actually play through the real paint plan, and does
-//! `decorplan`'s own viewport gate (`bandpaint::paint_band`'s `span.is_outside` check)
-//! genuinely stand in for this sprite's visibility, exactly as the plan requires
-//! rather than a second geometry check invented for the purpose?
+//! TDD 27.9 — does an animated heading-band sprite actually play through the real
+//! paint plan, and does `decorplan`'s own viewport gate (`bandpaint::paint_band`'s
+//! `span.is_outside` check) genuinely stand in for this sprite's visibility, rather
+//! than a second geometry check invented for the purpose?
 //!
 //! `crate::animation::sprites::gtk_tests` proves the DRIVER (ticking, policy, frame
 //! advance) in isolation, on a plain host widget; this module proves it is wired

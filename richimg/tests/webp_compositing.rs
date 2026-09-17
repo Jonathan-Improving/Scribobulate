@@ -1,4 +1,4 @@
-//! WP2 / TDD 2.23a-b: dispose-to-background and partial-transparent
+//! TDD 2.23a-b: dispose-to-background and partial-transparent
 //! compositing against `magick -coalesce`, including one DOCUMENTED divergence
 //! (blend-off alpha) that is not a tolerance fudge — see that test's comment.
 #[path = "support/mod.rs"]
