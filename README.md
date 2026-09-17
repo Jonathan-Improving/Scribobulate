@@ -13,7 +13,7 @@ models), and live-reloads files the instant an agent changes them on disk.
 
 ![Scribobulate](data/icons/scalable/apps/com.extollit.scribobulate.svg "Scribobulate")
 
-> **Status: early but capable.** Rendering, the editing pane (with live
+> **Status: pre-release, and capable.** Rendering, the editing pane (with live
 > split-preview), live reload, and conflict handling all work today —
 > Scribobulate opens and displays full-fidelity Markdown (tables,
 > syntax-highlighted code, task lists, images) at 0 MiB VRAM / ~80 MiB RAM as a
@@ -22,6 +22,13 @@ models), and live-reloads files the instant an agent changes them on disk.
 > work (a clean change reloads silently with a brief notice). Unsaved edits also
 > survive the application dying: they are snapshotted as you type and offered back
 > on the next launch.
+>
+> The first release is close. What I am still finding is minor — small glitches and
+> polish, not gaps in the fundamentals above — and I am still finding them most days,
+> which is the one reason I have not cut it yet. I will cut the release when that rate
+> drops off rather than on a date, and I expect that to be weeks away rather than
+> months. If you hit something in the meantime, [tell me](#feedback) — reports are what
+> make that rate fall.
 
 ## What it does
 
@@ -306,6 +313,24 @@ Bugs and suggestions go in [GitHub issues](https://github.com/MadMartian/Scribob
 there is a short form for each. Questions and anything that isn't quite either belong in
 [Discussions](https://github.com/MadMartian/Scribobulate/discussions). Rough reports are
 welcome; a problem nobody mentions is a problem nobody fixes.
+
+**Check two places for it first**: the
+[open issues](https://github.com/MadMartian/Scribobulate/issues), and
+[`sdd/ISSUES.md`](sdd/ISSUES.md) in this repository.
+
+The second one needs explaining, because it is not a public tracker and does not behave
+like one. `sdd/ISSUES.md` is the maintainers' own working register: short-lived entries
+that exist in order to be deleted, written for whoever picks the work up next, and
+expected to disappear as the file empties. It is in the repository because the people
+working on this project read it there, not because it is where you file things.
+
+The exception is worth knowing about. An entry found **intractable** — a real limitation
+with no reachable fix, often something the toolkit or the platform owns — stays in that
+register permanently rather than being deleted, so nobody re-investigates a settled dead
+end. Those are the ones that affect you and are not going away, and they get promoted to
+GitHub issues in due course so they are visible where you would actually look. If you find
+one there that matters to you and has not been promoted yet, say so — that is useful
+signal about which limitations people actually hit.
 
 ## Documentation
 

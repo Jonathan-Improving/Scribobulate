@@ -9,6 +9,17 @@ body:
         required — fill in what you know, and send it even if the rest is blank.
         A vague report that arrives beats a precise one that doesn't.
 
+        **Please check two places before you file.** The
+        [open issues](https://github.com/MadMartian/Scribobulate/issues), and
+        [`sdd/ISSUES.md`](https://github.com/MadMartian/Scribobulate/blob/master/sdd/ISSUES.md)
+        — the maintainers' own register, where a problem may already be recorded and
+        understood. Most of what is in that file is short-lived and will be deleted as
+        it is fixed, so it is not a public tracker; but an entry marked **`Closed`** is
+        a limitation with no reachable fix, kept deliberately so the same dead end is
+        not investigated twice. Those get promoted to GitHub issues in due course. If
+        one of them is what you are hitting, say so here rather than filing it as new —
+        knowing who actually runs into a limitation is what decides its priority.
+
   - type: textarea
     id: what-happened
     attributes:
@@ -99,7 +110,9 @@ body:
     attributes:
       label: Before you send it
       options:
-        - label: I searched the existing issues for this
-          required: false
+        - label: I searched the open GitHub issues and this is not one of them
+          required: true
+        - label: I checked `sdd/ISSUES.md` and this is not already recorded there
+          required: true
         - label: It still happens with a freshly installed configuration
           required: false
