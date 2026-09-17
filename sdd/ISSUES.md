@@ -38,6 +38,7 @@ described from a different vantage point.
 | U | Any | Production | The preview is drawn horizontally scrolled (~20px, its left padding gone, a horizontal scrollbar showing) after a mode switch or an explicit Reload rebuilds it — intermittent, pre-existing, seen on Linux and Windows | Low |
 | V | Windows, Mac | Upstream | No screen reader on Windows or macOS can read the app's accessible names: neither backend publishes a provider tree (no UIA there, no NSAccessibility tree here), so every name the app sets is correct and unreachable. Linux/AT-SPI reads them | Closed |
 | X | Mac | Test | The macOS integration suite hangs part-way through a run, at a varying site, in roughly two to four runs in five. Independent of any one feature — it survives removing the surface it was first blamed on | High |
+| Y | Mac | Upstream | In fullscreen, a click issued while the transition animation is still running is never delivered — AppKit blocks input for its own ~250-500ms window, in any Cocoa application. Not ours to fix, and not GTK's | Closed |
 
 
 ## A. Tables are selection islands
@@ -726,3 +727,48 @@ treating either as understood.
   site is the one thing that has moved every time and it is being read as a clue.
 - **Accept slower macOS ratification** in the meantime: read a macOS result only from
   several runs, never from one, and never treat a hang as a verdict about the change.
+
+## Y. In fullscreen on macOS, a click during the transition animation is never delivered
+
+**Severity**: Closed — real, present, and not reachable by any repair of ours. Kept so the
+investigation is not run a second time.
+
+**The report**: on the macOS build in fullscreen, clicking a toolbar button did nothing and
+a second click was needed; the menu bar behaved the same way, and a toolbar button appeared
+to activate on the wasted click.
+
+**All three parts are accounted for, and none is a defect in this project or in GTK.**
+
+- **The wasted toolbar click is AppKit's animation blocking its own input.** Measured as a
+  timing sweep from the zoom button's mouse-up to the test click, real input throughout, no
+  synthetic pointer placement: 0 ms, 100 ms and 250 ms all fail **silently** — the click
+  never reaches GTK at all, invisible even to window-level instrumentation — while 500 ms,
+  1 s and 2 s all work. The boundary matches an ordinary `NSWindow` fullscreen transition's
+  duration. Every Cocoa application has this; a reader who hits the green button and reaches
+  straight for a toolbar command is clicking inside that window.
+- **The menu bar needing two clicks is macOS auto-hiding it in fullscreen**: a cold click at
+  the top edge is spent on the reveal.
+- **The phantom activation was a keyboard focus ring**, which in a screenshot is
+  indistinguishable from a button that was just pressed. Confirmed by Escape moving the ring
+  with no click involved. Assert on whether an action fires, never on what a screenshot
+  looks like.
+
+**A genuine toolkit defect was found on the way and is NOT this.** After a fullscreen
+transition has fully settled, placing the pointer with `CGWarpMouseCursorPosition` — which
+moves the cursor without posting a motion event — and then clicking makes the first click
+skip the picked widget's own controllers entirely, while an ancestor's capture-phase gesture
+still sees it and `pick()` resolves correctly. Reproducible with zero application code on
+GTK 4.22.4 / macOS 27.0; `probes/macos-fullscreen-first-click.c` holds the measurement. No
+mouse or trackpad gesture teleports a cursor, so no user meets it — it is recorded as an
+upstream curiosity, not as this entry's subject.
+
+**Dead ends, each closed by measurement, and not to be revisited**: a coordinate-space or
+title-bar-origin offset; the macOS behaviour where the click that activates an inactive
+window is not delivered; lost or mis-picked input; a stale implicit grab; this project's own
+macOS pointer-crossing seam; a disabled action or insensitive widget; and any
+ours-versus-upstream asymmetry — both binaries agree once entry and pointer arrival are held
+constant. Returning to a fullscreen Space from another application is also clean.
+
+**Linux and Windows have not been checked**, so the `Mac` narrowing is provisional — the
+register's rule is that behaviour seen on one platform is not platform-specific until a
+peer seat looks.
