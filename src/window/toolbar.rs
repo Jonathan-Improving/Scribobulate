@@ -2,33 +2,62 @@
 //! buttons. Every button is action-driven (`set_action_name`), so sensitivity is
 //! managed by the GAction machinery — no manual click handlers here.
 //!
-//! The toolbar is built as **six per-section boxes** (invariants I1–I7, see
-//! [`super::viewactions`]),
-//! one per visually-delimited group, in the canonical
+//! The toolbar is organized into **six sections** (invariants I1–I7, see
+//! [`super::viewactions`]), one per visually-delimited group, in the canonical
 //! [`crate::app::TBTN_SECTION_IDS`] order (`file, edit, format, view, split,
-//! zoom`). Each section box's *first child* is its own leading vertical
-//! `Separator` — uniformly, including `file` — so hiding a section
-//! (`set_visible(false)` on its box) hides that section's separator with it, and
-//! a doubled or a missing rule between visible sections is structurally
-//! impossible. The `win.show-tbtn-<id>` actions (`viewactions.rs`) toggle these
-//! boxes' visibility; the boxes are appended once and only ever `set_visible`d,
-//! never removed/re-appended, so left-to-right order is preserved regardless of
-//! toggle sequence (invariant I7).
+//! zoom`). A section is no longer one GTK container widget, though: each
+//! section is a *list* of individually-wrappable pack items — its own leading
+//! vertical `Separator`, then either a single button or a small `cluster` box
+//! for 2–3 buttons that must never split across a wrap row (a directional
+//! pair like Back/Forward, or Zoom in/reset/out) — every item appended
+//! directly to the shared [`crate::widgets::wrapbox::ToolbarWrapBox`]. This is
+//! what lets the toolbar wrap **per button** (packing as many items onto the
+//! top row as fit, moving only the overflow down) rather than per whole
+//! section, while still letting `win.show-tbtn-<id>` hide/show a section as
+//! one atomic unit (I2) by toggling every widget in its item list together.
+//! The Format section is the one exception: `build_format_bar`'s output is
+//! kept as a single opaque box (see its own comment below) and so is, in
+//! effect, its own one-item "cluster" — the biggest closely-related group of
+//! all.
+//!
+//! The [`crate::widgets::wrapbox::ToolbarWrapBox`] itself does the actual
+//! wrapping (see `sdd/PLAN.narrow-window.md`): it measures each of its direct
+//! children (separators, buttons, clusters, the format box) at natural width
+//! and packs as many as fit onto the current row, wrapping only the overflow
+//! onto a new row, flush against the left edge — so the window's
+//! content-derived minimum width is only ever the widest SINGLE item, and
+//! narrowing the window fills each row before starting the next rather than
+//! dropping whole sections at once. (A `GtkFlowBox` was tried first and
+//! reverted: it computes a shared column grid across every row it produces,
+//! so a wrapped row whose items differ in size from the row that set that
+//! grid comes out offset/padded rather than packed against the left edge —
+//! reported as odd gaps opening up on the left. `ToolbarWrapBox` does its own
+//! left-to-right packing instead, with no grid to misalign.)
 use super::*;
+use crate::app::Cmd;
 use crate::icons::Icon;
 
+/// One section's flattened, individually-wrappable pack items (leading
+/// separator, then buttons/clusters in order) — every entry is also a direct
+/// child of the toolbar's `ToolbarWrapBox`. `win.show-tbtn-<id>` toggles a
+/// whole section by setting `visible` on every widget in its list together
+/// (invariant I2's generalisation from "one box" to "one list").
+type SectionItems = Vec<gtk::Widget>;
+
 /// What [`build_toolbar`] hands back for `build_window` to thread onward: the
-/// toolbar box; the six per-section boxes (canonical `TBTN_SECTION_IDS` order, so the
-/// section-visibility actions can toggle them); the Format bar box (the focus-gate
-/// ancestor — the *inner* handle, wrapped by the `format` section box, not replaced by
-/// it); the heading `MenuButton` (sensitivity mirrors `win.format`); the Insert↔Edit
-/// Link/Image button set; the open-documents `MenuButton` (stored per window so its
-/// label can track the active document — its menu-model is bound to the window's
-/// `documents_menu` after the chrome exists); and the reading-theme `MenuButton`
-/// (stored per window so its label/sensitivity can track the active theme + mode).
+/// toolbar box; the six sections' item lists (canonical `TBTN_SECTION_IDS`
+/// order, so the section-visibility actions can toggle them); the Format bar
+/// box (the focus-gate ancestor — the *inner* handle, wrapped by the
+/// `format` section's own box, not replaced by it); the heading `MenuButton`
+/// (sensitivity mirrors `win.format`); the Insert↔Edit Link/Image button set;
+/// the open-documents `MenuButton` (stored per window so its label can track
+/// the active document — its menu-model is bound to the window's
+/// `documents_menu` after the chrome exists); and the reading-theme
+/// `MenuButton` (stored per window so its label/sensitivity can track the
+/// active theme + mode).
 type BuiltToolbar = (
-    gtk::Box,
-    [gtk::Box; 6],
+    crate::widgets::wrapbox::ToolbarWrapBox,
+    [SectionItems; 6],
     gtk::Box,
     gtk::MenuButton,
     Vec<(FmtInsertKind, gtk::Button)>,
@@ -36,81 +65,136 @@ type BuiltToolbar = (
     gtk::MenuButton,
 );
 
+/// Append `w` to `toolbar` (as an individually-wrappable pack item) and
+/// record it in `items` (so the section it belongs to can be shown/hidden as
+/// one unit later). Collapses the "append + track" pair that would otherwise
+/// be repeated at every button/cluster below.
+fn push(
+    toolbar: &crate::widgets::wrapbox::ToolbarWrapBox,
+    items: &mut SectionItems,
+    w: impl IsA<gtk::Widget>,
+) {
+    toolbar.append(&w);
+    items.push(w.upcast());
+}
+
+/// A section's own leading vertical separator — uniformly, including `file`
+/// (see the module doc) — appended like any other item so hiding the section
+/// hides it with the rest (I2), but never bundled INTO a `cluster`, so it
+/// never keeps a section's first button from wrapping on its own.
+fn make_sep() -> gtk::Separator {
+    let sep = gtk::Separator::new(gtk::Orientation::Vertical);
+    sep.set_margin_top(4);
+    sep.set_margin_bottom(4);
+    sep.set_margin_start(2);
+    sep.set_margin_end(2);
+    sep
+}
+
+/// Wrap 2–3 closely-related buttons (a directional pair, a segmented
+/// mode-switch group, zoom in/reset/out, …) in one small box so
+/// `ToolbarWrapBox` treats them as a single atomic pack item: the group is
+/// never split across a wrap row even though the toolbar otherwise wraps at
+/// per-button granularity (operator decision, user-requested — "unless they
+/// are closely related, like the arrow keys").
+fn cluster(children: impl IntoIterator<Item = gtk::Widget>) -> gtk::Box {
+    let b = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+    for child in children {
+        b.append(&child);
+    }
+    b
+}
+
+/// Build one plain, action-driven icon button from a [`Cmd`] row — the
+/// FILE_CMDS/EDIT_CMDS toolbar-button shape shared by everything except the
+/// toggle buttons and the hand-built View-section controls below.
+fn cmd_button(cmd: &Cmd) -> gtk::Button {
+    let btn = gtk::Button::from_icon_name(cmd.icon.name());
+    crate::a11y::name_with_accel(&btn, cmd.label, cmd.accel);
+    btn.add_css_class("flat");
+    btn.set_action_name(Some(cmd.action));
+    btn
+}
+
+/// Build one action-driven toggle button from a [`Cmd`] row (e.g. Auto-Reload).
+fn cmd_toggle_button(cmd: &Cmd) -> gtk::ToggleButton {
+    let btn = gtk::ToggleButton::new();
+    btn.set_icon_name(cmd.icon.name());
+    crate::a11y::name_with_accel(&btn, cmd.label, cmd.accel);
+    btn.add_css_class("flat");
+    btn.set_action_name(Some(cmd.action));
+    btn
+}
+
 /// Build the main toolbar. See [`BuiltToolbar`] for the returned handles.
 pub(super) fn build_toolbar() -> BuiltToolbar {
     // ── toolbar ─────────────────────────────────────────────────────────────
     // Icon buttons for all commands except Exit; GTK action machinery manages
     // sensitivity automatically via set_action_name (no manual connect_clicked).
-    let toolbar = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+    let toolbar = crate::widgets::wrapbox::ToolbarWrapBox::new(2, 0);
     toolbar.set_margin_top(2);
     toolbar.set_margin_bottom(2);
     toolbar.set_margin_start(4);
     toolbar.set_margin_end(4);
 
-    // Each section is its own box whose first child is a leading vertical
-    // separator (uniform ownership — invariant I7).
-    // `new_section` returns `[ leading-sep ]` ready for the group's buttons.
-    fn new_section() -> gtk::Box {
-        let sec = gtk::Box::new(gtk::Orientation::Horizontal, 2);
-        let sep = gtk::Separator::new(gtk::Orientation::Vertical);
-        sep.set_margin_top(4);
-        sep.set_margin_bottom(4);
-        sep.set_margin_start(2);
-        sep.set_margin_end(2);
-        sec.append(&sep);
-        sec
-    }
-
     // ── file section ─────────────────────────────────────────────────────────
-    let file_box = new_section();
+    let mut file_items: SectionItems = Vec::new();
+    push(&toolbar, &mut file_items, make_sep());
     for cmd in FILE_CMDS.iter().filter(|c| c.action != "app.quit") {
         if cmd.is_toggle {
             // A boolean toggle (e.g. Auto-Reload): GtkToggleButton reflects the
             // stateful action's value automatically via set_action_name.
-            let btn = gtk::ToggleButton::new();
-            btn.set_icon_name(cmd.icon.name());
-            crate::a11y::name_with_accel(&btn, cmd.label, cmd.accel);
-            btn.add_css_class("flat");
-            btn.set_action_name(Some(cmd.action));
-            file_box.append(&btn);
+            push(&toolbar, &mut file_items, cmd_toggle_button(cmd));
         } else {
-            let btn = gtk::Button::from_icon_name(cmd.icon.name());
-            crate::a11y::name_with_accel(&btn, cmd.label, cmd.accel);
-            btn.add_css_class("flat");
-            btn.set_action_name(Some(cmd.action));
-            file_box.append(&btn);
+            push(&toolbar, &mut file_items, cmd_button(cmd));
         }
     }
 
     // ── edit section ───────────────────────────────────────────────────────────
-    let edit_box = new_section();
-    for cmd in EDIT_CMDS.iter() {
-        let btn = gtk::Button::from_icon_name(cmd.icon.name());
-        crate::a11y::name_with_accel(&btn, cmd.label, cmd.accel);
-        btn.add_css_class("flat");
-        btn.set_action_name(Some(cmd.action));
-        edit_box.append(&btn);
+    let mut edit_items: SectionItems = Vec::new();
+    push(&toolbar, &mut edit_items, make_sep());
+    // Undo / Redo — a complementary opposite-direction pair, kept together as
+    // one cluster (the same treatment as Back/Forward and zoom in/out below)
+    // rather than left free to land on different rows from each other.
+    let undo_redo = cluster([
+        cmd_button(&EDIT_CMDS[0]).upcast::<gtk::Widget>(), // win.undo
+        cmd_button(&EDIT_CMDS[1]).upcast::<gtk::Widget>(), // win.redo
+    ]);
+    push(&toolbar, &mut edit_items, undo_redo);
+    for cmd in EDIT_CMDS.iter().skip(2) {
+        push(&toolbar, &mut edit_items, cmd_button(cmd));
     }
 
     // ── format section ─────────────────────────────────────────────────────────
-    // Its own separator-delimited group. `format_box` is collected in one box so
-    // the focus gate can test "focus is inside the Format toolbar" with a single
-    // is_ancestor check; the section box merely WRAPS it (is_ancestor is
-    // transitive, so wrapping keeps the gate valid — do not hand the wrapper
-    // where `format_box` is expected). The same row layout backs the Stage-2
-    // caret overlay (build_format_bar).
-    let format_section = new_section();
+    // Its own separator-delimited group, kept as ONE opaque box rather than
+    // decomposed into individually-wrappable items like the other sections:
+    // `format_box` is collected in one box so the focus gate can test "focus
+    // is inside the Format toolbar" with a single is_ancestor check
+    // (is_ancestor is transitive, so wrapping it in this section box keeps the
+    // gate valid — do not hand the wrapper where `format_box` is expected),
+    // and the same row layout backs the Stage-2 caret overlay
+    // (build_format_bar). Splitting its own buttons across wrap rows would
+    // need to thread that same ancestor relationship through every possible
+    // row, which isn't worth it for what is already one tightly-related
+    // command group — exactly the "closely related" carve-out the per-button
+    // wrap elsewhere is meant to have.
+    let format_section = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+    format_section.append(&make_sep());
     let (format_box, heading_btn, tb_edit_btns) = build_format_bar();
     format_section.append(&format_box);
+    let mut format_items: SectionItems = Vec::new();
+    push(&toolbar, &mut format_items, format_section);
 
     // ── view section ───────────────────────────────────────────────────────────
-    let view_box = new_section();
+    let mut view_items: SectionItems = Vec::new();
+    push(&toolbar, &mut view_items, make_sep());
 
     // Back / Forward (TDD §23) lead the section, mirroring their leading position
     // in the View menu and a browser's own left-to-right order. Plain buttons
     // driven by `win.nav-back`/`win.nav-forward` via `set_action_name`, so their
     // insensitivity is the actions' own (POLICY's single-`GAction` rule) and there
-    // is nothing to keep in sync here.
+    // is nothing to keep in sync here. Clustered together — the canonical
+    // "closely related, like the arrow keys" pair — so they never wrap apart.
     //
     // `go-previous-symbolic` / `go-next-symbolic` are freedesktop-spec names
     // already used by the find bar's match steppers, so they are known present in
@@ -119,27 +203,36 @@ pub(super) fn build_toolbar() -> BuiltToolbar {
     // ScrAP-169). They are direction glyphs rather than history glyphs by design:
     // no common theme ships a distinct "browser back" icon, and the arrows are the
     // convention every browser and file manager uses.
-    for (dir, icon) in [
-        (crate::winstate::NavDir::Back, Icon::GoPrevious),
-        (crate::winstate::NavDir::Forward, Icon::GoNext),
-    ] {
-        let action = format!("win.{}", crate::window::nav_action_name(dir));
-        let btn = gtk::Button::from_icon_name(icon.name());
-        crate::a11y::name_from_action(&btn, &action);
-        btn.add_css_class("flat");
-        btn.set_action_name(Some(&action));
-        view_box.append(&btn);
-    }
+    let nav_cluster = cluster(
+        [
+            (crate::winstate::NavDir::Back, Icon::GoPrevious),
+            (crate::winstate::NavDir::Forward, Icon::GoNext),
+        ]
+        .into_iter()
+        .map(|(dir, icon)| {
+            let action = format!("win.{}", crate::window::nav_action_name(dir));
+            let btn = gtk::Button::from_icon_name(icon.name());
+            crate::a11y::name_from_action(&btn, &action);
+            btn.add_css_class("flat");
+            btn.set_action_name(Some(&action));
+            btn.upcast::<gtk::Widget>()
+        }),
+    );
+    push(&toolbar, &mut view_items, nav_cluster);
 
-    for cmd in VIEW_CMDS.iter() {
+    // Preview / Edit / Split — a segmented, mutually-exclusive group (each a
+    // `win.view-mode` target); clustered so the group is never split mid-row,
+    // the same way a real segmented control couldn't be.
+    let mode_cluster = cluster(VIEW_CMDS.iter().map(|cmd| {
         let btn = gtk::ToggleButton::new();
         btn.set_icon_name(cmd.icon.name());
         crate::a11y::name_with_accel(&btn, cmd.label, cmd.accel);
         btn.add_css_class("flat");
         btn.set_action_name(Some("win.view-mode"));
         btn.set_action_target_value(Some(&cmd.action_target.to_variant()));
-        view_box.append(&btn);
-    }
+        btn.upcast::<gtk::Widget>()
+    }));
+    push(&toolbar, &mut view_items, mode_cluster);
 
     // Open-documents combo box — the toolbar surface of the View ▸ Documents
     // fast-switch list, grouped here with the tab-management controls. It is a
@@ -165,7 +258,7 @@ pub(super) fn build_toolbar() -> BuiltToolbar {
     let documents_btn = gtk::MenuButton::builder().focus_on_click(false).build();
     crate::a11y::name(&documents_btn, "Documents");
     documents_btn.add_css_class("flat");
-    view_box.append(&documents_btn);
+    push(&toolbar, &mut view_items, documents_btn.clone());
 
     // Move Tab to New Window — operator exception: a window/tab-management
     // command that nonetheless earns a
@@ -181,7 +274,7 @@ pub(super) fn build_toolbar() -> BuiltToolbar {
     crate::a11y::name_from_action(&move_tab_btn, "win.move-tab-new-window");
     move_tab_btn.add_css_class("flat");
     move_tab_btn.set_action_name(Some("win.move-tab-new-window"));
-    view_box.append(&move_tab_btn);
+    push(&toolbar, &mut view_items, move_tab_btn);
 
     // Reading Theme — the toolbar surface of the reading-theme command, beside the
     // View ▸ Reading Theme menu. A GtkMenuButton over a PLAIN-item GMenu model
@@ -215,7 +308,7 @@ pub(super) fn build_toolbar() -> BuiltToolbar {
     // a name derived from the label would announce a value where AT expects an identity.
     crate::a11y::name(&theme_btn, "Reading Theme");
     theme_btn.add_css_class("flat");
-    view_box.append(&theme_btn);
+    push(&toolbar, &mut view_items, theme_btn.clone());
 
     // Outline sidebar toggle — a boolean win.outline action (default on); reflects
     // and drives the panel's visibility like the view-mode toggles.
@@ -224,7 +317,7 @@ pub(super) fn build_toolbar() -> BuiltToolbar {
     crate::a11y::name_from_action(&outline_btn, "win.outline");
     outline_btn.add_css_class("flat");
     outline_btn.set_action_name(Some("win.outline"));
-    view_box.append(&outline_btn);
+    push(&toolbar, &mut view_items, outline_btn);
 
     // Annotations viewer toggle — the sibling of the outline toggle (win.annotations,
     // default off). Same view section, per the Action CAM (this toggle appears in the
@@ -238,7 +331,7 @@ pub(super) fn build_toolbar() -> BuiltToolbar {
     crate::a11y::name_from_action(&annotations_btn, "win.annotations");
     annotations_btn.add_css_class("flat");
     annotations_btn.set_action_name(Some("win.annotations"));
-    view_box.append(&annotations_btn);
+    push(&toolbar, &mut view_items, annotations_btn);
 
     // Go To Line — grouped next to Outline (both jump within the
     // document); "go-jump-symbolic" verified present in Adwaita and Breeze.
@@ -253,7 +346,7 @@ pub(super) fn build_toolbar() -> BuiltToolbar {
     go_to_line_btn.add_css_class("flat");
     go_to_line_btn.set_focus_on_click(false);
     go_to_line_btn.set_action_name(Some("win.go-to-line"));
-    view_box.append(&go_to_line_btn);
+    push(&toolbar, &mut view_items, go_to_line_btn);
 
     // "Show Unsafe Images" toggle — when on, remote (http/https) image URLs and
     // local images outside the document folder are loaded.  Driven by the
@@ -268,69 +361,77 @@ pub(super) fn build_toolbar() -> BuiltToolbar {
     crate::a11y::name(&unsafe_images_btn, "Show Unsafe Images");
     unsafe_images_btn.add_css_class("flat");
     unsafe_images_btn.set_action_name(Some("win.show-unsafe-images"));
-    view_box.append(&unsafe_images_btn);
+    push(&toolbar, &mut view_items, unsafe_images_btn);
 
     // ── split section ─────────────────────────────────────────────────────────
     // Swap and reorient toggle buttons; meaningful only in split mode (gated by
     // apply_mode_action_state via set_action_name — sensitivity is automatic).
-    let split_box = new_section();
-    {
+    // Clustered together — a two-button pair, the same treatment as Back/Forward.
+    let mut split_items: SectionItems = Vec::new();
+    push(&toolbar, &mut split_items, make_sep());
+    let split_cluster = cluster({
         let split_swap_btn = gtk::ToggleButton::new();
         split_swap_btn.set_icon_name(Icon::ObjectFlipHorizontal.name());
         crate::a11y::name(&split_swap_btn, "Swap Panes");
         split_swap_btn.add_css_class("flat");
         split_swap_btn.set_action_name(Some("win.split-swap"));
-        split_box.append(&split_swap_btn);
 
         let split_orient_btn = gtk::ToggleButton::new();
         split_orient_btn.set_icon_name(Icon::ObjectFlipVertical.name());
         crate::a11y::name(&split_orient_btn, "Vertical Split");
         split_orient_btn.add_css_class("flat");
         split_orient_btn.set_action_name(Some("win.split-orientation"));
-        split_box.append(&split_orient_btn);
-    }
+
+        [
+            split_swap_btn.upcast::<gtk::Widget>(),
+            split_orient_btn.upcast::<gtk::Widget>(),
+        ]
+    });
+    push(&toolbar, &mut split_items, split_cluster);
 
     // ── zoom section ─────────────────────────────────────────────────────────
     // Three flat icon buttons for zoom-in / zoom-reset / zoom-out, separated from
     // the view-mode controls. Sensitivity is managed entirely by the win.zoom-*
-    // actions via set_action_name — no manual connect_clicked needed.
-    let zoom_box = new_section();
-    {
+    // actions via set_action_name — no manual connect_clicked needed. Clustered
+    // together as one triplet, exactly the "closely related, like the arrow
+    // keys" case — never split across a wrap row.
+    let mut zoom_items: SectionItems = Vec::new();
+    push(&toolbar, &mut zoom_items, make_sep());
+    let zoom_cluster = cluster({
         let zoom_in = gtk::Button::from_icon_name(Icon::ZoomIn.name());
         crate::a11y::name_from_action(&zoom_in, "win.zoom-in");
         zoom_in.add_css_class("flat");
         zoom_in.set_action_name(Some("win.zoom-in"));
-        zoom_box.append(&zoom_in);
+
         let zoom_reset = gtk::Button::from_icon_name(Icon::ZoomOriginal.name());
         crate::a11y::name_from_action(&zoom_reset, "win.zoom-reset");
         zoom_reset.add_css_class("flat");
         zoom_reset.set_action_name(Some("win.zoom-reset"));
-        zoom_box.append(&zoom_reset);
+
         let zoom_out = gtk::Button::from_icon_name(Icon::ZoomOut.name());
         crate::a11y::name_from_action(&zoom_out, "win.zoom-out");
         zoom_out.add_css_class("flat");
         zoom_out.set_action_name(Some("win.zoom-out"));
-        zoom_box.append(&zoom_out);
-    }
 
-    // Append the six section boxes ONCE, in canonical `TBTN_SECTION_IDS` order.
-    // Afterwards only `set_visible` ever toggles them (never remove/append), so
-    // their left-to-right order is fixed regardless of the show/hide sequence
-    // (invariant I7). Order here MUST match `TBTN_SECTION_IDS`.
-    toolbar.append(&file_box);
-    toolbar.append(&edit_box);
-    toolbar.append(&format_section);
-    toolbar.append(&view_box);
-    toolbar.append(&split_box);
-    toolbar.append(&zoom_box);
+        [
+            zoom_in.upcast::<gtk::Widget>(),
+            zoom_reset.upcast::<gtk::Widget>(),
+            zoom_out.upcast::<gtk::Widget>(),
+        ]
+    });
+    push(&toolbar, &mut zoom_items, zoom_cluster);
 
-    let sections = [
-        file_box,
-        edit_box,
-        format_section,
-        view_box,
-        split_box,
-        zoom_box,
+    // Every item was already appended to `toolbar` directly (via `push`) as it
+    // was built, in canonical `TBTN_SECTION_IDS` order — so left-to-right,
+    // top-to-bottom order is fixed regardless of later show/hide toggling
+    // (invariant I7), exactly as when a section was one box.
+    let sections: [SectionItems; 6] = [
+        file_items,
+        edit_items,
+        format_items,
+        view_items,
+        split_items,
+        zoom_items,
     ];
     (
         toolbar,

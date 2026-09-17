@@ -155,7 +155,7 @@ pub(crate) fn render_and_wire_preview(
 /// swappable slot, and set the assembled tree as the window's child.
 pub(super) fn build_chrome(
     window: &ApplicationWindow,
-    toolbar: &gtk::Box,
+    toolbar: &crate::widgets::wrapbox::ToolbarWrapBox,
     md: &str,
     doc_dir: Option<&std::path::Path>,
     zoom_level: f64,

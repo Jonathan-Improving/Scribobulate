@@ -1,13 +1,18 @@
 //! Keep width-sensitive bottom-right chrome inside the visible monitor when the
 //! toolbar's content-derived minimum width forces the window wider than its screen.
 //!
-//! The toolbar is a single non-wrapping row whose measured minimum
-//! (~1633px with every section shown) sets the window's content-derived minimum
-//! width (invariant I5 — deliberate; see [`super::viewactions`]).
-//! On a display narrower than that minimum the toplevel is forced wider than the
-//! monitor, so anything anchored to the window's right edge — the bottom-right
-//! conflict/reload/info toast's action buttons, and the right-aligned footer Ln/Col
-//! indicator (TDD 9.21) — is pushed past the visible screen edge.
+//! The toolbar is a `ToolbarWrapBox` (`window::toolbar`) that wraps its
+//! individual buttons — and small closely-related clusters, like Back/Forward
+//! or Zoom in/reset/out — onto extra rows rather than clipping them, so its
+//! measured minimum is only the widest single item (not the ~1633px sum of
+//! every section shown, back when it was a non-wrapping row — see
+//! `sdd/PLAN.narrow-window.md`); that minimum still sets the window's
+//! content-derived minimum width (invariant I5 — deliberate; see
+//! [`super::viewactions`]). On a display narrower than even that one item's
+//! width the toplevel is still forced wider than the monitor, so anything
+//! anchored to the window's right edge — the bottom-right conflict/reload/info
+//! toast's action buttons, and the right-aligned footer Ln/Col indicator (TDD
+//! 9.21) — is pushed past the visible screen edge.
 //!
 //! There is no purely-within-window remedy: the window *itself* extends beyond the
 //! monitor, so the only way to keep right-anchored chrome visible is to pull it back
@@ -61,6 +66,43 @@ pub(crate) fn apply_visible_area_inset(widget: &impl IsA<gtk::Widget>, base: i32
     widget.set_margin_end(base + inset);
 }
 
+/// The width (logical px) of the monitor a fresh, unparented top-level window will
+/// appear on — the first entry in the display's monitor list, which is what GTK hands
+/// a just-created toplevel with no explicit placement. `None` if there is no display
+/// or no monitor (headless/test environments), in which case callers skip any
+/// narrow-screen correction rather than guess.
+pub(super) fn primary_monitor_width() -> Option<i32> {
+    let monitor = gtk::gdk::Display::default()?
+        .monitors()
+        .item(0)?
+        .downcast::<gtk::gdk::Monitor>()
+        .ok()?;
+    let w = monitor.geometry().width();
+    (w > 0).then_some(w)
+}
+
+/// The absolute lowest width (logical px) [`effective_min_window_width`] will ever
+/// request, regardless of how small a reported monitor is — a sanity backstop against
+/// a monitor-geometry read of 0 or an implausible driver report, not a claim that the
+/// app is comfortably usable at this width.
+const ABSOLUTE_MIN_WIDTH: i32 = 360;
+
+/// Never REQUEST a hard minimum wider than the monitor a window is about to open on.
+/// `desired` (the window module's `MIN_WINDOW_WIDTH`) stays the floor on any normal
+/// display, but on one narrower than that, requesting it anyway forces the toplevel
+/// wider than its monitor by the explicit `set_size_request` call itself — not merely
+/// by toolbar content — and nothing, not even hiding every optional toolbar section,
+/// can bring it back on-screen afterward, because a `set_size_request` floor is a hard
+/// minimum GTK never relaxes (see sdd/PLAN.narrow-window.md, root cause 1). Pure and
+/// unit-tested for the same reason [`overflow_inset`] is: no display needed to check
+/// the arithmetic.
+pub(super) fn effective_min_window_width(desired: i32, monitor_width: Option<i32>) -> i32 {
+    match monitor_width {
+        Some(mon_w) if mon_w > 0 => desired.min(mon_w).max(ABSOLUTE_MIN_WIDTH),
+        _ => desired,
+    }
+}
+
 /// The widget's toplevel-surface width and the width of the monitor it sits on, both
 /// in logical (application) pixels so they are directly comparable — or `None` before
 /// the window is realized/mapped (no surface yet) or if GDK can't resolve the monitor,
@@ -69,7 +111,7 @@ pub(crate) fn apply_visible_area_inset(widget: &impl IsA<gtk::Widget>, base: i32
 /// `gdk::Surface::width` (the client-area width GTK allocates, the thing that
 /// overflows) and `gdk::Monitor::geometry` are both in logical pixels, so no
 /// scale-factor reconciliation is needed.
-fn window_monitor_widths(widget: &impl IsA<gtk::Widget>) -> Option<(i32, i32)> {
+pub(super) fn window_monitor_widths(widget: &impl IsA<gtk::Widget>) -> Option<(i32, i32)> {
     let surface = widget.native()?.surface()?;
     let win_w = surface.width();
     if win_w <= 0 {
@@ -88,7 +130,44 @@ fn window_monitor_widths(widget: &impl IsA<gtk::Widget>) -> Option<(i32, i32)> {
 
 #[cfg(test)]
 mod tests {
-    use super::overflow_inset;
+    use super::{effective_min_window_width, overflow_inset, ABSOLUTE_MIN_WIDTH};
+
+    #[test]
+    fn min_width_floor_drops_to_fit_a_narrow_monitor() {
+        // The reported case: 720's designed floor is itself wider than a 540px RDP
+        // session, so the floor must drop to the monitor's own width.
+        assert_eq!(effective_min_window_width(720, Some(540)), 540);
+    }
+
+    #[test]
+    fn min_width_floor_stays_put_on_a_normal_monitor() {
+        assert_eq!(effective_min_window_width(720, Some(1920)), 720);
+    }
+
+    #[test]
+    fn min_width_floor_stays_put_when_monitor_exactly_matches_it() {
+        assert_eq!(effective_min_window_width(720, Some(720)), 720);
+    }
+
+    #[test]
+    fn min_width_floor_never_drops_below_the_absolute_backstop() {
+        // A monitor narrower than the backstop still gets the backstop, not a
+        // vanishingly small or zero request.
+        assert_eq!(effective_min_window_width(720, Some(200)), ABSOLUTE_MIN_WIDTH);
+    }
+
+    #[test]
+    fn min_width_floor_unchanged_when_monitor_unknown() {
+        assert_eq!(effective_min_window_width(720, None), 720);
+    }
+
+    #[test]
+    fn min_width_floor_ignores_a_nonpositive_monitor_report() {
+        // Defends against a `0`/negative geometry read being treated as "narrower
+        // than every real monitor" and clamping the floor to the backstop for no
+        // reason — the desired width passes through unchanged instead.
+        assert_eq!(effective_min_window_width(720, Some(0)), 720);
+    }
 
     #[test]
     fn no_inset_when_window_fits_monitor() {

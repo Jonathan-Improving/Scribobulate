@@ -14,7 +14,7 @@
 //! | # | Invariant | Owner |
 //! |---|-----------|-------|
 //! | I1 | `toolbar.visible == T` | `show-toolbar` handler |
-//! | I2 | `section_box[i].visible == S_i` | each `show-tbtn-<i>` handler |
+//! | I2 | every widget in `section_boxes[i]`'s item list has `visible == S_i` | each `show-tbtn-<i>` handler |
 //! | I3 | `show-tbtn-<i>.enabled == T` (all six, derived) | [`reconcile_toolbar_chrome`] |
 //! | I4 | `show-tbtn-<i>.state == S_i`; never written by reconcile | the item's own toggle |
 //! | I5 | window min-width reflects `T` and `{S_i}` | [`reconcile_toolbar_chrome`] (derived) |
@@ -94,7 +94,7 @@ pub(super) struct ChromeVisibility {
     pub show_statusbar: bool,
     pub show_unsafe_images: bool,
     /// Per-section toolbar visibility in canonical `TBTN_SECTION_IDS` order,
-    /// matching the `section_boxes` argument (invariant I7).
+    /// matching the `section_boxes` argument's item lists (invariant I7).
     pub section_states: [bool; 6],
     /// Whether the outline sidebar starts shown. Per window, on the same
     /// `WindowInit`-threaded mechanism as `show_toolbar`, which its spec says to
@@ -115,8 +115,8 @@ pub(super) struct ChromeVisibility {
 /// `win.view-mode`'s `change_state` (see `window::restore`).
 pub(super) fn register_view_actions(
     window: &ApplicationWindow,
-    toolbar: &gtk::Box,
-    section_boxes: &[gtk::Box; 6],
+    toolbar: &crate::widgets::wrapbox::ToolbarWrapBox,
+    section_boxes: &[Vec<gtk::Widget>; 6],
     status_bar: &gtk::Box,
     sidebar: &SidebarSections,
     vis: &ChromeVisibility,
@@ -374,8 +374,8 @@ fn register_sidebar_actions(
 /// is this tab's own restored value.
 fn register_chrome_visibility_actions(
     window: &ApplicationWindow,
-    toolbar: &gtk::Box,
-    section_boxes: &[gtk::Box; 6],
+    toolbar: &crate::widgets::wrapbox::ToolbarWrapBox,
+    section_boxes: &[Vec<gtk::Widget>; 6],
     status_bar: &gtk::Box,
     vis: &ChromeVisibility,
 ) {
@@ -455,10 +455,17 @@ fn register_chrome_visibility_actions(
                 }
             },
             {
-                let sb = section_box.downgrade();
+                // Weak per-widget, not a Vec<Box> — a section is now a list of
+                // individually-wrappable pack items (see `window::toolbar`), so
+                // "hide this section" means every widget in the list together,
+                // not one container's visibility.
+                let sb: Vec<gtk::glib::WeakRef<gtk::Widget>> =
+                    section_box.iter().map(|w| w.downgrade()).collect();
                 move |window, on| {
-                    if let Some(sb) = sb.upgrade() {
-                        sb.set_visible(on); // I2 — this section only; separator hides with it
+                    for w in &sb {
+                        if let Some(w) = w.upgrade() {
+                            w.set_visible(on); // I2 — this section only; separator hides with it
+                        }
                     }
                     // Reconcile keeps I5 (min width) current; I3 is a no-op here since
                     // T (show-toolbar) is unchanged by a section toggle.
@@ -466,7 +473,9 @@ fn register_chrome_visibility_actions(
                 }
             },
         );
-        section_box.set_visible(initial);
+        for w in section_box {
+            w.set_visible(initial);
+        }
     }
     // Seed the DERIVED attributes once, now that all seven chrome actions exist
     // and their states/visibilities are set: I3 (each section item enabled == T)
@@ -608,9 +617,11 @@ pub(super) fn reconcile_toolbar_chrome(window: &ApplicationWindow) {
 /// toolbar (invariant I5). **Final implementation** (min-width geometry): the
 /// window sets only `default_width` and never
 /// a `set_size_request`, so GTK4 derives the toplevel's minimum width from content
-/// — and the toolbar (a horizontal, non-wrapping row of icon buttons) is the
-/// widest minimum-width contributor, so it sets the floor. This gives the two
-/// wanted behaviours for free:
+/// — and the toolbar (a `ToolbarWrapBox`, wrapping individual buttons — and small
+/// closely-related clusters — onto extra rows rather than clipping when a row is
+/// too narrow; see `sdd/PLAN.narrow-window.md`) is the widest minimum-width
+/// contributor, so it sets the floor: the width of its widest SINGLE visible item,
+/// not the sum of every visible one. This gives the two wanted behaviours for free:
 ///   • *allow-narrower* — hiding a section lowers the content-derived minimum, so
 ///     the user may drag the window narrower (the current allocation is preserved;
 ///     GTK does not shrink on its own);

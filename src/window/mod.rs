@@ -339,13 +339,33 @@ pub(crate) fn new_window_from_source(
     build_window(app, title, md, file_path, &inherit_from(source))
 }
 
-/// Hard minimum window width (px) — the usability floor enforced via
-/// `set_size_request` in [`build_window`]. Sits *below* the default open width
-/// (900) so dragging narrower stays a real gesture; chosen so a single
-/// editor/preview pane plus the ~240px outline sidebar stays comfortable, and so
-/// the window fits mainstream small screens (1280×720 / 1366×768). See
-/// `viewactions::update_toolbar_min_width` (invariant I5). Tune here by feel.
-const MIN_WINDOW_WIDTH: i32 = 720;
+/// Hard minimum window width (px) — the sanity-backstop floor enforced via
+/// `set_size_request` in [`build_window`].
+///
+/// This used to be 720 — sized so a single editor/preview pane plus the
+/// ~240px outline sidebar stayed comfortable — because the toolbar was a
+/// non-wrapping row, and 720 was picked wide enough that the toolbar's own
+/// content-derived minimum (for the default 3 sections) rarely exceeded it,
+/// leaving THIS explicit floor as the thing that actually stopped a drag.
+/// That's backwards now that the toolbar wraps sections onto extra rows
+/// instead of needing room for all of them on one (`GtkFlowBox`, see
+/// `sdd/PLAN.narrow-window.md`): a high explicit floor here would silently
+/// override the wrap and reproduce the exact same "stops well above one
+/// icon row, never gets a chance to wrap" symptom the wrap was built to fix,
+/// since `set_size_request` and the content-derived minimum combine as
+/// `MAX(content_derived_minimum, size_request)` — whichever is larger wins,
+/// and a stale 720 here would always win on any normal monitor.
+///
+/// So this is now just `chrome_fit`'s own `ABSOLUTE_MIN_WIDTH` (360) value
+/// inlined: a bare sanity backstop against a window collapsing to a genuinely
+/// unusable/zero width, not a width chosen to fit any particular chrome. The
+/// REAL floor above this is whatever the widget tree's own content-derived
+/// minimum now is — the toolbar's widest single section (wrapping handles
+/// the rest), the tab strip, and the outline sidebar — which GTK enforces on
+/// its own with no `set_size_request` needed. See
+/// `viewactions::update_toolbar_min_width` (invariant I5). Tune here by feel
+/// if this still isn't low enough in practice.
+const MIN_WINDOW_WIDTH: i32 = 360;
 
 /// The shared window/first-tab construction every window goes through,
 /// regardless of whether its initial numbers came from `WindowInit::default()`
@@ -382,10 +402,22 @@ fn build_window(
     }
     let zoom_provider_destroy = zoom_css_provider.clone();
 
+    // Read once, before the window exists: the monitor a fresh, unparented toplevel
+    // will appear on. `None` (no display/monitor — headless/test) means every use
+    // below is a no-op and today's behaviour is unchanged. See
+    // sdd/PLAN.narrow-window.md.
+    let monitor_width = chrome_fit::primary_monitor_width();
+
     let window = ApplicationWindow::builder()
         .application(app)
         .title(title)
-        .default_width(init.width)
+        // Never OPEN wider than the monitor the window is about to appear on — a
+        // narrower initial size is still just a request (GTK grows it back up to
+        // whatever the content-derived minimum needs), so this never shrinks a
+        // window below what it can actually display; it only stops a
+        // wider-than-necessary `init.width` (e.g. a session restored from a bigger
+        // screen) from opening already off-edge on a smaller one.
+        .default_width(monitor_width.map_or(init.width, |m| init.width.min(m)))
         .default_height(init.height)
         // No `.show_menubar(true)`: we build our OWN per-window GtkPopoverMenuBar
         // in `build_chrome` (GTK4Rs/AP-76) so the View ▸ Documents submenu can
@@ -399,18 +431,27 @@ fn build_window(
         .build();
 
     // Enforce a hard usability floor on the window width. GTK takes
-    // `MAX(content_derived_minimum, size_request)`, so today — while the
-    // non-wrapping toolbar's content minimum (~1633px, all sections shown)
-    // dominates — this only bites once enough toolbar sections are hidden
-    // (`View ▸ Toolbar`) to drop the content minimum below it, preventing the
-    // "hide everything → drag to a useless sliver" degenerate case. The
-    // large-min-width limitation itself is resolved in practice by the short
-    // default toolbar (file/edit/view shown; the rest opt-in via View ▸ Toolbar).
-    // `-1` height leaves the vertical minimum content-
+    // `MAX(content_derived_minimum, size_request)`. The toolbar wraps its
+    // sections onto extra rows rather than growing the width floor with every
+    // section shown (`GtkFlowBox`, see `sdd/PLAN.narrow-window.md`), so its
+    // content-derived minimum is only ever its widest single section — usually
+    // well under this floor — and THIS `set_size_request` is what actually
+    // stops the "drag to a useless sliver" degenerate case, not the toolbar's
+    // own content minimum. `-1` height leaves the vertical minimum content-
     // derived. This is the deliberate counterpart to the "no set_size_request,
     // default_width only" min-width geometry (invariant I5): an explicit floor
     // is correct precisely because the content floor is (or will be) gone.
-    window.set_size_request(MIN_WINDOW_WIDTH, -1);
+    //
+    // The floor itself is monitor-aware (`effective_min_window_width`, see
+    // sdd/PLAN.narrow-window.md): requesting the full 720px on a monitor
+    // narrower than that would force the toplevel wider than its screen by this
+    // call alone, with no way back — hiding every optional toolbar section
+    // couldn't undo an explicit `set_size_request` floor. On any monitor at or
+    // above `MIN_WINDOW_WIDTH` this is exactly `MIN_WINDOW_WIDTH`, unchanged.
+    window.set_size_request(
+        chrome_fit::effective_min_window_width(MIN_WINDOW_WIDTH, monitor_width),
+        -1,
+    );
 
     // Native Win32 frame ⇒ DWM owns the caption, and paints it light unless asked
     // otherwise. Wire it to follow the desktop's lightness from realize onward;
@@ -888,6 +929,93 @@ pub(crate) mod gtk_integration_tests {
                 "{name} shown by default"
             );
         }
+    }
+
+    /// The toolbar's own content-derived minimum width, with every section
+    /// shown, must stay small — proving the `ToolbarWrapBox` wrap (see
+    /// `sdd/PLAN.narrow-window.md`) is actually doing its job and not silently
+    /// degrading back to a non-wrapping row's ~1633px sum-of-all-sections
+    /// minimum. Pins the exact symptom a prior pass missed: the wrap can be
+    /// measurably correct in isolation while an unrelated, unchanged
+    /// `set_size_request` floor elsewhere still masks it end-to-end — this
+    /// test targets the toolbar's OWN minimum specifically, so a regression
+    /// here can't hide behind that floor the way the user-visible one did.
+    #[gtktest::test]
+    fn the_toolbar_wraps_instead_of_summing_every_sections_width() {
+        let app = test_app("com.extollit.scribobulate.integrationtest.toolbarwrap");
+        let win = new_window(&app, "IT-wrap", "# H\n\ntext", None);
+        for id in crate::app::TBTN_SECTION_IDS {
+            change_action_state(&win, &format!("show-tbtn-{id}"), &true.to_variant());
+        }
+        win.present();
+        crate::testpump::drain_for(
+            crate::testpump::Clock::Frame,
+            std::time::Duration::from_millis(200),
+        );
+
+        // Walk the whole tree (first-child AND next-sibling — the toolbar is
+        // `outer_box`'s SECOND child when the menubar is present) to find the
+        // toolbar's `ToolbarWrapBox` — there's no stored handle on `Chrome`
+        // (it's swapped into `outer_box` by value in `build_chrome` and never
+        // kept), so this is the same walk a reader inspecting the live tree
+        // would do.
+        fn find_wrap_box(
+            widget: &gtk::Widget,
+        ) -> Option<crate::widgets::wrapbox::ToolbarWrapBox> {
+            if let Ok(wb) = widget
+                .clone()
+                .downcast::<crate::widgets::wrapbox::ToolbarWrapBox>()
+            {
+                return Some(wb);
+            }
+            let mut child = widget.first_child();
+            while let Some(c) = child {
+                if let Some(wb) = find_wrap_box(&c) {
+                    return Some(wb);
+                }
+                child = c.next_sibling();
+            }
+            None
+        }
+        let toolbar = find_wrap_box(&win.child().expect("window has a child"))
+            .expect("toolbar ToolbarWrapBox must be somewhere under the window's child");
+
+        // Each section's OWN natural width (the wrap box's direct children —
+        // no wrapper widget in between, unlike GtkFlowBoxChild) — the wrap
+        // box's minimum, with wrap working, should land close to the single
+        // WIDEST of these (whichever section that is), never near their sum.
+        let mut widest_section = 0;
+        let mut child = toolbar.first_child();
+        while let Some(c) = child {
+            let (_, snat, _, _) = c.measure(gtk::Orientation::Horizontal, -1);
+            widest_section = widest_section.max(snat);
+            child = c.next_sibling();
+        }
+
+        let (min_w, _, _, _) = toolbar.measure(gtk::Orientation::Horizontal, -1);
+        assert!(
+            min_w < widest_section + 50,
+            "toolbar's content-derived minimum width with all six sections shown was \
+             {min_w}px, but the single widest section only needs {widest_section}px — a \
+             wrapping toolbar's minimum should track the widest SECTION, never the sum of \
+             every section (which would put it well over 2000px here), so this gap means \
+             the ToolbarWrapBox wrap has regressed"
+        );
+
+        // Pins the actual reported bug: `MIN_WINDOW_WIDTH`'s explicit
+        // `set_size_request` masked the wrap end-to-end even though the wrap
+        // itself measured correctly in isolation — `MAX(content_derived_min,
+        // size_request)` meant a stale, too-high explicit floor overrode a
+        // perfectly-working wrap and a reader would never see it kick in. If
+        // this constant ever creeps back up past a single section's width,
+        // it will silently re-mask the wrap again exactly the same way.
+        assert!(
+            MIN_WINDOW_WIDTH < widest_section,
+            "MIN_WINDOW_WIDTH ({MIN_WINDOW_WIDTH}) must stay below a toolbar section's own \
+             width ({widest_section}) or its explicit set_size_request floor will win the \
+             MAX(content_derived_min, size_request) comparison and mask the toolbar wrap \
+             from ever being reachable by dragging"
+        );
     }
 
     /// EACH window persists ITS OWN chrome — not the closing window's.

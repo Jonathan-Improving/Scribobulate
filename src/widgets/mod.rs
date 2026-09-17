@@ -22,6 +22,10 @@
 //!   application comes from, so the two silent follow-ups a hand-built field owes
 //!   (accessible name; macOS word navigation) cannot be forgotten one surface at a
 //!   time.
+//! - [`wrapbox`] — `ToolbarWrapBox`, a left-packed wrapping row: children keep
+//!   their natural size and overflow onto a new row instead of being clipped or
+//!   squeezed, with no shared column grid to misalign a later row against an
+//!   earlier one's sizes (the toolbar's own use, `window::toolbar`).
 
 use gtk::prelude::*;
 
@@ -32,6 +36,7 @@ pub(crate) mod sprite_icon;
 pub(crate) mod tab;
 pub(crate) mod table;
 pub(crate) mod textfield;
+pub(crate) mod wrapbox;
 
 /// Tile `tex` across `rect` at the texture's NATURAL size, with the grid anchored so the
 /// pattern travels with the document.
