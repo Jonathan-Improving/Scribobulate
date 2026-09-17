@@ -308,7 +308,7 @@ pub(crate) fn refresh_theme_button(window: &ApplicationWindow) {
         return;
     };
     let t = crate::theme::active();
-    ch.theme_btn.set_label(&crate::theme::Themes::chooser_label(
+    ch.theme_btn.set_label(&crate::window::theme_button_label(
         &t.name,
         t.symbol.as_deref(),
     ));

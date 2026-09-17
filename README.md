@@ -324,10 +324,10 @@ that exist in order to be deleted, written for whoever picks the work up next, a
 expected to disappear as the file empties. It is in the repository because the people
 working on this project read it there, not because it is where you file things.
 
-The exception is worth knowing about. An entry found **intractable** — a real limitation
-with no reachable fix, often something the toolkit or the platform owns — stays in that
-register permanently rather than being deleted, so nobody re-investigates a settled dead
-end. Those are the ones that affect you and are not going away, and they get promoted to
+The exception is worth knowing about, and it has its own table near the top of the file:
+**Closed issues**. An entry found **intractable** — a real limitation with no reachable
+fix, often something the toolkit or the platform owns — moves there rather than being
+deleted, so nobody re-investigates a settled dead end. Those are the ones that affect you and are not going away, and they get promoted to
 GitHub issues in due course so they are visible where you would actually look. If you find
 one there that matters to you and has not been promoted yet, say so — that is useful
 signal about which limitations people actually hit.

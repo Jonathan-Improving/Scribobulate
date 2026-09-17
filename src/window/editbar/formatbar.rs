@@ -32,13 +32,22 @@ fn format_button(cmd: &crate::app::FmtCmd) -> gtk::Button {
     btn
 }
 
-/// Build a horizontal row of the Format commands — Bold, Italic, Heading
-/// (MenuButton), Strikethrough, Code Span, Superscript, Subscript, Code Block,
-/// Quote, Bulleted List, Numbered List, Task List, Horizontal Bar, then
-/// Link/Image/Table — in
-/// the same order as the menu.  Shared by the toolbar section and the Stage-2
-/// caret overlay so the two surfaces can never drift.  Returns the row and its
-/// heading MenuButton (the caller binds the latter's sensitivity to the action).
+/// Build the Format commands as a flat, ordered list of individually-packable
+/// widgets — Bold, Italic, Heading (MenuButton), Strikethrough, Code Span,
+/// Superscript, Subscript, Code Block, Quote, Bulleted List, Numbered List,
+/// Task List, Horizontal Bar, Link/Image/Table, then Annotate — in the same
+/// order as the menu. Shared by the toolbar section and the Stage-2 caret
+/// overlay so the two surfaces can never drift. Returns the items, the heading
+/// `MenuButton` (the caller binds its sensitivity to the action) and the
+/// Link/Image buttons whose tooltip flips to "Edit …".
+///
+/// **A list rather than a container, because the two consumers need different
+/// packing.** The caret overlay wants one horizontal row and takes it from
+/// [`build_format_bar`] below. The toolbar hands each item to its wrap box
+/// separately, so a narrow window wraps Format per button like every other
+/// section instead of as one ~555px block — which was the single largest
+/// contributor to the window's minimum width, and so to what a narrow display
+/// could show at all.
 ///
 /// The heading picker is a GtkMenuButton, NOT a GtkDropDown: GtkDropDown's empty/
 /// no-selection caption is a hardcoded translatable "(None)" GtkLabel baked into
@@ -46,10 +55,14 @@ fn format_button(cmd: &crate::app::FmtCmd) -> gtk::Button {
 /// (see sdd/ANTI-PATTERNS.md).  A MenuButton's label is fully ours ("(Hn)") and
 /// its menu items drive win.format::h{1..6} directly, so there is no selection
 /// state to manage.
-pub(crate) fn build_format_bar() -> (gtk::Box, gtk::MenuButton, Vec<(FmtInsertKind, gtk::Button)>) {
-    let bx = gtk::Box::new(gtk::Orientation::Horizontal, 2);
-    bx.append(&format_button(&FORMAT_CMDS[0])); // Bold
-    bx.append(&format_button(&FORMAT_CMDS[1])); // Italic
+pub(crate) fn format_items() -> (
+    Vec<gtk::Widget>,
+    gtk::MenuButton,
+    Vec<(FmtInsertKind, gtk::Button)>,
+) {
+    let mut items: Vec<gtk::Widget> = Vec::new();
+    items.push(format_button(&FORMAT_CMDS[0]).upcast()); // Bold
+    items.push(format_button(&FORMAT_CMDS[1]).upcast()); // Italic
 
     let heading_menu = gtk::gio::Menu::new();
     for n in 1..=6u8 {
@@ -62,14 +75,14 @@ pub(crate) fn build_format_bar() -> (gtk::Box, gtk::MenuButton, Vec<(FmtInsertKi
         .build();
     crate::a11y::name(&heading_btn, "Heading level");
     heading_btn.add_css_class("flat");
-    bx.append(&heading_btn);
+    items.push(heading_btn.clone().upcast());
 
     // Capture the Link/Image buttons so their tooltip can flip to "Edit …" when the
     // selection is exactly that markup (update_format_edit_surfaces).
     let mut edit_btns = Vec::new();
     for cmd in FORMAT_CMDS.iter().skip(2) {
         let btn = format_button(cmd); // Strike … HR, then Link/Image/Table
-        bx.append(&btn);
+        items.push(btn.clone().upcast());
         if let Some(kind) = FmtInsertKind::from_target(cmd.target) {
             edit_btns.push((kind, btn));
         }
@@ -87,6 +100,18 @@ pub(crate) fn build_format_bar() -> (gtk::Box, gtk::MenuButton, Vec<(FmtInsertKi
     annotate_btn.add_css_class("flat");
     annotate_btn.set_focus_on_click(false);
     annotate_btn.set_action_name(Some("win.annotate"));
-    bx.append(&annotate_btn);
+    items.push(annotate_btn.upcast());
+    (items, heading_btn, edit_btns)
+}
+
+/// [`format_items`] packed into one horizontal row — what the Stage-2 caret
+/// overlay shows. The overlay is a popover sized to its content, so it wants a
+/// single row and never wraps; the toolbar takes the items instead.
+pub(crate) fn build_format_bar() -> (gtk::Box, gtk::MenuButton, Vec<(FmtInsertKind, gtk::Button)>) {
+    let (items, heading_btn, edit_btns) = format_items();
+    let bx = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+    for it in &items {
+        bx.append(it);
+    }
     (bx, heading_btn, edit_btns)
 }

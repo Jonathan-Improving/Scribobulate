@@ -37,11 +37,24 @@ use std::sync::OnceLock;
 /// over a live violation: `probes/native-chooser-rss.m` cited an entry by its QUOTED TITLE
 /// rather than its letter, and a pattern hunting letter IDs cannot see that. A title
 /// pointer dangles exactly as an ID pointer does.
+///
+/// The final alternative stands ALONE, with no `ISSUES` prefix, because a CLOSED entry's
+/// `CLSD-dd` identifier is already unambiguous and gets cited bare. It is the likelier
+/// citation of the two and the one this pattern most needs to catch: a `CLSD-dd` number is
+/// never reused or renumbered, so it *reads* as safe to point at in a way a letter never
+/// did — and SDD principle 6 forbids it regardless, because a closed entry is still deleted
+/// outright on the day it is genuinely fixed, and the pointer dangles then just the same.
+///
+/// Digits, not `\w`, and that carve-out is load-bearing: the placeholder is written
+/// `CLSD-dd` with letters, so prose EXPLAINING the convention — in POLICY, in a README, in
+/// this very comment — stays legal while an actual citation does not. A pattern that
+/// outlawed talking about the rule would be turned off the first time someone documented
+/// it.
 pub fn issues_rx() -> &'static Regex {
     static RX: OnceLock<Regex> = OnceLock::new();
     rx(
         &RX,
-        r#"\bISSUES(\.md)?([ .:_-]*([a-z]+ )?[A-Z]\b|[ .:_-]*#[A-Z]+\b|[ .:_-]*"[^"]+")"#,
+        r#"\bISSUES(\.md)?([ .:_-]*([a-z]+ )?[A-Z]\b|[ .:_-]*#[A-Z]+\b|[ .:_-]*"[^"]+")|\bCLSD-[0-9]+\b"#,
     )
 }
 

@@ -21,8 +21,8 @@
 //! all.
 //!
 //! The [`crate::widgets::wrapbox::ToolbarWrapBox`] itself does the actual
-//! wrapping (see `sdd/PLAN.narrow-window.md`): it measures each of its direct
-//! children (separators, buttons, clusters, the format box) at natural width
+//! wrapping (TDD 9.38): it measures each of its direct
+//! children (separators, buttons, clusters) at natural width
 //! and packs as many as fit onto the current row, wrapping only the overflow
 //! onto a new row, flush against the left edge — so the window's
 //! content-derived minimum width is only ever the widest SINGLE item, and
@@ -46,9 +46,10 @@ type SectionItems = Vec<gtk::Widget>;
 
 /// What [`build_toolbar`] hands back for `build_window` to thread onward: the
 /// toolbar box; the six sections' item lists (canonical `TBTN_SECTION_IDS`
-/// order, so the section-visibility actions can toggle them); the Format bar
-/// box (the focus-gate ancestor — the *inner* handle, wrapped by the
-/// `format` section's own box, not replaced by it); the heading `MenuButton`
+/// order, so the section-visibility actions can toggle them); the Format
+/// command widgets, which the editor-focus gate tests membership against (a
+/// list, not a container — see the format section in `build_toolbar` for why
+/// there is no box to be an ancestor of any more); the heading `MenuButton`
 /// (sensitivity mirrors `win.format`); the Insert↔Edit Link/Image button set;
 /// the open-documents `MenuButton` (stored per window so its label can track
 /// the active document — its menu-model is bound to the window's
@@ -58,7 +59,7 @@ type SectionItems = Vec<gtk::Widget>;
 type BuiltToolbar = (
     crate::widgets::wrapbox::ToolbarWrapBox,
     [SectionItems; 6],
-    gtk::Box,
+    Vec<gtk::Widget>,
     gtk::MenuButton,
     Vec<(FmtInsertKind, gtk::Button)>,
     gtk::MenuButton,
@@ -166,24 +167,28 @@ pub(super) fn build_toolbar() -> BuiltToolbar {
     }
 
     // ── format section ─────────────────────────────────────────────────────────
-    // Its own separator-delimited group, kept as ONE opaque box rather than
-    // decomposed into individually-wrappable items like the other sections:
-    // `format_box` is collected in one box so the focus gate can test "focus
-    // is inside the Format toolbar" with a single is_ancestor check
-    // (is_ancestor is transitive, so wrapping it in this section box keeps the
-    // gate valid — do not hand the wrapper where `format_box` is expected),
-    // and the same row layout backs the Stage-2 caret overlay
-    // (build_format_bar). Splitting its own buttons across wrap rows would
-    // need to thread that same ancestor relationship through every possible
-    // row, which isn't worth it for what is already one tightly-related
-    // command group — exactly the "closely related" carve-out the per-button
-    // wrap elsewhere is meant to have.
-    let format_section = gtk::Box::new(gtk::Orientation::Horizontal, 2);
-    format_section.append(&make_sep());
-    let (format_box, heading_btn, tb_edit_btns) = build_format_bar();
-    format_section.append(&format_box);
+    // Decomposed into individually-wrappable items like every other section.
+    // It did not used to be: `build_format_bar`'s single ~555px box was handed
+    // to the wrap box whole, and since the wrap box's horizontal minimum is the
+    // widest of its direct children, that ONE item set the window's minimum
+    // width — measured at 563px of a 563px floor on Linux, and hard-locking a
+    // Windows toplevel at 881px, i.e. WORSE than the 720px floor the wrap was
+    // built to remove. Keeping it opaque defeated the whole change on any
+    // window where Format was shown.
+    //
+    // The two things that made it look un-splittable both turned out not to
+    // need a container. The editor-focus gate tested "focus is inside the
+    // Format toolbar" with one `is_ancestor` call; it now takes the item list
+    // and tests membership against it, which is the same question asked
+    // directly (`editbar::focusgate`). The Stage-2 caret overlay still wants a
+    // single row, and still gets one — `build_format_bar` packs the same items
+    // into a box for it, so the two surfaces cannot drift.
+    let (fmt_items, heading_btn, tb_edit_btns) = crate::window::editbar::format_items();
     let mut format_items: SectionItems = Vec::new();
-    push(&toolbar, &mut format_items, format_section);
+    push(&toolbar, &mut format_items, make_sep());
+    for it in &fmt_items {
+        push(&toolbar, &mut format_items, it.clone());
+    }
 
     // ── view section ───────────────────────────────────────────────────────────
     let mut view_items: SectionItems = Vec::new();
@@ -299,7 +304,10 @@ pub(super) fn build_toolbar() -> BuiltToolbar {
     // "(Hn)", because a theme HAS a well-defined current value where a caret's heading
     // level does not.
     let theme_btn = gtk::MenuButton::builder()
-        .label(&crate::theme::active().name)
+        .label(crate::window::theme_button_label(
+            &crate::theme::active().name,
+            None,
+        ))
         .focus_on_click(false)
         .menu_model(&crate::app::build_reading_theme_toolbar_menu())
         .build();
@@ -436,7 +444,7 @@ pub(super) fn build_toolbar() -> BuiltToolbar {
     (
         toolbar,
         sections,
-        format_box,
+        fmt_items,
         heading_btn,
         tb_edit_btns,
         documents_btn,

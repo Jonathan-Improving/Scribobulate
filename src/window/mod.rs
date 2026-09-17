@@ -329,6 +329,79 @@ pub(crate) fn new_window(
 /// toolbar is hidden must not make that toolbar reappear. That is why nothing in
 /// this change touches `wire_tab_arrival` (the `winstate` state-scope rule warns
 /// that editing it for a window-scoped seeding change is the signal of a wrong turn).
+/// The most characters the toolbar's reading-theme combo shows before ellipsising.
+///
+/// The counterpart to `DOCUMENTS_BUTTON_MAX_CHARS`, and it exists for a sharper reason
+/// than tidiness: a theme's display name comes out of a **user-supplied theme file**, so
+/// it has no length anyone here controls. The toolbar packs each button at its natural
+/// width and takes its own minimum width from the widest of them, so an over-long theme
+/// name becomes the window's minimum width — which is the exact shape of the defect that
+/// made the toolbar unable to wrap at all (a single ~555px Format box), arriving through
+/// a theme file instead of a container. Capping keeps the window's floor a property of
+/// the chrome rather than of whatever theme happens to be loaded.
+const THEME_BUTTON_MAX_CHARS: usize = 22;
+
+/// The reading-theme combo's label — the theme's symbol and name, ellipsised to
+/// [`THEME_BUTTON_MAX_CHARS`]. The menu items it opens are NOT capped: a dropdown sizes
+/// itself and never constrains the window, so only the button needs bounding.
+pub(crate) fn theme_button_label(name: &str, symbol: Option<&str>) -> String {
+    crate::window::tabs::ellipsize(
+        &crate::theme::Themes::chooser_label(name, symbol),
+        THEME_BUTTON_MAX_CHARS,
+    )
+}
+
+#[cfg(test)]
+mod combo_label_tests {
+    use super::{theme_button_label, THEME_BUTTON_MAX_CHARS};
+
+    #[test]
+    fn a_short_theme_name_is_left_exactly_as_it_is() {
+        assert_eq!(theme_button_label("Sepia", None), "Sepia");
+    }
+
+    #[test]
+    fn a_symbol_is_kept_and_counted_toward_the_cap() {
+        // The symbol and its separator are part of what the button has to draw, so a
+        // cap that measured the name alone would let the button grow past it.
+        let out = theme_button_label("Sepia", Some("\u{1f4d6}"));
+        assert!(
+            out.starts_with('\u{1f4d6}'),
+            "the symbol leads the label: {out}"
+        );
+        assert!(out.chars().count() <= THEME_BUTTON_MAX_CHARS);
+    }
+
+    #[test]
+    fn an_unbounded_theme_name_cannot_set_the_windows_minimum_width() {
+        // The point of the cap. A theme's display name comes out of a user-supplied
+        // file, so without this the toolbar's widest item — and so the window's floor
+        // — is whatever someone typed into a theme header.
+        let absurd = "A Theme Whose Author Was Paid By The Character And Meant It";
+        let out = theme_button_label(absurd, None);
+        assert!(
+            out.chars().count() <= THEME_BUTTON_MAX_CHARS,
+            "label {out:?} is {} chars, past the {THEME_BUTTON_MAX_CHARS} cap",
+            out.chars().count()
+        );
+        assert!(out.ends_with('\u{2026}'), "a cut label says so: {out:?}");
+    }
+
+    #[test]
+    fn a_name_exactly_at_the_cap_is_not_cut() {
+        let exact: String = "x".repeat(THEME_BUTTON_MAX_CHARS);
+        assert_eq!(theme_button_label(&exact, None), exact);
+    }
+
+    #[test]
+    fn a_multibyte_name_is_cut_on_a_character_never_inside_one() {
+        // Sliced by char, never by byte — a cut that split a UTF-8 sequence would
+        // panic rather than merely look wrong.
+        let out = theme_button_label(&"é".repeat(80), None);
+        assert!(out.chars().count() <= THEME_BUTTON_MAX_CHARS);
+    }
+}
+
 pub(crate) fn new_window_from_source(
     app: &Application,
     title: &str,
@@ -347,24 +420,29 @@ pub(crate) fn new_window_from_source(
 /// non-wrapping row, and 720 was picked wide enough that the toolbar's own
 /// content-derived minimum (for the default 3 sections) rarely exceeded it,
 /// leaving THIS explicit floor as the thing that actually stopped a drag.
-/// That's backwards now that the toolbar wraps sections onto extra rows
-/// instead of needing room for all of them on one (`GtkFlowBox`, see
-/// `sdd/PLAN.narrow-window.md`): a high explicit floor here would silently
-/// override the wrap and reproduce the exact same "stops well above one
-/// icon row, never gets a chance to wrap" symptom the wrap was built to fix,
-/// since `set_size_request` and the content-derived minimum combine as
-/// `MAX(content_derived_minimum, size_request)` — whichever is larger wins,
-/// and a stale 720 here would always win on any normal monitor.
+/// That's backwards now that the toolbar wraps its buttons onto extra rows
+/// instead of needing room for all of them on one
+/// ([`crate::widgets::wrapbox::ToolbarWrapBox`]): a high explicit floor here
+/// would silently override the wrap and reproduce the exact same "stops well
+/// above one icon row, never gets a chance to wrap" symptom the wrap was
+/// built to fix, since `set_size_request` and the content-derived minimum
+/// combine as `MAX(content_derived_minimum, size_request)` — whichever is
+/// larger wins, and a stale 720 here would always win on any normal monitor.
 ///
-/// So this is now just `chrome_fit`'s own `ABSOLUTE_MIN_WIDTH` (360) value
-/// inlined: a bare sanity backstop against a window collapsing to a genuinely
-/// unusable/zero width, not a width chosen to fit any particular chrome. The
-/// REAL floor above this is whatever the widget tree's own content-derived
-/// minimum now is — the toolbar's widest single section (wrapping handles
-/// the rest), the tab strip, and the outline sidebar — which GTK enforces on
-/// its own with no `set_size_request` needed. See
-/// `viewactions::update_toolbar_min_width` (invariant I5). Tune here by feel
-/// if this still isn't low enough in practice.
+/// So this is now a bare sanity backstop against a window collapsing to a
+/// genuinely unusable width, not a width chosen to fit any particular chrome.
+/// The REAL floor above this is whatever the widget tree's own content-derived
+/// minimum is — the toolbar's widest single item (wrapping handles the rest),
+/// the tab strip, and the outline sidebar — which GTK enforces on its own. See
+/// `viewactions::update_toolbar_min_width` (invariant I5).
+///
+/// **Raising this re-breaks the wrap**, and silently: the floor wins the `MAX`
+/// above long before a reader can drag narrow enough to see a second row.
+/// `the_toolbar_wraps_instead_of_summing_every_sections_width` (below) is the
+/// guard — it fails the moment this creeps past one toolbar item's width — and
+/// it is the reason no monitor-aware clamp is applied to this value: at 360 the
+/// floor is already below any display the app can be used on at all, so a clamp
+/// against monitor geometry could never fire and would only read as if it might.
 const MIN_WINDOW_WIDTH: i32 = 360;
 
 /// The shared window/first-tab construction every window goes through,
@@ -402,22 +480,25 @@ fn build_window(
     }
     let zoom_provider_destroy = zoom_css_provider.clone();
 
-    // Read once, before the window exists: the monitor a fresh, unparented toplevel
-    // will appear on. `None` (no display/monitor — headless/test) means every use
-    // below is a no-op and today's behaviour is unchanged. See
-    // sdd/PLAN.narrow-window.md.
-    let monitor_width = chrome_fit::primary_monitor_width();
+    // Read once, before the window exists: the widest monitor on this desktop.
+    // `None` (no display/monitor — headless/test) means the clamp below is a no-op
+    // and today's behaviour is unchanged.
+    let widest_monitor = chrome_fit::widest_monitor_width();
 
     let window = ApplicationWindow::builder()
         .application(app)
         .title(title)
-        // Never OPEN wider than the monitor the window is about to appear on — a
-        // narrower initial size is still just a request (GTK grows it back up to
-        // whatever the content-derived minimum needs), so this never shrinks a
-        // window below what it can actually display; it only stops a
-        // wider-than-necessary `init.width` (e.g. a session restored from a bigger
-        // screen) from opening already off-edge on a smaller one.
-        .default_width(monitor_width.map_or(init.width, |m| init.width.min(m)))
+        // Never OPEN wider than any monitor here can show. A narrower initial size is
+        // still only a request (GTK grows it back up to whatever the content-derived
+        // minimum needs), so this never shrinks a window below what it can actually
+        // display; it only stops a wider-than-necessary `init.width` — a session
+        // restored from a bigger screen — from opening already off-edge.
+        //
+        // Clamped to the WIDEST monitor, not the one this window is about to land on:
+        // that monitor is the window manager's choice and an unrealized toplevel
+        // cannot be asked for it, so guessing narrows a window the reader was going to
+        // put on the big screen. See `chrome_fit::widest_monitor_width`.
+        .default_width(widest_monitor.map_or(init.width, |m| init.width.min(m)))
         .default_height(init.height)
         // No `.show_menubar(true)`: we build our OWN per-window GtkPopoverMenuBar
         // in `build_chrome` (GTK4Rs/AP-76) so the View ▸ Documents submenu can
@@ -431,27 +512,16 @@ fn build_window(
         .build();
 
     // Enforce a hard usability floor on the window width. GTK takes
-    // `MAX(content_derived_minimum, size_request)`. The toolbar wraps its
-    // sections onto extra rows rather than growing the width floor with every
-    // section shown (`GtkFlowBox`, see `sdd/PLAN.narrow-window.md`), so its
-    // content-derived minimum is only ever its widest single section — usually
-    // well under this floor — and THIS `set_size_request` is what actually
-    // stops the "drag to a useless sliver" degenerate case, not the toolbar's
-    // own content minimum. `-1` height leaves the vertical minimum content-
-    // derived. This is the deliberate counterpart to the "no set_size_request,
-    // default_width only" min-width geometry (invariant I5): an explicit floor
-    // is correct precisely because the content floor is (or will be) gone.
-    //
-    // The floor itself is monitor-aware (`effective_min_window_width`, see
-    // sdd/PLAN.narrow-window.md): requesting the full 720px on a monitor
-    // narrower than that would force the toplevel wider than its screen by this
-    // call alone, with no way back — hiding every optional toolbar section
-    // couldn't undo an explicit `set_size_request` floor. On any monitor at or
-    // above `MIN_WINDOW_WIDTH` this is exactly `MIN_WINDOW_WIDTH`, unchanged.
-    window.set_size_request(
-        chrome_fit::effective_min_window_width(MIN_WINDOW_WIDTH, monitor_width),
-        -1,
-    );
+    // `MAX(content_derived_minimum, size_request)`. The toolbar wraps its buttons
+    // onto extra rows rather than growing the width floor with every section shown
+    // (`widgets::wrapbox::ToolbarWrapBox`), so its content-derived minimum is only
+    // ever its widest single item — well under this floor — and THIS
+    // `set_size_request` is what actually stops the "drag to a useless sliver"
+    // degenerate case, not the toolbar's own content minimum. `-1` height leaves
+    // the vertical minimum content-derived. This is the deliberate counterpart to
+    // the "no set_size_request, default_width only" min-width geometry (invariant
+    // I5): an explicit floor is correct precisely because the content floor is gone.
+    window.set_size_request(MIN_WINDOW_WIDTH, -1);
 
     // Native Win32 frame ⇒ DWM owns the caption, and paints it light unless asked
     // otherwise. Wire it to follow the desktop's lightness from realize onward;
@@ -486,7 +556,7 @@ fn build_window(
     window.set_help_overlay(Some(&crate::app::make_shortcuts_window()));
 
     // ── toolbar & chrome ─────────────────────────────────────────────────────
-    let (toolbar, section_boxes, format_box, heading_btn, tb_edit_btns, documents_btn, theme_btn) =
+    let (toolbar, section_boxes, format_items, heading_btn, tb_edit_btns, documents_btn, theme_btn) =
         build_toolbar();
     let doc_dir = file_path.and_then(|p| p.parent());
     let chrome = build_chrome(
@@ -572,7 +642,7 @@ fn build_window(
     // tab's search context.
     wire_find_bar(&window, &chrome);
     // Gate the Format and Go To Line commands on editor focus.
-    setup_editor_focus_gate(&window, &format_box, &chrome.find_bar_revealer);
+    setup_editor_focus_gate(&window, &format_items, &chrome.find_bar_revealer);
     // Stage-2 caret formatting overlay: ONE per window (GTK4Rs/AP-106), stored in
     // WindowChrome and re-parented to the active tab's editor on every switch.
     // Built once here — its heading-menu font resolution happens once ever, O(1)
@@ -932,8 +1002,8 @@ pub(crate) mod gtk_integration_tests {
     }
 
     /// The toolbar's own content-derived minimum width, with every section
-    /// shown, must stay small — proving the `ToolbarWrapBox` wrap (see
-    /// `sdd/PLAN.narrow-window.md`) is actually doing its job and not silently
+    /// shown, must stay small — proving the `ToolbarWrapBox` wrap (TDD 9.38)
+    /// is actually doing its job and not silently
     /// degrading back to a non-wrapping row's ~1633px sum-of-all-sections
     /// minimum. Pins the exact symptom a prior pass missed: the wrap can be
     /// measurably correct in isolation while an unrelated, unchanged
@@ -959,9 +1029,7 @@ pub(crate) mod gtk_integration_tests {
         // (it's swapped into `outer_box` by value in `build_chrome` and never
         // kept), so this is the same walk a reader inspecting the live tree
         // would do.
-        fn find_wrap_box(
-            widget: &gtk::Widget,
-        ) -> Option<crate::widgets::wrapbox::ToolbarWrapBox> {
+        fn find_wrap_box(widget: &gtk::Widget) -> Option<crate::widgets::wrapbox::ToolbarWrapBox> {
             if let Ok(wb) = widget
                 .clone()
                 .downcast::<crate::widgets::wrapbox::ToolbarWrapBox>()
@@ -1002,19 +1070,152 @@ pub(crate) mod gtk_integration_tests {
              the ToolbarWrapBox wrap has regressed"
         );
 
-        // Pins the actual reported bug: `MIN_WINDOW_WIDTH`'s explicit
-        // `set_size_request` masked the wrap end-to-end even though the wrap
-        // itself measured correctly in isolation — `MAX(content_derived_min,
-        // size_request)` meant a stale, too-high explicit floor overrode a
-        // perfectly-working wrap and a reader would never see it kick in. If
-        // this constant ever creeps back up past a single section's width,
-        // it will silently re-mask the wrap again exactly the same way.
+        // The end state this whole change was for, and the one assertion worth
+        // keeping now that it holds: with EVERY section shown, the toolbar does
+        // not set the window's floor at all — `MIN_WINDOW_WIDTH`, a deliberate
+        // sanity backstop, does. That is what lets the window reach a narrow
+        // display no matter which sections a reader has ticked.
+        //
+        // This replaces an earlier assertion that `MIN_WINDOW_WIDTH` must stay
+        // BELOW a section's width. That was true only while the Format bar was
+        // still one opaque ~555px item and so still dominated the floor; it
+        // encoded the half-finished state as the requirement, and it would now
+        // fail against the finished one. The guard against the original bug —
+        // a too-high explicit floor silently masking the wrap — is preserved,
+        // because a `MIN_WINDOW_WIDTH` raised back toward a chrome-fitting
+        // width would break the inequality below from the other side.
         assert!(
-            MIN_WINDOW_WIDTH < widest_section,
-            "MIN_WINDOW_WIDTH ({MIN_WINDOW_WIDTH}) must stay below a toolbar section's own \
-             width ({widest_section}) or its explicit set_size_request floor will win the \
-             MAX(content_derived_min, size_request) comparison and mask the toolbar wrap \
-             from ever being reachable by dragging"
+            min_w < MIN_WINDOW_WIDTH,
+            "the toolbar's own minimum width with all six sections shown is {min_w}px, which \
+             is at or above MIN_WINDOW_WIDTH ({MIN_WINDOW_WIDTH}px) — so the TOOLBAR is once \
+             again setting the window's floor and a narrow display cannot fit the window \
+             whatever the reader hides. Either an item stopped wrapping (a section packed \
+             into one container again) or a single item grew unbounded (a label showing a \
+             value with no cap — see THEME_BUTTON_MAX_CHARS and DOCUMENTS_BUTTON_MAX_CHARS)"
+        );
+    }
+
+    /// The whole point of the wrap, asserted end to end rather than on the
+    /// toolbar alone: with **every** toolbar section shown, both sidebars open
+    /// and a document whose headings and file name are long enough to stretch
+    /// anything that stretches, the WINDOW's own minimum width is still only
+    /// `MIN_WINDOW_WIDTH` — i.e. no piece of chrome sets the floor, so the app
+    /// fits a genuinely narrow display no matter how it is configured.
+    ///
+    /// `the_toolbar_wraps_instead_of_summing_every_sections_width` guards the
+    /// toolbar's own contribution. This one exists because that is not the same
+    /// claim: the toolbar was merely the largest of several contributors, and a
+    /// future regression in the sidebar, the find bar or the status bar would
+    /// put the floor back up while leaving the toolbar test perfectly green.
+    #[gtktest::test]
+    fn no_chrome_sets_the_windows_width_floor_above_the_backstop() {
+        let app = test_app("com.extollit.scribobulate.integrationtest.widthfloor");
+        let doc = "# Supercalifragilisticexpialidocious Heading That Refuses To End\n\n\
+                   ## Another Extremely Long Heading For The Outline To Chew On\n\ntext\n";
+        let win = new_window(&app, "IT-widthfloor", doc, None);
+        for id in crate::app::TBTN_SECTION_IDS {
+            change_action_state(&win, &format!("show-tbtn-{id}"), &true.to_variant());
+        }
+        change_action_state(&win, "outline", &true.to_variant());
+        change_action_state(&win, "annotations", &true.to_variant());
+        win.present();
+        crate::testpump::drain_for(
+            crate::testpump::Clock::Frame,
+            std::time::Duration::from_millis(400),
+        );
+
+        let (win_min, _, _, _) = win.measure(gtk::Orientation::Horizontal, -1);
+        assert_eq!(
+            win_min, MIN_WINDOW_WIDTH,
+            "the window's minimum width is {win_min}px with everything shown, but \
+             MIN_WINDOW_WIDTH is {MIN_WINDOW_WIDTH}px — some piece of chrome is setting the \
+             floor instead of the backstop, so a narrow display can no longer fit the \
+             window. Measure each direct child of the window's root box to find which: the \
+             toolbar, the sidebar paned, the find-bar revealer and the status bar are the \
+             four that have ever been the answer"
+        );
+    }
+
+    /// The editor-focus gate stays open while focus is on a Format toolbar
+    /// button — the "sticky" clause of `setup_editor_focus_gate`, which is what
+    /// stops `win.format` greying itself out the instant the user reaches for
+    /// the control they are trying to use.
+    ///
+    /// **Worth a test of its own because this clause can only fail silently.**
+    /// It used to be one `is_ancestor(format_box)` call against the single box
+    /// the Format section was packed into. That box is gone — Format is now a
+    /// flat list of individually-wrappable items, so the window can get narrow
+    /// — and the gate tests membership against that list instead. Both spellings
+    /// compile and both look right; if the list ever stops being the widgets the
+    /// toolbar actually shows, the gate simply starts closing on a Format press
+    /// and nothing anywhere says so.
+    #[gtktest::test]
+    fn focus_on_a_format_button_does_not_close_the_editor_gate() {
+        let app = test_app("com.extollit.scribobulate.integrationtest.fmtgate");
+        let win = new_window(&app, "IT-fmtgate", "# H\n\nsome text", None);
+        change_action_state(&win, "show-tbtn-format", &true.to_variant());
+        change_action_state(&win, "view-mode", &"edit".to_variant());
+        win.present();
+        crate::testpump::drain_for(
+            crate::testpump::Clock::Frame,
+            std::time::Duration::from_millis(300),
+        );
+
+        let editor = state(&win).expect("a tab").editor.clone();
+        editor.grab_focus();
+        crate::testpump::drain_for(
+            crate::testpump::Clock::Frame,
+            std::time::Duration::from_millis(200),
+        );
+        assert!(
+            simple_action(&win, "format")
+                .expect("win.format")
+                .is_enabled(),
+            "precondition: editor focus opens the gate"
+        );
+
+        // The Bold button, found the way a reader reaches it — by walking the
+        // live toolbar — rather than from a handle the test was handed, so the
+        // test fails if the button the toolbar shows is not the one the gate
+        // was told about.
+        fn find_bold(w: &gtk::Widget) -> Option<gtk::Widget> {
+            if let Some(b) = w.clone().downcast_ref::<gtk::Button>() {
+                if b.action_name().as_deref() == Some("win.format")
+                    && b.action_target_value()
+                        .and_then(|v| v.str().map(|s| s.to_string()))
+                        .as_deref()
+                        == Some("bold")
+                {
+                    return Some(w.clone());
+                }
+            }
+            let mut c = w.first_child();
+            while let Some(ch) = c {
+                if let Some(found) = find_bold(&ch) {
+                    return Some(found);
+                }
+                c = ch.next_sibling();
+            }
+            None
+        }
+        let bold = find_bold(&win.child().expect("window child"))
+            .expect("a win.format::bold button is somewhere in the toolbar");
+
+        bold.grab_focus();
+        crate::testpump::drain_for(
+            crate::testpump::Clock::Frame,
+            std::time::Duration::from_millis(200),
+        );
+        assert!(
+            simple_action(&win, "format")
+                .expect("win.format")
+                .is_enabled(),
+            "focus moved onto a Format toolbar button and the editor gate CLOSED — \
+             win.format is now disabled, so pressing the button a reader just reached \
+             for would do nothing. The gate's sticky clause no longer recognises that \
+             widget as part of the Format surface: it tests membership against the item \
+             list handed to `setup_editor_focus_gate`, so that list and the widgets the \
+             toolbar actually packs have drifted apart"
         );
     }
 

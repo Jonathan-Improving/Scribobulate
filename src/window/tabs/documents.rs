@@ -184,7 +184,7 @@ fn documents_button_label(window: &ApplicationWindow) -> String {
 /// Truncate `s` to at most `max` characters, appending a single-glyph ellipsis
 /// when it is cut. Counts and slices by `char`, never bytes, so it can never split
 /// a multi-byte UTF-8 sequence in a non-ASCII filename.
-fn ellipsize(s: &str, max: usize) -> String {
+pub(crate) fn ellipsize(s: &str, max: usize) -> String {
     if s.chars().count() <= max {
         return s.to_string();
     }

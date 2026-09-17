@@ -343,7 +343,12 @@ Before any change is considered valid, run these steps in order:
    their own sequences and a number is an identity rather than a claim.
    The three citation rules: no `sdd/ISSUES.md` entry may be cited from outside that
    file (SDD principle 6 — issue IDs are ephemeral, so every such pointer dangles
-   when the fix lands, and *lies quietly* if IDs are ever compacted); every
+   when the fix lands, and *lies quietly* if IDs are ever compacted). **That covers a
+   CLOSED entry too, and it is the one people talk themselves out of:** a `CLSD-dd`
+   number is never reused or renumbered, which makes it look like a safe thing to point
+   at — but a closed entry is deleted outright the day its problem is genuinely fixed,
+   so the pointer dangles then exactly as a letter's would. Cite an ANTI-PATTERNS entry,
+   or write a self-contained comment. Also: every
    `ScrAP-N` cited in `src/` must exist in `sdd/ANTI-PATTERNS.md`; and every
    `ScrAP-N` cited *inside* that register must have a body in it, which is where a
    cross-branch transfer breaks and where nothing else is looking. **This

@@ -2,8 +2,8 @@
 //! left-to-right, wrapping onto additional rows when a child would overflow the
 //! allocated width, and packing every row flush against the LEFT edge.
 //!
-//! Built to replace an earlier `GtkFlowBox`-based attempt at this
-//! (`sdd/PLAN.narrow-window.md`): `GtkFlowBox` computes a shared column grid
+//! Built to replace an earlier `GtkFlowBox`-based attempt at this (the
+//! behavioural contract is TDD 9.38): `GtkFlowBox` computes a shared column grid
 //! across every line it lays out, so a later row whose items differ in size
 //! from the row(s) that set that grid gets offset/padded rather than packed
 //! tightly left — reported as odd gaps opening up on the left of a wrapped
@@ -261,7 +261,11 @@ mod gtk_integration_tests {
 
         let a_alloc = a.allocation();
         let b_alloc = b.allocation();
-        assert_eq!(a_alloc.y(), b_alloc.y(), "both visible children share one row");
+        assert_eq!(
+            a_alloc.y(),
+            b_alloc.y(),
+            "both visible children share one row"
+        );
         assert_eq!(
             b_alloc.x(),
             a_alloc.x() + a_alloc.width() + 2,

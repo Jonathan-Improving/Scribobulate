@@ -22,6 +22,14 @@ because the reproduction was built anyway. An entry is a report plus somebody's 
 inference at the time, and the inference ages worse than the symptom. Reproduce first; fix
 the thing you measured, not the thing that was written down.
 
+**Two tables, and the split is the point.** The first lists **open** debt — things someone
+is expected to fix — carrying a severity you triage on. The second lists **closed** entries:
+problems investigated to a finding of *no reachable fix*, kept precisely so nobody spends a
+session rediscovering a settled dead end. A closed entry is **not** a fixed one; a fixed
+issue is deleted outright, because this file is a snapshot of what is currently broken and
+not a changelog. Closed entries carry a `CLSD-dd` number that is never reused or renumbered,
+and they hold no severity, because they are not queued work.
+
 **One defect can be filed twice.** A missing reading position, seen from two ends, was
 carried here as two unrelated entries and was nearly fixed twice before anyone noticed they
 were one thing. Before opening work on an entry, scan the others for the same mechanism
@@ -29,21 +37,30 @@ described from a different vantage point.
 
 | ID | Platform | Scope | Issue | Severity |
 |----|----------|-------|-------|----------|
-| A | Any | Upstream | Tables are selection islands; cells are individually selectable but not part of the continuous buffer | Closed |
 | D | Any | Production | A large document leaves the process spinning a CPU core at ~100% while idle — a GTK/Pango relayout pass that re-shapes text every main-loop iteration and never converges | High |
 | F | Mac | Upstream | A GTK4/Quartz autorelease-pool crash SIGABRTs the macOS integration suite in roughly one full run in four, at a varying site | Medium |
 | I | Mac | Upstream | macOS only: every native file-chooser invocation (Open, Save, Export) grows RSS by ~1.1 MB and does not give it back. Roughly four fifths is AppKit's own price for presenting an `NSSavePanel` — reproduced with no GTK in the process — with about a fifth GTK-attributable. Caching the panel upstream would recover ~95% | Medium |
-| J | Any | Upstream | A paragraph that mixes fonts (any inline-code span) can lay out a few pixels wider than the wrap width it was given, summoning the preview's Automatic horizontal scrollbar and intermittently blanking the pane until a resize | Closed |
 | M | Windows | Production | On a machine with no Visual C++ runtime the app installs and then fails to start; the installer's bootstrapper for it has landed but has never been verified against that condition | Medium |
 | U | Any | Production | The preview is drawn horizontally scrolled (~20px, its left padding gone, a horizontal scrollbar showing) after a mode switch or an explicit Reload rebuilds it — intermittent, pre-existing, seen on Linux and Windows | Low |
-| V | Windows, Mac | Upstream | No screen reader on Windows or macOS can read the app's accessible names: neither backend publishes a provider tree (no UIA there, no NSAccessibility tree here), so every name the app sets is correct and unreachable. Linux/AT-SPI reads them | Closed |
 | X | Mac | Test | The macOS integration suite hangs part-way through a run, at a varying site, in roughly two to four runs in five. Independent of any one feature — it survives removing the surface it was first blamed on | High |
-| Y | Mac | Upstream | In fullscreen, a click issued while the transition animation is still running is never delivered — AppKit blocks input for its own ~250-500ms window, in any Cocoa application. Not ours to fix, and not GTK's | Closed |
+
+## Closed issues
+
+Intractable: no reachable fix, and the limitation is still real and present.
+Do not reopen one without a new constraint. These numbers never change and are never
+reused — unlike the letters above, which are positional and get reclaimed.
+
+| ID | Platform | Scope | Issue |
+|----|----------|-------|-------|
+| CLSD-01 | Any | Upstream | Tables are selection islands; cells are individually selectable but not part of the continuous buffer |
+| CLSD-02 | Any | Upstream | A paragraph that mixes fonts (any inline-code span) can lay out a few pixels wider than the wrap width it was given, summoning the preview's Automatic horizontal scrollbar and intermittently blanking the pane until a resize |
+| CLSD-03 | Windows, Mac | Upstream | No screen reader on Windows or macOS can read the app's accessible names: neither backend publishes a provider tree (no UIA there, no NSAccessibility tree here), so every name the app sets is correct and unreachable. Linux/AT-SPI reads them |
+| CLSD-04 | Mac | Upstream | In fullscreen, a click issued while the transition animation is still running is never delivered — AppKit blocks input for its own ~250-500ms window, in any Cocoa application. Not ours to fix, and not GTK's |
 
 
-## A. Tables are selection islands
+## CLSD-01. Tables are selection islands
 
-**Severity**: Closed (intractable — every exit is walled *within* GTK's selection
+**Status**: Closed (intractable — every exit is walled *within* GTK's selection
 machinery, source-verified to a measured verdict below; the one theoretical escape
 leaves those bounds only by becoming a different project. Real and unresolved, not
 fixed — retained as a documented permanent limitation. Not actionable.)
@@ -122,7 +139,7 @@ elsewhere: `GtkLabel` exposes no cursor position — the public getter normalise
 `anchor`/`end` away, `:2118-2120` — and the PRIMARY-clipboard "hole" GTK4Rs/AP-28 once alleged
 **does not exist**; see GTK4Rs/AP-28 / ScrAP-135.)*
 
-**Severity stays Low and the limitation is accepted.** In-cell selection is already
+**The limitation is accepted, and the impact is small.** In-cell selection is already
 char-precise (TDD 2.8f); a buffer selection over the table anchor already copies the whole
 table source. Nothing here is broken — the feature simply cannot be added through GTK's
 selection machinery.
@@ -134,7 +151,7 @@ arbitration entirely (exactly what defeated the routes above) and is *technicall
 possible, so this entry says "unmitigable **within GTK's selection machinery**" rather than
 "impossible" outright. But it means reimplementing char selection, double-click-word,
 triple-click-line, keyboard selection and PRIMARY ownership — all of which GTK provides
-free today, as the probe's control demonstrates — to un-break a Low-severity limitation
+free today, as the probe's control demonstrates — to un-break a minor limitation
 nobody has asked for. It would be a deliberate project chosen on product grounds, not an
 increment, and it should not be started from this entry.
 
@@ -458,9 +475,9 @@ evidence must outlive it. Do not restate its figures here; several carry caveats
 survive summarising, and the transferable lessons already have permanent homes in
 `sdd/ANTI-PATTERNS.md`.
 
-## J. A paragraph that mixes fonts lays out wider than the wrap width it was given
+## CLSD-02. A paragraph that mixes fonts lays out wider than the wrap width it was given
 
-**Severity**: Closed (no public API at the GTK 4.6 floor makes the layout report a width the
+**Status**: Closed (no public API at the GTK 4.6 floor makes the layout report a width the
 wrap budget respects; the two reachable correctives both cost more than the defect)
 
 **Platform**: Any — the mechanism is Pango's line-extent accounting, not a backend's. Only
@@ -650,9 +667,9 @@ nothing clamps it back when `upper` shrinks.
 
 ---
 
-## V. No screen reader on Windows or macOS can read the app's accessible names
+## CLSD-03. No screen reader on Windows or macOS can read the app's accessible names
 
-**Severity**: Closed (inherent to GTK4's Windows and Quartz backends — the app sets the
+**Status**: Closed (inherent to GTK4's Windows and Quartz backends — the app sets the
 names correctly and neither platform publishes a tree that can carry them)
 
 ⚠ The `Platform` cell reads `Windows, Mac` rather than one of the four single values the
@@ -728,9 +745,9 @@ treating either as understood.
 - **Accept slower macOS ratification** in the meantime: read a macOS result only from
   several runs, never from one, and never treat a hang as a verdict about the change.
 
-## Y. In fullscreen on macOS, a click during the transition animation is never delivered
+## CLSD-04. In fullscreen on macOS, a click during the transition animation is never delivered
 
-**Severity**: Closed — real, present, and not reachable by any repair of ours. Kept so the
+**Status**: Closed (no repair of ours is reachable). Kept so the
 investigation is not run a second time.
 
 **The report**: on the macOS build in fullscreen, clicking a toolbar button did nothing and

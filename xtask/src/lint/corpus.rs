@@ -47,6 +47,14 @@ const ISSUES_MUST_MATCH: &[&str] = &[
     // reported PASS over a live one.
     "attribute the growth (ISSUES.md \"native file chooser RSS growth\")",
     "see ISSUES \"the rename suite finalizes a cancelled monitor\"",
+    // A CLOSED entry, which needs NO `ISSUES` prefix to be unambiguous — and is the
+    // likelier one to be cited, because a `CLSD-dd` number never moves and so reads as
+    // safe to point at. SDD principle 6 forbids it anyway: closed or open, the file is
+    // the only place an entry may be named, and a closed entry can still be deleted
+    // outright the day it is actually fixed.
+    "see CLSD-03",
+    "the window is not grown (CLSD-07)",
+    "workaround for CLSD-12 — do not remove",
 ];
 
 /// Prose ABOUT the register, which must stay legal: the rule is against citing an ENTRY,
@@ -61,6 +69,11 @@ const ISSUES_MUST_NOT_MATCH: &[&str] = &[
     "ISSUES.md entries are deleted when fixed",
     "read ISSUES.md and TECH.md together",
     "the register lives in sdd/ISSUES.md and shrinks as it works",
+    // Prose about the CONVENTION rather than a citation of an entry. The placeholder is
+    // written with letters, so requiring digits keeps the rule explainable outside the
+    // register without tripping its own gate.
+    "closed entries take a CLSD-dd number that is never reused",
+    "an intractable issue is renamed CLSD-dd and moves to the Closed issues table",
 ];
 
 #[test]

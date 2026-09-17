@@ -1298,7 +1298,7 @@
 - **Then** the indicator is hidden entirely, not shown stale or blank-but-present
 - **And given** the user switches tabs
 - **Then** the indicator immediately reflects the newly-active tab's own mode and caret position, never the tab just left
-- **And given** the toolbar's content-derived min-width (I5) has forced the window wider than its monitor, **then** the "Ln L, Col C" indicator — and likewise the bottom-right conflict/reload/info toast's action buttons — stay within the visible monitor rather than off its right edge; on a display wide enough to hold the toolbar they show at their normal right-hand placement, unchanged (`window::chrome_fit::overflow_inset`, applied at each show/update point).
+- **And given** the window has been forced wider than its monitor — by the chrome's content-derived min-width (I5), or by a session restored from a larger screen — **then** the "Ln L, Col C" indicator — and likewise the bottom-right conflict/reload/info toast's action buttons — stay within the visible monitor rather than off its right edge; on a display wide enough to hold the toolbar they show at their normal right-hand placement, unchanged (`window::chrome_fit::overflow_inset`, applied at each show/update point).
 
 ### 9.22 View ▸ Toolbar hides individual toolbar sections, remembers them, and never orphans a separator
 - **Given** a document window with the toolbar shown
@@ -1320,6 +1320,20 @@
 - **And given** a fresh profile with no saved session (or a session file predating the per-section feature)
 - **When** a window opens
 - **Then** the toolbar shows **File, Edit, and View** and hides **Format, Split, and Zoom** (those three `View ▸ Toolbar` checkboxes start unticked) — a deliberately short default toolbar the user extends by ticking the sections their workflow needs; formatting stays fully available meanwhile via the Format menu and its accelerators even with the Format section hidden
+
+### 9.38 The toolbar wraps onto more rows rather than stopping the window from getting narrower
+- **Given** a window whose toolbar is wider than the width the reader wants to drag it to — because several sections are shown, because the display itself is narrow (a remote session, a portrait client), or both
+- **When** the reader drags the window narrower, or it opens on a display narrower than the toolbar's one-row width
+- **Then** the window **keeps getting narrower**: the toolbar packs as many buttons as fit onto its top row and moves only the overflow down onto a second, third or fourth row. There is no width at which the window refuses to shrink because the toolbar wants one long row — that refusal was a hard lock, not an inconvenience, because GTK takes `MAX(content_derived_minimum, size_request)` and a one-row toolbar put the whole sum of its buttons into the first term
+- **And** every wrapped row starts **flush at the left edge**, level with the row above it — no row is indented, padded, or drifts toward the right, whatever mixture of button widths the rows happen to hold. (A shared column grid across rows, which is what `GtkFlowBox` fits, produces exactly that drift and is why the toolbar is not one)
+- **And** a button is **never squeezed, clipped, or shrunk** to make it fit — it keeps its natural size and moves whole to the next row
+- **And** closely related controls **never split across a row boundary**: Undo/Redo, Back/Forward, the Preview/Edit/Split mode group, Split Swap/Orientation and Zoom in/reset/out each move as one unit. Everything else wraps per button — **including the Format commands**, which are individually wrappable like any other section — so one wide group going down does not drag small groups that still fit down with it
+- **And** the window's content-derived minimum width is the widest **single** such unit, not the sum of the visible ones — so hiding sections (9.22) still lowers it, but showing them all no longer raises it past a screen
+- **And** no toolbar control's width may be decided by something unbounded — a document's file name, or a theme name out of a user-supplied theme file. Both are capped and ellipsised, because the toolbar's minimum is the widest item it holds, so an uncapped label would make the window's floor a property of whatever document or theme happened to be open
+- **And, the claim all of the above exists to support:** with **every** section shown, both sidebars open and headings long enough to stretch anything that stretches, the **window's own minimum width is exactly `MIN_WINDOW_WIDTH`** — no piece of chrome sets the floor. The toolbar is merely the largest contributor; the sidebars, the find bar and the status bar must stay under it too, or a narrow display stops fitting for a reason the toolbar tests would never catch
+- **And** the toolbar takes its extra rows' height from the panes below it, which is the accepted trade: on a narrow window the reader gets a reachable toolbar and a shorter document view, rather than an unreachable toolbar and no way back
+- **And** every button on a wrapped row is still reachable by **keyboard** and still reports itself to assistive technology (16.7) — wrapping changes where a control is drawn, never whether it can be reached
+- *(`MIN_WINDOW_WIDTH` is a sanity backstop only. Raising it back toward a chrome-fitting width re-breaks every clause above and does so invisibly, because the explicit floor wins the `MAX` before a second row can ever appear.)*
 
 ### 9.23 The menus are keyboard-navigable via mnemonics and access keys
 > **Platform scope: the Alt+letter clause below is Linux and Windows only.** It

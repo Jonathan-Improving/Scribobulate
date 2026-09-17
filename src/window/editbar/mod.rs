@@ -47,7 +47,7 @@ use edit::*;
 // `use editbar::*`, and reachable qualified as `editbar::…`).
 pub(crate) use edit::apply_format;
 pub(crate) use focusgate::setup_editor_focus_gate;
-pub(crate) use formatbar::build_format_bar;
+pub(crate) use formatbar::{build_format_bar, format_items};
 pub(crate) use insert::{go_to_line, insert_image, insert_link, insert_table};
 pub(crate) use newline::wire_newline_edits;
 pub(crate) use overlay::{build_format_overlay, wire_editor_format_overlay};

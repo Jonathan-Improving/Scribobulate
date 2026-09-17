@@ -614,22 +614,34 @@ pub(super) fn reconcile_toolbar_chrome(window: &ApplicationWindow) {
 }
 
 /// Update the window's minimum-width geometry to reflect the currently-visible
-/// toolbar (invariant I5). **Final implementation** (min-width geometry): the
-/// window sets only `default_width` and never
-/// a `set_size_request`, so GTK4 derives the toplevel's minimum width from content
-/// — and the toolbar (a `ToolbarWrapBox`, wrapping individual buttons — and small
-/// closely-related clusters — onto extra rows rather than clipping when a row is
-/// too narrow; see `sdd/PLAN.narrow-window.md`) is the widest minimum-width
-/// contributor, so it sets the floor: the width of its widest SINGLE visible item,
-/// not the sum of every visible one. This gives the two wanted behaviours for free:
-///   • *allow-narrower* — hiding a section lowers the content-derived minimum, so
-///     the user may drag the window narrower (the current allocation is preserved;
-///     GTK does not shrink on its own);
-///   • *active-grow* — showing sections past the current width raises the minimum,
-///     and a window can't be allocated below its minimum (`width = MAX(minimum,
-///     current)`), so the frame is pushed wider to fit automatically.
+/// toolbar (invariant I5).
+///
+/// GTK4 takes the toplevel's minimum width as `MAX(content_derived_minimum,
+/// size_request)`. `build_window` sets a `size_request` of `MIN_WINDOW_WIDTH`, a
+/// deliberate sanity backstop; the toolbar supplies the other term as the width of
+/// its widest SINGLE visible item, never the sum of the visible ones, because a
+/// [`crate::widgets::wrapbox::ToolbarWrapBox`] moves what does not fit onto another
+/// row instead of demanding a wider window (TDD 9.38).
+///
+/// **Which term wins is the whole design, and today it is the backstop.** Every
+/// section is decomposed into individually-wrappable items and the two labels sized
+/// by content are character-capped, so the toolbar's minimum stays well under
+/// `MIN_WINDOW_WIDTH` however many sections are shown — meaning the toolbar no
+/// longer sets the floor at all, and a narrow display fits the window whatever the
+/// reader has ticked. `no_chrome_sets_the_windows_width_floor_above_the_backstop`
+/// is the guard, and it is the inequality to preserve: the moment the toolbar's own
+/// minimum climbs back above the backstop, this seam starts constraining the window
+/// again and a narrow screen stops fitting.
+///
+/// Hiding a section therefore still lowers the content-derived term, but the reader
+/// sees no change in how narrow the window can be dragged — the backstop was already
+/// the binding constraint. That is the intended end state, not a regression.
+///
 /// We `queue_resize` so that re-measure is not deferred arbitrarily; that is all
-/// this seam needs to do.
+/// this seam needs to do. **It is not a request to GROW the frame.** On X11 a
+/// mapped window is resized up when its minimum rises above its current width; on
+/// macOS it is not, and whatever caused the rise is drawn outside the surface
+/// instead — which is why nothing in this toolbar is allowed an unbounded width.
 ///
 /// **Active-shrink** (auto-contracting the already-open window when a section is
 /// hidden) is deliberately NOT done — operator decision: a frame lurching narrower

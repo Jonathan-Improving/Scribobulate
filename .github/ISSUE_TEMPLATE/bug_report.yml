@@ -14,9 +14,10 @@ body:
         [`sdd/ISSUES.md`](https://github.com/MadMartian/Scribobulate/blob/master/sdd/ISSUES.md)
         — the maintainers' own register, where a problem may already be recorded and
         understood. Most of what is in that file is short-lived and will be deleted as
-        it is fixed, so it is not a public tracker; but an entry marked **`Closed`** is
-        a limitation with no reachable fix, kept deliberately so the same dead end is
-        not investigated twice. Those get promoted to GitHub issues in due course. If
+        it is fixed, so it is not a public tracker. Its second table, **Closed issues**,
+        is the part worth your time: those are limitations with no reachable fix, kept
+        deliberately so the same dead end is not investigated twice, and they get
+        promoted to GitHub issues in due course. If
         one of them is what you are hitting, say so here rather than filing it as new —
         knowing who actually runs into a limitation is what decides its priority.
 

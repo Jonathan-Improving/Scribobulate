@@ -17,10 +17,16 @@ use super::super::*;
 /// than each growing its own parallel focus-tracking closure.
 pub(crate) fn setup_editor_focus_gate(
     window: &ApplicationWindow,
-    format_box: &gtk::Box,
+    format_items: &[gtk::Widget],
     find_bar: &gtk::Revealer,
 ) {
-    let format_w: gtk::Widget = format_box.clone().upcast();
+    // A LIST, not one container. The Format commands are packed individually
+    // into the toolbar's wrap box so a narrow window can wrap them (they were
+    // one ~555px box, which set the window's whole minimum width), so there is
+    // no single ancestor left to test. Membership against the list asks the
+    // same question directly, and cannot go stale the way an ancestor test
+    // does when the packing changes underneath it.
+    let format_ws: Vec<gtk::Widget> = format_items.to_vec();
     let find_w: gtk::Widget = find_bar.clone().upcast();
     let win_weak = window.downgrade();
     window.connect_focus_widget_notify(move |win| {
@@ -48,7 +54,7 @@ pub(crate) fn setup_editor_focus_gate(
         // the find entry — without this the gate would disable win.format and grey
         // every overlay action. In preview mode the gate is already disabled (the
         // editor was never focused), so find there stays correctly disabled.
-        if within(&format_w)
+        if format_ws.iter().any(&within)
             || within(&find_w)
             || focus.ancestor(gtk::PopoverMenuBar::static_type()).is_some()
             || focus.ancestor(gtk::PopoverMenu::static_type()).is_some()
