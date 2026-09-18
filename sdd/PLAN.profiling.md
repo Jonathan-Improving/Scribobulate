@@ -193,7 +193,7 @@ Phase 0 depends on it being accurate.
 | RSS slope across scaled cycle counts | C4 | None — purely external; already the shape of manual §6.3 and §8.6 |
 | `perf` against the **release** binary | C1–C3, coarsely | Library-level attribution only (`lib+offset`); this is how the spin's existing stack sample was taken |
 | `perf` against the existing **debug** binary | C1–C3, structurally | Named app frames, but unoptimized — answers *what* is looping, never *how fast* anything is |
-| `valgrind` / massif | C4 | Already sanctioned in POLICY § Optional diagnostics; filter every stack for an application frame first (ScrAP-49) |
+| `valgrind` / massif | C4 | Run on demand, outside the pipeline; filter every stack for an application frame first (ScrAP-49) |
 | GtkInspector (`GTK_DEBUG=interactive`) | widget tree, CSS, actions | The one surviving toolkit channel. **Its Statistics tab is dead** (ScrAP-251) — never read object counts from it |
 | The `LD_PRELOAD` GType interposer (ScrAP-155) | C4, by GType and callsite | No application change, but it is a tool to write. Now the *primary* attribution route, since instance counting is dark |
 

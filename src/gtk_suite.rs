@@ -29,7 +29,7 @@
 //!
 //! `xvfb-run` OUTSIDE, `dbus-run-session` INSIDE — the reverse order leaks the bus's
 //! activated daemons (portal, gvfs, a11y) onto the developer's REAL X server, where they
-//! outlive the run and accumulate until Xorg refuses new clients. POLICY step 5 carries
+//! outlive the run and accumulate until Xorg refuses new clients. `scripts/gtk-run.sh` carries
 //! the measurement; `scripts/run-integration.sh` is the whole step and does this for you.
 //!
 //! ```sh

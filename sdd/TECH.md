@@ -103,6 +103,14 @@ Platform-specific notes that shape the architecture:
 - **Window decorations differ by design.** `lib.rs` sets `GTK_CSD=0` under
   `#[cfg(windows)]` to take the native Win32 frame; this holds only because the app
   has no custom titlebar — a `set_titlebar()` anywhere would silently restore CSD.
+  The native frame is what supplies the window's resize borders on all edges, the
+  Alt+Space system menu, and Snap Layouts (the maximize button hit-tests as
+  `HTMAXBUTTON`, with no manifest opt-in); under CSD the window has none of them. The
+  variable is set in-process rather than by the installer or a launcher so the frame
+  does not depend on how the binary was started, and it is not in
+  `.cargo/config.toml`'s `[env]` because it is a GTK-wide variable: on Wayland it can
+  leave a window undecorated. The design ceiling is "native frame, GTK interior" — GTK4
+  has no maintained Windows theme, so imitating Windows chrome in CSD is not pursued.
 - **`gio::FileMonitor`** is backed by `ReadDirectoryChangesW` instead of inotify;
   live reload is verified across that substitution.
 

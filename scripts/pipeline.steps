@@ -280,7 +280,7 @@ cmd.windows skipreport  cargo test -- --nocapture
 # count and the coverage floor were each written up under. In short — it ARMS
 # `dbus-run-session` INSIDE `xvfb-run` (the reverse order, which reads more naturally,
 # leaks the bus's activated daemons onto the developer's real X server, where they outlive
-# the run — POLICY step 5 carries the measurement),
+# the run — `scripts/gtk-run.sh` carries the measurement),
 # which POLICY has prescribed since it was measured and which this contract's command did
 # NOT run, so the instruction lived in prose and every caller either supplied it by hand or
 # ate a SIGTRAP before the first test (the same unarmed-gate failure this very step records

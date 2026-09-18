@@ -119,6 +119,13 @@ pub(super) fn run_once_if_live<F: FnOnce(&gtk::TextView)>(
 ///   an early fire meets an invalid layout, `scroll_to_mark` queues instead of
 ///   flushing, nothing moves, and the deadline below picks it up. A silent no-op,
 ///   never a wrong scroll.
+/// - *It says "valid now", never "final".* Validation also runs synchronously outside
+///   these idles — `gtk_text_layout_validate_yrange` from
+///   `gtk_text_view_allocate_children` (inside `size_allocate`), from `flush_scroll` and
+///   from `validate_onscreen` — and `size_allocate` is frame-clock paced, so a later
+///   layout pass can invalidate and re-validate after `f` has run. Act on the geometry
+///   inside `f`; do not carry it forward as settled. No defect is known to arise from
+///   this, so do not harden callers against it without a reproduction.
 ///
 /// Note the symmetry, because it is why the deadline is *necessary* rather than
 /// belt-and-braces: the guarantee is exactly as strong as "the 125 source stays

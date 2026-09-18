@@ -4,7 +4,7 @@
 entry is known to affect, not where it was found. `Any` means reproduced on, or inherent to,
 every platform; a named one means the others were checked and do not exhibit it. Before
 narrowing an entry to a single platform, have that platform's peer seat fail to reproduce it
-(POLICY § Verifying a change on macOS) — behaviour found on one platform is not
+(POLICY § Manual integration testing) — behaviour found on one platform is not
 platform-specific until someone else looks.
 
 **`Scope`** is one of **`Test`** · **`Production`** · **`Project`** · **`Upstream`**.

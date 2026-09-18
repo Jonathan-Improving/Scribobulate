@@ -22,7 +22,7 @@
 //! `#[gtktest::test]` in `src/` instead; see POLICY's testing section.
 //!
 //! Run — `xvfb-run` OUTSIDE, `dbus-run-session` INSIDE (the reverse leaks the bus's
-//! activated daemons onto your real X server; POLICY step 5 has the measurement):
+//! activated daemons onto your real X server; `scripts/gtk-run.sh` has the measurement):
 //!   `scripts/run-integration.sh` (the whole step, and it gets the nesting right)
 //!   `xvfb-run -a dbus-run-session -- cargo test --features gtk-integration-tests`
 //!   `cargo test --features gtk-integration-tests --test icon_resolution`

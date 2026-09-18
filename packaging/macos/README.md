@@ -16,6 +16,15 @@ anything bundle-specific — `pkg-config` errors for `gtk4`, `gdk-pixbuf-2.0`,
 Homebrew packages above were never installed on this machine, not that
 something is broken.
 
+`adwaita-icon-theme` is named explicitly because Homebrew's `gtk4` does not pull in
+an icon theme. Without it the build succeeds and roughly half the toolbar renders as
+broken-image placeholders.
+
+Build on a Mac. Cross-compiling from Linux does not work: with the
+`x86_64-apple-darwin` target installed, `cargo check --target` fails inside `gtk4-sys`
+on pkg-config cross-compilation. A successful native build says nothing about the
+cross one, so only a macOS machine can produce or check a macOS artefact.
+
 ## Usage
 
 ```bash
