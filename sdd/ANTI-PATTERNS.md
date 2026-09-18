@@ -9,7 +9,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 2. General engineering discipline that survives deleting every Scribobulate noun? → route it to `general-engineering-principles`, cited `GEP-N`; leave a one-line `**Routed**` tombstone here. No ScrAP number is needed for provenance.
 3. Neither — Scribobulate internals, or a non-gtk4-rs dependency (Pango, GtkSourceView, pulldown-cmark, librsvg, syntect, serde/toml, the toolchain)? → it stays here, **in ≤ 6 lines**: Symptom · Root cause · Resolution · Lesson · Scribobulate · See. Extend an existing entry rather than minting a sibling for the same root cause. Route a Pango lesson on whose API *contract* it is about, and raise it before routing.
 
-**Numbers are frozen** (check 9): never renumbered, never reused; a retired entry keeps its `## N.` heading as a landing spot. Reserved gaps — do not fill: **176–179** (Windows port; holder gone, held pending operator resolution), **186** (`feat/spelling`, inbound), **276–289** (unmerged branches). **Next free number: 351**+ — check this table and announce the range you claim; never derive it from the highest heading below.
+**Numbers are frozen** (check 9): never renumbered, never reused; a retired entry keeps its `## N.` heading as a landing spot. Reserved gaps — do not fill: **176–179** (Windows port; holder gone, held pending operator resolution), **186** (`feat/spelling`, inbound), **276–289** (unmerged branches). **Next free number: 354**+ — check this table and announce the range you claim; never derive it from the highest heading below.
 
 **Growth** is gated in bytes (check 11). The ratchet only tightens; consolidate in the change that trips it.
 
@@ -365,6 +365,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 | 350 | A comment that tells you NOT to do something — load-bearing in the direction nothing checks | A |
 | 351 | A gdk-pixbuf loader module that retains every decode — invisible to refcount assertions, visible only as slope | C |
 | 352 | `GdkTexture::from_file`/`from_bytes` reach a pixbuf module's INCREMENTAL path, not its one-shot `load` | C |
+| 353 | A coalescing slot shared by every subject, whose loser nothing re-issues | B |
 
 ---
 
@@ -1964,3 +1965,7 @@ Severity: High
 **Lesson**: "the library decodes this format" is not one behaviour. Before blaming a format or a library, establish WHICH path your call takes into it — a one-shot and an incremental API can disagree about errors, leaks and crashes on the same bytes.
 **Scribobulate**: the SVG dimension probe that used the animation API for this reason is gone; sizing reads `imagedecode::probe_vector_dimensions`, and every raster decode goes through `src/imagedecode/`.
 **See**: kin `GTK4Rs/AP-66`, ScrAP-146, ScrAP-328; ScrAP-351 is the leak this asymmetry hid.
+
+## 353. A coalescing slot shared by every subject, whose loser nothing re-issues
+**Routed**: GEP-79 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
+**Scribobulate**: the word-count scheduler queues one pending job per tab, so no subject's request can displace another's; the rule it now obeys is the coalescing rule in [CAM.md](CAM.md)'s deferred-operation matrix.

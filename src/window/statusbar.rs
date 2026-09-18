@@ -5,13 +5,14 @@
 //! **Word counting leaves the main thread.** Counting the 3 MB `large-doc.md` fixture
 //! measured 22–34 ms in a release build — more than a frame. It runs on GLib's pool
 //! with owned text in and counts out, at most one job application-wide (POLICY § all
-//! GTK on the main thread; ScrAP-243), and a result is applied only if the buffer
-//! generation it was computed from is still current — discard, never merge
-//! (Deferred-operation CAM).
+//! GTK on the main thread; ScrAP-243) with the rest queued one deep per tab, and a
+//! result is applied only if the buffer generation it was computed from is still
+//! current — discard, never merge (Deferred-operation CAM).
 
 use super::*;
 use crate::winstate::statusbar::{self as core, LineEndings, TextCount, TextStats};
 use crate::winstate::{StatusCtx, TabId, WindowChrome};
+use std::collections::VecDeque;
 use std::rc::Weak;
 use std::time::Duration;
 
@@ -425,30 +426,37 @@ struct CountJob {
 }
 
 impl CountJob {
-    /// Fold a newer request into this pending one. For the same tab each half is kept
+    /// Fold a newer request for the SAME tab into this pending one: each half is kept
     /// from whichever request has it, so a selection recount cannot discard a pending
-    /// document recount; for another tab the newer request wins, and the tab it
-    /// displaces recounts on activation.
-    fn absorb(mut self, newer: CountJob) -> CountJob {
-        if self.tab != newer.tab {
-            return newer;
-        }
+    /// document recount.
+    fn absorb(&mut self, newer: CountJob) {
+        debug_assert_eq!(self.tab, newer.tab, "only a same-tab request is folded in");
         if newer.source.is_some() {
             self.source = newer.source;
             self.generation = newer.generation;
         }
-        self
     }
 }
 
 #[derive(Default)]
 struct Counter {
     running: bool,
-    pending: Option<CountJob>,
+    /// Requests waiting for the pool, at most **one per tab** — a newer request for a
+    /// tab already queued is folded into that entry rather than appended.
+    ///
+    /// **Never one slot.** A single slot has to choose between two tabs' requests, and
+    /// whichever it discards is never re-submitted: nothing re-asks for a count except
+    /// a mode or tab switch in the window that owns it. That is invisible while the
+    /// loser is a background tab — it recounts when it is next activated — and a
+    /// permanently blank word-count and line-endings indicator when it is the *active*
+    /// tab of another window, which is what three windows opened back to back produce
+    /// (TDD 16.11, 16.13).
+    pending: VecDeque<CountJob>,
 }
 
 thread_local! {
-    /// The application-wide bound: one count on the pool at a time, one waiting.
+    /// The application-wide bound: one count on the pool at a time (ScrAP-243), the
+    /// rest queued one deep per tab.
     static COUNTER: RefCell<Counter> = RefCell::default();
 }
 
@@ -456,10 +464,14 @@ fn submit(job: CountJob) {
     let start = COUNTER.with(|counter| {
         let mut counter = counter.borrow_mut();
         if counter.running {
-            counter.pending = Some(match counter.pending.take() {
-                Some(pending) => pending.absorb(job),
-                None => job,
-            });
+            match counter
+                .pending
+                .iter_mut()
+                .find(|queued| queued.tab == job.tab)
+            {
+                Some(queued) => queued.absorb(job),
+                None => counter.pending.push_back(job),
+            }
             None
         } else {
             counter.running = true;
@@ -487,7 +499,7 @@ impl Drop for RunningLatch {
     fn drop(&mut self) {
         let next = COUNTER.with(|counter| {
             let mut counter = counter.borrow_mut();
-            let next = counter.pending.take();
+            let next = counter.pending.pop_front();
             counter.running = next.is_some();
             next
         });
@@ -752,7 +764,7 @@ pub(crate) fn defer_until_export_stops(
 
 #[cfg(test)]
 mod latch_tests {
-    use super::{Counter, RunningLatch, COUNTER};
+    use super::{CountJob, Counter, RunningLatch, TabId, VecDeque, COUNTER};
 
     /// The strand this guard exists to make unrepresentable: a future that claimed the
     /// application-wide latch and then went away without completing must still release
@@ -767,7 +779,7 @@ mod latch_tests {
         COUNTER.with(|counter| {
             *counter.borrow_mut() = Counter {
                 running: true,
-                pending: None,
+                pending: VecDeque::new(),
             }
         });
 
@@ -779,6 +791,52 @@ mod latch_tests {
             "a dropped future must release the latch; leaving it set strands every \
              later count in `pending` with nothing to start it"
         );
+    }
+
+    /// TDD 16.11 / 16.13 — two tabs waiting on the pool at once must both still be
+    /// waiting. A one-slot queue discarded the older of them, and nothing re-asks for a
+    /// count except a mode or tab switch in the window that owns the tab, so a discarded
+    /// request left that window's word-count and line-endings indicators blank for as
+    /// long as it stayed on the mode it opened in.
+    ///
+    /// Display-free: the queue is the defect, so it is provable without a window. The
+    /// paired end-to-end proof is `every_window_counts_its_own_document` below.
+    #[test]
+    fn a_second_tabs_request_waits_beside_the_first_rather_than_displacing_it() {
+        let job = |raw: u64| CountJob {
+            tab: TabId::from_raw(raw),
+            generation: 0,
+            source: Some(String::from("alpha beta")),
+        };
+        COUNTER.with(|counter| {
+            *counter.borrow_mut() = Counter {
+                // A count is already on the pool, so both requests below queue rather
+                // than starting (and this body needs no main context to dispatch into).
+                running: true,
+                pending: VecDeque::new(),
+            }
+        });
+
+        super::submit(job(1));
+        super::submit(job(2));
+        super::submit(job(1));
+
+        let queued: Vec<u64> = COUNTER.with(|counter| {
+            counter
+                .borrow()
+                .pending
+                .iter()
+                .map(|job| job.tab.raw())
+                .collect()
+        });
+        assert_eq!(
+            queued,
+            vec![1, 2],
+            "both tabs wait, in order, and a repeat request folds into the tab's own \
+             entry rather than adding a second"
+        );
+
+        COUNTER.with(|counter| *counter.borrow_mut() = Counter::default());
     }
 }
 
@@ -878,6 +936,49 @@ mod tests {
         );
         assert_eq!(chrome.statusbar.line_endings.text(), "Mixed");
         window.destroy();
+    }
+
+    /// TDD 16.11 / 16.13 — every window counts its own document, however many are
+    /// opened at once. Three, because two never exposed the defect: the first count
+    /// runs immediately and the second waits, so a one-slot queue only starts
+    /// discarding at the third — and what it discarded was the SECOND window's, whose
+    /// indicators then stayed blank until someone switched its view mode.
+    #[gtktest::test]
+    fn every_window_counts_its_own_document() {
+        let app = make_app("com.extollit.scribobulate.integrationtest.statusbar.everywindow");
+        let windows: Vec<_> = (0..3)
+            .map(|i| new_window(&app, &format!("w{i}"), "alpha beta gamma\n", None))
+            .collect();
+        let words = |w: &ApplicationWindow| {
+            crate::winstate::chrome(w)
+                .expect("chrome registered")
+                .statusbar
+                .words
+                .text()
+                .to_string()
+        };
+        let endings = |w: &ApplicationWindow| {
+            crate::winstate::chrome(w)
+                .expect("chrome registered")
+                .statusbar
+                .endings_slot
+                .is_visible()
+        };
+
+        let counted = pump_until(|| windows.iter().all(|w| words(w) == "3 words"));
+        assert!(
+            counted,
+            "every window counts its own document; got {:?}",
+            windows.iter().map(words).collect::<Vec<_>>()
+        );
+        assert!(
+            windows.iter().all(endings),
+            "the line-endings indicator rides the same count, so it shows everywhere too"
+        );
+
+        for window in &windows {
+            window.destroy();
+        }
     }
 
     /// TDD 16.16 — a lost file is part of the persistent line until it returns.

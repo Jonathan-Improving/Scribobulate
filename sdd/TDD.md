@@ -2220,6 +2220,7 @@
 - **Then** the right side shows the word count of the document's readable text, updated promptly — Markdown syntax, link and image addresses, image descriptions and annotation comments are not words, while the text an annotation highlights is — and its tooltip gives the character count
 - **And given** text is selected in either pane, a table cell included
 - **Then** it shows "N of M words" for the selection
+- **And given** several windows are opened at once, **Then** each one counts its own document — no window is left waiting on a count that never arrives
 
 ### 16.12 The status bar shows the zoom level
 - **Given** a preview is visible
@@ -2232,6 +2233,7 @@
 - **Given** a document
 - **Then** the status bar shows `LF`, `CRLF` or `Mixed`, following edits, reloads and tab switches
 - **And** a new document shows `LF` on every platform: the indicator describes the document, not the computer, and a new document's line breaks are line feeds wherever it is saved
+- **And** it rides the same count as the word count (16.11), so it appears in every window on the same terms
 
 ### 16.14 A link's target shows in the status bar while hovered
 - **Given** the pointer rests over a link in the preview

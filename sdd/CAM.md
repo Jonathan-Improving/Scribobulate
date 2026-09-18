@@ -636,7 +636,7 @@ The interference classes (matrix columns):
 | 6 | **Startup recovery pass** | ✓ | ✓ | ✓ | ✓ | ✓ | runs once; bumps `DocEpoch` on apply; re-resolves windows/tabs after each await |
 | 7 | **Backing settle re-read** (TDD 3.4, 3.5) | ✓ | ✓ | ✓ | ✓ | ✓ | one pending timer per tab, re-armed not stacked (so a backend reporting one replacement as several events costs one re-read), cancelled when a loss is recorded; weak `tab_by_id`; the re-read is an ordinary row-2 read, so its ticket and the active-vs-background split apply unchanged, and a loss is recorded once however many reads conclude it |
 | 8 | **PDF export** (`run(Export)` iterates the main loop while it draws) | ✓ | ✓ | ✓ | ✓ | ✓ | `win.export` disabled while `WindowChrome::export_op` is set; the document is captured before the run, so edits and saves during it do not reach it; a tab or window close cancels the export and is deferred until it returns (`defer_until_export_stops`) |
-| 9 | **Status-bar word count** (on GLib's pool) | ✓ | ✓ | ✓ | ✓ | n/a | one job application-wide, one pending (same-tab requests merge); a result is applied only if the tab's buffer generation is unchanged, re-resolving the tab by id and rendering only if it is still the active one |
+| 9 | **Status-bar word count** (on GLib's pool) | ✓ | ✓ | ✓ | ✓ | n/a | one job application-wide, the rest queued **one per tab** (a tab's repeat request merges into its own entry, and no tab's request is ever displaced by another's — see the coalescing rule below); a result is applied only if the tab's buffer generation is unchanged, re-resolving the tab by id and rendering only if it is still the active one |
 
 Rules that give the matrix its teeth:
 
@@ -648,6 +648,18 @@ Rules that give the matrix its teeth:
   ticket *by* bumping ("I am the newest reader").
 - **A write never checks; only readers can be superseded.** A completed write produced
   the bytes on disk, so its own baseline update is the truth by construction.
+- **Coalesce per subject, and only where something re-issues what you drop.** A single
+  waiting slot shared by every subject has to choose between two subjects' requests, and
+  the one it discards is gone unless some other event asks again. The word count shipped
+  that way: one pending slot, the newer request winning outright, justified by "the tab it
+  displaces recounts on activation" — true of a background tab and false of another
+  *window's* active tab, which recounts only on a mode or tab switch. Three windows opened
+  back to back therefore left the middle one's word-count and line-endings indicators
+  permanently blank. Queue one entry per subject instead, merging a subject's repeat
+  request into its own entry; that keeps the in-flight bound (still one job on the pool)
+  without making the queue pick a loser. Dropping is legitimate only when the drop is
+  *recoverable by construction* — row 4's second save is dropped because the buffer stays
+  dirty and the command stays available, so the user's next press writes the newest text.
 - **Serialise writes to one path; do not queue them.** Two writes can land in either
   order and report completion in either order, so the newest bytes on disk and the
   newest baseline recorded can be different texts (C1). The second request is dropped:
