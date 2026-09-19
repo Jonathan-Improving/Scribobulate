@@ -72,9 +72,32 @@ fn paint_wash(
             let pattern = cairo::SurfacePattern::create(surface);
             pattern.set_extend(cairo::Extend::Repeat);
             cr.save().ok();
-            cr.translate(x, y);
+            // ⚠️ The grid is anchored to the PAGE, not to this rect — the nearest grid
+            // line at or above it, congruent to 0 modulo the tile's own size. This is
+            // `widgets::tile_texture`'s rule, and the screen has always followed it while
+            // this site did not: it translated to the rect's own origin, restarting the
+            // tile's phase at every rect.
+            //
+            // It matters because this medium draws a decoration LINE BY LINE. A quote
+            // panel is one rect per quoted line, abutting, so a per-rect phase cuts the
+            // pattern at every line boundary — invisible for a tile whose rows all look
+            // alike, and obvious for any diagonal or large-featured one. The same applied
+            // to the accent bar and the heading band, whose rects abut the same way.
+            //
+            // Rounded to whole tiles, so the anchor never introduces a fractional offset
+            // the pattern would have to resample across.
+            let (tw, th) = (f64::from(surface.width()), f64::from(surface.height()));
+            let anchor = |v: f64, size: f64| {
+                if size > 0.0 {
+                    (v / size).floor() * size
+                } else {
+                    v
+                }
+            };
+            let (ox, oy) = (anchor(x, tw), anchor(y, th));
+            cr.translate(ox, oy);
             if cr.set_source(&pattern).is_ok() {
-                cr.rectangle(0.0, 0.0, width, height);
+                cr.rectangle(x - ox, y - oy, width, height);
                 cr.fill().ok();
             }
             cr.restore().ok();
@@ -111,19 +134,28 @@ fn paint_wash(
     }
 }
 
-/// Draw a curated scene once at the RIGHT edge of a rect, fitted to its height and
-/// clipped to it — the cairo half of `widgets::draw_scene_into`, and the same fit the
-/// HTML sink declares as `right center / auto 100% no-repeat`.
+/// Draw a curated scene once inside a rect and clipped to it — the cairo half of
+/// `widgets::draw_scene_into` and `widgets::draw_scene_corner`, and the same two
+/// renderings the HTML sink declares as `right center / auto 100%` and a bare corner
+/// position.
 ///
-/// Fitted by HEIGHT and anchored RIGHT for the reason the key states: a header row's
-/// height is fixed by its text while its width tracks the column, so the right edge is
-/// the only stable place to hang a picture and the left is where the labels are.
+/// `anchor` decides both the position and the SIZE RULE, exactly as it does on screen
+/// (`theme::SceneAnchor`):
+///
+/// * `None` — fitted by HEIGHT and hung on the RIGHT edge, for the reason the key
+///   states: a header row's height is fixed by its text while its width tracks the
+///   column, so the right edge is the only stable place to hang a picture and the left
+///   is where the labels are.
+/// * a corner — drawn at its NATURAL size (one image px to one point, this sink's
+///   scale) and pinned there, so a cluster keeps the spread it was drawn with instead
+///   of being rescaled by the row's height.
 ///
 /// A scene that cannot be decoded draws NOTHING and leaves the fill beneath it intact —
 /// degrade, never erase, the rule every decoration in this vocabulary follows.
-fn paint_scene_right(
+fn paint_scene(
     cr: &cairo::Context,
     scene: &crate::sprite::SpriteRef,
+    anchor: Option<crate::theme::SceneAnchor>,
     x: f64,
     y: f64,
     width: f64,
@@ -135,14 +167,27 @@ fn paint_scene_right(
     if nat_w <= 0.0 || nat_h <= 0.0 || width <= 0.0 || height <= 0.0 {
         return;
     }
-    let scale = height / nat_h;
-    let drawn_w = nat_w * scale;
+    // The fit takes the height; a corner keeps the source's own size.
+    let scale = match anchor {
+        Some(_) => 1.0,
+        None => height / nat_h,
+    };
+    let (drawn_w, drawn_h) = (nat_w * scale, nat_h * scale);
+    // Placement is `SceneAnchor::offset`'s, the same function the GTK painter calls, so
+    // the page and the screen cannot put one theme's scene in different corners.
+    // Unanchored keeps its right edge and its own top, which the fit has already made
+    // the full height.
+    let (free_w, free_h) = (width - drawn_w, height - drawn_h);
+    let (dx, dy) = match anchor {
+        Some(corner) => corner.offset(free_w, free_h),
+        None => (free_w, 0.0),
+    };
     cr.save().ok();
     cr.rectangle(x, y, width, height);
     cr.clip();
-    // Right-anchored: a scene wider than the row is clipped on its LEFT, keeping the
-    // part that was drawn to sit at the edge.
-    cr.translate(x + width - drawn_w, y);
+    // A scene wider or taller than the cell overflows the edge its anchor is NOT on
+    // and the clip above takes it — negative free space is the same multiplication.
+    cr.translate(x + dx, y + dy);
     cr.scale(scale, scale);
     if cr.set_source_surface(&surface, 0.0, 0.0).is_ok() {
         cr.paint().ok();
@@ -179,7 +224,13 @@ pub(crate) fn draw_page(
     // The quote panel and its ink (TDD 18.29), resolved with the same hoist and the same
     // "theme key, else absent" rule: each is `None` unless the theme states it, and an
     // unstated one leaves quoted text on the page in the body ink, exactly as before.
-    let quote_bg = theme.blockquote_bg;
+    // The panel is the one decoration here that may be ABSENT, so it takes
+    // `optional_wash` rather than `wash_of`: no fallback colour, and a theme stating
+    // neither key paints nothing (TDD 18.2). A theme may tile it (TDD 18.59), decoded
+    // once for the page like the bar's and the rule's.
+    let quote_wash = super::decide::optional_wash(&theme.blockquote_panel_decor(), |r| {
+        crate::sprite::surface(r).map(|(surface, _, _)| surface)
+    });
     let quote_fg = theme.blockquote_fg;
     // The rule's tile (TDD 18.31), decoded ONCE for the page beside the quote bar's, for
     // the same reason: a document of rules would otherwise re-read the same picture per
@@ -256,11 +307,9 @@ pub(crate) fn draw_page(
             // fill right at each depth and, for the translucent `blockquote_bg` two
             // shipped themes state, composite it with itself so the inner region read
             // darker for a reason no theme key asked for.
-            if let Some(bg) = quote_bg {
-                set_ink(cr, bg);
+            {
                 let width = (laid.printable_width_pt - root_indent).max(MIN_PRINTABLE_PT);
-                cr.rectangle(margin_pt + root_indent, top, width, height);
-                cr.fill().ok();
+                paint_wash(cr, &quote_wash, margin_pt + root_indent, top, width, height);
             }
             // ONE BAR PER LEVEL, on every line inside it (TDD 2.11b). A line reports only
             // its innermost quote, so without this loop the enclosing levels' bars would
@@ -573,7 +622,15 @@ fn draw_table_row(
             // has no single right edge to anchor a picture to. A table's header cell is
             // drawn as one unit at a known `box_height`, so it does.
             if let Some(scene) = decor.scene {
-                paint_scene_right(cr, scene, column.x, 0.0, column.box_width, row.box_height);
+                paint_scene(
+                    cr,
+                    scene,
+                    decor.scene_anchor,
+                    column.x,
+                    0.0,
+                    column.box_width,
+                    row.box_height,
+                );
             }
         }
     }

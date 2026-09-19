@@ -199,7 +199,14 @@ mod imp {
                         rect.width(),
                         rect.height(),
                     );
-                    crate::widgets::paint_band_into(snapshot, &rect, &decor, radius, frames);
+                    // Zoom 1.0, for the reason the radius above takes it: a header
+                    // cell's own metrics are carried by generated CSS at their
+                    // design-time values (THEMING § Pixel metrics and zoom), so a
+                    // corner-anchored scene drawn to the page's zoom would part company
+                    // with the cell it is pinned inside at every step away from 100%.
+                    // The edge-anchored scene is unaffected either way — it is fitted to
+                    // the cell's height, which grows with the text.
+                    crate::widgets::paint_band_into(snapshot, &rect, &decor, radius, 1.0, frames);
                 }
             }
             self.sprites.end_pass();

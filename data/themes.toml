@@ -311,10 +311,20 @@ disclosure_preview_fg     = "#a58ed0"
 #                  too bright to carry text (2.2:1). It is used ONLY as a solid
 #                  graphic — the blockquote bar — which needs neither.
 #
-# The ceiling is set by the BODY INK, not by the page: for body text to keep 4.5:1
-# on a fill, that fill must sit at L <= 0.0896. Choosing cotton pink as the body ink
-# rather than a white costs real headroom (a near-white ink would allow L <= 0.166) —
-# a deliberate trade, because pink-on-grape is the whole character of the theme.
+# The ceiling is set by the BODY INK, not by the page: for body text to keep 4.5:1 on a
+# fill, that fill must sit under a luminance the ink fixes. The body ink is now WHITE
+# (operator-directed), which puts that ceiling at L <= 0.1833 — where the cotton pink it
+# replaced held it at L <= 0.0896, barely half. EVERY fill below was derived under the
+# OLD, tighter ceiling and is therefore still legal by a wide margin; the ratios beside
+# them were re-measured rather than assumed, and each one ROSE. The headroom is spendable:
+# a future fill here may sit up to twice as bright as anything currently in this theme.
+#
+# ⚠️ COTTON PINK #F6B6D4 NOW HAS NO ROLE, which is the real cost of the white and is
+# stated so the next reader does not go looking for its job. It was the body ink and
+# nothing else, so pink-on-grape — once described here as the whole character of the
+# theme — is gone from the page's running text; the character now lives in the hot-pink
+# furniture, the lemon headings and the bullets. Orchid is the other roleless swatch
+# (see the table above), so two of the six are now unused on this page.
 #
 # ── Why the highlights are SHADES, not washes ──────────────────────────────────
 # The previous draft of this theme made every overlay a translucent wash of a bright
@@ -335,12 +345,36 @@ background    = "#101a4d"   # INDIGO. Chosen over the two other blues that measu
                             # of Synthwave's #1a1033, so the two themes would stop being
                             # tellable apart at a glance. Indigo is clearly blue, clearly not
                             # Synthwave, and leaves every ink within 0.3 of its old value
-foreground    = "#f6b6d4"   # cotton-pink body ink — 9.6:1 on the page
+foreground    = "#ffffff"   # WHITE body ink — 16.5:1 on the page, operator-directed. It
+                            # replaces the cotton pink (9.8:1), and it is pure white rather
+                            # than a softened near-white so that "white" means white here;
+                            # the whole point of the swap is a neutral running text under a
+                            # loud palette
 accent_color  = "#fb6f92"   # hot pink
 heading_color = "#f6e94f"   # lemon headings — 12.8:1, the palette's brightest against its
                             # darkest, which is the most contrast the palette can offer
 link_color    = "#61c7c9"   # turquoise links — 8.1:1
-list_marker_color = "#fb6f92"   # hot-pink bullets/numerals/checkboxes — 6.0:1
+list_marker_color = "#fb6f92"   # hot-pink bullets/numerals/checkboxes — 6.0:1. It still
+                            # governs the ORDERED numerals and the task boxes; the bullets
+                            # below opt out of it by being colour emoji (see next block)
+
+# ── The bullets: a confection per nesting tier (TDD 18.26) ────────────────────
+# Operator-directed. One sweet per depth, so a nested list reads as a sweet-shop shelf
+# rather than as one glyph at three indents.
+#
+# ⚠️ A COLOUR EMOJI DOES NOT TAKE `list_marker_color`, AND THAT IS ACCEPTED HERE. Its
+# colours live in the font, so the hot pink above paints nothing at any of these three
+# tiers — the bullets leave the "furniture" hue family the quote bar and the task boxes
+# keep, and they are the only element on this page that does. They also reach an export
+# as a rasterised colour glyph rather than as text, which on macOS means the bullet
+# character is absent from the PDF's extractable text altogether (ScrAP-307). Both costs
+# were weighed and taken: this theme is named for the sweet, and the sweet is the point.
+# The disclosure fold below declined the SAME glyph on the SAME two counts and still
+# does — a fold is a control whose two states must stay tellable apart at a glance,
+# where a bullet is decoration and can afford to be a picture.
+list_bullet_glyph   = "🍬"  # depth 1 — the wrapped sweet, the theme's own symbol
+list_bullet_glyph_2 = "🍭"  # depth 2 — lollipop
+list_bullet_glyph_3 = "🍥"  # depth 3 and deeper — the pink-and-white swirl
 
 # A BAND behind h1/h2 (TDD 18.25) — only the top two, same restraint Synthwave uses:
 # banding every level turns a document into a stack of stripes. Both fills are
@@ -385,6 +419,37 @@ heading_band_gradient_to_color_h1 = "#116364"
 heading_band_gradient_to_color_h2 = "#0d6811"
 heading_band_radius      = 8
 
+# ── SPARKLES on the two banded levels (TDD 18.54) ─────────────────────────────
+# Operator-directed, and the one decoration in this theme that neither fills nor
+# replaces anything: a scene COMPOSITES over the gradients above, which is why both
+# bands keep every colour stated for them and gain a cluster on top.
+#
+# ⚠️ ANCHORED TO A CORNER, WHICH IS ALSO WHAT SIZES THEM. A scene with no anchor is
+# fitted to its band's height and hung on the right edge, and that fit is exactly wrong
+# for a cluster: h1 and h2 are different heights, so one strip of sparkles would be
+# rescaled per level and the two would read as the same picture at two zooms. Pinned to
+# a corner each tile is drawn at its OWN size, so the sparkles stay the size they were
+# drawn and the arrangement is what differs between the levels — which is the point.
+#
+# ⚠️ BOTH CLUSTERS THIN OUT TOWARD THE LEFT, and that is a constraint rather than a
+# flourish: the heading TEXT starts at the band's left edge, so a cluster weighted that
+# way would sit under the words at every window width. They are drawn densest at the
+# right, where a band always has room, and fade to stray sprinkles long before the text
+# can reach them. A future arrangement must keep that gradient whatever corner it picks.
+#
+# The two anchors differ so the levels are tellable apart at a glance without a second
+# palette: h1 bursts from the TOP-RIGHT (it is the louder band and the taller one), h2
+# scatters along the BOTTOM-RIGHT. Same hand, two volumes.
+#
+# ⚠️ NOT ON PAPER. The PDF sink draws a banded heading line by line, so it draws no
+# heading scene at all and neither anchor reaches it (`heading_band_scene`'s own limit,
+# stated at its key). The bands and their gradients do export; only the sparkles are
+# absent, and that is a deliberate exclusion rather than an omission.
+heading_band_scene_h1    = "sprites/candy-sparkles-h1.png"
+heading_band_scene_anchor_h1 = "top-right"
+heading_band_scene_h2    = "sprites/candy-sparkles-h2.png"
+heading_band_scene_anchor_h2 = "bottom-right"
+
 font_family   = 'Comfortaa, Quicksand, Dosis, Cantarell, "Noto Sans", sans-serif'
 heading_font  = 'Comfortaa, "M PLUS Rounded 1c", Quicksand, Dosis, sans-serif'
 syntect_theme = "base16-ocean.dark"
@@ -395,32 +460,118 @@ syntect_theme = "base16-ocean.dark"
 # too bright to carry text as a fill (2.2:1), and the one job it did hold — the quote
 # bar — has moved to the hot pink. That a whole swatch becomes unusable is a property of
 # the DARK page, not of the palette: on a light page orchid would be a perfectly good ink.
+# The quote panel is a CANDY WRAPPER: four broad diagonal bands, EDGE TO EDGE, tiled at
+# 320x320 (TDD 18.59). Operator-directed, and it is where orchid and cotton pink
+# — the two swatches the white body ink left without a role — do their only work on this
+# page.
+#
+# ⚠️ THE BANDS TOUCH. NO BARE GROUND SHOWS BETWEEN THEM, and that is an operator ruling
+# from the rendered panel, twice given. The first spelling laid a 35px stripe on a 45px
+# gap, so the panel alternated colour, page, colour, page — and the gap was literally the
+# ambient background, which is exactly how it read: every other band was a dark navy
+# void (#131c52) that made the panel look like a page someone had ruled on rather than a
+# wrapper. A WRAPPER IS PRINTED ALL OVER. If this tile is ever re-derived, the ground is
+# a REFERENCE that each band is mixed against — it is not a band, and it must not appear.
+#
+# ⚠️ EACH BAND IS MIXED TO AN EQUAL PERCEPTUAL DISTANCE FROM THAT GROUND, NOT TO AN EQUAL
+# RATIO, and that rule is the whole of this tile's derivation. A band is its swatch mixed
+# a little way out of the ground, and the OBVIOUS spelling — one mix ratio for every
+# swatch — was tried twice and failed twice, because what reaches the eye is the swatch's
+# DISTANCE from the ground, not the proportion mixed in. At one eighth for all, the five
+# landed between ΔE 4.6 and ΔE 20.8: lemon shouted while grape and then orchid, both dark
+# blue-violets sitting nearly on top of the indigo, read as bands of bare page with hard
+# edges. Operator ruling, twice, from the rendered panel.
+#
+# So each ratio below is SOLVED for ΔE ≈ 11 against the ground rather than chosen:
+#   cotton pink 0.140 · hot pink 0.170 · turquoise 0.114 · orchid 0.233
+# The spread is the point — turquoise needs half of orchid's mix to read the same. To
+# make the panel fainter or louder, move the ΔE TARGET and re-solve all four; changing
+# one ratio by hand re-creates the defect this paragraph exists to record.
+#
+# ⚠️ MEASURE EACH BAND AGAINST THE PAGE, NOT ONLY AGAINST THE GROUND. The two are only
+# ΔE 2.1 apart (#101a4d vs #131c52), so they look interchangeable as a reference and are
+# not: what the reader judges is the band against the PAGE it is quoted on. Against the
+# page these four stand at cotton pink 12.0 · hot pink 11.5 · turquoise 11.2 · orchid
+# 13.2, and turquoise is the thinnest margin in the tile — the first place to look if a
+# band is ever called too dark again. The lever is the ΔE TARGET for all four, not a
+# patch to one band.
+#
+# ⚠️ THE ORDER OF THE FOUR IS SOLVED TOO, and it only started to matter once the bands
+# touched. Laid in palette order, cotton pink and orchid (ΔE 10.3 apart, both violet)
+# ended up adjacent across the tile's wrap and merged into one band of double width, so
+# the wrapper read as one band fewer, one of them fat. The order below is the cyclic
+# arrangement that MAXIMISES the smallest neighbour gap — the weakest seam in it is
+# cotton|turquoise at ΔE 6.2 — and the wrap from the last band back to the first is a
+# seam like any other, so it is included in that solve:
+#   cotton pink → turquoise → hot pink → orchid → (wraps to cotton pink)
+#
+# ⚠️ FAINT BY MEASUREMENT, not by eye: the BRIGHTEST PIXEL in the tile leaves white body
+# text at 11.77:1 — far past the 4.5:1 floor a fill answers to, which is the whole reason
+# a pattern is allowed behind running text at all. Re-measure the worst pixel, not the
+# average, if these are ever brightened. Note the panel got LOUDER OVERALL when the gaps
+# went, since half its area stopped being bare page — the worst pixel did not move, but
+# the average did, so a brightening that once looked safe may not be.
+#
+# ⚠️ TWO SWATCHES ARE ABSENT, and NEITHER can be restored by nudging a ratio:
+#   · GRAPE #6C2A92 — the first to disappear into the page. At ΔE 11 it needs so much
+#     ground mixed out of it that it stops being grape and becomes a second orchid.
+#   · LEMON #F6E94F — the lesson that ΔE PARITY IS NECESSARY BUT NOT SUFFICIENT. At
+#     0.061 it measured ΔE 10.7 from the ground like everything else, yet it rendered
+#     #212852 and the operator read it, correctly, as too dark to tell from the page:
+#     measured against the PAGE it was 9.8, the weakest in the tile, because nearly all
+#     of its distance was LIGHTNESS rather than hue. Nor does mixing it harder rescue it
+#     — MEASURED, lemon on this ground goes grey, not yellow (0.10 → #2a3052 slate,
+#     0.15 → #353b52 grey-olive), so the band stops being lemon before it starts being
+#     visible. A bright warm swatch has nowhere to go on a dark cold page at panel
+#     faintness. Four bands, four distinguishable hues.
+#
+# The tile is DELIBERATELY LARGE — 80px per band, so the period is 320px and the tile
+# has to be square at that size to repeat seamlessly on a 45° diagonal. It costs ~410 KB
+# of decoded raster while this theme is selected and nothing on the GPU (the app renders
+# through Cairo), and the theme switch frees it (TDD 18.58). A smaller tile cannot
+# express a band this wide: the pattern's period IS the tile.
+#
+# ⚠️ It REPLACES `blockquote_bg` rather than sitting on it, so this theme states no such
+# key: the tile carries its own base. And it tiles at NATURAL size, so it does not scale
+# with zoom — the stripes get finer relative to the text as the reader zooms in, the same
+# bargain every other tiled decoration here makes.
+blockquote_bg_sprite = "sprites/candy-stripes.png"
 blockquote_bar_color = "#fb6f92"  # HOT PINK bar — 6.0:1 on the page (orchid was 3.9:1), and it
                             # pairs the quote bar with the list markers as one "furniture"
                             # family. A solid graphic carries no text, so the fill ceiling
                             # does not apply and the raw swatch can be used undiluted
 rule_color     = "#f6e94f"  # lemon section rule (heading family)
-table_border_color = "#61c7c9"  # turquoise grid
+table_border_color = "#3a7779"  # turquoise grid, SHADED to 60% value. The raw link
+                            # turquoise was 8.2:1 against the page and read as brilliant —
+                            # a grid is structure, not content, and a line that outshouts
+                            # the text it contains turns a table into a cage (the reading
+                            # Bedtime's border block already records). Shaded it holds the
+                            # hue and lands at 3.21:1, just past the 3:1 non-text floor,
+                            # with nothing below that floor left to spend. ⚠️ Inside the
+                            # header row it is now faint — 1.55:1 against `table_head_bg` —
+                            # so the header reads as one filled band rather than as ruled
+                            # cells. That is the trade the dimming buys and it is deliberate
 table_head_bg  = "#9e1449"  # a SHADE of the hot pink. The raw swatch #fb6f92 is impossible
                             # here: at L=0.340 it is ~4x over the fill ceiling, giving lemon
-                            # header text 2.14:1 and body ink 1.61:1 — both unreadable. Shaded
-                            # to L=0.083 it keeps the hue and reads 6.3:1 / 4.7:1. This is the
+                            # header text 2.14:1 and white body ink 2.70:1 — both unreadable. Shaded
+                            # to L=0.083 it keeps the hue and reads 6.3:1 / 7.9:1. This is the
                             # luminance law again: a swatch's ROLE is decided by its value,
                             # and "use the pink here" is a hue instruction, not a value one
 selection_bg   = "#274088"  # blue-family. Re-shaded with the page: this and the two code
                             # surfaces below were DERIVED from the old purple page rather than
                             # taken from the palette, so leaving them behind would have left
-                            # three off-hue purples on a blue page (body ink 5.8:1)
+                            # three off-hue purples on a blue page (body ink 9.7:1)
 code_block_bg  = "#070c26"  # RECESSED below the page — on a dark theme a code block reads as
-                            # a panel by going darker, not lighter (ink 11.5:1)
+                            # a panel by going darker, not lighter (ink 19.3:1)
 code_inline_bg = "#1d2a60"  # LIFTED above the page — deliberately the opposite direction from
                             # the block, so an inline span can never look like a stray fragment
-                            # of a fenced block (ink 8.1:1)
+                            # of a fenced block (ink 13.5:1)
 
-# Overlays: one SHADE per palette hue, every one under the L<=0.0896 ceiling, so the
+# Overlays: one SHADE per palette hue, every one far under the L<=0.1833 ceiling the white
+# ink sets (each was derived under the old pink ink's L<=0.0896 and none was raised), so the
 # body ink stays legible on all four AND no two can be confused for each other.
-annotation_hl_color = "#6c2a92"   # grape   — ink 5.3:1
-find_hl_all_color = "#0a5658"   # deep turquoise — ink 4.6:1
+annotation_hl_color = "#6c2a92"   # grape   — ink 8.8:1
+find_hl_all_color = "#0a5658"   # deep turquoise — ink 8.5:1
 find_hl_current_color = "#fb6f92"   # HOT PINK, undiluted. Deliberately BRIGHT rather than shaded:
                               # the current match is a transient pointer, and the shipped
                               # themes treat it that way (Synthwave #ff2f92, Terminal #55ffff
@@ -429,7 +580,7 @@ find_hl_current_color = "#fb6f92"   # HOT PINK, undiluted. Deliberately BRIGHT r
                               # necessarily sits beside — same hue, opposite value
 mark_bg         = "#5c5200"   # deep lemon — the ==highlight== marker. A shaded gold is the
                               # classic highlighter read, and it is the one overlay that
-                              # must never be mistaken for the others (ink 4.7:1)
+                              # must never be mistaken for the others (ink 7.9:1)
 
 # ── The disclosure fold, `<details>` (TDD 18.48–18.51) ─────────────────────────
 # ROUND rather than pointed. ⊕/⊖ is the oldest disclosure vocabulary there is, it is the
@@ -439,7 +590,10 @@ mark_bg         = "#5c5200"   # deep lemon — the ==highlight== marker. A shade
 # indicator that does not change when clicked is this control's only real failure.
 # 🍬 was the obvious pick and is out on two counts: a colour emoji ignores
 # `disclosure_marker_color` outright (its colours are in the font), and it reaches an
-# export as a rasterised colour glyph rather than as text.
+# export as a rasterised colour glyph rather than as text. The BULLETS above now pay
+# exactly those two costs by operator ruling, and this block is not thereby overruled:
+# a fold has two states that must stay tellable apart at a glance and is the one
+# indicator whose failure is silent, so it keeps a stroked pair that the theme can ink.
 disclosure_glyph          = "⊕"
 disclosure_expanded_glyph = "⊖"
 # Hot pink — the furniture family the bullets and the quote bar already share. 5.68:1 at
@@ -470,8 +624,13 @@ disclosure_band_radius            = 8
 # Lemon label, in the heading/rule family: the summary is the title of what the fold
 # hides. 12.17:1 at the pink end, 9.46:1 at the green end.
 disclosure_fg         = "#f6e94f"
-# The collapsed preview is the cotton-pink body ink SHADED — a hint at half voice rather
-# than a fifth hue on this page. 5.98:1 at the pink end, 4.64:1 at the green end, both
+# The collapsed preview was the body ink SHADED — a hint at half voice rather than a
+# fifth hue on this page. ⚠️ THE BODY INK IS WHITE NOW AND THIS VALUE WAS NOT MOVED WITH
+# IT, so the relationship it was chosen for is broken: it is a dusty pink, and it is the
+# last trace of cotton pink left anywhere in this theme. Kept deliberately, pending a
+# ruling — the alternative that restores the rule is a neutral grey at the same value
+# (#a8a8a8 reads 6.44:1 / 5.01:1 on the two band ends), which costs the pink its final
+# appearance. 5.98:1 at the pink end, 4.64:1 at the green end, both
 # clear of the 4.5:1 text floor. ORCHID #a063c8 was the tempting answer here, being still
 # the one swatch with no role at all, and it is still unusable: 3.9:1 on the page and
 # lower on both of these. The luminance law again — a swatch's role is decided by its

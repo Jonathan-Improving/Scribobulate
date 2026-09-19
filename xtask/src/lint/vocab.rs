@@ -28,7 +28,11 @@ fn theme_key_decl_rx() -> &'static Regex {
     static RX: OnceLock<Regex> = OnceLock::new();
     rx(
         &RX,
-        r#"=\s*"([a-z0-9_]+)"\s*:\s*(Text|Color|Font|Float|Int|Line|Glyph|Sprite)\b"#,
+        // The alternation is `theme::keys::Kind`'s variant list, and it has to track it:
+        // a kind missing here makes every key of that kind invisible to this gate, which
+        // then reports the key as documented-but-absent-from-the-code — an accusation
+        // pointing at the two documents that are RIGHT.
+        r#"=\s*"([a-z0-9_]+)"\s*:\s*(Text|Color|Font|Float|Int|Line|Glyph|Sprite|Anchor)\b"#,
     )
 }
 

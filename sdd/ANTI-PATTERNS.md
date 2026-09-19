@@ -366,6 +366,8 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 | 351 | A gdk-pixbuf loader module that retains every decode — invisible to refcount assertions, visible only as slope | C |
 | 352 | `GdkTexture::from_file`/`from_bytes` reach a pixbuf module's INCREMENTAL path, not its one-shot `load` | C |
 | 353 | A coalescing slot shared by every subject, whose loser nothing re-issues | B |
+| 354 | A reachability probe whose PRECONDITION names an asset that does not resolve — the key reads as reaching nothing | C |
+| 355 | Solving a themed fill against the surface it is MIXED from rather than the page it is READ on | C |
 
 ---
 
@@ -1038,6 +1040,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 
 ## 157. Collapsing a large `GtkTreeListModel` while the `GtkListView` is scrolled to the bottom strands a stale far-end row
 **Scribobulate**: Re-anchor the ListView to the **top** before collapsing — reset the outline scroller's vadjustment to 0 (`vadjustment().set_value(0.0)`) at the start of collapse-all, so the anchor is the surviving root row and the collapse removes only rows *below* it.
+**Cross-platform**: this guard is INERT on macOS and that is not a fault — it passes there with the fix it guards removed, because `GtkListView` 4.22.4 does not exhibit the 4.6 defect at all, so a green macOS suite is never evidence a Linux-era fix is still required (mac seat, MEASURED, GTK 4.22.4/Quartz).
 **See**: gtk4-rs skill → lists-and-models (GTK4Rs/AP-143; kin GTK4Rs/AP-111).
 
 ## 158. A content-less list item still emits a full item (and task marker) — an unconditional per-item gutter decoration draws a stray marker
@@ -1533,51 +1536,8 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **See**: gtk4-rs skill → ui-testing-debugging (GTK4Rs/AP-319), which holds both abort cases, the `gtk_popover_get_pointing_to` NULL-parent fallback mechanism, and the "price the edit" argument including the premise this entry originally got wrong.
 
 ## 278. A filename or file-existence predicate standing in for a semantic question — six measured cases, each confidently wrong
-
-**Symptom**: a check answers with total confidence and is wrong in whichever direction costs
-more. A cross-reference gate reported two dangling documents that were Rust field accesses. A
-licence audit reported four projects as shipping no licence text when one ships eleven. A
-dependency probe reported seven runtime contracts as missing from a machine that resolves all
-of them.
-
-**Root cause**: each predicate is a *structural* stand-in for a *semantic* question, and the
-substitution is invisible at the call site.
-- `\bPLAN\.[A-Za-z0-9_-]+` asks "is this a document path?" — case-insensitively it says yes to `plan.switch_to`, a field access.
-- `^(licence|license|copying|copyright|notice)` asks "does this project ship a licence?" — it says no to a directory of SPDX-named texts (`LGPL-2.1-or-later.txt`).
-- `Test-Path api-ms-win-crt-heap-l1-1-0.dll` asks "does this dependency resolve?" — it says no for an **API set contract**, which is not a file and resolves through the loader's schema.
-
-**Resolution**: match the instrument to the question. Case-sensitivity where the pattern is
-case-bearing; **enumerate the directory, never the filename pattern**; ask the loader, not the
-filesystem, whether a dependency resolves. Where a semantic question has no cheap structural
-proxy, pay for the semantic answer — reading a running process's module list cost one command.
-
-**THE ESCALATION: the wrong answer becomes a false LEGAL claim.** A "the licence file exists"
-condition passed for all three in the gvsbuild prefix. `pcre2/COPYING` is four lines pointing
-at a `LICENCE` that is not shipped; `cairo/COPYING` points at two files, neither present;
-`gettext/COPYING` is GPL-3.0, the licence of the gettext TOOLS, while the shipped DLL is
-libintl (LGPL-2.1) — staging it would have made a confident false statement about the product
-that a downstream redistributor acts on. The gate now requires each row to declare a **string
-that must occur in its licence text**, testing identity rather than presence. Note the
-ordering trap: "vendor a licence for every project shipping none" and "check each vendored
-file exists" are both reasonable, and neither sees a file that exists, is named correctly, and
-says the wrong thing.
-
-**A fourth case ran through three proxies, the last a careful inference from complete
-evidence that was still wrong.** `share/icons/hicolor` was reconciled by **counting** — right,
-agreed by two seats, and blind to IDENTITY: the SVGs were GtkSourceView's completion set, not
-Adwaita artwork. (Two seats agreeing on the measured half is why nobody re-examines the
-inferred half.) Its licence was then inferred as LGPL-2.1 because the SVGs carry no header and
-no licence file sits beside them — both true, and both facts about the INSTALLED TREE: upstream
-installs the icon subdirectory only, so the governing `data/icons/COPYING` (CC-BY-SA-3.0) never
-ships. GEP-50 generalises it. What stays here is that we held the narrow version
-("an empty directory is evidence about the packaging") and still walked in, because a
-POPULATED directory lacking a COPYING reads as informative where an empty one reads as
-suspicious.
-
-**Lesson**: a predicate over a NAME or over EXISTENCE is a proxy, and every proxy has a domain
-where it silently inverts. The tell is that it never returns "I don't know" — it returns a
-clean answer of the wrong kind. Ask what it would say about the case you have *not* got. —
-Severity: High
+**Scribobulate**: the cross-reference gate matches `PLAN.<topic>` case-SENSITIVELY (a case-insensitive pattern reported `plan.switch_to`, a field access, as a dangling document); the Windows licence audit enumerates the vendored directory instead of matching `COPYING`-style names, and each row declares a string that must occur in its licence text, so a file that exists under the right name and says the wrong thing is caught.
+**See**: `general-engineering-principles` skill → verification-and-gates (`GEP-76`), which carries all four cases, the false-legal-claim escalation and the proxy-replacing-a-proxy sequence; kin `GEP-49`, `GEP-50`. Migrated to a stub 2026-09-19 after verifying that text is installed; the essay is in this file's history.
 
 ## 279. `gvsbuild --configuration release` compiles GTK's assertions OUT, so the development box cannot enforce the contracts CI enforces
 **Scribobulate**: the Windows seat tests against the artefact CI CONSUMES — the published gvsbuild archive unpacked to its own prefix, with the GTK-prefix variable pointed at it per-invocation — rather than a locally built lookalike; the practice is recorded in `packaging/windows/README.md` and `.github/workflows/pipeline.yml` pins that archive by release tag. Found as a fatal GTK-internal assertion aborting in CI that no configuration of the Windows development box could reproduce, same version number both sides.
@@ -1613,22 +1573,8 @@ Severity: High
 **See**: general-engineering-principles (GEP-56).
 
 ## 284. A dialog raised over a natively full-screen macOS window seizes a Space of its own and leaves the parent black
-
-**Symptom**: with a window in macOS native full screen, opening About or the unsaved-changes Save/Discard/Cancel prompt makes the **dialog** go full screen into a Space of its own instead of floating over its parent; dismissing it returns to an unpainted black parent, and Escape never reaches the dialog. Reproduces **only from inside the `.app` bundle**, never from a bare `cargo run` binary — so the cheapest way to test it is the way that cannot see it.
-
-**Root cause**: GDK attaches a transient child via `-[NSWindow addChildWindow:ordered:]` from inside `gtk_window_realize`, and AppKit runs a genuine enter-full-screen transition on the *child* when the parent already occupies a full-screen Space. GDK tags every toplevel `NSWindowCollectionBehaviorFullScreenPrimary` unconditionally.
-
-**Resolution**: hold `transient-for` aside until the window has realized, tag the `NSWindow` `FullScreenAuxiliary` from the `realize` handler, then hand the parent back. Armed for every toplevel at startup rather than per dialog, so no future dialog site can forget it.
-
-**Lesson**: a window-system relationship established by the toolkit *at realize time* can mean something different when the parent is in a platform mode the toolkit does not model. Where a backend tags every toplevel with one collection behaviour unconditionally, "transient" is not the whole contract.
-
-**Where Scribobulate implements the fix**: `src/platform/mac/fullscreen.rs`. Guards: `the_transient_parent_is_withheld_until_the_window_has_realized` (mutation-checked in both directions, asserting both halves as **states** rather than as schedulings), the `is_secondary`/auxiliary unit tests, and `tests/MANUAL-TEST.md` §7.19m — which must be run **from the bundle**, since a bare binary cannot reproduce it (TDD 7.19).
-
-**See**: gtk4-rs skill → widgets-and-composites. Measured and written up by the macOS seat.
-
-**Cost**: a user-visible defect on every modal over a full-screen window, invisible to the development path most likely to be used. — Severity: High
-
----
+**Scribobulate**: `src/platform/mac/fullscreen.rs` withholds `transient-for` until the window has realized, retags the `NSWindow` `FullScreenAuxiliary` from the `realize` handler and restores the parent through a `WeakRef`; guarded by `the_transient_parent_is_withheld_until_the_window_is_realized`. Reproduces only inside the `.app` bundle, so a bare-binary run neither shows it nor catches its regression.
+**See**: gtk4-rs skill → widgets-and-composites (`GTK4Rs/AP-277`), which carries the mechanism, both failed fixes and the measured premise. Migrated to a stub 2026-09-19 after verifying that text is installed; the essay is in this file's history.
 
 ## 285. Merged into ScrAP-245 — a drive tool's zero exit is a claim about the tool, never about delivery
 
@@ -1969,3 +1915,19 @@ Severity: High
 ## 353. A coalescing slot shared by every subject, whose loser nothing re-issues
 **Routed**: GEP-79 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
 **Scribobulate**: the word-count scheduler queues one pending job per tab, so no subject's request can displace another's; the rule it now obeys is the coalescing rule in [CAM.md](CAM.md)'s deferred-operation matrix.
+
+## 354. A reachability probe whose PRECONDITION names an asset that does not resolve — the key reads as reaching nothing
+**Symptom**: the sink sweep reports a freshly added key as reaching NO surface, the verdict it gives a key nobody wired. It was wired on all three, and the sweep was right about what it measured.
+**Root cause**: a gated key is probed with the TOML its `Reach::needs` states, and that TOML has to WORK. Two anchor keys declared a `needs` naming `sprites/x.png`, which resolves to nothing — so the scene it was to supply never existed, and moving that scene changed no output.
+**Resolution**: a `needs` names something that resolves (`sprites/copper-plate.png`, the compiled-in reference the sweep's sprite probe uses for this reason). Read a neighbouring key's `needs` before inventing one.
+**Lesson**: a precondition is part of the instrument. A probe that fails because its own setup was inert accuses the subject, specifically enough to be believed — which is what sends you rewriting correct code.
+**Scribobulate**: `theme::tests::sinks::every_declared_key_reaches_every_surface_it_claims`.
+**See**: kin ScrAP-252 (a setup step that silently does not take effect, one layer out in a driven UI).
+
+## 355. Solving a themed fill against the surface it is MIXED from rather than the page it is READ on
+**Symptom**: a quote panel's stripes, solved to an equal perceptual distance (ΔE ~11) from the panel's ground, read as bands of bare page — twice, on two swatches, each rejected by eye after the numbers agreed.
+**Root cause**: the ground `#131c52` and the page `#101a4d` sit 2.1 ΔE apart, so they look interchangeable and are not — against the PAGE the failing stripes measured 9.8, the tile's weakest. And an equal ΔE says nothing about WHERE the distance went: one swatch spent it on lightness (a lighter patch of page), the next inside the page's own blue (a navy patch of page).
+**Resolution**: measure every fill against the page the reader sees it on, then LOOK. The lever for a panel is its ΔE target re-solved for every swatch at once, never one ratio nudged by hand.
+**Lesson**: perceptual distance is necessary, not sufficient, and the reference is half the measurement.
+**Scribobulate**: Candy's `blockquote_bg_sprite`, whose derivation comment in `data/themes.toml` carries the ratios and why three swatches are absent.
+**See**: TDD 18.59.

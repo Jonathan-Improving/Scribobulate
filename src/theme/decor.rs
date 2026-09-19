@@ -47,7 +47,7 @@
 //! expensive half — decoding the sprite — is cached in `crate::sprite`.
 
 use super::model::{ListGlyphs, Sprites, Theme};
-use super::MarkerGlyph;
+use super::{MarkerGlyph, SceneAnchor};
 use crate::sprite::SpriteRef;
 use gtk::gdk;
 
@@ -122,6 +122,17 @@ impl Fill<'_> {
     pub(crate) fn flat_or(&self, default: gdk::RGBA) -> gdk::RGBA {
         self.flat.unwrap_or(default)
     }
+
+    /// Whether this decoration is there at all — **either** rung stated.
+    ///
+    /// Only a decoration that may be absent asks this (the quote panel); the bar, the
+    /// rule and the chip are drawn unconditionally and take [`Fill::flat_or`] instead.
+    /// It is [`super::Band::is_present`]'s twin, and it exists for the same measured
+    /// reason: gating a decoration on its FLAT rung alone silently discards a sprite
+    /// the theme did state, with no log line to say so.
+    pub(crate) fn is_present(&self) -> bool {
+        self.sprite.is_some() || self.flat.is_some()
+    }
 }
 
 /// A heading band's appearance at one level — the **three-way** shape.
@@ -136,12 +147,17 @@ pub(crate) struct Band<'a> {
     /// and the gradient. SCHEMA's `heading_band_sprite` row: *"Outranks the fill and
     /// the gradient."*
     pub sprite: Option<&'a SpriteRef>,
-    /// A single curated image drawn ONCE, anchored to the band's right edge, **over**
-    /// whatever the band is filled with rather than in place of it. The one member of
-    /// this struct that composites, which is why it is not part of the
-    /// sprite/gradient/flat precedence below and why [`Band::without_sprite`] ignores
-    /// it entirely: a scene is a second layer, not a fourth appearance.
+    /// A single curated image drawn ONCE **over** whatever the band is filled with
+    /// rather than in place of it. The one member of this struct that composites,
+    /// which is why it is not part of the sprite/gradient/flat precedence below and
+    /// why [`Band::without_sprite`] ignores it entirely: a scene is a second layer,
+    /// not a fourth appearance.
     pub scene: Option<&'a SpriteRef>,
+    /// Which corner that scene is pinned in, and — inseparably — how it is sized: at
+    /// its own size in the corner, or `None` for the fitted right-edge scene this key
+    /// was added beside. Carried beside the scene rather than inside it so the field
+    /// stays a plain `Option<&SpriteRef>` every existing consumer already matches on.
+    pub scene_anchor: Option<SceneAnchor>,
     /// A vertical two-stop gradient, `(from, to)`. Present only where the level
     /// states **both** a fill and a `gradient_to`.
     pub gradient: Option<(gdk::RGBA, gdk::RGBA)>,
@@ -258,6 +274,20 @@ impl Theme {
         }
     }
 
+    /// The quote **panel** — its tile, else its flat fill, else no panel at all
+    /// (TDD 18.59).
+    ///
+    /// The one [`Fill`] in this module whose flat rung is legitimately absent, which is
+    /// why callers ask [`Fill::is_present`] rather than passing a fallback colour: an
+    /// unstated panel is not a transparent panel, it is a quote sitting on the page as
+    /// it always has (TDD 18.2).
+    pub(crate) fn blockquote_panel_decor(&self) -> Fill<'_> {
+        Fill {
+            sprite: self.sprites.blockquote_bg.as_ref(),
+            flat: self.blockquote_bg,
+        }
+    }
+
     /// The horizontal rule (TDD 18.31).
     pub(crate) fn rule_decor(&self) -> Fill<'_> {
         Fill {
@@ -299,6 +329,7 @@ impl Theme {
         Band {
             sprite: self.sprites.heading_band[level].as_ref(),
             scene: self.sprites.heading_band_scene[level].as_ref(),
+            scene_anchor: self.heading_band.scene_anchor[level],
             // The gradient keeps its precondition, because a gradient is a second stop
             // and needs a first one — SCHEMA's `heading_band_gradient_to_color` row
             // states it, unlike the sprite row.
@@ -330,6 +361,7 @@ impl Theme {
             // A disclosure summary carries no scene: the key is per heading LEVEL and a
             // fold has no levels, exactly as its gradient is flat rather than per level.
             scene: None,
+            scene_anchor: None,
             gradient: flat.zip(self.disclosure_band_gradient_to),
             flat,
         }
@@ -350,6 +382,7 @@ impl Theme {
         Band {
             sprite: self.sprites.table_head.as_ref(),
             scene: self.sprites.table_head_scene.as_ref(),
+            scene_anchor: self.table_head_scene_anchor,
             gradient: flat.zip(self.table_head_gradient_to),
             flat,
         }
@@ -449,6 +482,7 @@ static NO_SPRITES: Sprites = Sprites {
     heading_band_scene: [None, None, None, None, None],
     heading_marker: [None, None, None, None, None],
     blockquote_bar: None,
+    blockquote_bg: None,
     blockquote_scene: None,
     rule: None,
     table_head: None,

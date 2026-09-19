@@ -2931,6 +2931,13 @@ appearance that predates the feature; `Sepia` is the book-like reading theme.
 - **And** a scene alone is a band, exactly as a sprite alone is
 - **And** it is clipped to the band, including its rounded corners
 - **And** the same picture reaches the HTML artefact; the PDF sink draws the band's fill only, because a paginated band is several abutting rects with no single right edge to anchor one scene to
+- **And** a theme may instead PIN that scene to one of the band's four corners (`heading_band_scene_anchor`, per level, `top-left` · `top-right` · `bottom-left` · `bottom-right`), which also changes how it is SIZED: a pinned scene is drawn at its own size scaled by the page's zoom, where a fitted one takes the band's height
+- **And** the anchor and the fit are alternatives rather than a pair — an unstated anchor is the fitted rendering above, so a theme written before this key renders identically (18.2), and there is no `right` corner and no separate size key
+- **And** a pinned scene that is larger than its band overflows the edges its anchor does NOT hold and is clipped there, rather than being re-anchored or shrunk
+- **And** an unrecognised corner leaves the scene fitted rather than failing the theme (18.11)
+- **And** the same corner reaches the HTML artefact, at the same size rule — the picture's own, with no fit attached
+- **And** the header cell's twin key (`table_head_scene_anchor`, 18.57) pins its scene to a corner of the CELL on every surface the cell's scene reaches, the PDF page included
+- **Rationale** a cluster is not scenery. Scenery is whatever size its band makes it, which is why a fit is right for it; a strewn cluster — Candy's sparkles — is drawn at a chosen spread, and fitting it would rescale that spread per heading level, so the same tile would read as two different pictures on h1 and h2
 
 ### 18.55 A theme can mark a heading with an icon after its text
 - **Given** a theme setting `heading_marker_sprite` for a level (optionally with `heading_marker_size`)
@@ -2970,6 +2977,16 @@ appearance that predates the feature; `Sepia` is the book-like reading theme.
 - **And** selecting the first theme again still draws them: they reload on the first paint that needs them
 - **And** the switch itself does not freeze the window (TDD 1.7)
 - *(Limitation, stated rather than promised: compiled-in PNG bytes stay in the binary — that is the built-in-theme-with-nothing-on-disk promise, a few kilobytes the OS can page out — and system fonts a theme names stay in Pango/fontconfig. This rubric frees decoded rasters, which is the cost that scales with a user-supplied sprite.)*
+
+### 18.59 A theme can TILE a picture across a quote panel
+- **Given** a theme naming `blockquote_bg_sprite`, and a document with a quotation long enough to span several lines
+- **When** it is read on screen, and separately exported to HTML and to PDF
+- **Then** the panel behind the quote is that picture tiled at its natural size on all three surfaces, replacing `blockquote_bg` rather than sitting on top of it — a transparent tile must not let the flat colour bleed through
+- **And** stating the sprite ALONE still produces a panel: the fill is not a precondition for it, the same way a heading band's sprite alone makes a band
+- **And** a theme stating neither key still draws no panel at all, exactly as before the keys existed (TDD 18.2)
+- **And** a sprite that cannot be decoded falls back to `blockquote_bg` where the theme states one and to no panel where it does not — never to a gap
+- **And** the tile does not nest: a quote inside a quote sits on the outer level's grid rather than starting a second one (TDD 2.11b)
+- **And** the pattern is CONTINUOUS down the quote on every surface — a decoration the medium draws line by line (the PDF page) anchors its grid to the page rather than to each line's own rect, so a diagonal or large-featured tile is not cut at every line boundary
 
 ## 19. Local document-link navigation
 

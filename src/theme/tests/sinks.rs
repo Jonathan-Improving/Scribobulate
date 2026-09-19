@@ -57,6 +57,10 @@ fn probe(kind: Kind) -> &'static str {
         // the skip; if a sprite key cannot be probed, give it a `needs` instead.
         Kind::Sprite => "\"sprites/copper-plate.png\"",
         Kind::Line => "\"double\"",
+        // A corner no shipped theme names — the anchor keys are reachable only WITH a
+        // scene, which their `needs` supplies, and this value moves that scene to a
+        // corner none of the shipped ones sits in.
+        Kind::Anchor => "\"bottom-left\"",
         // Far from every shipped value and inside every clamp range in the registry.
         Kind::Int => "97",
         Kind::Float => "3.5",
@@ -376,7 +380,10 @@ fn decoration_digest(t: &Theme) -> String {
             t.sprites.blockquote_scene,
             t.table_head_decor(),
             t.annotation_chip_fg,
-            t.blockquote_bg,
+            // The quote PANEL as a decoration, not as a colour: `blockquote_bg` and
+            // `blockquote_bg_sprite` are two rungs of one fill, and naming the colour
+            // alone reported the tile as reaching nothing (TDD 18.59).
+            t.blockquote_panel_decor(),
             t.blockquote_fg,
             t.code_block_bg,
             t.find_hl_all_color,

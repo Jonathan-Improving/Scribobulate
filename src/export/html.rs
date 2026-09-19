@@ -762,15 +762,27 @@ fn band_css(decor: &crate::theme::Band<'_>, radius_design_px: i32, uris: &Sprite
     // first and the band's own surface last; a bare colour is only legal as the final
     // item of the shorthand, which that ordering also satisfies.
     //
-    // `right center / auto 100%` is the declaration of the same fit
-    // `widgets::draw_scene_into` computes: fit to the band's HEIGHT, keep the source
-    // aspect (`auto` width), anchor to the right edge, and draw once. `no-repeat` is
-    // what makes it a scene rather than a texture, and is the single token that would
-    // silently turn this into a second tiling path if it were dropped.
+    // Two spellings, one per size rule, matching the two the preview paints:
+    //
+    //   unstated — `right center / auto 100%` is the declaration of the fit
+    //     `widgets::draw_scene_into` computes: fit to the band's HEIGHT, keep the
+    //     source aspect (`auto` width), hang it on the right edge, draw once.
+    //   a corner — the anchor's own `background-position` keywords and NO size at all,
+    //     so the browser draws the image at its intrinsic size, which is what
+    //     `widgets::draw_scene_corner` does with `sprite::scaled` (`SceneAnchor`).
+    //     ⚠️ The size is omitted rather than written `auto auto`: a `/` size in this
+    //     shorthand REQUIRES a position before it, so the two halves cannot be varied
+    //     independently here even if the vocabulary wanted them to be.
+    //
+    // `no-repeat` is on both and is what makes this a scene rather than a texture — the
+    // single token that would silently turn this into a second tiling path if dropped.
     let scene = decor
         .scene
         .and_then(|r| uris.get(r))
-        .map(|(uri, _, _)| format!("url({uri}) right center / auto 100% no-repeat"));
+        .map(|(uri, _, _)| match decor.scene_anchor {
+            Some(corner) => format!("url({uri}) {} no-repeat", corner.css_position()),
+            None => format!("url({uri}) right center / auto 100% no-repeat"),
+        });
     match (scene, base) {
         (Some(scene), Some(base)) => {
             let _ = write!(out, " background: {scene}, {base};");
@@ -986,8 +998,26 @@ fn blockquote_panel_css(t: &Theme, body_fg: &str, uris: &SpriteUris) -> String {
         .blockquote_scene
         .as_ref()
         .and_then(|r| uris.get(r))
-        .map(|(uri, _, _)| format!("url({uri}) right bottom no-repeat"));
-    let fill = t.blockquote_bg.map(to_hex_rgba);
+        .map(|(uri, _, _)| {
+            // The panel's corner is fixed (TDD 18.56) and is spelled through the same
+            // vocabulary an anchorable scene uses, so the one place a corner becomes
+            // CSS keywords is `SceneAnchor` — a literal here would be a second
+            // spelling of a decision this project now states once.
+            let corner = crate::theme::SceneAnchor::BottomRight.css_position();
+            format!("url({uri}) {corner} no-repeat")
+        });
+    // The panel's fill itself, as ONE layer: the theme's tile where it states one and
+    // that tile can be embedded, else its flat colour, else nothing. The precedence is
+    // `theme::decor`'s — a tile REPLACES the colour rather than sitting on it, so the
+    // two arms below are exclusive and the flat rung is never emitted behind a tile
+    // (a transparent tile would let it bleed through, the bug only an untested tile
+    // shows). `repeat` states what `widgets::tile_texture` computes: natural size,
+    // tiled, no scaling.
+    let decor = t.blockquote_panel_decor();
+    let fill = match decor.sprite.and_then(|r| uris.get(r)) {
+        Some((uri, _, _)) => Some(format!("url({uri}) repeat")),
+        None => decor.flat.map(to_hex_rgba),
+    };
     let bg = match (&scene, &fill) {
         (Some(scene), Some(fill)) => format!(" background: {scene}, {fill};"),
         (Some(scene), None) => format!(" background: {scene};"),
@@ -2213,6 +2243,53 @@ mod html_sink_tests {
         );
     }
 
+    /// TDD 18.59 — the quote PANEL's sprite reaches the artefact, embedded and tiled,
+    /// replacing `blockquote_bg` rather than layering over it, and making a panel on
+    /// its own.
+    ///
+    /// The replacement is asserted as the ABSENCE of the flat colour in the rule: a
+    /// shorthand carrying both would put the fill under a tile whose transparent pixels
+    /// let it through — visible only for the first theme that ships such a tile.
+    #[test]
+    fn a_blockquote_panel_sprite_is_embedded_tiled_and_replaces_the_flat_fill() {
+        let (_palette, mut theme) = style();
+        let body_fg = "#000000".to_string();
+        theme.blockquote_bg = crate::theme::parse_color("#00ff00");
+        let flat = super::blockquote_panel_css(&theme, &body_fg, &super::SpriteUris::default());
+        assert!(
+            flat.contains("#00ff00"),
+            "the control must put the flat panel in the sheet: {flat}"
+        );
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("panel.png");
+        std::fs::write(&path, ONE_PIXEL_PNG).unwrap();
+        theme.sprites.blockquote_bg = Some(crate::sprite::SpriteRef::File(path.clone()));
+        let css = super::blockquote_panel_css(&theme, &body_fg, &super::SpriteUris::default());
+        assert!(css.contains("data:image/png;base64,"), "{css}");
+        assert!(
+            css.contains(") repeat;"),
+            "tiled, not stretched or drawn once: {css}"
+        );
+        assert!(
+            !css.contains("#00ff00"),
+            "`blockquote_bg` is still in the shorthand behind the tile — the sprite must \
+             REPLACE the fill: {css}"
+        );
+        // The panel still does not nest, tile or no tile (TDD 2.11b).
+        assert!(css.contains("blockquote blockquote"), "{css}");
+
+        // And the tile ALONE is a panel: the fill is not a precondition for it.
+        theme.blockquote_bg = None;
+        let tile_only =
+            super::blockquote_panel_css(&theme, &body_fg, &super::SpriteUris::default());
+        assert!(
+            tile_only.contains("data:image/png;base64,") && tile_only.contains(") repeat;"),
+            "a theme stating the panel sprite and no `blockquote_bg` emitted no panel: \
+             {tile_only}"
+        );
+    }
+
     /// TDD 18.28 — the blockquote bar's sprite reaches the artefact, embedded, tiled,
     /// and REPLACING the flat colour rather than sitting over it.
     ///
@@ -2553,6 +2630,51 @@ mod html_sink_tests {
             css.contains("blockquote blockquote { background: transparent; }"),
             "a nested quote must reset the whole background, scene included: {css}"
         );
+    }
+
+    /// TDD 18.54 — a scene PINNED to a corner is a different declaration, not a moved
+    /// one: the corner's own `background-position` keywords and **no size**, so the
+    /// browser draws the image at its intrinsic size exactly as the preview draws it at
+    /// its natural size.
+    ///
+    /// ⚠️ The `/ auto 100%` fit must be ABSENT, and that is the half worth asserting:
+    /// a corner keyword with the fit still attached would place the scene correctly and
+    /// silently rescale it to the band's height, which is precisely the rendering the
+    /// anchor exists to escape — and it looks right in any screenshot of a band whose
+    /// height happens to match the art.
+    #[test]
+    fn a_corner_anchored_scene_is_pinned_at_its_own_size_in_that_corner() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("scene.png");
+        std::fs::write(&path, ONE_PIXEL_PNG).unwrap();
+
+        for (anchor, keywords) in [
+            (crate::theme::SceneAnchor::TopLeft, "left top"),
+            (crate::theme::SceneAnchor::TopRight, "right top"),
+            (crate::theme::SceneAnchor::BottomLeft, "left bottom"),
+            (crate::theme::SceneAnchor::BottomRight, "right bottom"),
+        ] {
+            let (palette, mut theme) = style();
+            theme.heading_band.fills[0] = Some(gtk::gdk::RGBA::new(0.2, 0.4, 0.6, 1.0));
+            theme.sprites.heading_band_scene[0] =
+                Some(crate::sprite::SpriteRef::File(path.clone()));
+            theme.heading_band.scene_anchor[0] = Some(anchor);
+            let css = super::stylesheet(&palette, &theme, &super::SpriteUris::default());
+            let h1 = heading_rule(&css, 1);
+
+            assert!(
+                h1.contains(&format!("{keywords} no-repeat")),
+                "{anchor:?} must hang in its own corner: {h1}"
+            );
+            assert!(
+                !h1.contains("auto 100%"),
+                "{anchor:?} must NOT carry the fit — a pinned scene keeps its own size: {h1}"
+            );
+            assert!(
+                h1.contains("#336699"),
+                "the fill still survives under a pinned scene: {h1}"
+            );
+        }
     }
 
     #[test]

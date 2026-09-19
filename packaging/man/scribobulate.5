@@ -307,6 +307,14 @@ it. Composites over the fill or gradient rather than replacing it, unlike
 beside it; a theme may state both. A scene alone is a band. Not drawn on the PDF
 page, where a band is paginated into several abutting rects.
 .TP
+.B heading_band_scene_anchor
+One of top\-left, top\-right, bottom\-left, bottom\-right. Pins the level's scene
+to that corner of the band and draws it at its own size, scaled by zoom, clipped
+to the band. Unstated, the scene keeps the fitted right\-edge rendering described
+above \- the anchor and the fit are alternatives, since a corner gives a picture
+no second dimension to fit to. Ignored where the level states no scene, and not
+drawn on the PDF page.
+.TP
 .B heading_band_radius
 Integer, default 0. Corner radius of the band. Clamped 0\-400. Not drawn in an
 exported PDF.
@@ -441,6 +449,13 @@ bar, so set
 .B blockquote_bar_width
 to the tile's own width.
 .TP
+.B blockquote_bg_sprite
+Sprite tiled at its natural size across the quote panel in place of
+.B blockquote_bg
+\- the fill is not painted underneath it, and a tile alone still makes a panel.
+Like the fill it does not nest: the grid is laid once from the outermost quote
+level. Tiles at natural size, so it does not scale with zoom.
+.TP
 .B blockquote_scene
 Sprite. A single curated image drawn once at a fixed size in the quote panel's
 bottom-right corner, over
@@ -490,6 +505,14 @@ origin. Outranks the fill and the gradient.
 Sprite path. A single curated image drawn once per header cell, fitted to that cell's
 height, anchored to its right edge and clipped to it. Composites over whatever the row is
 filled with. Unlike the other scene keys, this one also reaches the PDF page.
+.TP
+.B table_head_scene_anchor
+One of top\-left, top\-right, bottom\-left, bottom\-right. The header cell's twin
+of
+.B heading_band_scene_anchor
+\- pins the scene to that corner of the cell at its own size, clipped to it.
+Ignored where no scene is stated. Drawn in an exported PDF, as the scene it
+governs is.
 .TP
 .B table_head_fg
 Colour. Header-row ink. Omitted, it takes the bare

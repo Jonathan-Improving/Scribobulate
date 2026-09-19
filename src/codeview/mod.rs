@@ -1809,6 +1809,92 @@ mod gtk_integration_tests {
         crate::sprite::clear_cache();
     }
 
+    /// TDD 18.59 — a themed sprite TILES across the quote PANEL, replaces
+    /// `blockquote_bg` rather than painting over it, and makes a panel on its own.
+    ///
+    /// Three assertions on one framebuffer, and the second two are the ones worth having.
+    /// A presence check alone would pass a panel that filled first and tiled on top,
+    /// which is invisible for an opaque tile and shows as a stray tint through the first
+    /// transparent one anybody ships — so the fixture's tile is half clear and the flat
+    /// fill must be GONE. The third is the `Band::is_present` lesson applied to the
+    /// panel: a theme stating only the sprite used to be indistinguishable from a theme
+    /// stating nothing, because the fill was the gate.
+    #[gtktest::test]
+    fn a_blockquote_panel_sprite_tiles_and_replaces_the_flat_fill() {
+        const FLAT: (u8, u8, u8) = (0x00, 0xff, 0x00);
+        const TILE: (u8, u8, u8) = (0xff, 0x00, 0xff);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("panel.png");
+        write_half_clear_tile(&path, 0xff_00_ff_ff);
+
+        // The panel painted from BOTH keys: the tile must win outright.
+        let mut themes = crate::theme::themes();
+        themes.merge_over_for_test(
+            "[themes.panelled]\nbackground = \"#ffffff\"\nforeground = \"#000000\"\n\
+             blockquote_bg = \"#00ff00\"\n",
+        );
+        let mut theme = themes.resolve("panelled");
+        // Set the resolved path directly, for the reason the bar's test states: `resolve`
+        // never touches the filesystem, and validation is `sprite.rs`'s subject.
+        theme.sprites.blockquote_bg = Some(crate::sprite::SpriteRef::File(path.clone()));
+        let data = {
+            let _theme = crate::theme::activate_for_test(theme);
+            crate::sprite::clear_cache();
+            quoted_framebuffer()
+        };
+        let found = |want: (u8, u8, u8)| contains_rgb(&data, want);
+        assert!(
+            found(TILE),
+            "the panel sprite never reached the framebuffer"
+        );
+        assert!(
+            !found(FLAT),
+            "`blockquote_bg` is still painted under the tile — the sprite must REPLACE \
+             the fill, not sit on top of it"
+        );
+
+        // And the same tile with NO fill stated at all: still a panel.
+        let mut themes = crate::theme::themes();
+        themes.merge_over_for_test(
+            "[themes.tileonly]\nbackground = \"#ffffff\"\nforeground = \"#000000\"\n",
+        );
+        let mut theme = themes.resolve("tileonly");
+        theme.sprites.blockquote_bg = Some(crate::sprite::SpriteRef::File(path));
+        let data = {
+            let _theme = crate::theme::activate_for_test(theme);
+            crate::sprite::clear_cache();
+            quoted_framebuffer()
+        };
+        assert!(
+            contains_rgb(&data, TILE),
+            "a theme stating the panel sprite and no `blockquote_bg` drew no panel — \
+             the fill is not a precondition for the tile (TDD 18.59)"
+        );
+        crate::sprite::clear_cache();
+    }
+
+    /// One quoted line, presented and captured — the fixture
+    /// [`a_blockquote_panel_sprite_tiles_and_replaces_the_flat_fill`] needs twice.
+    fn quoted_framebuffer() -> Vec<u8> {
+        let view = CodePreviewView::new();
+        view.buffer().set_text("A quoted line\n");
+        view.set_blockquotes(
+            vec![crate::span::QuoteSpan {
+                span: crate::span::BufferSpan::new(0, 13),
+                depth: 1,
+            }],
+            // The accent bar, deliberately NOT the panel's flat green: the bar is drawn
+            // from this palette colour on the same rows, so sharing one colour would let
+            // a bar satisfy the "the fill is gone" assertion below and the test would
+            // pass with the panel painting nothing at all.
+            gdk::RGBA::new(0.0, 0.0, 1.0, 1.0),
+        );
+        let window = present_for_paint(&view);
+        let data = framebuffer_of(&view, 400.0, 200.0);
+        window.destroy();
+        data
+    }
+
     /// **A bar sprite still tiles when the quote sits far down a long document.**
     ///
     /// The defect this pins shipped, and it is the shape a presence test cannot see: the

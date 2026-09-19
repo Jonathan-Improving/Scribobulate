@@ -82,5 +82,11 @@ pub(super) fn paint_band(
     // table header's band (TDD 18.57), which is a band drawn by an anchored widget
     // rather than by this pass. What stays here is the half that is genuinely about a
     // text view: which span, measured how, at what extent.
-    crate::widgets::paint_band_into(snapshot, &rect, decor, radius, ctx.frames());
+    // Zoom reaches the painter for the SCENE's sake alone: a corner-anchored scene is
+    // drawn at its own size, which is a themed pixel metric like any other and must
+    // track the page or it shrinks to nothing as the reader zooms in (THEMING § Pixel
+    // metrics and zoom). Every other layer here is sized by the rect, which is already
+    // zoomed by the text it was measured from.
+    let zoom = ctx.imp.gutter_zoom.get();
+    crate::widgets::paint_band_into(snapshot, &rect, decor, radius, zoom, ctx.frames());
 }

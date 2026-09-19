@@ -789,3 +789,4 @@ constant. Returning to a fullscreen Space from another application is also clean
 **Linux and Windows have not been checked**, so the `Mac` narrowing is provisional — the
 register's rule is that behaviour seen on one platform is not platform-specific until a
 peer seat looks.
+

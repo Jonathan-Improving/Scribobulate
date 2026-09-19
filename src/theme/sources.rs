@@ -9,7 +9,7 @@
 use super::keys::{Key, Levelling};
 use super::spec::{expected, ThemeSpec, Value};
 use super::{parse_color, sanitize_font_family};
-use super::{CssSafeFontStack, LineStyle, MarkerGlyph};
+use super::{CssSafeFontStack, LineStyle, MarkerGlyph, SceneAnchor};
 use crate::sprite::SpriteRef;
 use gtk::gdk;
 use std::cell::RefCell;
@@ -272,6 +272,17 @@ impl Sources<'_> {
             .unwrap_or_else(|| key.bound.line_floor())
     }
 
+    /// A scene's corner, per slot. `None` — unstated, or a spelling this build does
+    /// not know — leaves that level's scene fitted to its band rather than pinned,
+    /// which is the behaviour the key was added beside (`SceneAnchor`).
+    pub(crate) fn anchors<const N: usize>(&self, key: &Key) -> [Option<SceneAnchor>; N] {
+        self.each(key, |v| v.text().and_then(SceneAnchor::parse))
+    }
+
+    pub(crate) fn anchor(&self, key: &Key) -> Option<SceneAnchor> {
+        self.bare(key, |v| v.text().and_then(SceneAnchor::parse))
+    }
+
     pub(crate) fn ints<const N: usize>(&self, key: &Key) -> [i32; N] {
         let range = key.bound.int_range();
         let found: [Option<i32>; N] = self.each(key, |v| v.int());
@@ -318,6 +329,7 @@ mod tests {
             Kind::Color => ("\"#111111\"", "\"#222222\""),
             Kind::Font => ("\"Georgia, serif\"", "\"Verdana, sans-serif\""),
             Kind::Line => ("\"single\"", "\"wavy\""),
+            Kind::Anchor => ("\"top-left\"", "\"bottom-right\""),
             Kind::Glyph | Kind::Text => ("\"a\"", "\"b\""),
             Kind::Sprite => ("\"one.png\"", "\"two.png\""),
             Kind::Int => ("3", "7"),

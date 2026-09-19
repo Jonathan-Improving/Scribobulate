@@ -480,3 +480,76 @@ fn a_theme_bands_the_levels_it_names_and_no_others() {
         [keys::HEADING_BAND_RADIUS.bound.int_range().max; HEADING_LEVELS]
     );
 }
+
+/// TDD 18.54 — a scene's ANCHOR is per level, `Option`-shaped, and falls back to the
+/// bare key exactly as every other heading-levelled key does.
+///
+/// Three claims, because they are one contract: a narrowed spelling reaches its own
+/// level, the bare spelling reaches every level the theme did not narrow, and a level
+/// with no answer anywhere stays `None` — which is not "no scene" but "a scene fitted to
+/// the band's right edge", the rendering the key was added beside (`SceneAnchor`).
+#[test]
+fn a_scene_anchor_is_per_level_and_absent_means_fitted() {
+    let sys = Themes::builtin().resolve(SYSTEM_ID);
+    assert!(
+        sys.heading_band.scene_anchor.iter().all(Option::is_none),
+        "System pins no scene anywhere, so it renders as it did before the key existed"
+    );
+
+    let mut themes = Themes::builtin();
+    themes.merge_over(
+        Themes::parse_compiled(
+            "[themes.synthwave]\nheading_band_scene_anchor = \"bottom-left\"\n\
+                 heading_band_scene_anchor_h1 = \"top-right\"\n",
+        )
+        .unwrap(),
+    );
+    let sw = themes.resolve("synthwave");
+    assert_eq!(sw.heading_band.scene_anchor[0], Some(SceneAnchor::TopRight));
+    for level in 1..HEADING_LEVELS {
+        assert_eq!(
+            sw.heading_band.scene_anchor[level],
+            Some(SceneAnchor::BottomLeft),
+            "level {level} takes the bare key"
+        );
+    }
+}
+
+/// A corner this build does not know leaves the scene FITTED rather than failing the
+/// theme (TDD 18.11) — and the distinction matters here in a way it does not for a
+/// colour: the fallback is a different RENDERING, not a different value, so a typo
+/// costs the theme its corner and nothing else.
+#[test]
+fn an_unknown_scene_anchor_falls_back_to_the_fitted_scene() {
+    let mut themes = Themes::builtin();
+    themes.merge_over(
+        Themes::parse_compiled("[themes.synthwave]\nheading_band_scene_anchor_h1 = \"middle\"\n")
+            .unwrap(),
+    );
+    assert!(themes.resolve("synthwave").heading_band.scene_anchor[0].is_none());
+}
+
+/// The shipped Candy theme pins its two banded levels, and they differ — h1 bursts from
+/// the top-right, h2 scatters along the bottom-right. Asserted because the two anchors
+/// being DIFFERENT is the design (one hand at two volumes, `data/themes.toml`), and a
+/// copy-paste that made them equal would look perfectly reasonable in the file.
+#[test]
+fn candy_pins_its_two_banded_levels_to_different_corners() {
+    let candy = Themes::builtin().resolve("candy");
+    assert_eq!(
+        candy.heading_band.scene_anchor[0],
+        Some(SceneAnchor::TopRight)
+    );
+    assert_eq!(
+        candy.heading_band.scene_anchor[1],
+        Some(SceneAnchor::BottomRight)
+    );
+    assert!(candy.sprites.heading_band_scene[0].is_some());
+    assert!(candy.sprites.heading_band_scene[1].is_some());
+    for level in 2..HEADING_LEVELS {
+        assert!(
+            candy.sprites.heading_band_scene[level].is_none(),
+            "only the two banded levels carry sparkles"
+        );
+    }
+}

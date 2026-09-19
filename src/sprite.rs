@@ -75,8 +75,9 @@ const MAX_SPRITE_BYTES: u64 = 512 * 1024;
 /// buffer in it.
 ///
 /// **Why 4096×4096.** A sprite in this vocabulary is a tile, a bullet, a chip or a
-/// band texture — the three shipped ones are 8×8 to 64×64, and the largest metric a
-/// theme can ask for is clamped at 400 design-time px (×4 for zoom headroom is
+/// band texture — the shipped ones run 16×16 to 420×56, the largest by area being
+/// Candy's 320×320 quote tile, and the largest metric a theme can ask for is
+/// clamped at 400 design-time px (×4 for zoom headroom is
 /// 1600). 16.7 M pixels is ~10× past anything the vocabulary can display and ~24×
 /// under the measured bomb, so no plausible sprite comes near it. Re-measure rather
 /// than re-reason if this ever needs raising.
@@ -103,6 +104,18 @@ const MAX_SPRITE_PIXELS: i64 = 4096 * 4096;
 /// when the binary is run from the source tree and fail — silently, since an
 /// unresolved sprite is inert — for every installed copy.
 const BUILTIN_SPRITES: &[(&str, &[u8])] = &[
+    (
+        "sprites/candy-sparkles-h1.png",
+        include_bytes!("../data/sprites/candy-sparkles-h1.png"),
+    ),
+    (
+        "sprites/candy-sparkles-h2.png",
+        include_bytes!("../data/sprites/candy-sparkles-h2.png"),
+    ),
+    (
+        "sprites/candy-stripes.png",
+        include_bytes!("../data/sprites/candy-stripes.png"),
+    ),
     (
         "sprites/chest-marker.png",
         include_bytes!("../data/sprites/chest-marker.png"),

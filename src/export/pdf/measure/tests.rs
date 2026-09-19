@@ -254,6 +254,14 @@ fn png_4x4() -> Vec<u8> {
 /// Non-square and parameterised on purpose: a fixture whose width equals its height
 /// cannot tell a transposed dimension from a correct one.
 fn png(w: u32, h: u32, rgb: [u8; 3]) -> Vec<u8> {
+    png_rows(w, &vec![rgb; h as usize])
+}
+
+/// A PNG of `rows.len()` scanlines, one colour each — [`png`]'s general form, for a
+/// fixture whose ROWS must be told apart (a tile carrying a marker row, so an assertion
+/// can see where the tile's grid starts).
+fn png_rows(w: u32, rows: &[[u8; 3]]) -> Vec<u8> {
+    let h = rows.len() as u32;
     fn chunk(tag: &[u8], data: &[u8]) -> Vec<u8> {
         let mut out = (data.len() as u32).to_be_bytes().to_vec();
         let body: Vec<u8> = tag.iter().chain(data).copied().collect();
@@ -294,7 +302,7 @@ fn png(w: u32, h: u32, rgb: [u8; 3]) -> Vec<u8> {
     ihdr.extend_from_slice(&h.to_be_bytes());
     ihdr.extend_from_slice(&[8, 2, 0, 0, 0]); // 8-bit RGB
     let mut raw = Vec::new();
-    for _ in 0..h {
+    for rgb in rows {
         raw.push(0); // filter: none
         raw.extend_from_slice(&rgb.repeat(w as usize));
     }
@@ -1502,6 +1510,80 @@ fn a_blockquote_bar_sprite_tiles_down_the_bar_on_the_page() {
         None,
         "the flat bar colour is still on the page under the sprite — the sprite must \
          REPLACE the fill, not sit on top of it"
+    );
+    crate::sprite::clear_cache();
+}
+
+/// **TDD 18.59 / 25.3 — the quote PANEL's sprite tiles across the panel on the page,
+/// replaces the flat fill, and lays ONE grid down a multi-line quote.**
+///
+/// The third assertion is the one this medium needs and the screen does not. The page
+/// draws a quote panel LINE BY LINE — one abutting rect per quoted line — so a tile
+/// anchored to each rect restarts its phase at every line, cutting any diagonal or
+/// large-featured pattern at every text row. The oracle is a tile whose FIRST row is a
+/// different colour: with the grid anchored to the page, every marker row lands on the
+/// same 8-point lattice; with it anchored per rect, marker rows follow the line tops
+/// instead, which do not share a residue.
+#[test]
+fn a_blockquote_panel_sprite_tiles_across_the_page_and_keeps_one_grid() {
+    const MARGIN: f64 = 54.0;
+    const FLAT: (u8, u8, u8) = (0x00, 0xcc, 0x00);
+    const MARK: (u8, u8, u8) = (0xff, 0x00, 0x00);
+    const TILE: u32 = 8;
+    // Long enough to wrap over several lines, which is what makes the grid assertion
+    // meaningful — a one-line quote has one rect and cannot show a phase reset.
+    let md = "> a quoted paragraph long enough to occupy several lines of the page, so the \
+              panel behind it is drawn as a stack of abutting rectangles rather than as \
+              one, which is the case a tiled pattern has to survive\n";
+    let p = palette(&theme());
+
+    let mut flat = theme();
+    flat.blockquote_bg = Some(gtk::gdk::RGBA::new(0.0, 0.8, 0.0, 1.0));
+    assert!(
+        colour_extent(drawn_page(md, &flat, &p, MARGIN), FLAT).is_some(),
+        "the control must put the flat panel on the page, or the absence below proves \
+         nothing"
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("panel.png");
+    let mut rows = vec![[255, 0, 255]; TILE as usize];
+    rows[0] = [255, 0, 0];
+    std::fs::write(&path, png_rows(TILE, &rows)).unwrap();
+    let mut tiled = flat.clone();
+    tiled.sprites.blockquote_bg = Some(crate::sprite::SpriteRef::File(path));
+    crate::sprite::clear_cache();
+
+    assert!(
+        extent_where(drawn_page(md, &tiled, &p, MARGIN), magenta).is_some(),
+        "the panel sprite never reached the page"
+    );
+    crate::sprite::clear_cache();
+    assert_eq!(
+        colour_extent(drawn_page(md, &tiled, &p, MARGIN), FLAT),
+        None,
+        "the flat panel colour is still on the page under the sprite — the sprite must \
+         REPLACE the fill, not sit on top of it"
+    );
+
+    crate::sprite::clear_cache();
+    let marker_rows: Vec<usize> = colour_rows(drawn_page(md, &tiled, &p, MARGIN), MARK)
+        .into_iter()
+        .enumerate()
+        .filter(|(_, xs)| !xs.is_empty())
+        .map(|(y, _)| y)
+        .collect();
+    assert!(
+        marker_rows.len() > 1,
+        "the fixture must put the tile's marker row on the page more than once, or the \
+         grid assertion below is vacuous (rows: {marker_rows:?})"
+    );
+    let residue = marker_rows[0] % TILE as usize;
+    assert!(
+        marker_rows.iter().all(|y| y % TILE as usize == residue),
+        "the tile's grid restarts inside the quote: the panel is drawn line by line, so \
+         a grid anchored to each line's own rect cuts the pattern at every text row \
+         (marker rows {marker_rows:?} do not share one residue mod {TILE})"
     );
     crate::sprite::clear_cache();
 }
