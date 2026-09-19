@@ -67,6 +67,7 @@ pub(crate) use model::{ListGlyphs, Metrics, Sprites, Theme};
 pub(crate) use spec::ThemeSpec;
 pub(crate) use value::{
     depth_tier, parse_color, px, sanitize_font_family, CssSafeFontStack, LineStyle, MarkerGlyph,
+    SceneAnchor,
 };
 
 use gtk::glib;

@@ -454,6 +454,7 @@ fn the_band_surface_resolver_answers_every_arm() {
     let none = Band {
         sprite: None,
         scene: None,
+        scene_anchor: None,
         gradient: None,
         flat: None,
     };
@@ -463,6 +464,7 @@ fn the_band_surface_resolver_answers_every_arm() {
     let flat = Band {
         sprite: None,
         scene: None,
+        scene_anchor: None,
         gradient: None,
         flat: Some(half),
     };
@@ -481,6 +483,7 @@ fn the_band_surface_resolver_answers_every_arm() {
     let grad = Band {
         sprite: None,
         scene: None,
+        scene_anchor: None,
         gradient: Some((half, opaque)),
         flat: Some(half),
     };
@@ -502,6 +505,7 @@ fn the_band_surface_resolver_answers_every_arm() {
     let with_sprite = Band {
         sprite: Some(&sprite),
         scene: None,
+        scene_anchor: None,
         gradient: Some((half, opaque)),
         flat: Some(half),
     };
@@ -514,6 +518,7 @@ fn the_band_surface_resolver_answers_every_arm() {
     let sprite_over_flat = Band {
         sprite: Some(&sprite),
         scene: None,
+        scene_anchor: None,
         gradient: None,
         flat: Some(half),
     };
@@ -529,6 +534,7 @@ fn the_band_surface_resolver_answers_every_arm() {
     let sprite_only = Band {
         sprite: Some(&sprite),
         scene: None,
+        scene_anchor: None,
         gradient: None,
         flat: None,
     };

@@ -523,6 +523,20 @@ pub(crate) struct Frames<'a> {
     live: Option<Live<'a>>,
 }
 
+impl Frames<'static> {
+    /// A pass with no animation table behind it: every sprite resolves to its STILL
+    /// texture through `sprite`'s own cache.
+    ///
+    /// Test-only, and deliberately not a general constructor — production always gets
+    /// its `Frames` from [`SpriteTable::frames`], because handing one out is what
+    /// registers a sprite as visible this pass (TDD 27.9), and a hand-built one would
+    /// silently opt a real paint out of that bookkeeping.
+    #[cfg(test)]
+    pub(crate) fn still() -> Frames<'static> {
+        Frames { live: None }
+    }
+}
+
 impl Frames<'_> {
     /// `r` at its natural size: the current frame if it is animated and playing here,
     /// else the still texture.

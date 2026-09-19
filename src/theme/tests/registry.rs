@@ -44,6 +44,10 @@ fn every_levelled_key_lands_on_a_model_array_of_its_own_slot_count() {
         ),
         ("heading_band_sprite", t.sprites.heading_band.len()),
         ("heading_band_scene", t.sprites.heading_band_scene.len()),
+        (
+            "heading_band_scene_anchor",
+            t.heading_band.scene_anchor.len(),
+        ),
         ("heading_band_radius", t.metrics.heading_band_radius.len()),
         ("heading_band_padding", t.metrics.heading_band_padding.len()),
         ("heading_marker_sprite", t.sprites.heading_marker.len()),

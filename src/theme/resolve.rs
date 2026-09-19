@@ -161,6 +161,7 @@ impl Theme {
             heading_band: HeadingBand {
                 fills: src.colors(&keys::HEADING_BAND_COLOR),
                 gradient_to: src.colors(&keys::HEADING_BAND_GRADIENT_TO_COLOR),
+                scene_anchor: src.anchors(&keys::HEADING_BAND_SCENE_ANCHOR),
             },
             link_color: src.color(&keys::LINK_COLOR),
             link_underline: src.line(&keys::LINK_UNDERLINE),
@@ -212,6 +213,7 @@ impl Theme {
                 .or_else(|| src.color(&keys::FOREGROUND)),
             disclosure_preview_fg: src.color(&keys::DISCLOSURE_PREVIEW_FG),
             table_head_gradient_to: src.color(&keys::TABLE_HEAD_GRADIENT_TO_COLOR),
+            table_head_scene_anchor: src.anchor(&keys::TABLE_HEAD_SCENE_ANCHOR),
             disclosure_band_color: src.color(&keys::DISCLOSURE_BAND_COLOR),
             disclosure_band_gradient_to: src.color(&keys::DISCLOSURE_BAND_GRADIENT_TO_COLOR),
             disclosure_fg: src.color(&keys::DISCLOSURE_FG),
@@ -262,6 +264,7 @@ impl Theme {
                 heading_band_scene: src.sprites(&keys::HEADING_BAND_SCENE),
                 heading_marker: src.sprites(&keys::HEADING_MARKER_SPRITE),
                 blockquote_bar: src.sprite(&keys::BLOCKQUOTE_BAR_SPRITE),
+                blockquote_bg: src.sprite(&keys::BLOCKQUOTE_BG_SPRITE),
                 blockquote_scene: src.sprite(&keys::BLOCKQUOTE_SCENE),
                 rule: src.sprite(&keys::RULE_SPRITE),
                 disclosure: src.sprite(&keys::DISCLOSURE_SPRITE),

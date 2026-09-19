@@ -129,6 +129,7 @@ fn a_compiled_in_sprite_reaches_every_slot_it_can_be_named_in() {
             &s.list_task,
             &s.list_task_checked,
             &s.blockquote_bar,
+            &s.blockquote_bg,
             &s.blockquote_scene,
             &s.rule,
             &s.disclosure,
@@ -336,6 +337,8 @@ fn sprite_slot<'a>(
         &s.heading_marker[idx]
     } else if key.name == keys::BLOCKQUOTE_BAR_SPRITE.name {
         &s.blockquote_bar
+    } else if key.name == keys::BLOCKQUOTE_BG_SPRITE.name {
+        &s.blockquote_bg
     } else if key.name == keys::BLOCKQUOTE_SCENE.name {
         &s.blockquote_scene
     } else if key.name == keys::RULE_SPRITE.name {

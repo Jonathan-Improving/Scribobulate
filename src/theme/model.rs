@@ -11,7 +11,7 @@
 //! model without pulling the file format in behind it.
 
 use super::keys::{BULLET_TIERS, HEADING_LEVELS};
-use super::value::{CssSafeFontStack, LineStyle, MarkerGlyph};
+use super::value::{CssSafeFontStack, LineStyle, MarkerGlyph, SceneAnchor};
 use gtk::gdk;
 
 /// Every list-marker glyph a theme may state, one per marker kind. Each is `None`
@@ -244,6 +244,11 @@ pub(crate) struct HeadingBand {
     pub fills: [Option<gdk::RGBA>; HEADING_LEVELS],
     /// A second stop, making the band a vertical gradient from the level's fill.
     pub gradient_to: [Option<gdk::RGBA>; HEADING_LEVELS],
+    /// Which CORNER the level's SCENE is pinned in, and so how it is sized
+    /// ([`SceneAnchor`]). `None` ⇒ fitted to the band's height on its right edge, the
+    /// behaviour every scene had before this key. Only consulted where the level
+    /// states a scene.
+    pub scene_anchor: [Option<SceneAnchor>; HEADING_LEVELS],
 }
 
 /// Decoration metrics: design-time px at zoom 1.0. Every consumer scales these
@@ -390,6 +395,10 @@ pub(crate) struct Theme {
     /// stop and needs a first one, the same precondition every other gradient key in
     /// this vocabulary carries.
     pub table_head_gradient_to: Option<gdk::RGBA>,
+    /// Which CORNER the header cell's SCENE is pinned in; `None` ⇒ fitted to the
+    /// cell's height on its right edge. Only consulted where `table_head_scene` is
+    /// stated.
+    pub table_head_scene_anchor: Option<SceneAnchor>,
     pub disclosure_band_color: Option<gdk::RGBA>,
     /// A second stop, making the summary band a vertical gradient from
     /// [`Self::disclosure_band_color`]. Ignored where no fill is stated — a gradient
@@ -451,6 +460,10 @@ pub(crate) struct Sprites {
     /// `heading_marker_sprite` row). Sized by `Metrics::heading_marker_size`.
     pub heading_marker: [Option<crate::sprite::SpriteRef>; HEADING_LEVELS],
     pub blockquote_bar: Option<crate::sprite::SpriteRef>,
+    /// The quote panel's TILE, in place of `blockquote_bg` (SCHEMA's
+    /// `blockquote_bg_sprite` row). Present alone it still makes a panel, for the
+    /// reason the key's own comment gives.
+    pub blockquote_bg: Option<crate::sprite::SpriteRef>,
     /// The quote panel's single curated scene, drawn once in its BOTTOM-RIGHT corner
     /// over the fill (SCHEMA's `blockquote_scene` row).
     pub blockquote_scene: Option<crate::sprite::SpriteRef>,

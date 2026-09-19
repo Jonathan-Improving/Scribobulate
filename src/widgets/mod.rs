@@ -220,11 +220,15 @@ pub(crate) fn draw_scene_into(
     true
 }
 
-/// Draw `sprite` ONCE in `rect`'s BOTTOM-RIGHT corner, at its natural size scaled by
+/// Draw `sprite` ONCE in one of `rect`'s CORNERS, at its natural size scaled by
 /// `zoom`, clipped to `rect`.
 ///
 /// The corner-anchored member of this vocabulary, beside [`draw_scene_into`] (fitted to
-/// an edge) and [`tile_texture`] (repeated). The distinction is not decoration: a
+/// an edge) and [`tile_texture`] (repeated). Which corner is the caller's — a quote
+/// panel's scene sits on its floor, a heading band's sparkles wherever the theme hangs
+/// them — and the four are one arithmetic over [`SceneAnchor::fractions`] rather than
+/// four functions, because the only thing that varies between them is a multiplier.
+/// The distinction from the other two is not decoration: a
 /// heading band's height is fixed by its heading, so a scene can be fitted to it, while
 /// a quote panel's height is however long the quote is. Fitting to that would balloon
 /// the scene on a long quotation. Drawn at a fixed size on the panel's floor instead, so
@@ -238,7 +242,8 @@ pub(crate) fn draw_scene_into(
 /// (GTK4Rs/AP-114), and letting it scale would make the result depend on the active
 /// renderer — the environment-dependence `GSK_RENDERER=cairo` exists to remove.
 ///
-/// ⚠️ The caller owns the decision that `rect`'s bottom edge is REAL. Paint-path extents
+/// ⚠️ The caller owns the decision that whichever edges its anchor hangs on are REAL.
+/// Paint-path extents
 /// in this project are viewport-clamped (GTK4Rs/AP-22 — never measure an off-screen,
 /// unvalidated iter), so a rect whose bottom was clamped would anchor this to the
 /// viewport and slide it as the reader scrolls, which is ScrAP-333's shape. See
@@ -252,6 +257,7 @@ pub(crate) fn draw_scene_corner(
     snapshot: &gtk::Snapshot,
     rect: &gtk::graphene::Rect,
     sprite: &crate::sprite::SpriteRef,
+    anchor: crate::theme::SceneAnchor,
     zoom: f64,
     frames: crate::animation::sprites::Frames<'_>,
 ) -> bool {
@@ -271,9 +277,15 @@ pub(crate) fn draw_scene_corner(
     let Some(tex) = frames.scaled(sprite, w, h) else {
         return false;
     };
+    // Placement is `SceneAnchor::offset`'s, shared with the PDF sink so the two cannot
+    // put one theme's scene in different corners.
+    let (dx, dy) = anchor.offset(
+        f64::from(rect.width() - w as f32),
+        f64::from(rect.height() - h as f32),
+    );
     let dst = gtk::graphene::Rect::new(
-        rect.x() + rect.width() - w as f32,
-        rect.y() + rect.height() - h as f32,
+        rect.x() + dx as f32,
+        rect.y() + dy as f32,
         w as f32,
         h as f32,
     );
@@ -354,6 +366,7 @@ pub(crate) fn paint_band_into(
     rect: &gtk::graphene::Rect,
     decor: &crate::theme::Band<'_>,
     radius: f32,
+    zoom: f64,
     frames: crate::animation::sprites::Frames<'_>,
 ) {
     use gtk::gsk;
@@ -393,8 +406,16 @@ pub(crate) fn paint_band_into(
     //
     // Inside the rounded clip pushed above, so a scene cannot square off the band's
     // corners — the failure a caller drawing it after the `pop` would ship.
+    //
+    // WHERE it hangs is the theme's (`SceneAnchor`), and the anchor decides the size
+    // rule with it: an edge anchor fits the scene to the band's height, a corner anchor
+    // draws it at its own size so a cluster keeps the spread the theme drew it with
+    // instead of being rescaled by whatever height the heading happens to have.
     if let Some(scene) = decor.scene {
-        draw_scene_into(snapshot, rect, scene, frames);
+        match decor.scene_anchor {
+            Some(corner) => draw_scene_corner(snapshot, rect, scene, corner, zoom, frames),
+            None => draw_scene_into(snapshot, rect, scene, frames),
+        };
     }
     if radius > 0.0 {
         snapshot.pop();
@@ -413,7 +434,7 @@ pub(crate) fn unparent_all_children(widget: &impl IsA<gtk::Widget>) {
 /// bodies absent from the portable main-thread run (`sdd/POLICY.md`).
 #[cfg(all(test, feature = "gtk-integration-tests"))]
 mod tile_tests {
-    use super::tile_texture;
+    use super::{paint_band_into, tile_texture};
     use gtk::graphene;
 
     /// A 2×2 texture, built from bytes rather than decoded — no display, no loader.
@@ -525,6 +546,76 @@ mod tile_tests {
             rect.x(),
             "the tile grid must take x from the RECT: a 0 here samples the tile at \
              rect.x() % tile_w and slices the sprite down its left edge (got {x})"
+        );
+    }
+
+    /// **A corner-anchored scene lands in the corner the theme named, at its own size.**
+    ///
+    /// Driven through `paint_band_into` rather than `draw_scene_corner` directly, because
+    /// the thing worth pinning is the DISPATCH: a band whose theme states an anchor must
+    /// take the corner path, and one that states none must keep the fitted path. Asserted
+    /// on the produced texture node's bounds, which is where the placement actually
+    /// lands — the arithmetic itself is unit-tested display-free in `theme::value`.
+    ///
+    /// ⚠️ The unanchored control is the load-bearing half: without it, a painter that
+    /// pinned EVERY scene to a corner would satisfy all four corner assertions and break
+    /// every theme shipped before this key (TDD 18.2).
+    #[gtktest::test]
+    fn a_scene_takes_the_corner_its_anchor_names_and_none_without_one() {
+        use crate::theme::SceneAnchor;
+        use gtk::prelude::SnapshotExt;
+
+        // A COMPILED-IN sprite, so the pixels come from this binary rather than from a
+        // file an admission check would have to let through first — the same route the
+        // sink sweep takes for exactly that reason (`theme::tests::sinks`).
+        let sprite = crate::sprite::SpriteRef::Compiled("sprites/copper-plate.png");
+        let (sw, sh) = (24.0, 24.0); // copper-plate's own size; drawn at zoom 1.0
+        let rect = graphene::Rect::new(100.0, 200.0, 400.0, 40.0);
+        let bounds_for = |anchor: Option<SceneAnchor>| {
+            let decor = crate::theme::Band {
+                sprite: None,
+                scene: Some(&sprite),
+                scene_anchor: anchor,
+                gradient: None,
+                flat: None,
+            };
+            let snapshot = gtk::Snapshot::new();
+            paint_band_into(
+                &snapshot,
+                &rect,
+                &decor,
+                0.0,
+                1.0,
+                crate::animation::sprites::Frames::still(),
+            );
+            let node = snapshot.to_node().expect("a scene paints a node");
+            node.bounds()
+        };
+        for (anchor, want) in [
+            (SceneAnchor::TopLeft, (rect.x(), rect.y())),
+            (
+                SceneAnchor::TopRight,
+                (rect.x() + rect.width() - sw, rect.y()),
+            ),
+            (
+                SceneAnchor::BottomLeft,
+                (rect.x(), rect.y() + rect.height() - sh),
+            ),
+            (
+                SceneAnchor::BottomRight,
+                (rect.x() + rect.width() - sw, rect.y() + rect.height() - sh),
+            ),
+        ] {
+            let b = bounds_for(Some(anchor));
+            assert_eq!((b.x(), b.y()), want, "{anchor:?} landed at {b:?}");
+        }
+        // Unanchored: FITTED to the band's height, so the box is as tall as the rect —
+        // a different rendering, not a different position.
+        let fitted = bounds_for(None);
+        assert_eq!(
+            fitted.height(),
+            rect.height(),
+            "an unanchored scene is fitted to the band's height: {fitted:?}"
         );
     }
 }

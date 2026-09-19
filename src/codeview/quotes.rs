@@ -91,12 +91,44 @@ pub(super) fn draw_panel(snapshot: &gtk::Snapshot, ctx: &PaintCtx) {
     // stays literally true. Painting a level's panel over its parent's would also
     // double any translucent `blockquote_bg`, so the inner region would read darker
     // for a reason no theme key asked for.
-    if let Some(panel) = crate::theme::active().blockquote_bg {
-        for e in quote_extents.iter().filter(|e| e.depth == 1) {
-            snapshot.append_color(
-                &panel,
-                &graphene::Rect::new(lm, e.top, card_w, e.bottom - e.top),
-            );
+    //
+    // A theme may TILE a sprite across the panel instead of filling it (TDD 18.59), at
+    // the tile's natural size, through the same `widgets::tile_texture` every other
+    // tiled decoration here takes. The precedence is `theme::decor`'s, not this site's,
+    // so the screen and the two export sinks cannot answer the key differently.
+    let theme = crate::theme::active();
+    let decor = theme.blockquote_panel_decor();
+    // NOTHING is resolved until a depth-1 quote is actually on screen, and the order is
+    // the accent bar's rather than a tidier `filter().for_each()`: asking `frames` for a
+    // sprite IS that sprite's visibility signal (TDD 27.9), so resolving it first would
+    // play an animated panel for a quote the reader cannot see.
+    let mut panels = quote_extents.iter().filter(|e| e.depth == 1).peekable();
+    if !decor.is_present() || panels.peek().is_none() {
+        draw_panel_scene(snapshot, ctx);
+        return;
+    }
+    let tile = decor.sprite.and_then(|s| ctx.frames().natural(s));
+    for e in panels {
+        let rect = graphene::Rect::new(lm, e.top, card_w, e.bottom - e.top);
+        // The sprite OUTRANKS the flat fill, and this is an `else` rather than a
+        // paint-over for the reason the accent bar's own match states: filling first and
+        // tiling over it is invisible for an opaque tile and lets the fill bleed through
+        // a transparent one.
+        match &tile {
+            // `rect.y` is the viewport-CLAMPED top, so the grid must not be anchored to
+            // it — `tile_texture` anchors at the document, and its docs carry the
+            // measurement. A panel tile that phased off the viewport would slide under
+            // the quoted text as the reader scrolled.
+            Some(tex) => crate::widgets::tile_texture(snapshot, &rect, tex),
+            // Either the theme states no tile, or the one it states would not decode.
+            // Both degrade to the flat fill, and a theme that stated only the tile gets
+            // no panel at all rather than a guessed colour — `sdd/THEMING.md`'s
+            // inert-by-default rule.
+            None => {
+                if let Some(panel) = decor.flat {
+                    snapshot.append_color(&panel, &rect);
+                }
+            }
         }
     }
     draw_panel_scene(snapshot, ctx);
@@ -134,7 +166,18 @@ fn draw_panel_scene(snapshot: &gtk::Snapshot, ctx: &PaintCtx) {
         .filter(|e| e.depth == 1 && e.bottom < ctx.vbot)
     {
         let rect = graphene::Rect::new(ctx.lm, e.top, ctx.card_w, e.bottom - e.top);
-        crate::widgets::draw_scene_corner(snapshot, &rect, scene, zoom, ctx.frames());
+        crate::widgets::draw_scene_corner(
+            snapshot,
+            &rect,
+            scene,
+            // The panel's scene has no anchor key: it is the FLOOR of the quote, which
+            // is what "a longer quotation reveals more of it" means (TDD 18.56), and a
+            // theme that hung it at the top would be asking for a different decoration
+            // rather than for this one moved.
+            crate::theme::SceneAnchor::BottomRight,
+            zoom,
+            ctx.frames(),
+        );
     }
 }
 

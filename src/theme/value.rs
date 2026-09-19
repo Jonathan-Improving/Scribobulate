@@ -688,3 +688,156 @@ mod tests {
         assert!(f.ends_with("serif"));
     }
 }
+
+/// **Which CORNER a curated SCENE hangs in.**
+///
+/// A closed vocabulary parsed ONCE at the file boundary, exactly as [`LineStyle`] is,
+/// so no renderer ever matches on a string (POLICY "No magic numbers or magic
+/// strings"): the GTK painter, the generated CSS and the PDF sink each ask this type
+/// for their own spelling of one choice.
+///
+/// **Four corners and no fifth value, with UNSTATED carrying the older behaviour.**
+/// A scene with no anchor is fitted to its band's height and hung on the right edge —
+/// what every scene did before this key existed, and what TDD 18.54 and 18.57 still
+/// describe. That is deliberately *not* a variant here: it is a different SIZE RULE
+/// rather than a different position, so admitting it as a fifth corner would put two
+/// unlike things in one vocabulary and invite `right` + a size, or a corner + a fit,
+/// neither of which is a decoration anybody asked for. `Option<SceneAnchor>` says the
+/// true shape — absent means fitted, present means pinned — and the absence is what
+/// keeps a theme written before this key byte-identical (TDD 18.2).
+///
+/// **The anchor decides the SIZE RULE as well as the position**, and the two are not
+/// independent for a picture that must not distort: a scene hung on an EDGE can be
+/// fitted to the band's height, because an edge is a whole side and the height is what
+/// the band gives it, while a scene pinned to a CORNER has no second dimension to be
+/// fitted to and must carry its own size.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SceneAnchor {
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+}
+
+impl SceneAnchor {
+    /// Parse a theme's spelling. `None` for anything unrecognised, so an unknown value
+    /// leaves the scene fitted rather than failing the theme (TDD 18.11).
+    pub(super) fn parse(s: &str) -> Option<SceneAnchor> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "top-left" => Some(SceneAnchor::TopLeft),
+            "top-right" => Some(SceneAnchor::TopRight),
+            "bottom-left" => Some(SceneAnchor::BottomLeft),
+            "bottom-right" => Some(SceneAnchor::BottomRight),
+            _ => {
+                log::warn!("theme: unknown scene anchor {s:?} — falling back to the default");
+                None
+            }
+        }
+    }
+
+    /// Where the scene's top-left corner goes, given how much room is left over in the
+    /// band once the scene's own size is taken out.
+    ///
+    /// **The whole of corner placement, in one display-free function**, so the GTK
+    /// painter and the PDF sink cannot drift (the HTML sink states the same decision to
+    /// a browser through [`Self::css_position`], which is why that one is separate). The
+    /// four corners differ only by which end of each axis they take, so this is a
+    /// multiplication rather than a four-arm `match` at every call site.
+    ///
+    /// ⚠️ **`free` is expected to go NEGATIVE** for a scene larger than its band, and
+    /// the arithmetic is right there rather than clamped: the overflow then hangs off
+    /// the edge the anchor is *not* on, which is where a caller's clip takes it. Clamping
+    /// to zero here would pin an oversized scene to the top-left whatever the theme asked
+    /// for.
+    pub(crate) fn offset(self, free_w: f64, free_h: f64) -> (f64, f64) {
+        let (fx, fy) = match self {
+            SceneAnchor::TopLeft => (0.0, 0.0),
+            SceneAnchor::TopRight => (1.0, 0.0),
+            SceneAnchor::BottomLeft => (0.0, 1.0),
+            SceneAnchor::BottomRight => (1.0, 1.0),
+        };
+        (free_w * fx, free_h * fy)
+    }
+
+    /// The CSS `background-position` keyword pair this anchor spells.
+    pub(crate) fn css_position(self) -> &'static str {
+        match self {
+            SceneAnchor::TopLeft => "left top",
+            SceneAnchor::TopRight => "right top",
+            SceneAnchor::BottomLeft => "left bottom",
+            SceneAnchor::BottomRight => "right bottom",
+        }
+    }
+}
+
+#[cfg(test)]
+mod scene_anchor_tests {
+    use super::SceneAnchor;
+
+    /// The vocabulary is a CLOSED set of four and the spelling is the theme's only way
+    /// in, so this pins both halves: every corner the schema documents parses, and
+    /// nothing else does. An unknown value must fall back rather than fail the theme
+    /// (TDD 18.11) — `None` is what the caller reads as "leave the scene fitted".
+    #[test]
+    fn every_documented_corner_parses_and_nothing_else_does() {
+        for (spelling, want) in [
+            ("top-left", SceneAnchor::TopLeft),
+            ("top-right", SceneAnchor::TopRight),
+            ("bottom-left", SceneAnchor::BottomLeft),
+            ("bottom-right", SceneAnchor::BottomRight),
+            ("  TOP-RIGHT  ", SceneAnchor::TopRight),
+        ] {
+            assert_eq!(SceneAnchor::parse(spelling), Some(want), "{spelling:?}");
+        }
+        for junk in ["right", "centre", "top", "bottom-middle", "", "top_left"] {
+            assert_eq!(SceneAnchor::parse(junk), None, "{junk:?}");
+        }
+    }
+
+    /// Placement is a multiplication over the LEFTOVER room, and the four corners are
+    /// distinguished by which end of each axis they take — asserted on both axes at once
+    /// so a transposed pair (the mistake a `match` invites) cannot pass.
+    #[test]
+    fn each_corner_takes_its_own_end_of_both_axes() {
+        let (free_w, free_h) = (100.0, 40.0);
+        assert_eq!(SceneAnchor::TopLeft.offset(free_w, free_h), (0.0, 0.0));
+        assert_eq!(SceneAnchor::TopRight.offset(free_w, free_h), (100.0, 0.0));
+        assert_eq!(SceneAnchor::BottomLeft.offset(free_w, free_h), (0.0, 40.0));
+        assert_eq!(
+            SceneAnchor::BottomRight.offset(free_w, free_h),
+            (100.0, 40.0)
+        );
+    }
+
+    /// A scene BIGGER than its band leaves negative room, and the overflow must run off
+    /// the edge the anchor is not on — so a bottom-right anchor still ends flush with the
+    /// bottom-right and hangs off the top-left. Clamping here would silently re-anchor
+    /// every oversized scene to the top-left; the caller's clip is what hides the
+    /// overhang, not this arithmetic.
+    #[test]
+    fn an_oversized_scene_overflows_the_edge_its_anchor_does_not_hold() {
+        assert_eq!(
+            SceneAnchor::BottomRight.offset(-30.0, -12.0),
+            (-30.0, -12.0)
+        );
+        assert_eq!(SceneAnchor::TopLeft.offset(-30.0, -12.0), (0.0, 0.0));
+    }
+
+    /// The CSS spelling is the same decision handed to a browser, so it is pinned beside
+    /// the arithmetic: a keyword pair that disagreed with `offset` would put the scene in
+    /// one corner on screen and another in the exported artefact (TDD 25.3).
+    #[test]
+    fn the_css_keywords_name_the_same_corner_the_arithmetic_does() {
+        for (anchor, css) in [
+            (SceneAnchor::TopLeft, "left top"),
+            (SceneAnchor::TopRight, "right top"),
+            (SceneAnchor::BottomLeft, "left bottom"),
+            (SceneAnchor::BottomRight, "right bottom"),
+        ] {
+            assert_eq!(anchor.css_position(), css);
+            let (dx, dy) = anchor.offset(1.0, 1.0);
+            assert_eq!(css.starts_with("right"), dx == 1.0, "{css}");
+            assert_eq!(css.ends_with("bottom"), dy == 1.0, "{css}");
+        }
+    }
+}

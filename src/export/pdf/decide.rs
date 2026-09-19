@@ -645,6 +645,28 @@ pub(crate) fn wash_of<S>(
     }
 }
 
+/// Settle a decoration that may be ABSENT: its sprite where the theme names one AND
+/// `load` can produce it, else its flat colour where the theme states one, else nothing
+/// at all.
+///
+/// [`wash_of`]'s twin for the quote panel, and the difference is the missing fallback
+/// colour. A bar or a rule is always drawn, so it always has a colour to fall back to; a
+/// panel the theme did not state must paint NOTHING, or a quote would gain a background
+/// it never had (TDD 18.2). Same shape as [`band_wash`] one rung shorter — a panel has no
+/// gradient key.
+pub(crate) fn optional_wash<S>(
+    decor: &crate::theme::Fill<'_>,
+    load: impl Fn(&crate::sprite::SpriteRef) -> Option<S>,
+) -> Wash<S> {
+    if let Some(tile) = decor.sprite.and_then(load) {
+        return Wash::Tile(tile);
+    }
+    match decor.flat {
+        Some(fill) => Wash::Flat(fill),
+        None => Wash::None,
+    }
+}
+
 /// Settle a heading band's THREE-way decoration: sprite, else gradient, else flat, else
 /// nothing at all.
 ///
@@ -725,6 +747,7 @@ mod wash_tests {
         let full = crate::theme::Band {
             sprite: Some(&sprite),
             scene: None,
+            scene_anchor: None,
             gradient: Some((RED, GREEN)),
             flat: Some(BLUE),
         };
@@ -741,6 +764,7 @@ mod wash_tests {
         let gradientless = crate::theme::Band {
             sprite: None,
             scene: None,
+            scene_anchor: None,
             gradient: None,
             flat: Some(BLUE),
         };
@@ -749,6 +773,7 @@ mod wash_tests {
         let unstated = crate::theme::Band {
             sprite: None,
             scene: None,
+            scene_anchor: None,
             gradient: None,
             flat: None,
         };

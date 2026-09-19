@@ -43,6 +43,8 @@ pub(crate) enum Kind {
     Glyph,
     /// A decoration-line style (`none`/`single`/`double`/`wavy`).
     Line,
+    /// Where a curated scene hangs in its band (`right` / the four corners).
+    Anchor,
     /// A path naming an image, resolved against the stating file's origin.
     Sprite,
     /// A whole-number metric, clamped to its key's [`Bound`].
@@ -553,6 +555,26 @@ keys! {
     // express — the EXTENT reaches paper, the PICTURE does not — so the flag takes the
     // measurable half and this comment carries the rest.
     HEADING_BAND_SCENE     = "heading_band_scene"      : Sprite Heading;
+    // WHERE that scene hangs, and — inseparably — how it is sized. The default is the
+    // edge anchor above, so a theme written before this key existed renders unchanged.
+    //
+    // STATING it draws the scene at its OWN size (zoom-scaled) in that corner; leaving
+    // it unstated keeps the fitted right-edge scene this key was added beside, which is
+    // why the value is `Option`-shaped rather than carrying a fifth "right" corner —
+    // `SceneAnchor` holds that argument.
+    // The practical difference is what a theme can express: a fitted scene is scenery
+    // whose size is whatever the heading's height makes it, where a corner-anchored one
+    // is a CLUSTER at a size the theme chose — sparkles strewn across a stated width,
+    // which is exactly what a fit would have rescaled per level.
+    //
+    // NOT ON PAPER, unlike the scene key it governs. That asymmetry is real and is the
+    // narrower half `HEADING_BAND_SCENE`'s comment above describes: the scene key
+    // reaches the page through its band's EXTENT while its picture does not, so the
+    // extent keeps `Reach::ALL` — but an ANCHOR moves nothing except a picture the page
+    // never draws, so every surface it reaches on paper is none.
+    HEADING_BAND_SCENE_ANCHOR = "heading_band_scene_anchor" : Anchor Heading,
+                             Reach::not_on_paper("the page draws a banded heading line by line, so it                                                   draws no scene for this key to hang — SCHEMA states                                                   the limit at heading_band_scene",
+                                                 "heading_band_scene = \"sprites/copper-plate.png\"\n");
     // No heading carries a band until a theme states a fill for its level, so the
     // radius is only ever consulted for a band that exists.
     HEADING_BAND_RADIUS    = "heading_band_radius"     : Int    Heading | int(&[0], METRIC),
@@ -651,6 +673,21 @@ keys! {
                                                   wrapped quote has no single bottom-right corner \
                                                   to anchor one scene to", "");
     BLOCKQUOTE_BAR_SPRITE  = "blockquote_bar_sprite"   : Sprite;
+    // A texture tiled across the quote PANEL at its natural size, in place of
+    // `blockquote_bg` — the panel's answer to `heading_band_sprite`, and a different
+    // question from `blockquote_scene` beside it ("what is this panel made of" vs "what
+    // is happening in its corner"). A theme may state both: the scene composites over
+    // whatever the panel is filled with, tile included.
+    //
+    // ⚠️ A TILE ALONE IS A PANEL, exactly as a sprite alone is a band (`Band::is_present`).
+    // The fill used to be the panel's only gate, so a theme stating this and no
+    // `blockquote_bg` would have got no panel, no tile and no log line — ScrAP-324's
+    // shape, which `heading_band_sprite` already paid for once.
+    //
+    // It does NOT nest, because the fill it replaces does not (TDD 2.11b): one tile grid
+    // is laid from the outermost level and every level inside sits on it, so a nested
+    // quote cannot start a second grid out of phase with the first.
+    BLOCKQUOTE_BG_SPRITE   = "blockquote_bg_sprite"    : Sprite;
     BLOCKQUOTE_BAR_WIDTH   = "blockquote_bar_width"    : Int    | int(&[3], METRIC);
     BLOCKQUOTE_TEXT_GAP    = "blockquote_text_gap"     : Int    | int(&[10], METRIC);
     BLOCKQUOTE_BG          = "blockquote_bg"           : Color;
@@ -693,6 +730,11 @@ keys! {
     // column, so the right edge is the only stable place to hang a picture and the left
     // is where the label sits.
     TABLE_HEAD_SCENE       = "table_head_scene"        : Sprite;
+    // The header cell's twin of `heading_band_scene_anchor`, and ON PAPER where that one
+    // is not: this sink draws a header cell as ONE box at a known height, so a corner of
+    // it exists on the page exactly as it does on screen.
+    TABLE_HEAD_SCENE_ANCHOR = "table_head_scene_anchor" : Anchor,
+                             Reach::gated_on("table_head_scene = \"sprites/copper-plate.png\"\n");
     TABLE_CELL_PADDING_V   = "table_cell_padding_v"    : Int    | int(&[4], METRIC);
     TABLE_CELL_PADDING_H   = "table_cell_padding_h"    : Int    | int(&[10], METRIC);
     TABLE_CELL_RADIUS      = "table_cell_radius"       : Int    | int(&[0], METRIC),
@@ -825,7 +867,14 @@ mod tests {
                 // inherit from the surface under them, and only the overlay washes
                 // (which have no such surface) carry a literal floor.
                 (Kind::Color, Bound::Color { .. } | Bound::Inherited) => true,
-                (Kind::Text | Kind::Font | Kind::Glyph | Kind::Sprite, Bound::Inherited) => true,
+                // An ANCHOR is `Option`-shaped at the consumer, not floored: absent
+                // means the scene is FITTED rather than pinned, which is a different
+                // rendering and not a default corner (`theme::SceneAnchor`). A floor
+                // here would have to name a fifth "corner" that does not exist.
+                (
+                    Kind::Text | Kind::Font | Kind::Glyph | Kind::Sprite | Kind::Anchor,
+                    Bound::Inherited,
+                ) => true,
                 _ => false,
             };
             assert!(

@@ -242,11 +242,13 @@ fn coerce(kind: Kind, raw: &toml::Value) -> Coerced {
             Some(s) => Coerced::Ok(Value::Sprite(SpriteRef::Named(s.to_string()))),
             None => Coerced::WrongType,
         },
-        Kind::Text | Kind::Font | Kind::Color | Kind::Glyph | Kind::Line => match raw.as_str() {
-            Some(s) if s.trim().is_empty() => Coerced::Unset,
-            Some(s) => Coerced::Ok(Value::Text(s.to_string())),
-            None => Coerced::WrongType,
-        },
+        Kind::Text | Kind::Font | Kind::Color | Kind::Glyph | Kind::Line | Kind::Anchor => {
+            match raw.as_str() {
+                Some(s) if s.trim().is_empty() => Coerced::Unset,
+                Some(s) => Coerced::Ok(Value::Text(s.to_string())),
+                None => Coerced::WrongType,
+            }
+        }
     }
 }
 
@@ -262,6 +264,7 @@ pub(super) fn expected(kind: Kind) -> &'static str {
         Kind::Font => "a font-stack string",
         Kind::Glyph => "a string",
         Kind::Line => "a line-style string",
+        Kind::Anchor => "a scene-anchor string",
         Kind::Text => "a string",
     }
 }
