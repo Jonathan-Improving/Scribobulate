@@ -21,6 +21,8 @@
 //!   * [`blockquote`] — `logical_line_ranges`, the per-line content split that
 //!     gives every quoted or list-item line its own tag toggle (GTK4Rs/AP-72).
 //!   * [`image`] — `image_placeholder_tooltip`, the broken-image reason string.
+//!   * [`frontmatter`] — the front-matter scan and `events`, the walk seam every
+//!     whole-document parse reads a document through (TDD 2.27).
 //! * **GTK walk (the `impl Renderer`, split by phase):**
 //!   * [`emit`] — buffer-emission helpers (`insert`/`newline`/`block_sep`/
 //!     `apply_tag_per_line`/`insert_code_block`) + trivial accessors.
@@ -48,6 +50,7 @@ pub(crate) mod disclosure;
 mod emit;
 mod end;
 mod events;
+pub(crate) mod frontmatter;
 pub(crate) mod image;
 mod normalize;
 pub(crate) mod picture;
@@ -1279,7 +1282,7 @@ impl Renderer {
             disclosure_toggles: Vec::new(),
             collapsed_blocks: Vec::new(),
             disclosure_extents: Vec::new(),
-            disclosures: disclosure::scan_document(&scanned),
+            disclosures: disclosure::scan_document(&scanned, frontmatter::Show::AsDisclosure),
             // A fresh walk stands at the document start with nothing open. Stated as
             // one value rather than twelve initialisers, so this list and the seed's
             // cannot fall out of step.

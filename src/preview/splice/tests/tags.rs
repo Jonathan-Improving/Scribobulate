@@ -63,7 +63,11 @@ fn ranges_both_ways(md: &str, before: &FoldState, after: &FoldState, name: &str)
         crate::theme::active(),
         before,
     );
-    let key = crate::renderer::disclosure::scan_document(md)[0].fold_key();
+    let key = crate::renderer::disclosure::scan_document(
+        md,
+        crate::renderer::frontmatter::Show::AsDisclosure,
+    )[0]
+    .fold_key();
     crate::preview::splice::splice(
         &starting.buf,
         None,
@@ -112,7 +116,11 @@ const MD: &str = concat!(
 /// would make this a test of the fixture.
 #[gtktest::test]
 fn a_spliced_collapse_inks_the_summary_line_the_way_a_full_render_does() {
-    let key = crate::renderer::disclosure::scan_document(MD)[0].fold_key();
+    let key = crate::renderer::disclosure::scan_document(
+        MD,
+        crate::renderer::frontmatter::Show::AsDisclosure,
+    )[0]
+    .fold_key();
     // The source says `open`; toggling the reader's state closes it.
     let mut closed = FoldState::default();
     closed.toggle(key);
@@ -155,7 +163,11 @@ fn a_spliced_collapse_inks_the_summary_line_the_way_a_full_render_does() {
 #[gtktest::test]
 fn a_spliced_expand_leaves_the_ink_over_the_label_alone() {
     let md = MD.replace("<details open>", "<details>");
-    let key = crate::renderer::disclosure::scan_document(&md)[0].fold_key();
+    let key = crate::renderer::disclosure::scan_document(
+        &md,
+        crate::renderer::frontmatter::Show::AsDisclosure,
+    )[0]
+    .fold_key();
     let mut opened = FoldState::default();
     opened.toggle(key);
 
@@ -208,7 +220,11 @@ fn a_spliced_region_carries_the_same_container_tags_a_full_render_does() {
         ("blockquote", super::IN_BLOCKQUOTE),
         ("list item", super::IN_LIST_ITEM),
     ] {
-        let key = crate::renderer::disclosure::scan_document(md)[0].fold_key();
+        let key = crate::renderer::disclosure::scan_document(
+            md,
+            crate::renderer::frontmatter::Show::AsDisclosure,
+        )[0]
+        .fold_key();
         let mut opened = FoldState::default();
         opened.toggle(key);
 

@@ -9,11 +9,11 @@ use super::sourcemap::{finalize_source_map, waypoint_src_offset};
 use crate::codeview::CodePreviewView;
 use crate::config::config;
 use crate::palette::Palette;
-use crate::renderer::Renderer;
+use crate::renderer::{frontmatter, Renderer};
 use crate::widgets::table::ScribTableWidget;
 use gtk::prelude::*;
 use gtk::{TextBuffer, TextChildAnchor};
-use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+use pulldown_cmark::{Event, Tag, TagEnd};
 use std::collections::HashMap;
 
 /// Everything one render hands to the `CodePreviewView` — the CONTENT half, in its
@@ -554,7 +554,10 @@ pub(super) fn build_products(buf: &TextBuffer, prepared: &Prepared<'_>) -> Rende
     // One entry per heading the SOURCE declares, in document order, whether or not a
     // collapsed disclosure kept it out of the buffer. See `outline::HeadingSite`.
     let mut heading_sites: Vec<crate::outline::HeadingSite> = Vec::new();
-    for (ev, src_range) in Parser::new_ext(md, crate::renderer::md_options()).into_offset_iter() {
+    // Through the front-matter seam, rendering the block as a collapsed disclosure —
+    // the ONE walk that shows it (TDD 2.27). Every map built below is keyed to these
+    // ranges, and the seam's synthetic events carry the block's real source bytes.
+    for (ev, src_range) in frontmatter::events(md, frontmatter::Show::AsDisclosure) {
         // Where the RENDERER is about to write, not how long the buffer is. The two
         // agree only while a render appends; a region render (`Renderer::write_at`)
         // writes into the middle of a buffer that already holds content on both
@@ -3874,6 +3877,128 @@ mod gtk_integration_tests {
         );
     }
 
+    /// **TDD 2.27 at the RENDER level.** A document's front matter reaches the reader
+    /// as a collapsed disclosure whose body is a fenced code block — the two renders
+    /// this project already had, composed, with no third one written for it.
+    ///
+    /// The fences themselves are the assertion worth making twice: they must not appear
+    /// as buffer text under EITHER fold state. Collapsed they are the summary line's
+    /// business, and expanded they are the code block's delimiters, which the code-block
+    /// render strips exactly as it does for a hand-written block.
+    #[gtktest::test]
+    fn front_matter_renders_as_a_collapsed_code_block() {
+        // The last key sits past the collapsed summary's body-preview limit (TDD 2.26),
+        // so its ABSENCE means genuinely collapsed rather than merely truncated — the
+        // same trick the sibling-and-nested test below uses, and necessary for the same
+        // reason: a collapsed summary legitimately shows its body's opening words.
+        let md = format!(
+            "---\nname: dev\nmodel: opus\n{}tail: TAILMARKER\n---\n\n# Role\n\nBody.\n",
+            "filler: padding padding padding\n".repeat(4)
+        );
+        let md = md.as_str();
+
+        let spans = crate::renderer::disclosure::scan_document(
+            md,
+            crate::renderer::frontmatter::Show::AsDisclosure,
+        );
+        assert_eq!(spans.len(), 1, "one block: {spans:?}");
+
+        // Collapsed — the default, since the synthetic `<details>` carries no `open`.
+        let collapsed = super::build_render_products_with_theme(
+            md,
+            None,
+            1.0,
+            false,
+            crate::theme::active(),
+            &crate::fold::FoldState::default(),
+        );
+        let slice = buffer_slice(&collapsed.buf);
+        assert!(
+            slice.contains("Frontmatter"),
+            "the summary line shows: {slice:?}"
+        );
+        assert!(
+            !slice.contains("TAILMARKER"),
+            "the body stays collapsed: {slice:?}"
+        );
+        assert!(
+            !slice.contains("---"),
+            "no fence reaches the page: {slice:?}"
+        );
+        assert!(
+            slice.contains("Role"),
+            "the document below it renders: {slice:?}"
+        );
+        assert_eq!(
+            collapsed.disclosure_toggles.len(),
+            1,
+            "the summary line carries a working toggle"
+        );
+
+        // Expanded — the metadata shows, as code, still with no fences.
+        let mut folds = crate::fold::FoldState::default();
+        folds.toggle(spans[0].fold_key());
+        let opened = super::build_render_products_with_theme(
+            md,
+            None,
+            1.0,
+            false,
+            crate::theme::active(),
+            &folds,
+        );
+        let slice = buffer_slice(&opened.buf);
+        assert!(slice.contains("name: dev"), "the body shows: {slice:?}");
+        assert!(slice.contains("TAILMARKER"), "all of it: {slice:?}");
+        assert!(!slice.contains("---"), "still no fence: {slice:?}");
+        assert!(
+            !opened.install.decor.code_blocks.is_empty(),
+            "the body is drawn as a code block, not as prose"
+        );
+    }
+
+    /// **Document Rendering CAM rows 5 and 8 for front matter** (TDD 2.27): the two
+    /// cells this construct does not inherit from the disclosure and code-block
+    /// coverage it otherwise composes, because they are about the block's SOURCE rather
+    /// than about how it is drawn.
+    ///
+    /// Row 5 (copy fidelity) is the one that could have gone silently wrong. The block
+    /// reaches the walk as synthetic events, and a copy resolves through their source
+    /// ranges — so ranges that merely looked plausible would yield a copy that omits
+    /// the fences, duplicates them, or reproduces a `<details>` the author never typed.
+    #[gtktest::test]
+    fn front_matter_copies_as_its_own_source_and_stays_findable_while_collapsed() {
+        const MD: &str = "---\nname: dev\nmodel: opus\n---\n\n# Role\n\nBody.\n";
+
+        let products = build_render_products(MD, None, 1.0, false);
+
+        // Row 5 — a copy across the whole page reproduces the author's document,
+        // fences and all, with no rendering artefact introduced.
+        let n = products.buf.char_count();
+        let copied = crate::copymap::resolve(&products.maps.copymap, MD, 0, n);
+        assert!(
+            copied.contains("---\nname: dev\nmodel: opus\n---"),
+            "the collapsed block copies as the front matter the author wrote: {copied:?}"
+        );
+        assert!(
+            !copied.contains("<details>") && !copied.contains("Frontmatter"),
+            "and introduces nothing the document does not contain: {copied:?}"
+        );
+
+        // Row 8 — find reaches the hidden body, which is what makes a collapsed block
+        // searchable rather than a hole in the document. The record naming it is the
+        // same one every authored disclosure earns.
+        let hidden = products
+            .maps
+            .collapsed_blocks
+            .iter()
+            .find(|b| MD[b.body.clone()].contains("model: opus"))
+            .expect("the hidden body is recorded for find to reach");
+        assert!(
+            hidden.resume_offset > hidden.summary_offset,
+            "a search resuming inside it starts past the summary label"
+        );
+    }
+
     /// **Rubric 2.26e at the RENDER level.** `fold.rs` proves the model keeps sibling
     /// and nested state apart; this proves a render honours it — a correct model
     /// wired to the wrong block would pass one and fail the other.
@@ -3887,7 +4012,10 @@ mod gtk_integration_tests {
             "<details>\n<summary>One</summary>\n\nalpha\n\n</details>\n\n\
              <details>\n<summary>Two</summary>\n\n{beta_body}\n\n</details>\n"
         );
-        let spans = crate::renderer::disclosure::scan_document(&md);
+        let spans = crate::renderer::disclosure::scan_document(
+            &md,
+            crate::renderer::frontmatter::Show::AsDisclosure,
+        );
         assert_eq!(spans.len(), 2, "two siblings");
 
         // Open only the FIRST. The second must be untouched.
@@ -3925,7 +4053,10 @@ mod gtk_integration_tests {
              <details>\n<summary>Inner</summary>\n\n{inner_body}\n\n</details>\n\n\
              </details>\n"
         );
-        let spans = crate::renderer::disclosure::scan_document(md);
+        let spans = crate::renderer::disclosure::scan_document(
+            md,
+            crate::renderer::frontmatter::Show::AsDisclosure,
+        );
         assert_eq!(spans.len(), 2, "an outer and an inner: {spans:?}");
         let (outer, inner) = (spans[0].fold_key(), spans[1].fold_key());
         assert_ne!(outer, inner, "two blocks, two keys");
@@ -4364,10 +4495,16 @@ mod gtk_integration_tests {
             "A paragraph with {==a claim==}{>>and a note about it<<} in it.\n\n",
             "<details>\n<summary>S</summary>\n\nthe body\n\n</details>\n"
         );
-        let raw = crate::renderer::disclosure::scan_document(MD);
+        let raw = crate::renderer::disclosure::scan_document(
+            MD,
+            crate::renderer::frontmatter::Show::AsDisclosure,
+        );
         let cleaned_text =
             crate::annotate::extract(crate::renderer::NormalizedMd::new(MD).as_str()).cleaned;
-        let cleaned = crate::renderer::disclosure::scan_document(&cleaned_text);
+        let cleaned = crate::renderer::disclosure::scan_document(
+            &cleaned_text,
+            crate::renderer::frontmatter::Show::AsDisclosure,
+        );
         assert_eq!(raw.len(), 1);
         assert_eq!(cleaned.len(), 1);
         assert_ne!(

@@ -17,8 +17,9 @@ mod tree;
 
 pub(crate) use tree::{ancestor_chain, build_tree, HeadingNode};
 
+use crate::renderer::frontmatter;
 use crate::span::{CleanedByteOffset, OriginalByteOffset};
-use pulldown_cmark::{Event, HeadingLevel, Parser, Tag, TagEnd};
+use pulldown_cmark::{Event, HeadingLevel, Tag, TagEnd};
 
 /// One heading in document order.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -123,7 +124,9 @@ pub(crate) fn extract_headings(md: &str) -> Vec<Heading> {
     // so the outline consults the same block-scope table the preview does.
     let scripts = crate::renderer::BlockScripts::scan(md);
 
-    for (ev, range) in Parser::new_ext(md, crate::renderer::md_options()).into_offset_iter() {
+    // Front matter omitted: it declares no heading, and the parser's reading of its
+    // closing fence as a setext underline used to list the whole block as an H2 here.
+    for (ev, range) in frontmatter::events(md, frontmatter::Show::Omitted) {
         match ev {
             Event::Start(Tag::Heading { level, .. }) => {
                 current = Some((level_to_u8(level), range.start, String::new()));

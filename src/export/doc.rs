@@ -14,8 +14,7 @@
 
 use super::walk::Builder;
 use super::{Block, ExportAnnotation, ExportDoc, Inline, RenderOptions};
-use crate::renderer::segments_of;
-use pulldown_cmark::Parser;
+use crate::renderer::{frontmatter, segments_of};
 
 /// Build the export model for `source`.
 ///
@@ -38,9 +37,11 @@ pub(crate) fn build(source: &str, opts: &RenderOptions) -> ExportDoc {
     let mut builder = Builder::new(
         opts,
         crate::renderer::BlockScripts::scan(cleaned),
-        crate::renderer::disclosure::scan_document(cleaned),
+        crate::renderer::disclosure::scan_document(cleaned, frontmatter::Show::Omitted),
     );
-    for (ev, src) in Parser::new_ext(cleaned, crate::renderer::md_options()).into_offset_iter() {
+    // Front matter omitted: it is the document's metadata, not its content, and an
+    // exported page or PDF carries content (TDD 2.27).
+    for (ev, src) in frontmatter::events(cleaned, frontmatter::Show::Omitted) {
         builder.event(ev, src);
     }
     let mut doc = builder.finish();

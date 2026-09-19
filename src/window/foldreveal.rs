@@ -91,7 +91,10 @@ pub(crate) fn reveal_folds(
         // disclosure the two disagree, the lookup below found no span, and the
         // diverged-key fallback flipped the fold instead of expanding it (F-SEC-209).
         let md = st.previewed_cleaned(st.view_mode.get());
-        let spans = crate::renderer::disclosure::scan_document(&md);
+        let spans = crate::renderer::disclosure::scan_document(
+            &md,
+            crate::renderer::frontmatter::Show::AsDisclosure,
+        );
         // The DECISION is `FoldState`'s and is unit-tested there; this file owns only
         // the wiring around it and the diagnostic for what it reports back.
         let diverged = st.folds.borrow_mut().expand_chain(&spans, chain);

@@ -37,8 +37,9 @@
 //! nesting in either direction (the fence inside the markup, or the markup
 //! inside the fence) is accepted.
 
+use super::frontmatter;
 use super::scan::{scan_script_spans, Script};
-use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+use pulldown_cmark::{Event, Tag, TagEnd};
 use std::collections::HashMap;
 use std::ops::Range;
 
@@ -154,7 +155,10 @@ impl BlockScripts {
         // so it must not contribute delimiters to its block.
         let mut image_depth = 0usize;
 
-        for (ev, src) in Parser::new_ext(md, super::md_options()).into_offset_iter() {
+        // Front matter omitted under EITHER consumer's mode: rendered, it is a code
+        // block, whose content is literal by definition and contributes no inline
+        // delimiters; omitted, it is not there. One mode serves both.
+        for (ev, src) in frontmatter::events(md, frontmatter::Show::Omitted) {
             match &ev {
                 Event::Start(tag) => {
                     if is_inline_tag(tag) {

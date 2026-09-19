@@ -3,7 +3,7 @@
 | # | Functional area | Rubrics |
 |---|-----------------|---------|
 | 1 | Opening & displaying documents | 1.1 – 1.11a |
-| 2 | Rendering fidelity | 2.1 – 2.26l |
+| 2 | Rendering fidelity | 2.1 – 2.27 |
 | 3 | Live reload (external edits) | 3.1 – 3.6 |
 | 4 | Editing & saving | 4.1 – 4.9 |
 | 5 | Reconciliation (conflict handling) | 5.1 – 5.4 |
@@ -336,7 +336,7 @@
 - **And** the file size limit can be changed in the configuration file
 
 ### 2.25 A Markdown construct the renderer cannot render is visible, never silently dropped
-- **Given** a document containing constructs from parser extensions this build does not handle — math (`$E=mc^2$`, `$$…$$`), footnotes (`[^1]` and its definition), a definition list, a wikilink, and YAML or TOML front matter
+- **Given** a document containing constructs from parser extensions this build does not handle — math (`$E=mc^2$`, `$$…$$`), footnotes (`[^1]` and its definition), a definition list, and a wikilink
 - **When** it is rendered, and when it is exported
 - **Then** each appears as its own **literal source text** — the reader sees what they wrote, unstyled — and nothing vanishes
 - **And** the parser is asked for **only** the extensions the renderer has handlers for, so those constructs never become parser events at all
@@ -442,6 +442,16 @@
 - **Then** the activation is **discarded**, and discarded visibly enough to be diagnosed (a `debug` record naming the generation it was minted against). It is not honoured, and it is not guessed at: re-keying it would have to define a disclosure's identity across an edit, which is the guess this rubric exists to refuse
 - **And** no block other than the one whose summary the reader activates ever changes its collapsed state as a result of an edit — which is what the discard is *for*, since a stale key can land on a different block's new start offset
 - **Rationale** a fold is keyed on the source byte offset of its opening raw-HTML block, and an edit moves every offset after it. Re-keying survivors would have to define a disclosure's identity across an edit that can split, merge or delete one — a guess the reader cannot predict — so the state is dropped instead, matching HTML, where a disclosure's state is the `open` attribute and therefore a property of the document rather than of the reader. Left unreset, a stale key silently reverts a collapsed block mid-typing or, when it collides with a different block's new start offset, **collapses the wrong block** — hiding content the reader never asked to hide
+
+### 2.27 A document's front matter reads as metadata, not as content
+- **Given** a document that opens with a front-matter block — YAML between `---` fences, or TOML between `+++` fences
+- **When** it is displayed in the preview
+- **Then** the block renders as a **collapsed disclosure** labelled *Frontmatter*, whose body is the metadata shown as a code block in its own dialect — the same summary line, the same fold, the same copy button and the same highlighting any disclosure and any fenced code block get, because they *are* those two renders rather than a third one written for this
+- **And** no fence line reaches the page as text under either fold state
+- **And** copying across the block yields the front matter the author wrote, fences included, with no `<details>` or summary label introduced
+- **And** the outline sidebar lists no heading for it, the word count does not count it, and an HTML or PDF export omits it entirely — these surfaces carry what the document *says*, and front matter is what it says about **itself**
+- **And** a document that merely opens with a horizontal rule is not front matter: the block must be closed, and its first line must carry a key rather than be blank
+- **Rationale** front matter is not a Markdown construct, so the parser reads the opening `---` as a thematic break and the closing one as a **setext underline** — making the whole block one enormous heading, which the outline then listed as real document structure. The reader's own answer is that this is metadata: worth being able to see, not worth being read as prose, and not worth exporting. The deliberate asymmetry with rubric 2.26g (a disclosure exports as it renders) is recorded as a granted exception in [CAM.md](CAM.md#granted-cam-exceptions)
 
 ### 2.12 Links within blockquotes
 - **Given** a blockquote containing a Markdown hyperlink

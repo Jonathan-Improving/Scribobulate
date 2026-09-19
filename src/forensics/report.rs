@@ -748,19 +748,173 @@ mod tests {
         assert!(text.contains("(none recorded)"), "{text}");
     }
 
+    /// Install the production panic hook, then FENCE it to the calling thread, and
+    /// hand back the teardown that removes both.
+    ///
+    /// # Two hazards, two mechanisms
+    ///
+    /// A panic hook is process-global in two independent ways, and this helper answers
+    /// both: the FENCE keeps another *thread's* panic out of this test's hook, and
+    /// [`hook_lock`] keeps another hook-installing *test* from tearing this one's hook
+    /// down mid-test. Removing either brings back its own distinct intermittent
+    /// failure, on its own distinct assertion.
+    ///
+    /// # Why a fence, and why here
+    ///
+    /// This is the problem [`crate::testlog`] already solves for the log sink, and the
+    /// same answer: scope a process-global to the thread libtest gave this test
+    /// exclusively. A panic hook is process-global and fires on EVERY panic on EVERY
+    /// thread — that is how a hook works, and the production hook depends on it. But
+    /// both tests below assert on what the hook did with a *specific* panic, and one
+    /// of them asserts ABSENCE. libtest meanwhile runs the rest of the suite in
+    /// parallel, and several of those tests panic on purpose —
+    /// `docio::a_panic_on_the_pool_thread_is_re_raised_not_swallowed` panics on a GLib
+    /// pool thread precisely to prove the report path survives it. Unfenced, that
+    /// panic runs under whichever hook is installed at that instant, writes a crash
+    /// report into THIS test's temp directory, and the absence assertion fails
+    /// naming a report neither test wrote.
+    ///
+    /// MEASURED on the pre-fix code, arms run against one binary whose identity was
+    /// checked (this helper's own test does not exist there): **0 failures in 15 runs
+    /// idle at full parallelism, 1 in 10 under CPU load.** So the enabler is CONTENTION,
+    /// not the thread count — parallelism supplies the opportunity and load supplies the
+    /// duration, and an idle rerun is not a verdict on either. That is the worst shape a
+    /// flake can take: it passes every casual retry and reddens the build pipeline.
+    ///
+    /// # What the fence does NOT weaken
+    ///
+    /// It wraps the production hook rather than standing in for it: a panic on this
+    /// thread runs [`install_panic_hook`]'s own closure, unmodified, so what is under
+    /// test is still the real thing end to end. A panic on any other thread reaches
+    /// the hook that was installed before this test began, so a concurrent test's
+    /// output and backtrace are exactly what they would have been.
+    fn install_panic_hook_fenced_to_this_thread(
+        report_path: Option<PathBuf>,
+        header: String,
+        ring: &'static Ring,
+    ) -> impl FnOnce() {
+        type Hook = std::sync::Arc<dyn Fn(&std::panic::PanicHookInfo<'_>) + Sync + Send + 'static>;
+
+        // Held until the teardown runs. See "Two hazards, two mechanisms" above: the
+        // fence answers a foreign THREAD's panic, this answers a concurrent
+        // hook-installing TEST, and neither substitutes for the other.
+        let serialised = hook_lock().lock().unwrap_or_else(|e| e.into_inner());
+
+        // The hook libtest (or an outer test) had installed. Kept behind an `Arc` so
+        // it can be both chained into the production hook and used by the fence's
+        // other-thread arm — a `Box<dyn Fn>` cannot be cloned.
+        let outer: Hook = std::sync::Arc::from(std::panic::take_hook());
+        {
+            let outer = std::sync::Arc::clone(&outer);
+            std::panic::set_hook(Box::new(move |info| outer(info)));
+        }
+
+        // Production installs over that, chaining to it exactly as it does in the app.
+        install_panic_hook(report_path, header, ring);
+        let production: Hook = std::sync::Arc::from(std::panic::take_hook());
+
+        let owner = std::thread::current().id();
+        let other = std::sync::Arc::clone(&outer);
+        std::panic::set_hook(Box::new(move |info| {
+            if std::thread::current().id() == owner {
+                production(info);
+            } else {
+                other(info);
+            }
+        }));
+
+        move || {
+            let _ = std::panic::take_hook();
+            std::panic::set_hook(Box::new(move |info| outer(info)));
+            drop(serialised);
+        }
+    }
+
+    /// Serialises every test that installs a panic hook, exactly as
+    /// [`crate::testlog`]'s own lock serialises every test that captures log records —
+    /// and for a hazard the thread fence above cannot cover.
+    ///
+    /// `std::panic::take_hook` + `set_hook` is a read-modify-write of one process-wide
+    /// slot. Two tests doing it concurrently interleave destructively: the second one's
+    /// *teardown* restores the hook it saw on the way in, silently discarding the first
+    /// one's still-live hook. The first test then runs its subject panic with no hook of
+    /// its own installed, and every assertion about what that hook did reports that it
+    /// did nothing.
+    ///
+    /// **That mechanism is ANALYSED, not measured, and the distinction is kept on
+    /// purpose.** What is MEASURED is the symptom: with the thread fence alone this
+    /// suite still failed **3 runs in 8** under load, on a DIFFERENT assertion than
+    /// before (`the contained panic must still be logged … []`, an empty capture). The
+    /// production hook can only log nothing on a contained panic if it was not installed
+    /// — which is where the mechanism above comes from. It is inference from the failure
+    /// text, and it is good inference, but it is not isolation.
+    ///
+    /// **Isolation was attempted and did not work**, so do not read a clean negative as
+    /// evidence there is nothing here: the two hook-installing tests run as a PAIR
+    /// failed 0 times in 15 under the same load, as did every three-test subset tried.
+    /// Only the full suite reproduces it. A two-test run finishes in microseconds and is
+    /// structurally too small to produce the overlap the defect needs — the rig cannot
+    /// express the property, which is knowable before running it. What remains unproven
+    /// is whether this hazard CAUSED the original failures or is a second real defect
+    /// fixed alongside them; both mechanisms are cheap, so both stay either way.
+    fn hook_lock() -> &'static std::sync::Mutex<()> {
+        static L: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+        L.get_or_init(|| std::sync::Mutex::new(()))
+    }
+
+    /// The fence's own regression guard — the positive control for
+    /// [`install_panic_hook_fenced_to_this_thread`], which is otherwise a piece of
+    /// machinery whose failure mode is *another test* going red intermittently.
+    ///
+    /// Reproduces the exact collision deterministically instead of waiting for the
+    /// scheduler to produce it: a panic on another thread, raised while this thread
+    /// holds a report-writing hook. That is `docio`'s pool-thread panic in miniature,
+    /// and before the fence it wrote a crash report into the temp directory below.
+    ///
+    /// Delete the fence and this fails every run, which is the point — the flake it
+    /// replaces failed about one run in three, and only under load.
+    #[test]
+    fn a_panic_on_another_thread_writes_no_report_into_this_tests_hook() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("crash-panic.log");
+        let ring: &'static Ring = Box::leak(Box::new(Ring::new()));
+
+        let restore = install_panic_hook_fenced_to_this_thread(
+            Some(path.clone()),
+            "scribobulate test\n".to_owned(),
+            ring,
+        );
+        let other = std::thread::spawn(|| panic!("a concurrent test's deliberate panic"));
+        let joined = other.join();
+        restore();
+
+        assert!(
+            joined.is_err(),
+            "precondition: the other thread really panicked"
+        );
+        assert!(
+            !path.exists(),
+            "another thread's panic reached this test's hook and wrote {}",
+            path.display()
+        );
+    }
+
     #[test]
     fn the_panic_hook_writes_a_report_and_still_unwinds() {
-        // TDD 21.7 both halves. Installed and taken back inside one test so no other
-        // test in the process inherits the hook.
+        // TDD 21.7 both halves. Fenced to this thread, so a panic another test raises
+        // in parallel cannot overwrite the report this one is about to read back.
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("crash-panic.log");
         let ring: &'static Ring = Box::leak(Box::new(Ring::new()));
         ring.record("breadcrumb before the panic");
 
-        let previous = std::panic::take_hook();
-        install_panic_hook(Some(path.clone()), "scribobulate test\n".to_owned(), ring);
+        let restore = install_panic_hook_fenced_to_this_thread(
+            Some(path.clone()),
+            "scribobulate test\n".to_owned(),
+            ring,
+        );
         let result = std::panic::catch_unwind(|| panic!("deliberate test panic"));
-        std::panic::set_hook(previous);
+        restore();
 
         // Unwound (not aborted) — `catch_unwind` caught it.
         assert!(result.is_err());
@@ -788,8 +942,11 @@ mod tests {
         let ring: &'static Ring = Box::leak(Box::new(Ring::new()));
 
         let cap = crate::testlog::capture();
-        let previous = std::panic::take_hook();
-        install_panic_hook(Some(path.clone()), "scribobulate test\n".to_owned(), ring);
+        let restore = install_panic_hook_fenced_to_this_thread(
+            Some(path.clone()),
+            "scribobulate test\n".to_owned(),
+            ring,
+        );
 
         let bytes = include_bytes!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -798,7 +955,7 @@ mod tests {
         let limits = richimg::Limits::default();
         let result = richimg::first_frame(bytes, &limits);
 
-        std::panic::set_hook(previous);
+        restore();
 
         assert_eq!(
             result,

@@ -226,7 +226,10 @@ pub(super) fn measure(
     start_expanded: bool,
     toggle: impl FnOnce(&Rig, &FoldState, FoldKey),
 ) -> Arm {
-    let spans = crate::renderer::disclosure::scan_document(md);
+    let spans = crate::renderer::disclosure::scan_document(
+        md,
+        crate::renderer::frontmatter::Show::AsDisclosure,
+    );
     let key = spans[0].fold_key();
 
     // The fixture's `<details>` carries no `open`, so the default state draws it

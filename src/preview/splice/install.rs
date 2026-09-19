@@ -936,7 +936,10 @@ mod gtk_integration_tests {
             "| c | d |\n|---|---|\n| 3 | 4 |\n\n",
             "tail paragraph\n"
         );
-        let spans = crate::renderer::disclosure::scan_document(MD);
+        let spans = crate::renderer::disclosure::scan_document(
+            MD,
+            crate::renderer::frontmatter::Show::AsDisclosure,
+        );
         assert_eq!(spans.len(), 1, "one disclosure in the fixture");
         let key = spans[0].fold_key();
         let mut after = crate::fold::FoldState::default();

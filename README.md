@@ -37,7 +37,10 @@ continuously: it watches the open file and re-renders automatically the moment a
 agent changes it, so the plans, notes, and reports your agents produce are always
 shown up to date. It displays your Markdown the way you expect — headings,
 tables, syntax-highlighted code, task lists, and images — in a fast native GTK
-window, with an optional editing pane and live preview. When a file changes
+window, with an optional editing pane and live preview. A file that opens with
+YAML or TOML front matter, as agent definitions and static-site pages do, shows
+it folded away at the top rather than as a wall of text where the title should
+be. When a file changes
 underneath unsaved edits, Scribobulate asks you what to do instead of silently
 discarding your work — and if the application itself dies, your unsaved work is
 waiting for you when you reopen it. And when the agent's prose needs an argument

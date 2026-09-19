@@ -300,15 +300,12 @@ mod normalize_inline_tabs_tests {
         /// Files allowed to call `Parser::new_ext` in production code. Each reads
         /// normalised text, and the test below proves it does.
         const SANCTIONED: &[&str] = &[
-            "renderer/normalize.rs", // the seam itself, plus the pre-pass
-            "export/doc.rs",
-            "outline/mod.rs",
+            "renderer/normalize.rs",   // the seam itself, plus the pre-pass
+            "renderer/frontmatter.rs", // the front-matter walk seam every site reads through
             "preview/annotate.rs",
             "preview/build.rs",
             "docio/mod.rs",
-            "renderer/segments.rs",
             "renderer/disclosure.rs",
-            "preview/splice.rs",
         ];
 
         let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");

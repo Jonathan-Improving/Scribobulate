@@ -119,7 +119,10 @@ fn a_fold_changes_exactly_one_region_of_the_rendered_text() {
         "\n\n</details>\n\n",
         "## After\n\ntail paragraph\n"
     );
-    let spans = crate::renderer::disclosure::scan_document(MD);
+    let spans = crate::renderer::disclosure::scan_document(
+        MD,
+        crate::renderer::frontmatter::Show::AsDisclosure,
+    );
     let w = both_ways(MD, spans[0].fold_key());
     assert!(
         w.opened_text.len() > w.closed_text.len(),
@@ -173,7 +176,10 @@ const IN_LIST_ITEM: &str = concat!(
 #[gtktest::test]
 fn a_fold_inside_a_container_still_changes_only_its_own_region() {
     for (name, md) in [("blockquote", IN_BLOCKQUOTE), ("list item", IN_LIST_ITEM)] {
-        let spans = crate::renderer::disclosure::scan_document(md);
+        let spans = crate::renderer::disclosure::scan_document(
+            md,
+            crate::renderer::frontmatter::Show::AsDisclosure,
+        );
         assert!(!spans.is_empty(), "the {name} block is found at all");
         let w = both_ways(md, spans[0].fold_key());
         assert_one_region(&w);
@@ -209,7 +215,10 @@ fn assert_splice_matches_full_render(md: &str, before: &FoldState, after: &FoldS
         let seen = std::rc::Rc::clone(&marks_deleted);
         move |_, _| seen.set(seen.get() + 1)
     });
-    let spans = crate::renderer::disclosure::scan_document(md);
+    let spans = crate::renderer::disclosure::scan_document(
+        md,
+        crate::renderer::frontmatter::Show::AsDisclosure,
+    );
     let key = spans[0].fold_key();
 
     // The outcome's own maps are deliberately NOT asserted here. They come from the
@@ -270,7 +279,10 @@ fn splicing_open_matches_a_full_open_render() {
         "\n\n</details>\n\n",
         "## After\n\ntail paragraph\n"
     );
-    let spans = crate::renderer::disclosure::scan_document(MD);
+    let spans = crate::renderer::disclosure::scan_document(
+        MD,
+        crate::renderer::frontmatter::Show::AsDisclosure,
+    );
     let key = spans[0].fold_key();
     let mut opened = FoldState::default();
     opened.toggle(key);
@@ -292,7 +304,10 @@ fn splicing_closed_matches_a_full_closed_render() {
         "\n\n</details>\n\n",
         "## After\n\ntail paragraph\n"
     );
-    let spans = crate::renderer::disclosure::scan_document(MD);
+    let spans = crate::renderer::disclosure::scan_document(
+        MD,
+        crate::renderer::frontmatter::Show::AsDisclosure,
+    );
     let key = spans[0].fold_key();
     // The source says `open`; toggling the reader's state closes it.
     let mut closed = FoldState::default();
@@ -309,7 +324,10 @@ fn splicing_closed_matches_a_full_closed_render() {
 #[gtktest::test]
 fn splicing_inside_a_container_matches_a_full_render() {
     for (name, md) in [("blockquote", IN_BLOCKQUOTE), ("list item", IN_LIST_ITEM)] {
-        let spans = crate::renderer::disclosure::scan_document(md);
+        let spans = crate::renderer::disclosure::scan_document(
+            md,
+            crate::renderer::frontmatter::Show::AsDisclosure,
+        );
         assert!(!spans.is_empty(), "the {name} block is found at all");
         let mut opened = FoldState::default();
         opened.toggle(spans[0].fold_key());
@@ -337,7 +355,10 @@ fn tables_outside_the_region_survive_the_splice_as_the_same_widgets() {
         "</details>\n\n",
         "| after | col |\n|---|---|\n| e | f |\n"
     );
-    let spans = crate::renderer::disclosure::scan_document(MD);
+    let spans = crate::renderer::disclosure::scan_document(
+        MD,
+        crate::renderer::frontmatter::Show::AsDisclosure,
+    );
     let key = spans[0].fold_key();
 
     let starting = super::super::build::build_render_products_with_theme(
@@ -463,7 +484,10 @@ fn the_region_render_normalises_tabs_the_same_way_every_other_parse_site_does() 
         "</details>\n\n",
         "tail paragraph\n"
     );
-    let spans = crate::renderer::disclosure::scan_document(MD);
+    let spans = crate::renderer::disclosure::scan_document(
+        MD,
+        crate::renderer::frontmatter::Show::AsDisclosure,
+    );
     let key = spans[0].fold_key();
     let mut opened = FoldState::default();
     opened.toggle(key);
@@ -497,7 +521,11 @@ fn everything_below_a_toggled_block_still_addresses_its_own_text() {
         "a distinctive tail paragraph\n\n",
         "[link text](https://example.invalid/target)\n"
     );
-    let key = crate::renderer::disclosure::scan_document(MD)[0].fold_key();
+    let key = crate::renderer::disclosure::scan_document(
+        MD,
+        crate::renderer::frontmatter::Show::AsDisclosure,
+    )[0]
+    .fold_key();
     let mut after = FoldState::default();
     after.toggle(key);
 

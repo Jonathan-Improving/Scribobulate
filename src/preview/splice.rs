@@ -64,10 +64,9 @@ mod regionwriter;
 
 use super::build::{Prepared, RenderProducts};
 use crate::fold::FoldKey;
-use crate::renderer::{md_options, DisclosureToggle};
+use crate::renderer::{frontmatter, DisclosureToggle};
 use gtk::prelude::*;
 use gtk::TextBuffer;
-use pulldown_cmark::Parser;
 use regionwriter::{RegionWriter, Writing};
 
 /// Everything a fold toggle produced, ready for a caller to install: PASS A's
@@ -408,7 +407,10 @@ fn render_region(
     // disagreed, which the caller must treat as a lost region.
     let mut finished: Option<RegionWidgets> = None;
     let mut live: Option<RegionWriter<Writing>> = None;
-    for (ev, src) in Parser::new_ext(cleaned, md_options()).into_offset_iter() {
+    // The same seam and the same mode as `preview::build`'s full render: a region
+    // render that saw a different document than PASS A would write the wrong bytes
+    // back, and front matter's own disclosure is one a reader can toggle.
+    for (ev, src) in frontmatter::events(cleaned, frontmatter::Show::AsDisclosure) {
         match live.take() {
             None => {
                 // `event_src` must be set before EVERY `process` call — a

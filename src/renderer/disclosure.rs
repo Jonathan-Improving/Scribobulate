@@ -33,6 +33,7 @@
 //! rendering decision (rubric 2.26d) and a scanner that silently dropped an unpaired
 //! tag would deny the renderer the information it needs to recover well.
 
+use super::frontmatter::Show;
 use super::rawhtml::{has_attr, RawHtml, RawHtmlElement, RawItem, TagKind};
 
 /// The collapsed-summary body-preview shortening rule (TDD 2.26) — split out rather
@@ -296,7 +297,17 @@ impl SpanCursor {
 /// can share an offset. Document order cannot collide, and both this scan and the
 /// renderer walk the same events in the same order, so the Nth here is the Nth
 /// there. The caller checks the offsets agree anyway and fails safe if they do not.
-pub(crate) fn scan_document(md: &str) -> Vec<DisclosureSpan> {
+///
+/// # Why the caller states how front matter is shown
+///
+/// The cursor above pairs by ORDINAL, so this scan and the walk that consumes it must
+/// meet the same `<details>` in the same order. Front matter renders as one in the
+/// preview and not at all in an export ([`super::frontmatter`]), so a scan that assumed
+/// either would be off by one for every real disclosure in the other sink — and the
+/// cross-check would report each of them as a disagreement and render it unfoldable.
+/// The mode is the caller's to state for that reason: it is a property of the walk, not
+/// of the document.
+pub(crate) fn scan_document(md: &str, show: Show) -> Vec<DisclosureSpan> {
     use pulldown_cmark::{Event, Tag, TagEnd};
 
     // **One document, like every other parse site** (`super::normalize`), so this scan
@@ -329,7 +340,10 @@ pub(crate) fn scan_document(md: &str) -> Vec<DisclosureSpan> {
     // because a block's tags are only complete at its `End` event.
     let mut block: Option<(std::ops::Range<usize>, String)> = None;
 
-    for (ev, src) in pulldown_cmark::Parser::new_ext(md, super::md_options()).into_offset_iter() {
+    // `AsDisclosure`, matching the preview walk this scan indexes FOR: front matter
+    // renders as a `<details>`, so it must be counted here or the ordinal cross-check
+    // in `SpanCursor` would fail on every real disclosure below it.
+    for (ev, src) in super::frontmatter::events(md, show) {
         match ev {
             Event::Start(Tag::HtmlBlock) => block = Some((src, String::new())),
             Event::Html(t) => {
@@ -896,10 +910,10 @@ mod tests {
 
 #[cfg(test)]
 mod document_scan_tests {
-    use super::{scan_document, DisclosureSpan};
+    use super::{scan_document, DisclosureSpan, Show};
 
     fn shape(md: &str) -> Vec<(usize, bool, bool)> {
-        scan_document(md)
+        scan_document(md, Show::AsDisclosure)
             .into_iter()
             .map(
                 |DisclosureSpan {
@@ -920,7 +934,7 @@ mod document_scan_tests {
     #[test]
     fn two_disclosures_in_one_block_have_two_identities() {
         let md = "<details><summary>A</summary>alpha</details>\n                  <details><summary>B</summary>beta</details>\n";
-        let spans = scan_document(md);
+        let spans = scan_document(md, Show::AsDisclosure);
         assert_eq!(spans.len(), 2, "two disclosures: {spans:?}");
         assert_eq!(
             spans[0].start, spans[1].start,
@@ -948,7 +962,7 @@ mod document_scan_tests {
     #[test]
     fn a_single_line_disclosure_keys_on_its_own_tag() {
         let md = "<details><summary>S</summary>body</details>\n";
-        let spans = scan_document(md);
+        let spans = scan_document(md, Show::AsDisclosure);
         assert_eq!(spans.len(), 1);
         assert_eq!(
             spans[0].fold_key(),
@@ -964,7 +978,7 @@ mod document_scan_tests {
     #[test]
     fn text_outside_a_disclosure_extends_no_body() {
         let md = "<hr>lead\n<details><summary>S</summary>body</details>\n";
-        let spans = scan_document(md);
+        let spans = scan_document(md, Show::AsDisclosure);
         assert_eq!(spans.len(), 1, "one disclosure: {spans:?}");
         assert_eq!(&md[spans[0].body.clone().expect("closed")], "body");
     }
@@ -972,7 +986,7 @@ mod document_scan_tests {
     #[test]
     fn a_closed_block_reports_its_body() {
         let md = "before\n\n<details>\n<summary>S</summary>\n\nbody\n\n</details>\n";
-        let spans = scan_document(md);
+        let spans = scan_document(md, Show::AsDisclosure);
         assert_eq!(spans.len(), 1);
         assert_eq!(spans[0].start, md.find("<details>").unwrap());
         let body = spans[0].body.clone().expect("a closed block has a body");
@@ -1004,7 +1018,7 @@ mod document_scan_tests {
             "<details>\n<summary>Inner</summary>\n\ninner\n\n</details>\n\n",
             "</details>\n"
         );
-        let spans = scan_document(md);
+        let spans = scan_document(md, Show::AsDisclosure);
         assert_eq!(spans.len(), 2);
         assert!(spans[0].body.is_some(), "the outer block closes");
         assert!(spans[1].body.is_some(), "the inner block closes");
@@ -1029,7 +1043,7 @@ mod document_scan_tests {
             "<details>\n<summary>Inner</summary>\n\ninner\n\n</details>\n\n",
             "after\n"
         );
-        let spans = scan_document(md);
+        let spans = scan_document(md, Show::AsDisclosure);
         assert_eq!(spans.len(), 2);
         assert!(spans[0].body.is_none(), "the outer block never closes");
         assert!(spans[1].body.is_some(), "the inner block does");
@@ -1047,8 +1061,8 @@ mod document_scan_tests {
 
     #[test]
     fn a_document_with_no_disclosures_scans_to_nothing() {
-        assert!(scan_document("# Just a heading\n\nand prose.\n").is_empty());
-        assert!(scan_document("").is_empty());
+        assert!(scan_document("# Just a heading\n\nand prose.\n", Show::AsDisclosure).is_empty());
+        assert!(scan_document("", Show::AsDisclosure).is_empty());
     }
 
     #[test]
@@ -1057,7 +1071,7 @@ mod document_scan_tests {
             "<details>\n<summary>One</summary>\n\na\n\n</details>\n\n",
             "<details open>\n<summary>Two</summary>\n\nb\n\n</details>\n"
         );
-        let spans = scan_document(md);
+        let spans = scan_document(md, Show::AsDisclosure);
         assert_eq!(spans.len(), 2);
         assert!(spans[0].start < spans[1].start, "document order");
         assert!(
@@ -1077,7 +1091,10 @@ mod document_scan_tests {
             "<div>\n\nbody\n",
             "<script>\n\nbody\n",
         ] {
-            assert!(scan_document(md).is_empty(), "{md:?} is not a disclosure");
+            assert!(
+                scan_document(md, Show::AsDisclosure).is_empty(),
+                "{md:?} is not a disclosure"
+            );
         }
     }
 }

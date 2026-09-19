@@ -149,6 +149,7 @@ src/renderer/disclosure/preview.rs
 src/renderer/emit.rs
 src/renderer/end.rs
 src/renderer/events.rs
+src/renderer/frontmatter.rs
 src/renderer/image.rs
 src/renderer/mod.rs
 src/renderer/normalize.rs
@@ -198,6 +199,7 @@ src/widgets/tab/layout.rs
 src/widgets/table/layout.rs
 src/widgets/table/linkcell.rs
 src/widgets/textfield.rs
+src/widgets/wrapbox.rs
 src/window/find/plan.rs
 src/winstate/busynotice.rs
 src/winstate/chrome.rs

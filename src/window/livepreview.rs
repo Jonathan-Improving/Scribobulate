@@ -130,7 +130,10 @@ mod gtk_integration_tests {
         let st = state(&window).expect("state registered after new_window");
 
         // Collapse both blocks, exactly as activating their summaries would.
-        let spans = crate::renderer::disclosure::scan_document(DOC);
+        let spans = crate::renderer::disclosure::scan_document(
+            DOC,
+            crate::renderer::frontmatter::Show::AsDisclosure,
+        );
         assert_eq!(spans.len(), 2, "fixture holds two disclosures");
         for span in &spans {
             st.folds.borrow_mut().toggle(span.fold_key());
@@ -249,7 +252,10 @@ mod gtk_integration_tests {
         let window = crate::window::new_window(&app, "IT-foldmode", &doc, None);
         let st = state(&window).expect("state registered after new_window");
 
-        let spans = crate::renderer::disclosure::scan_document(&doc);
+        let spans = crate::renderer::disclosure::scan_document(
+            &doc,
+            crate::renderer::frontmatter::Show::AsDisclosure,
+        );
         assert_eq!(spans.len(), 1, "fixture holds one disclosure");
         let key = spans[0].fold_key();
 

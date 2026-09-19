@@ -941,6 +941,31 @@ rule.
   `GAction`, process-wide, with every window's menu mirroring the one state, and no
   per-surface enablement anywhere.
 
+- **Front matter does not export as it renders** (Document Rendering CAM row 17) —
+  **GRANTED (operator, 2026-09-18).** The preview shows a document's front matter as a
+  collapsed disclosure; an HTML or PDF export omits it entirely, as does the outline
+  sidebar and the status bar's word count (TDD 2.27). Row 17, and rubric 2.26g behind
+  it, would have the block reach an exported artefact exactly as the preview draws it.
+
+  **The argument:** row 17 exists because a construct taught to the renderer alone is
+  silently *absent* from an artefact, and absence is what nobody notices. That is a
+  statement about content. Front matter is not content — it is what the document says
+  about itself, addressed to a static-site generator rather than to a reader, and the
+  generator that consumes it strips it from the page it publishes for exactly this
+  reason. So the asymmetry is the feature: the preview shows it because the author
+  editing the file wants to see it, and the export drops it because the person handed
+  the artefact was never its audience.
+
+  **Every other cell is satisfied by construction**, which is the reason this is the
+  only deviation. The block reaches the renderer as synthetic events indistinguishable
+  from an authored `<details>` wrapping a fenced code block (`renderer::frontmatter`),
+  so it inherits the disclosure's and the code block's coverage of every container,
+  theme, zoom, focus and mode cell rather than restating it. The two cells that are NOT
+  inherited — row 5 (copy fidelity) and row 8 (find reach), both properties of the
+  synthetic events' source ranges rather than of how the block is drawn — are covered
+  by `preview::build`'s
+  `front_matter_copies_as_its_own_source_and_stays_findable_while_collapsed`.
+
 - **Annotate** (`win.annotate`, group `Edit`) — the approved deviation from the
   Action CAM is the command's presence in the **caret formatting overlay**, a
   Format surface an Edit action would not otherwise occupy. Justified because
