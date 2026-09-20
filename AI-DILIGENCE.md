@@ -29,7 +29,9 @@ The Linux seat is the integration authority; the platform seats hold clones and
 land work as `<seat>/<feature>` branches. That topology exists because a
 cross-platform GTK application has to be proven on every operating system it
 claims to support, and it has its own sharp edge, written up in POLICY
-(§ Cross-machine seat branches) because I measured it the hard way.
+(§ Version control) because I measured it the hard way: a seat pushes with an
+explicit refspec, never a bare `git push`, and an integration is verified by
+diffing trees rather than by trusting the push.
 
 Scribobulate itself ships no AI features. It does not summarize your document, it
 does not call a model, and it has no account to sign into. It is a Markdown viewer

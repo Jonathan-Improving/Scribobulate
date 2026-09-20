@@ -264,7 +264,7 @@ pub(crate) fn note_buffer_changed(window: &ApplicationWindow, tab: &Rc<TabState>
         return;
     }
     let chrome = tab.chrome();
-    restart_timer(&chrome, &chrome.text_stats_timer, TEXT_STATS_DEBOUNCE, {
+    restart_text_stats_timer(&chrome, TEXT_STATS_DEBOUNCE, {
         let window = window.downgrade();
         move || {
             if let Some(window) = window.upgrade() {
@@ -299,21 +299,33 @@ pub(crate) fn note_selection_changed(window: &ApplicationWindow) {
             chrome.selection_count.set(Some((st.id, selection.count())));
         }
         // Too large to count on the caret path, and deferring it would mean attaching a
-        // source from exactly the place that must not.
-        Some(_) => {}
+        // source from exactly the place that must not. So the figure is CLEARED rather
+        // than left standing: the previous selection's count is not this selection's,
+        // and an indicator showing a smaller number as though it were current is worse
+        // than one showing nothing. The `changed`-armed debounce and every tab or mode
+        // switch recount it, so the blank is brief and self-correcting.
+        Some(_) => chrome.selection_count.set(None),
     }
     render_text_indicators(&st);
 }
 
-/// (Re)start a one-shot timer held in `cell` on `chrome`. The timer clears its own
-/// cell when it fires, so a later restart never removes a source that no longer exists.
-fn restart_timer(
+/// (Re)start the text-statistics debounce timer. The timer clears its own cell when it
+/// fires, so a later restart never removes a source that no longer exists.
+///
+/// **The cell used to be a parameter and the body did not honour it.** It cancelled and
+/// re-armed whichever cell the caller passed, while the timer's own body cleared
+/// `chrome.text_stats_timer` by name — so any second caller would have left its source
+/// id behind in its own cell and cleared a timer belonging to something else. It was
+/// correct only because there is exactly one caller, and a parameter that is ignored is
+/// worse than no parameter: it advertises a generality the body does not have, and the
+/// next caller is the one who finds out. Naming the field once, here, makes the
+/// function honest about being the text-statistics timer.
+fn restart_text_stats_timer(
     chrome: &Rc<WindowChrome>,
-    cell: &RefCell<Option<glib::SourceId>>,
     delay: Duration,
     fire: impl FnOnce() + 'static,
 ) {
-    if let Some(id) = cell.borrow_mut().take() {
+    if let Some(id) = chrome.text_stats_timer.borrow_mut().take() {
         id.remove();
     }
     let weak: Weak<WindowChrome> = Rc::downgrade(chrome);
@@ -323,7 +335,7 @@ fn restart_timer(
         }
         fire();
     });
-    *cell.borrow_mut() = Some(id);
+    *chrome.text_stats_timer.borrow_mut() = Some(id);
 }
 
 /// Text a selection holds, and whether it is Markdown source (the editor) or text as
@@ -454,9 +466,23 @@ struct Counter {
     pending: VecDeque<CountJob>,
 }
 
+/// This gate's share of GLib's I/O pool, from the one place the shares are added up.
+///
+/// It is a `bool` below rather than a counter because the share is one; the assertion
+/// is what keeps those two facts the same fact. Raising the budget without reshaping
+/// the gate would silently leave this at one thread while the pool accounting believed
+/// otherwise — the sum would still be honoured, so nothing else would complain.
+const MAX_CONCURRENT_COUNTS: usize =
+    crate::docio::budget::cap(crate::docio::budget::Consumer::WordCount);
+const _: () = assert!(
+    MAX_CONCURRENT_COUNTS == 1,
+    "the single-slot latch below IS this cap; give the budget more and this gate has \
+     to become a counter, like docio's and animation's, rather than a bool"
+);
+
 thread_local! {
     /// The application-wide bound: one count on the pool at a time (ScrAP-243), the
-    /// rest queued one deep per tab.
+    /// rest queued one deep per tab. The number is `docio::budget`'s.
     static COUNTER: RefCell<Counter> = RefCell::default();
 }
 
@@ -521,6 +547,7 @@ fn run(job: CountJob) {
         // the next pending job is started from one place rather than from the happy
         // path only.
         let _latch = RunningLatch;
+        #[allow(clippy::disallowed_methods, reason = "sanctioned dispatcher for docio::budget::Consumer::WordCount; the admission gate is the single-slot Counter above")]
         let outcome = gtk::gio::spawn_blocking(move || {
             source.map(|text| (TextCount::of_markdown(&text), LineEndings::classify(&text)))
         })

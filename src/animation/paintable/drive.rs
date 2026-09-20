@@ -1,6 +1,6 @@
 //! The seam this paintable actually drives: bootstrap, the play/pause/visibility
 //! reconciliation, the tick callback, and the decode round trip. Split out of
-//! `mod.rs` at POLICY's 500-line soft limit — the struct/`GdkPaintable` vfuncs and
+//! `mod.rs` at POLICY's file-size soft limit — the struct/`GdkPaintable` vfuncs and
 //! the public `AnimatedPaintable` API stay there; every method below is
 //! `impl imp::AnimatedPaintable` (the same type, a different file, exactly like
 //! `gtk_tests` splits the tests for the same reason).
@@ -410,7 +410,12 @@ impl imp::AnimatedPaintable {
         animation: richimg::Animation,
         result: Result<richimg::Frame, richimg::Error>,
     ) {
+        #[cfg(all(test, feature = "gtk-integration-tests"))]
+        let was_stale = generation != self.decoder_generation.get();
         if generation != self.decoder_generation.get() {
+            #[cfg(all(test, feature = "gtk-integration-tests"))]
+            self.stale_decodes_dropped
+                .set(self.stale_decodes_dropped.get().saturating_add(1));
             // This frame belongs to a decoder incarnation that has since been torn
             // down. Let `animation` — the STALE decoder — drop here. Nothing is
             // abandoned on the schedule: the schedule was restarted by
@@ -430,6 +435,15 @@ impl imp::AnimatedPaintable {
             // answer `Hold` (F-R2-1).
             self.abandon_pending_frame();
             return;
+        }
+        // Counted AFTER the guard and keyed on staleness captured BEFORE it, so with
+        // the guard intact this is unreachable. A counter inside the guard's branch
+        // proves only that the branch was entered — deleting the `return` beneath it
+        // leaves such a counter moving and every animation test green (measured).
+        #[cfg(all(test, feature = "gtk-integration-tests"))]
+        if was_stale {
+            self.stale_installs
+                .set(self.stale_installs.get().saturating_add(1));
         }
         self.animation.replace(Some(animation));
         let frame = match result {

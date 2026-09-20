@@ -724,8 +724,8 @@ function Invoke-SelfTest {
     # Written BEFORE the contract carries a `disarm.` line, deliberately. The readers must
     # accept the line before the writer emits it, or the first run after the contract gains
     # one goes red on this platform over a declaration that says nothing about this
-    # platform. Measured at 5666c2f: a well-formed `disarm.macos` line is rejected outright
-    # by a runner that has not yet learned the keyword.
+    # platform. Measured: a well-formed `disarm.macos` line is rejected outright by a
+    # runner that has not yet learned the keyword.
     $base = @(
         'platform linux    Linux',
         'platform macos    macOS',
@@ -826,6 +826,173 @@ function Invoke-SelfTest {
         return $false
     }
     Write-Host '   disarm. is a recognised line shape, case-sensitively'
+
+    # ---------------------------------------------------------------------------------
+    # EVERY REFUSAL IN Test-Contract, PROVEN REACHABLE.
+    #
+    # The cases above plant four violations. Test-Contract has twenty distinct refusals,
+    # so sixteen of them had never been executed by anything -- in the one language of the
+    # three where a mistyped variable inside a branch nobody takes is not an error but a
+    # silently-passing branch. A rule no input has ever tripped is a rule with no evidence
+    # behind it; on this engine that is the default state, not a pedantic worry.
+    #
+    # Same technique as the disarm cases and for the same reason: each case drives the REAL
+    # Test-Contract over a synthetic contract and asserts on the MESSAGE, never on the
+    # boolean. A boolean assertion is satisfied by ANY rule firing on the same input, so it
+    # would pass with the rule under test deleted -- and that is not hypothetical here,
+    # because several of these inputs legitimately trip more than one rule at once.
+    #
+    # The CONTROL case comes first and must be ACCEPTED. Without it a corpus of rejections
+    # is satisfied in full by a validator that refuses everything.
+    #
+    # Maintained by hand: a rule added to Test-Contract needs a case added here. Nothing
+    # detects that omission, which is stated rather than hidden -- the alternative on offer
+    # was a count of Write-Err sites, and a rule emits between one and four of those, so
+    # the guard would have encoded a ratio nobody could keep true.
+    $probeBase = [string[]] @(
+        'platform linux    Linux',
+        'platform macos    macOS',
+        'platform windows  Windows',
+        'step    1  probe',
+        'intent  probe  a synthetic step used only by -SelfTest',
+        'verdict probe  exit',
+        'class   probe  required',
+        'cmd.linux   probe  cargo fmt --check',
+        'cmd.macos   probe  cargo fmt --check',
+        'cmd.windows probe  cargo fmt --check'
+    )
+    # Cases drop by KEYWORD rather than by whole line, so a case says which declaration it
+    # removes and does not go stale the moment the base above is reformatted.
+    function New-ProbeContract {
+        param([string[]] $Drop = @(), [string[]] $Add = @())
+        $kept = @(foreach ($l in $probeBase) {
+            if ($Drop -ccontains ($l.Trim() -split '\s+', 2)[0]) { continue }
+            $l
+        })
+        return [string[]] ($kept + @($Add))
+    }
+
+    $ruleCases = @(
+        @{ Rule = 'control -- a well-formed contract is ACCEPTED'
+           Lines = (New-ProbeContract)
+           Want = $true;  Expect = @() },
+
+        @{ Rule = 'a line that is not a keyword/key/value triple'
+           Lines = (New-ProbeContract -Add @('this line is not a contract triple'))
+           Want = $false; Expect = @("recognised 'keyword key value' triple") },
+
+        @{ Rule = 'a contract with no step lines at all'
+           Lines = (New-ProbeContract -Drop @('step'))
+           Want = $false; Expect = @('defines no steps') },
+
+        @{ Rule = 'the same step id declared twice'
+           Lines = (New-ProbeContract -Add @('step    2  probe'))
+           Want = $false; Expect = @('duplicate step id(s) in') },
+
+        @{ Rule = 'a contract declaring no platforms'
+           Lines = (New-ProbeContract -Drop @('platform'))
+           Want = $false; Expect = @('declares no platforms') },
+
+        @{ Rule = 'a step with no intent'
+           Lines = (New-ProbeContract -Drop @('intent'))
+           Want = $false; Expect = @("step 'probe' has no intent") },
+
+        @{ Rule = 'a step with no verdict'
+           Lines = (New-ProbeContract -Drop @('verdict'))
+           Want = $false; Expect = @("step 'probe' has no verdict") },
+
+        @{ Rule = 'a step with no class'
+           Lines = (New-ProbeContract -Drop @('class'))
+           Want = $false; Expect = @("step 'probe' has no class") },
+
+        @{ Rule = 'a step whose class is not one of the four'
+           Lines = (New-ProbeContract -Drop @('class') -Add @('class   probe  wibble'))
+           Want = $false; Expect = @("has unknown class 'wibble'") },
+
+        @{ Rule = 'a review step carrying a command'
+           Lines = (New-ProbeContract -Drop @('class') -Add @('class   probe  review'))
+           Want = $false; Expect = @("review step 'probe' must not carry cmd.windows") },
+
+        @{ Rule = 'a step with neither a command nor a non-applicability declaration'
+           Lines = (New-ProbeContract -Drop @('cmd.windows'))
+           Want = $false; Expect = @('has neither cmd.windows nor na.windows') },
+
+        @{ Rule = 'a step with both a command and a non-applicability declaration'
+           Lines = (New-ProbeContract -Add @('na.windows  probe  permanent no GTK suite on this box'))
+           Want = $false; Expect = @('has BOTH cmd.windows and na.windows') },
+
+        @{ Rule = 'na. with an unknown kind'
+           Lines = (New-ProbeContract -Drop @('cmd.windows') `
+                                      -Add @('na.windows  probe  sometimes it is off on Tuesdays'))
+           Want = $false; Expect = @("na.windows has kind 'sometimes'") },
+
+        @{ Rule = 'na. with a kind and no reason'
+           Lines = (New-ProbeContract -Drop @('cmd.windows') `
+                                      -Add @('na.windows  probe  permanent'))
+           Want = $false; Expect = @('na.windows has a kind but no reason') },
+
+        @{ Rule = 'disarm. with an unknown kind'
+           Lines = (New-ProbeContract -Add @('disarm.windows  probe  sometimes a reason'))
+           Want = $false; Expect = @("disarm.windows has kind 'sometimes'") },
+
+        @{ Rule = 'disarm. with a kind and no reason'
+           Lines = (New-ProbeContract -Add @('disarm.windows  probe  tooling'))
+           Want = $false; Expect = @('disarm.windows has a kind but no reason') },
+
+        # Both refusals on one input, as the disarm block above already pins for its own
+        # reasons. Kept here too because this table's subject is the ENUMERATION -- a
+        # reader checking that every rule has a case must find every rule in one place.
+        @{ Rule = 'disarm. on a step that does not run here, and so has no command'
+           Lines = (New-ProbeContract -Drop @('cmd.windows') `
+                                      -Add @('na.windows      probe  permanent no GTK suite on this box',
+                                             'disarm.windows  probe  tooling a gate that never runs cannot be off'))
+           Want = $false; Expect = @('BOTH na.windows and disarm.windows',
+                                     'has disarm.windows but no cmd.windows') },
+
+        @{ Rule = 'a carve-out on a step that is not a cargo test invocation'
+           Lines = (New-ProbeContract -Add @('carveout.windows  probe  a::synthetic::test'))
+           Want = $false; Expect = @("'cargo test' invocation, so --skip cannot apply to it") },
+
+        # The only case that reaches the filesystem, and the only one that is checked for
+        # THIS platform alone -- a runner cannot test that another platform's script exists.
+        @{ Rule = 'a command naming a repo-relative script that is not there'
+           Lines = (New-ProbeContract -Drop @('cmd.windows') `
+                                      -Add @('cmd.windows probe  powershell -File packaging/windows/no-such-script.ps1'))
+           Want = $false; Expect = @("names 'packaging/windows/no-such-script.ps1', which does not exist") },
+
+        @{ Rule = 'ordinals that decrease in file order'
+           Lines = (New-ProbeContract -Add @('step    0  omega',
+                                             'intent  omega  a synthetic step used only by -SelfTest',
+                                             'verdict omega  exit',
+                                             'class   omega  required',
+                                             'cmd.linux   omega  cargo fmt --check',
+                                             'cmd.macos   omega  cargo fmt --check',
+                                             'cmd.windows omega  cargo fmt --check'))
+           Want = $false; Expect = @("out of order in file order: '1' then '0'") }
+    )
+
+    foreach ($case in $ruleCases) {
+        $r = Test-SyntheticContract -Lines $case.Lines
+        if ($r.Ok -ne $case.Want) {
+            Write-Err "pipeline: contract rule -- '$($case.Rule)' returned $($r.Ok), want $($case.Want)"
+            Write-Err "  validator said: $($r.Err.Trim())"
+            return $false
+        }
+        if ($case.Want -and $r.Err.Trim()) {
+            Write-Err "pipeline: contract rule -- '$($case.Rule)' was accepted but still complained:"
+            Write-Err "  $($r.Err.Trim())"
+            return $false
+        }
+        foreach ($frag in @($case.Expect)) {
+            if ($r.Err -notlike "*$frag*") {
+                Write-Err "pipeline: contract rule -- '$($case.Rule)' was rejected for the wrong reason"
+                Write-Err "  want a message containing: $frag"
+                Write-Err "  got: $($r.Err.Trim())"
+                return $false
+            }
+        }
+    }
+    Write-Host "   every refusal in Test-Contract fires on an input that deserves it ($($ruleCases.Count) cases)"
 
     # THE ANNOUNCEMENT, driven through the real Invoke-ContractStep against a synthetic
     # contract. Validating the grammar proves a malformed declaration is refused; it says

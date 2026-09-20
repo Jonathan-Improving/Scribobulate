@@ -21,7 +21,7 @@
  * ------------------------------
  * Per probes/README.md: a C probe runs against an ARBITRARY installed GTK. The
  * measurement below is expected to be vintage-dependent (the anchored-child parking
- * coordinate changed in 4.20.1, commit a4b4fec72e), so the mac and Windows seats must
+ * coordinate changed in 4.20.1, GNOME/gtk commit a4b4fec72e), so the mac and Windows seats must
  * be able to re-run this against 4.22.x without this crate building. Nothing about the
  * subject touches the Rust binding, so a Rust probe would only narrow who can run it.
  *

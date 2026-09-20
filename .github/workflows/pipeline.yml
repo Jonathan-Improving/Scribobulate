@@ -445,8 +445,23 @@ jobs:
       # looser bound. The override announces itself in the log, so a green run here is
       # never mistakable for a green run at the default. See src/testtiming.rs.
       SCRIBTEST_TIMING_SAMPLES: "25"
-      # The GTK pin. Bump this line to move GTK; nothing else in this job names a version.
+      # The GTK pin. Bump these two lines together to move GTK; nothing else in this job
+      # names a version or a digest.
+      #
+      # The version alone is a MUTABLE release tag: it names which bytes the maintainer
+      # currently publishes, not which bytes this project reviewed. The digest is what
+      # makes the fetch reproducible, and it is not hygiene here -- these DLLs are linked
+      # into the installer handed to users, so an unverified archive is a supply-chain
+      # path into someone else's machine. This project already learned the general lesson
+      # on the licence pipeline, where four of nine fetches returned HTTP 200 carrying
+      # bot-check HTML (licenses/PROVENANCE.md); a 200 is not evidence of content.
+      #
+      # Read the digest from the release, never from the downloaded file:
+      #   gh api repos/wingtk/gvsbuild/releases/tags/<version> \
+      #     | yq -r '.assets[] | [.name, .digest] | @tsv'
+      # Hashing what you just downloaded proves only that the download did not corrupt.
       GVSBUILD_VERSION: "2026.8.0"
+      GVSBUILD_SHA256: "1f95a92d037f5292da05e6ab1037032ff21ddb7b20d4ac8e83e3674c864c07b0"
       SCRIB_GTK_PREFIX: 'C:\gtk-build\gtk\x64\release'
     steps:
       # Before checkout, so the checkout itself is covered by it.
@@ -462,9 +477,33 @@ jobs:
         id: gtk
         with:
           path: C:\gtk-build
-          key: gvsbuild-gtk4-${{ env.GVSBUILD_VERSION }}-x64
+          # The digest is in the key so that moving the pin cannot be answered by an
+          # archive cached under the old one: a cache entry is content this job will
+          # unpack without re-verifying, so what it is keyed on IS its integrity claim.
+          #
+          # ⚠️ KNOWN GAP, deliberately open: a key is a CLAIM, not a CHECK. The verify
+          # step below runs only on a cache MISS, so on a HIT this job restores an
+          # already-unpacked prefix and nothing re-hashes it. Whoever can write the cache
+          # decides what is in it, and the digest's presence in the key asserts a match
+          # without testing one.
+          #
+          # The fix, if it is taken: cache the ARCHIVE rather than the unpacked prefix and
+          # drop the `if: cache-hit != true` below, so the digest runs on every run and the
+          # prefix only ever comes from an unpack of bytes that just passed. The expensive
+          # part — the download — stays cached. Two conditions before doing it: measure
+          # `Expand-Archive` on a hosted runner first (3,240 files / 143.8 MiB measured on
+          # a seat's box, which is its worst case; `tar -xf` is on windows-latest if the
+          # number is bad), and do NOT soften the fetch step's failure message — all three
+          # causes it names stay correct once it also fires on restores.
+          #
+          # REJECTED: hashing the restored tree against a manifest cached beside it. That
+          # catches corruption, not authenticity — whoever writes the cache writes the
+          # manifest — and costs a full-tree hash to buy the weaker half.
+          # NOT a defect: version+digest in the key makes every pin bump a cold cache by
+          # construction. That is the design working.
+          key: gvsbuild-gtk4-${{ env.GVSBUILD_VERSION }}-${{ env.GVSBUILD_SHA256 }}-x64
 
-      - name: Fetch the pinned prebuilt GTK4 stack
+      - name: Fetch the pinned prebuilt GTK4 stack and verify it against its digest
         if: steps.gtk.outputs.cache-hit != 'true'
         shell: pwsh
         run: |
@@ -474,6 +513,25 @@ jobs:
                  "$env:GVSBUILD_VERSION/GTK4_Gvsbuild_${env:GVSBUILD_VERSION}_x64.zip"
           Write-Host "Fetching $url"
           Invoke-WebRequest -Uri $url -OutFile $zip
+
+          # Refuse BEFORE unpacking. Once Expand-Archive has run, a hostile archive has
+          # already written whatever paths it chose into the prefix that later feeds the
+          # installer, and a failure after that point is a report, not a defence.
+          $actual = (Get-FileHash -Path $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          $expected = $env:GVSBUILD_SHA256.ToLowerInvariant()
+          if ($actual -ne $expected) {
+              Remove-Item -Path $zip -Force -ErrorAction SilentlyContinue
+              throw ("GTK archive digest mismatch -- refusing to unpack.`n" +
+                     "  url      $url`n" +
+                     "  expected $expected`n" +
+                     "  actual   $actual`n" +
+                     "The release tag is mutable, so this means the published bytes " +
+                     "changed, the download was tampered with, or the pin is stale. " +
+                     "Re-derive the digest from the release and update GVSBUILD_SHA256 " +
+                     "deliberately; never relax this check to get a green run.")
+          }
+          Write-Host "GTK archive digest verified: sha256 $actual"
+
           New-Item -ItemType Directory -Force -Path $env:SCRIB_GTK_PREFIX | Out-Null
           Expand-Archive -Path $zip -DestinationPath $env:SCRIB_GTK_PREFIX -Force
 
@@ -491,6 +549,11 @@ jobs:
       # "a GTK-4 runtime DLL is on the prefix's bin", so that is what is asserted, and the
       # resolved name is printed so the next reader can see what it found rather than
       # trusting that something matched.
+      # This step asks whether the prefix is COMPLETE, not whether it is authentic. Those
+      # are different questions and a completeness check standing in for an identity one
+      # is how an unverified archive passes review: every file it asks for is present in a
+      # tampered archive too. Authenticity is settled by the digest above, before the
+      # unpack; do not let this step's green be read as covering it.
       - name: Verify the prefix is what the contract's setup phase expects
         shell: pwsh
         run: |
@@ -541,8 +604,18 @@ jobs:
               exit 0
           }
           Write-Host 'ISCC not on PATH; installing Inno Setup 6.'
-          winget install --id JRSoftware.InnoSetup --silent --accept-package-agreements `
-                --accept-source-agreements --disable-interactivity
+          # PINNED, and the pin is worth less than it looks -- say so here rather than let
+          # the next reader infer that the installer's compiler is fixed. This branch only
+          # runs when the image has no ISCC, and today it always has one; the compiler that
+          # actually builds the shipped installer is the image's, which floats with the
+          # image and cannot be pinned from this file. What does cover every run is
+          # packaging/windows/package.ps1, which reads the engine version out of the
+          # compile itself and fails if it cannot. The pin is still here because an
+          # unpinned fallback would mean two different runs of THIS workflow could build
+          # with different compilers for no recorded reason.
+          winget install --id JRSoftware.InnoSetup --version 6.7.3 --silent `
+                --accept-package-agreements --accept-source-agreements `
+                --disable-interactivity
           $dirs = @("$env:LOCALAPPDATA\Programs\Inno Setup 6",
                     "${env:ProgramFiles(x86)}\Inno Setup 6",
                     "$env:ProgramFiles\Inno Setup 6")

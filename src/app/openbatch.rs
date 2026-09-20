@@ -2,7 +2,7 @@
 //! turned into at most one new window.
 //!
 //! Split out of `setup.rs` when the read moved off the main thread (POLICY.md
-//! code-style 500-line guidance): the handler grew a second half, and the two
+//! code-style file-size guidance): the handler grew a second half, and the two
 //! halves are worth reading as a pair rather than buried among the app-level
 //! action wiring.
 //!
@@ -40,11 +40,15 @@ use gtk::{Application, ApplicationWindow};
 /// alike) opens AT MOST ONE new window, with every specified file that isn't
 /// already open elsewhere landing as a tab in that one window.
 pub(super) fn on_open(app: &Application, files: &[gtk::gio::File], hint: &str) {
-    // Captured BEFORE any window is created — the crash-recovery gate is "no windows
-    // existed yet", and every line below can create one. Captured here rather than in
-    // `build_opened_batch` for the same reason it was always captured first: by the
-    // time the reads come back, this handler may already have created a window.
-    let cold_start = app.windows().is_empty();
+    // Claimed BEFORE any window is created, and before the first await — every line
+    // below can create a window, and the reads further down hand the main loop back to
+    // GTK, which is where a second launch arrives. Counting windows here used to answer
+    // the question and no longer does; `coldstart::claim` carries why.
+    //
+    // Claimed even on the early return below (every named file is already open). That
+    // path cannot be a genuine cold start — a file can only be already open if a window
+    // exists — so the claim it consumes was not one recovery was owed.
+    let cold_start = super::coldstart::claim();
     // Operator decision: one
     // `open` invocation — glob-expanded or explicit multiple paths alike —
     // opens AT MOST ONE new window, with every specified file that isn't
@@ -52,11 +56,28 @@ pub(super) fn on_open(app: &Application, files: &[gtk::gio::File], hint: &str) {
     // pass: split into "already open somewhere" (just focus that tab,
     // TDD 8.2/15.16 — scans every tab of every window, not just each
     // window's active one) and "needs opening".
-    let mut to_open = Vec::new();
+    let mut to_open: Vec<gtk::gio::File> = Vec::new();
     for f in files {
         if let Some(p) = f.path() {
             if let Some((win, tab)) = find_open_tab_for_path(app, &p) {
                 focus_tab(&win, &tab);
+                continue;
+            }
+            // ...and against the files THIS invocation has already accepted. The check
+            // above answers "is it open?", which is a different question and leaves
+            // one invocation naming a file twice opening it twice — two tabs on one
+            // document, each with its own baseline, monitor and swapfile. It is not a
+            // contrived input: this handler's own doc comment gives overlapping globs
+            // as the ordinary case (`docs/*.md sdd/*.md` over a symlinked tree), and a
+            // shell expands them without deduplicating.
+            //
+            // Same predicate as the open-tab scan, so two spellings of one path are
+            // one file here exactly as they are there.
+            if to_open
+                .iter()
+                .filter_map(gtk::gio::File::path)
+                .any(|seen| super::open::paths_refer_to_same_file(&seen, &p))
+            {
                 continue;
             }
         }

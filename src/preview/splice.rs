@@ -58,7 +58,7 @@
 /// merged products, re-wiring the region's own controls, and holding the reading
 /// position across the transition. Its own file because this one owns *producing* a
 /// correct region write and that one owns *adopting* it, and because the two together
-/// are past the 500-line soft limit.
+/// are past the file-size soft limit.
 pub(super) mod install;
 mod regionwriter;
 
@@ -545,6 +545,6 @@ mod tests;
 /// down a tall document, and the vadjustment sampled across a toggle by both routes.
 /// Separate from [`tests`] because it is a different shape (a live window and the
 /// excursion's trough, not buffer text) and because that file was already at the
-/// 500-line soft limit.
+/// file-size soft limit.
 #[cfg(all(test, feature = "gtk-integration-tests"))]
 mod excursion;

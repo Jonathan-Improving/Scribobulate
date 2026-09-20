@@ -543,11 +543,11 @@ impl<'a> Builder<'a> {
             }
             Open::Link { href, title } => {
                 let inner = self.close_inlines();
-                // The scheme allowlist is `links`', consulted rather than re-decided.
+                // The scheme decision is `links`', consulted rather than re-decided.
                 // A link the application would refuse to open is emitted as its text
                 // alone, so the artefact shows what the preview shows and carries no
                 // destination this project would not follow itself.
-                if links::is_allowed_url(&href) || links::doc_link_fragment(&href).is_some() {
+                if links::is_exportable_href(&href) {
                     self.push_inline(Inline::Link { href, title, inner });
                 } else {
                     for i in inner {

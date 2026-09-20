@@ -1,7 +1,7 @@
 //! The rig the [`super`] measurement runs on: a presented preview pane over a tall
 //! document, plus the settle discipline every reading it takes depends on.
 //!
-//! Split out of `excursion.rs` at the 500-line soft limit (POLICY § Code style). The
+//! Split out of `excursion.rs` at the file-size soft limit (POLICY § Code style). The
 //! cut is by cause rather than by size: this file owns **establishing a state you may
 //! legitimately read geometry from**, and its sibling owns **the experiment run against
 //! that state**. Everything here is precondition; nothing here is a measurement.

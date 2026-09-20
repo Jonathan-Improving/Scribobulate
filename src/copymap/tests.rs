@@ -183,7 +183,7 @@ fn render(md: &str) -> (CopyTree, String, String) {
         let after = sim.count;
         if let Some(kind) = classify(&ev) {
             evs.push(RawEv {
-                buf: (before, after),
+                buf: BufSpan::new(before, after),
                 src: r,
                 kind,
             });
@@ -428,7 +428,7 @@ fn cell_trees(md: &str) -> Vec<CopyTree> {
                 if let Some(k) = &kind {
                     let w = cell_width(&scripts, src.start, k);
                     evs.push(RawEv {
-                        buf: (off, off + w),
+                        buf: BufSpan::new(off, off + w),
                         src: src.clone(),
                         kind: k.clone(),
                     });
@@ -1005,13 +1005,13 @@ fn a_code_block_flush_that_does_not_reconcile_degrades_to_opaque() {
     let body = "alpha\nbeta\n";
     let texts = vec![(4..15, body.to_string())];
     let start = RawEv {
-        buf: (0, 0),
+        buf: BufSpan::new(0, 0),
         src: 0..18,
         kind: RawKind::Start(Construct::CodeBlock),
     };
     let node_for = |flushed_chars: i32| {
         let end = RawEv {
-            buf: (0, flushed_chars),
+            buf: BufSpan::new(0, flushed_chars),
             src: 0..18,
             kind: RawKind::End(Construct::CodeBlock),
         };
@@ -1034,12 +1034,12 @@ fn a_code_block_with_an_unmodelled_interior_event_degrades_to_opaque() {
     let md = "```\nalpha\nbeta\n```\n";
     let texts = vec![(4..15, "alpha\nbeta\n".to_string())];
     let start = RawEv {
-        buf: (0, 0),
+        buf: BufSpan::new(0, 0),
         src: 0..18,
         kind: RawKind::Start(Construct::CodeBlock),
     };
     let end = RawEv {
-        buf: (0, 11),
+        buf: BufSpan::new(0, 11),
         src: 0..18,
         kind: RawKind::End(Construct::CodeBlock),
     };
@@ -1080,7 +1080,7 @@ fn resolve_raw(md: &str, evs: &[RawEv], char_count: i32, a: i32, b: i32) -> Stri
     )
 }
 
-fn ev(buf: (i32, i32), src: Range<usize>, kind: RawKind) -> RawEv {
+fn ev(buf: BufSpan, src: Range<usize>, kind: RawKind) -> RawEv {
     RawEv { buf, src, kind }
 }
 
@@ -1092,9 +1092,9 @@ fn a_break_and_an_opaque_unit_at_document_level_resolve_to_their_own_source() {
     // md: "a\n---\n" — text, break, rule, with no enclosing paragraph events.
     let md = "a\n---\n";
     let evs = [
-        ev((0, 1), 0..1, RawKind::Text("a".into())),
-        ev((1, 2), 1..2, RawKind::Break),
-        ev((2, 3), 2..6, RawKind::Atomic),
+        ev(BufSpan::new(0, 1), 0..1, RawKind::Text("a".into())),
+        ev(BufSpan::new(1, 2), 1..2, RawKind::Break),
+        ev(BufSpan::new(2, 3), 2..6, RawKind::Atomic),
     ];
     // The break alone.
     assert_eq!(resolve_raw(md, &evs, 3, 1, 2), "\n");
@@ -1110,9 +1110,9 @@ fn a_stray_end_event_is_skipped_and_does_not_truncate_the_copy() {
     let md = "ab";
     // Document level: End(Emphasis) between two text runs that never opened one.
     let evs = [
-        ev((0, 1), 0..1, RawKind::Text("a".into())),
-        ev((1, 1), 1..1, RawKind::End(Construct::Emphasis)),
-        ev((1, 2), 1..2, RawKind::Text("b".into())),
+        ev(BufSpan::new(0, 1), 0..1, RawKind::Text("a".into())),
+        ev(BufSpan::new(1, 1), 1..1, RawKind::End(Construct::Emphasis)),
+        ev(BufSpan::new(1, 2), 1..2, RawKind::Text("b".into())),
     ];
     assert_eq!(
         resolve_raw(md, &evs, 2, 0, 2),
@@ -1122,11 +1122,15 @@ fn a_stray_end_event_is_skipped_and_does_not_truncate_the_copy() {
 
     // Inside a construct: the stray must not close the paragraph early either.
     let evs = [
-        ev((0, 0), 0..0, RawKind::Start(Construct::Paragraph)),
-        ev((0, 1), 0..1, RawKind::Text("a".into())),
-        ev((1, 1), 1..1, RawKind::End(Construct::Strong)),
-        ev((1, 2), 1..2, RawKind::Text("b".into())),
-        ev((2, 2), 2..2, RawKind::End(Construct::Paragraph)),
+        ev(
+            BufSpan::new(0, 0),
+            0..0,
+            RawKind::Start(Construct::Paragraph),
+        ),
+        ev(BufSpan::new(0, 1), 0..1, RawKind::Text("a".into())),
+        ev(BufSpan::new(1, 1), 1..1, RawKind::End(Construct::Strong)),
+        ev(BufSpan::new(1, 2), 1..2, RawKind::Text("b".into())),
+        ev(BufSpan::new(2, 2), 2..2, RawKind::End(Construct::Paragraph)),
     ];
     assert_eq!(resolve_raw(md, &evs, 2, 0, 2), md);
 }
@@ -1139,10 +1143,10 @@ fn a_stray_end_event_is_skipped_and_does_not_truncate_the_copy() {
 fn a_construct_with_no_interior_falls_back_to_opaque() {
     let md = "x****y";
     let evs = [
-        ev((0, 1), 0..1, RawKind::Text("x".into())),
-        ev((1, 1), 1..3, RawKind::Start(Construct::Strong)),
-        ev((1, 1), 3..5, RawKind::End(Construct::Strong)),
-        ev((1, 2), 5..6, RawKind::Text("y".into())),
+        ev(BufSpan::new(0, 1), 0..1, RawKind::Text("x".into())),
+        ev(BufSpan::new(1, 1), 1..3, RawKind::Start(Construct::Strong)),
+        ev(BufSpan::new(1, 1), 3..5, RawKind::End(Construct::Strong)),
+        ev(BufSpan::new(1, 2), 5..6, RawKind::Text("y".into())),
     ];
     // Selecting across the empty construct yields its whole source, not "".
     assert_eq!(resolve_raw(md, &evs, 2, 0, 2), md);
@@ -1164,9 +1168,13 @@ fn a_construct_with_no_interior_falls_back_to_opaque() {
 fn an_unclosed_construct_is_bounded_and_costs_only_its_own_interior() {
     let md = "a *b";
     let evs = [
-        ev((0, 2), 0..2, RawKind::Text("a ".into())),
-        ev((2, 2), 2..3, RawKind::Start(Construct::Emphasis)),
-        ev((2, 3), 3..4, RawKind::Text("b".into())),
+        ev(BufSpan::new(0, 2), 0..2, RawKind::Text("a ".into())),
+        ev(
+            BufSpan::new(2, 2),
+            2..3,
+            RawKind::Start(Construct::Emphasis),
+        ),
+        ev(BufSpan::new(2, 3), 3..4, RawKind::Text("b".into())),
         // no End(Emphasis)
     ];
     assert_eq!(
@@ -1189,12 +1197,24 @@ fn an_unclosed_construct_is_bounded_and_costs_only_its_own_interior() {
 fn a_code_block_with_a_non_text_interior_is_opaque() {
     let md = "```\nab\n```";
     let evs = [
-        ev((0, 0), 0..4, RawKind::Start(Construct::CodeBlock)),
-        ev((0, 1), 4..5, RawKind::Text("a".into())),
-        ev((1, 1), 5..5, RawKind::Start(Construct::Emphasis)),
-        ev((1, 2), 5..6, RawKind::Text("b".into())),
-        ev((2, 2), 6..6, RawKind::End(Construct::Emphasis)),
-        ev((2, 3), 6..10, RawKind::End(Construct::CodeBlock)),
+        ev(
+            BufSpan::new(0, 0),
+            0..4,
+            RawKind::Start(Construct::CodeBlock),
+        ),
+        ev(BufSpan::new(0, 1), 4..5, RawKind::Text("a".into())),
+        ev(
+            BufSpan::new(1, 1),
+            5..5,
+            RawKind::Start(Construct::Emphasis),
+        ),
+        ev(BufSpan::new(1, 2), 5..6, RawKind::Text("b".into())),
+        ev(BufSpan::new(2, 2), 6..6, RawKind::End(Construct::Emphasis)),
+        ev(
+            BufSpan::new(2, 3),
+            6..10,
+            RawKind::End(Construct::CodeBlock),
+        ),
     ];
     assert_eq!(resolve_raw(md, &evs, 3, 1, 2), md);
 }
@@ -1205,8 +1225,12 @@ fn a_code_block_with_a_non_text_interior_is_opaque() {
 fn an_unclosed_code_block_closes_at_the_last_event_it_saw() {
     let md = "```\nab";
     let evs = [
-        ev((0, 0), 0..4, RawKind::Start(Construct::CodeBlock)),
-        ev((0, 2), 4..6, RawKind::Text("ab".into())),
+        ev(
+            BufSpan::new(0, 0),
+            0..4,
+            RawKind::Start(Construct::CodeBlock),
+        ),
+        ev(BufSpan::new(0, 2), 4..6, RawKind::Text("ab".into())),
         // no End(CodeBlock)
     ];
     // char_count 3 (a trailing buffer newline the stream does not describe), so this
@@ -1222,9 +1246,9 @@ fn an_unclosed_code_block_closes_at_the_last_event_it_saw() {
 fn wrap_span_takes_an_opaque_or_atomic_unit_whole() {
     let md = "a `code` b";
     let evs = [
-        ev((0, 2), 0..2, RawKind::Text("a ".into())),
-        ev((2, 6), 2..8, RawKind::Code("code".into())),
-        ev((6, 8), 8..10, RawKind::Text(" b".into())),
+        ev(BufSpan::new(0, 2), 0..2, RawKind::Text("a ".into())),
+        ev(BufSpan::new(2, 6), 2..8, RawKind::Code("code".into())),
+        ev(BufSpan::new(6, 8), 8..10, RawKind::Text(" b".into())),
     ];
     let t = build(
         md,
@@ -1238,9 +1262,9 @@ fn wrap_span_takes_an_opaque_or_atomic_unit_whole() {
 
     let md2 = "a\n---\n";
     let evs2 = [
-        ev((0, 1), 0..1, RawKind::Text("a".into())),
-        ev((1, 2), 1..2, RawKind::Break),
-        ev((2, 3), 2..6, RawKind::Atomic),
+        ev(BufSpan::new(0, 1), 0..1, RawKind::Text("a".into())),
+        ev(BufSpan::new(1, 2), 1..2, RawKind::Break),
+        ev(BufSpan::new(2, 3), 2..6, RawKind::Atomic),
     ];
     let t2 = build(
         md2,
@@ -1249,4 +1273,46 @@ fn wrap_span_takes_an_opaque_or_atomic_unit_whole() {
         &std::rc::Rc::new(crate::renderer::BlockScripts::scan(md2)),
     );
     assert_eq!(super::wrap_span(&t2, md2, 2, 3), Some(2..6));
+}
+
+// ── BufSpan: the compositions read from opposite ends ─────────────────────────
+
+/// `through` and `between` must not be the same function.
+///
+/// The type exists because `(start.buf.0, end.buf.1)` and its transposition are both
+/// `(i32, i32)` and both compile, so a swapped composition produced a silently inverted
+/// range. Naming the fields does not close that — they are both `i32` — so the
+/// compositions are methods and the call sites name no field at all. This pins that the
+/// two methods genuinely read from opposite ends: an implementation with them the same
+/// way round satisfies either assertion alone.
+#[test]
+fn a_span_composition_reads_from_the_end_its_name_says() {
+    let open = BufSpan::new(10, 14);
+    let close = BufSpan::new(30, 33);
+    assert_eq!(
+        open.through(close),
+        BufSpan::new(10, 33),
+        "through spans the construct: the opening event's start to the closing one's end"
+    );
+    assert_eq!(
+        open.between(close),
+        BufSpan::new(14, 30),
+        "between is the content: both delimiters excluded"
+    );
+    // Neither is the other, in either direction — the discriminating half.
+    assert_ne!(open.through(close), open.between(close));
+    assert_ne!(open.through(close), close.through(open));
+    assert_ne!(open.between(close), close.between(open));
+}
+
+/// An inverted or negative span yields no slice rather than panicking. `as_usize` is
+/// reached with whatever the render loop produced, and a construct that produced no
+/// buffer text can legitimately present an empty or backwards range.
+#[test]
+fn an_inverted_or_negative_span_slices_nothing() {
+    assert_eq!(BufSpan::new(3, 9).as_usize(), Some(3..9));
+    assert_eq!(BufSpan::new(5, 5).as_usize(), Some(5..5));
+    assert_eq!(BufSpan::new(9, 3).as_usize(), None, "inverted");
+    assert_eq!(BufSpan::new(-1, 4).as_usize(), None, "negative start");
+    assert_eq!(BufSpan::new(1, -4).as_usize(), None, "negative end");
 }

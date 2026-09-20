@@ -175,6 +175,20 @@ fn paths() -> Option<(PathBuf, PathBuf)> {
     // over-long path is TRUNCATED, not rejected — two processes would then bind
     // and connect to different-but-equally-truncated names with no error
     // anywhere. Refuse the handoff instead of shipping a silent mismatch.
+    //
+    // ⚠️ **THIS REFUSAL IS ALSO HOW A TEST OF SINGLE-INSTANCE BEHAVIOUR SILENTLY
+    // MEASURES NOTHING** (GEP-84). A harness that isolates its launches into a
+    // session scratchpad — the correct instinct, so it does not disturb the user's
+    // real rendezvous — easily produces a path past this limit: 148 bytes measured
+    // against the 44 of `/tmp/sbmac/…`. The handoff is then declined, every launch
+    // becomes its own primary, nothing ever forwards, and MANUAL-TEST §8.2a and
+    // §8.2b both PASS having exercised a mechanism that was switched off. The
+    // `warn` below is the only trace, and nobody reads it.
+    //
+    // So a harness here must assert this seam's ABILITY TO RUN before the check:
+    // that `handoff.sock` exists and is a socket, AND — once no other process owns
+    // the rendezvous — that its holder is the pid the harness launched, since by
+    // then a socket may be a leftover of the harness's own previous run.
     if sock.as_os_str().len() >= 100 {
         log::warn!(
             "single-instance: {} exceeds the macOS socket-path limit; handoff disabled",
@@ -435,6 +449,23 @@ fn dispatch(app: &Application, line: &[u8]) {
         // `on_activate` already distinguishes this from a first activation
         // by "windows exist", so it opens a fresh document rather than
         // replaying the saved session.
+        // Nothing is done to the cold-start latch here, deliberately. A line forcing it
+        // "not a cold start" stood here and was a TEST hook
+        // (`coldstart::force_for_test`) on the shipping forwarding path: gated
+        // `cfg(all(test, feature = ...))`, so it compiled in no library build and broke
+        // the macOS build outright. No Linux gate could see it — this file is
+        // `cfg(target_os = "macos")`, so the compiler that rejects it never runs here.
+        //
+        // Leaving the latch alone is correct under BOTH orderings, which is why no
+        // production substitute is needed either:
+        //   - Normally this process claimed at its own `activate`/`open`, which
+        //     `g_application_run` emits before the main loop turns; this dispatch only
+        //     ever runs from a `spawn_local` on that loop. So `claim()` already answers
+        //     false and there is nothing to suppress.
+        //   - If a forwarded message ever DID land first, claiming here restores the
+        //     session exactly once and the primary's own activation then sees false.
+        //     Forcing "not cold" in that order is the harmful choice: it would restore
+        //     nothing at all.
         app.activate();
     } else if files.is_empty() {
         // QA finding R1-17: every forwarded argument was rejected. That is a

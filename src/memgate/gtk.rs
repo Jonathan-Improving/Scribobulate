@@ -73,6 +73,9 @@ enum CachePath {
 }
 
 fn sample_loads(path: &Path, n: usize, cache: CachePath) -> Option<Vec<u64>> {
+    // The footprint instrument is process-wide; hold it for the whole series, baseline
+    // included. See `footprint::measuring`.
+    let _measuring = crate::memgate::footprint::measuring();
     crate::imagecache::reset_for_test();
     let mut samples = Vec::with_capacity(n);
     for _ in 0..n {

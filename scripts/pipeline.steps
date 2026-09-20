@@ -291,6 +291,18 @@ cmd.windows skipreport  cargo test -- --nocapture
 # rather than as a slow pass. The `G_DEBUG=fatal-criticals` and `xvfb-run -a` above are
 # unchanged; they moved into the helper, they did not go away.
 #
+# MACOS SELECTS ITS TARGETS BY NAME, AND DERIVES THE NAMES RATHER THAN LISTING THEM.
+# Linux and Windows let Cargo pick every target; macOS must not, because the library's
+# dual-harness bodies abort off the main thread on Quartz (ScrAP-171), so `--lib` is left
+# out and the integration targets are named. The names used to be WRITTEN OUT on the
+# `cmd.macos` line below, which made this the one port whose target set could fall behind
+# Cargo.toml — and it did once, caught by a person rather than by anything here. The
+# omission is invisible by construction: a target that is never named is never built and
+# never run, and the step prints PASS for the ones it did run. So the list now comes from
+# `scripts/macos-integration-targets.sh`, which reads the same manifest Cargo does. Its
+# header explains why it emits a deliberately non-existent target name instead of an empty
+# list when it cannot derive one.
+#
 # THE DEATH CODE DIFFERS BY PLATFORM AND A FAILURE IS EASY TO MISREAD. A promoted critical
 # kills the process via `G_BREAKPOINT()`, which is `SIGTRAP` (exit 133) on Linux and
 # `0xC0000409 STATUS_STACK_BUFFER_OVERRUN` — Windows' fast-fail — under MSVC, where the
@@ -303,7 +315,7 @@ verdict integration  exit
 class  integration  required
 surface integration  SKIPPED [
 cmd.linux   integration  scripts/run-integration.sh
-cmd.macos   integration  cargo test --features gtk-integration-tests --test gtk_suite --test icon_resolution --test macos_dark_mode --test popover_deferred_focus --test logrepeat_reproduce
+cmd.macos   integration  cargo test --features gtk-integration-tests $(scripts/macos-integration-targets.sh)
 cmd.windows integration  G_DEBUG=fatal-criticals cargo test --features gtk-integration-tests -- --test-threads=1
 disarm.macos integration  permanent  G_DEBUG=fatal-criticals is absent from the macOS command above, and this line is why: GDK's Quartz backend freezes a surface once per CONSTRUCTION and thaws once per MAP, and gdk_macos_surface_hide never freezes, so the second map thaws at zero and the suite emits gdk_surface_thaw_updates assertions on every popover open or dismiss. Present 4.22.4 through main; the freeze/thaw pair is private and absent from the gdk4 bindings, so no application-side fix exists. Do NOT arm it by masking Gdk-CRITICAL: that would also silence ScrAP-318, a leaked update-freeze that stops a surface repainting, which is the only signal anybody would get if it happened. See also ScrAP-268 before reaching for a g_log_set_writer_func allowlist.
 

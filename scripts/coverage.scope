@@ -57,6 +57,7 @@ src/annotate/mutate.rs
 src/annotate/scan.rs
 src/annotations.rs
 src/annotations_view.rs
+src/app/coldstart.rs
 src/app/commands.rs
 src/app/mnemonics.rs
 src/app/mod.rs
@@ -67,6 +68,7 @@ src/config.rs
 src/copymap.rs
 src/cssfrag.rs
 src/decorplan.rs
+src/docio/budget.rs
 src/docio/mod.rs
 src/docio/pool.rs
 src/docio/rename.rs

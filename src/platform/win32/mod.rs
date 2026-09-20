@@ -1,7 +1,7 @@
 //! The whole of the project's Win32 surface — one module boundary, four causes.
 //!
 //! **This is still "one place that may talk to Win32 directly" (POLICY).** It is a
-//! directory rather than a single file only because the file crossed POLICY's 500-line
+//! directory rather than a single file only because the file crossed POLICY's file-size
 //! soft limit and kept going; the property the one-place rule protects is that every
 //! call past GTK passes through *one* `#[cfg(windows)]`-gated module, declared once in
 //! [`crate::platform`], and that is unchanged. `platform/mac/` is a directory for the

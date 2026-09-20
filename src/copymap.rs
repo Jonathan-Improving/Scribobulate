@@ -87,11 +87,68 @@ pub(crate) enum RawKind {
     Atomic,
 }
 
+/// A half-open buffer char range, `[start, end)`.
+///
+/// A named pair rather than `(i32, i32)`, and the reason is one shape in particular:
+/// this module composes spans by taking one span's START and another's END, at three
+/// sites that cross a construct's opening event with its closing one. Positionally
+/// that reads `(start.buf.0, end.buf.1)`, its transposition `(start.buf.1, end.buf.0)`
+/// compiles, both are `(i32, i32)`, and the result is a silently inverted range — the
+/// exact hazard POLICY § Code style's "destructure tuples by name" rule names.
+///
+/// Naming the fields alone would not have closed it, because both fields are `i32` and
+/// a swap still type-checks. So the compositions are METHODS with directional names
+/// ([`Self::through`], [`Self::between`]) and the call sites do not touch a field at
+/// all; there is no longer an expression there to get backwards.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct BufSpan {
+    pub start: i32,
+    pub end: i32,
+}
+
+impl BufSpan {
+    pub(crate) const fn new(start: i32, end: i32) -> Self {
+        Self { start, end }
+    }
+
+    /// The span reaching from this one's start THROUGH `other`'s end — a construct's
+    /// full extent, from its opening event to its closing one.
+    pub(crate) const fn through(self, other: Self) -> Self {
+        Self {
+            start: self.start,
+            end: other.end,
+        }
+    }
+
+    /// The span BETWEEN the two: from this one's end to `other`'s start — a
+    /// construct's content, with both delimiters excluded.
+    pub(crate) const fn between(self, other: Self) -> Self {
+        Self {
+            start: self.end,
+            end: other.start,
+        }
+    }
+
+    /// The range as `usize`s, for slicing. `None` if it is inverted or negative,
+    /// which a caller must treat as "no text" rather than panicking.
+    ///
+    /// Gated to match its only caller, `debug_verify`, which is `debug_assertions`-only —
+    /// otherwise a release build warns it is dead. `test` is in the condition so the
+    /// function and its unit tests survive `cargo test --release`, where
+    /// `debug_assertions` is off.
+    #[cfg(any(debug_assertions, test))]
+    pub(crate) fn as_usize(self) -> Option<std::ops::Range<usize>> {
+        let start = usize::try_from(self.start).ok()?;
+        let end = usize::try_from(self.end).ok()?;
+        (start <= end).then_some(start..end)
+    }
+}
+
 /// A classified render event with its live buffer + source coordinates.
 #[derive(Clone, Debug)]
 pub(crate) struct RawEv {
     /// Buffer char range `[before, after)` the event's processing produced.
-    pub buf: (i32, i32),
+    pub buf: BufSpan,
     /// Source byte range of the event (from pulldown's offset iterator).
     pub src: Range<usize>,
     pub kind: RawKind,
@@ -253,19 +310,19 @@ enum Node {
     /// smart-punctuation, super/sub runs that aren't 1:1), any overlap copies the
     /// whole run source — the atomicity guarantee (no half-token).
     Leaf {
-        buf: (i32, i32),
+        buf: BufSpan,
         src: Range<usize>,
         one_to_one: bool,
     },
     /// An opaque construct (an image or a table, plus any construct whose
     /// reconstruction could not be proven — see [`code_block_node`]): any buffer
     /// overlap copies its whole source.
-    Opaque { buf: (i32, i32), src: Range<usize> },
+    Opaque { buf: BufSpan, src: Range<usize> },
     /// A paired/leading-marker construct reconstructed from source delimiters,
     /// or a delimiter-free container (document root, list, paragraph).
     Branch {
         /// Content buffer range `[c0, c1)`.
-        buf: (i32, i32),
+        buf: BufSpan,
         /// Source range of the open delimiter (empty for a container).
         open: Range<usize>,
         /// Source range of the close delimiter (empty for a container).
@@ -326,7 +383,7 @@ impl BranchKind {
 }
 
 impl Node {
-    fn buf(&self) -> (i32, i32) {
+    fn buf(&self) -> BufSpan {
         match self {
             Node::Leaf { buf, .. } | Node::Opaque { buf, .. } | Node::Branch { buf, .. } => *buf,
         }
@@ -387,7 +444,7 @@ impl Default for CopyTree {
     fn default() -> Self {
         Self {
             root: Node::Branch {
-                buf: (0, 0),
+                buf: BufSpan::new(0, 0),
                 open: 0..0,
                 close: 0..0,
                 kind: BranchKind::Container,
@@ -430,7 +487,7 @@ pub(crate) fn build(
     };
     let children = b.children(None);
     let root = Node::Branch {
-        buf: (0, char_count),
+        buf: BufSpan::new(0, char_count),
         open: 0..0,
         close: md.len()..md.len(),
         kind: BranchKind::Container,
@@ -501,8 +558,12 @@ pub(crate) fn debug_verify(
                 src,
                 one_to_one,
             } if *one_to_one => {
-                let slice: String = chars
-                    .get(buf.0 as usize..buf.1 as usize)
+                // `as_usize` rather than a pair of `max(0)` casts: an inverted span
+                // clamps to a BACKWARDS range, which `get` answers `None` to anyway —
+                // but silently, so the two failures look alike at the call site.
+                let slice: String = buf
+                    .as_usize()
+                    .and_then(|range| chars.get(range))
                     .map(|c| c.iter().collect())
                     .unwrap_or_default();
                 drift!(
@@ -538,8 +599,8 @@ pub(crate) fn debug_verify(
         match node {
             Node::Leaf { buf, .. } | Node::Opaque { buf, .. } => {
                 let (lo, hi) = (
-                    buf.0.max(0) as usize,
-                    (buf.1.max(0) as usize).min(claimed.len()),
+                    buf.start.max(0) as usize,
+                    (buf.end.max(0) as usize).min(claimed.len()),
                 );
                 for c in claimed.iter_mut().take(hi).skip(lo) {
                     *c = true;
@@ -687,7 +748,7 @@ impl Builder<'_> {
             // while excluding a following block's separator; a preceding block
             // separator is harmlessly absorbed (overlap-detection only —
             // inter-sibling source is spliced from ranges, not buffer gaps).
-            let buf = (start.buf.0, end.buf.1);
+            let buf = start.buf.through(end.buf);
             let src = start.src.start..end.src.end;
             return Some(Node::Opaque { buf, src });
         }
@@ -752,7 +813,7 @@ impl Builder<'_> {
         // Content buffer range: after the Start's processing (block separators,
         // markers land before this) up to before the End's processing (a
         // heading's trailing newline lands after this).
-        let content_buf = (start.buf.1, end_ev.buf.0);
+        let content_buf = start.buf.between(end_ev.buf);
         let full = start.src.start..end_ev.src.end;
 
         // A construct with no interior (rare/degenerate) falls back to opaque.
@@ -802,7 +863,7 @@ impl Builder<'_> {
         }
         // Malformed stream: synthesize a zero-width End at the stream tail.
         self.evs.last().cloned().unwrap_or(RawEv {
-            buf: (0, 0),
+            buf: BufSpan::new(0, 0),
             src: 0..0,
             kind: RawKind::End(c),
         })
@@ -851,7 +912,7 @@ impl Builder<'_> {
         let end = end_ev.unwrap_or_else(|| {
             // Malformed stream: same tail fallback as `skip_to_end`.
             self.evs.last().cloned().unwrap_or(RawEv {
-                buf: (0, 0),
+                buf: BufSpan::new(0, 0),
                 src: 0..0,
                 kind: RawKind::End(Construct::CodeBlock),
             })
@@ -873,7 +934,7 @@ fn code_block_node(
     // The fallback keeps the pre-ScrAP-255 node exactly: whole source on any
     // overlap, over the same buffer span the opaque path used.
     let opaque = || Node::Opaque {
-        buf: (start.buf.0, end.buf.1),
+        buf: start.buf.through(end.buf),
         src: full.clone(),
     };
     if !interior_ok || texts.is_empty() {
@@ -881,10 +942,10 @@ fn code_block_node(
     }
     // The flush's own buffer range IS the block's content range: the fences are
     // never buffer text, so [b0, b1) holds body glyphs and nothing else. Taking it
-    // from `End` (not `start.buf.0`) keeps the preceding block separator OUTSIDE
+    // from `End` (not `start.buf.start`) keeps the preceding block separator OUTSIDE
     // the content, so a selection reaching in from the blank line above reads as a
     // boundary crossing and gets the fences reconstructed.
-    let (b0, b1) = (end.buf.0, end.buf.1);
+    let (b0, b1) = (end.buf.start, end.buf.end);
     let concat: String = texts.iter().map(|(_, t)| t.as_str()).collect();
     // Mirrors `insert_code_block`: `text.trim_end_matches('\n')`, then one `\n` per
     // split line — i.e. the body with its trailing blank lines collapsed to one
@@ -899,7 +960,7 @@ fn code_block_node(
         let n = t.chars().count() as i32;
         let hi = (cb + n).min(b1);
         children.push(Node::Leaf {
-            buf: (cb, hi),
+            buf: BufSpan::new(cb, hi),
             src: src.clone(),
             // 1:1 only when the buffer kept every char of the run AND the source
             // says the same thing. An indented or quoted block's per-line prefix
@@ -913,7 +974,7 @@ fn code_block_node(
         return opaque();
     };
     Node::Branch {
-        buf: (b0, b1),
+        buf: BufSpan::new(b0, b1),
         open: full.start..content_src.start.min(full.end),
         close: content_src.end.max(full.start)..full.end,
         // The two fences are a matched pair: never split by an annotation, always
@@ -943,8 +1004,8 @@ fn children_span(children: &[Node]) -> Option<Range<usize>> {
 }
 
 /// A plain 1:1-if-possible leaf over a buffer range and its source.
-fn leaf(md: &str, buf: (i32, i32), src: Range<usize>) -> Node {
-    let one_to_one = sl(md, src.clone()).chars().count() as i32 == buf.1 - buf.0;
+fn leaf(md: &str, buf: BufSpan, src: Range<usize>) -> Node {
+    let one_to_one = sl(md, src.clone()).chars().count() as i32 == buf.end - buf.start;
     Node::Leaf {
         buf,
         src,
@@ -990,7 +1051,7 @@ fn leaf(md: &str, buf: (i32, i32), src: Range<usize>) -> Node {
 /// justified by removing an unowned assumption, not by a defect it fixes.
 fn text_nodes(
     md: &str,
-    buf: (i32, i32),
+    buf: BufSpan,
     src: Range<usize>,
     rendered: &str,
     segs: &[Seg],
@@ -1026,11 +1087,11 @@ fn text_nodes(
             break;
         }
         nodes.push(Node::Leaf {
-            buf: (buf.0, buf.0 + 1),
+            buf: BufSpan::new(buf.start, buf.start + 1),
             src: (src.start - 1)..(src.start + clen),
             one_to_one: false, // atomic: any overlap copies the whole `\x`
         });
-        buf = (buf.0 + 1, buf.1);
+        buf = BufSpan::new(buf.start + 1, buf.end);
         src = (src.start + clen)..src.end;
         rendered = &rendered[clen..];
         peeled += clen;
@@ -1083,7 +1144,7 @@ fn rebase(segs: &[Seg], peeled: usize) -> Vec<Seg> {
 /// delimiter shares its event with no content).
 fn text_nodes_unescaped(
     md: &str,
-    buf: (i32, i32),
+    buf: BufSpan,
     src: Range<usize>,
     rendered: &str,
     segs: &[Seg],
@@ -1097,7 +1158,7 @@ fn text_nodes_unescaped(
 
     let mut out = Vec::new();
     let mut sb = src.start; // source cursor
-    let mut cb = buf.0; // buffer cursor
+    let mut cb = buf.start; // buffer cursor
     let mut i = 0;
     while i < segs.len() {
         let seg = &segs[i];
@@ -1106,7 +1167,7 @@ fn text_nodes_unescaped(
             let text = seg.text(rendered);
             let chars = text.chars().count() as i32;
             out.push(Node::Leaf {
-                buf: (cb, cb + chars),
+                buf: BufSpan::new(cb, cb + chars),
                 src: sb..sb + text.len(),
                 one_to_one: true,
             });
@@ -1132,7 +1193,7 @@ fn text_nodes_unescaped(
         let text = content.text(rendered);
         let chars = text.chars().count() as i32;
         let content_src = sb..sb + text.len();
-        let child_buf = (cb, cb + chars);
+        let child_buf = BufSpan::new(cb, cb + chars);
         sb = content_src.end;
         cb += chars;
         i += 1;
@@ -1162,12 +1223,14 @@ fn text_nodes_unescaped(
 /// Build the node for an inline `Code` span. Reconstructs the backtick fence
 /// from source when the content aligns 1:1; degrades to opaque otherwise (e.g. a
 /// CommonMark one-space strip, doubled fences).
-fn code_node(md: &str, buf: (i32, i32), src: Range<usize>, rendered: &str) -> Node {
+fn code_node(md: &str, buf: BufSpan, src: Range<usize>, rendered: &str) -> Node {
     let s = sl(md, src.clone());
     let ticks = s.bytes().take_while(|&c| c == b'`').count();
     if ticks > 0 && s.len() >= 2 * ticks {
         let content = src.start + ticks..src.end - ticks;
-        if sl(md, content.clone()) == rendered && rendered.chars().count() as i32 == buf.1 - buf.0 {
+        if sl(md, content.clone()) == rendered
+            && rendered.chars().count() as i32 == buf.end - buf.start
+        {
             let child = Node::Leaf {
                 buf,
                 src: content.clone(),
@@ -1280,7 +1343,7 @@ fn widen_to_constructs(scripts: &BlockScripts, span: Range<usize>) -> Range<usiz
 }
 
 fn wrap_span_node(md: &str, node: &Node, a: i32, b: i32) -> Option<Range<usize>> {
-    let (c0, c1) = node.buf();
+    let BufSpan { start: c0, end: c1 } = node.buf();
     if a.max(c0) >= b.min(c1) {
         return None; // no overlap
     }
@@ -1293,8 +1356,8 @@ fn wrap_span_node(md: &str, node: &Node, a: i32, b: i32) -> Option<Range<usize>>
             if *one_to_one {
                 // Partial plain run: the selected chars' byte sub-range.
                 let content = sl(md, src.clone());
-                let s_char = (a.max(c0) - buf.0) as usize;
-                let e_char = (b.min(c1) - buf.0) as usize;
+                let s_char = (a.max(c0) - buf.start) as usize;
+                let e_char = (b.min(c1) - buf.start) as usize;
                 let byte_of = |n: usize| {
                     content
                         .char_indices()
@@ -1429,7 +1492,7 @@ pub(crate) fn balance_source_span(
 /// its whole subtree: suppress the per-line markers when the selection stays
 /// within (constraint A), emit them when it crosses out.
 fn resolve_node(md: &str, node: &Node, a: i32, b: i32, emit_gaps: bool) -> String {
-    let (c0, c1) = node.buf();
+    let BufSpan { start: c0, end: c1 } = node.buf();
     if a.max(c0) >= b.min(c1) {
         return String::new(); // no overlap
     }
@@ -1441,8 +1504,8 @@ fn resolve_node(md: &str, node: &Node, a: i32, b: i32, emit_gaps: bool) -> Strin
         } => {
             if *one_to_one {
                 let chars: Vec<char> = sl(md, src.clone()).chars().collect();
-                let s = (a.max(c0) - buf.0) as usize;
-                let e = (b.min(c1) - buf.0) as usize;
+                let s = (a.max(c0) - buf.start) as usize;
+                let e = (b.min(c1) - buf.start) as usize;
                 chars
                     .get(s..e)
                     .map(|c| c.iter().collect())
@@ -1522,7 +1585,7 @@ fn reconstruct(md: &str, children: &[Node], a: i32, b: i32, emit_gaps: bool) -> 
     let mut out = String::new();
     let mut prev: Option<Range<usize>> = None;
     for child in children {
-        let (k0, k1) = child.buf();
+        let BufSpan { start: k0, end: k1 } = child.buf();
         if a.max(k0) >= b.min(k1) {
             continue; // this child is outside the selection
         }
@@ -1569,7 +1632,7 @@ fn emits_leading_marker(node: &Node, a: i32, b: i32) -> bool {
     else {
         return false;
     };
-    let (c0, c1) = *buf;
+    let BufSpan { start: c0, end: c1 } = *buf;
     if a.max(c0) >= b.min(c1) {
         return false; // not selected
     }
@@ -1581,7 +1644,7 @@ fn emits_leading_marker(node: &Node, a: i32, b: i32) -> bool {
     children
         .iter()
         .find(|c| {
-            let (k0, k1) = c.buf();
+            let BufSpan { start: k0, end: k1 } = c.buf();
             a.max(k0) < b.min(k1)
         })
         .is_some_and(|c| emits_leading_marker(c, a, b))
@@ -1604,7 +1667,7 @@ mod anchor_coverage_guard_tests {
     fn tree_without_anchor_node() -> CopyTree {
         let md = "ab";
         let evs = vec![RawEv {
-            buf: (0, 2),
+            buf: BufSpan::new(0, 2),
             src: 0..2,
             kind: RawKind::Text("ab".into()),
         }];
@@ -1632,12 +1695,12 @@ mod anchor_coverage_guard_tests {
         let md = "ab<img src=\"x.png\">";
         let evs = vec![
             RawEv {
-                buf: (0, 2),
+                buf: BufSpan::new(0, 2),
                 src: 0..2,
                 kind: RawKind::Text("ab".into()),
             },
             RawEv {
-                buf: (2, 3),
+                buf: BufSpan::new(2, 3),
                 src: 2..md.len(),
                 kind: RawKind::Atomic,
             },
@@ -1653,7 +1716,7 @@ mod anchor_coverage_guard_tests {
         // than signal — and gaps between nodes ARE normal (block separators).
         let md = "ab";
         let evs = vec![RawEv {
-            buf: (0, 2),
+            buf: BufSpan::new(0, 2),
             src: 0..2,
             kind: RawKind::Text("ab".into()),
         }];

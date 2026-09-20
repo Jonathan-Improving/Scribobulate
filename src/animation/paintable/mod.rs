@@ -137,6 +137,27 @@ mod imp {
         /// was started for, which is the question actually being asked (QA round 2,
         /// F-R2-2).
         pub(super) decoder_generation: Cell<u64>,
+        /// How many decodes have arrived belonging to a torn-down incarnation and
+        /// been refused by the generation guard.
+        ///
+        /// A test-only counter, because the guard's correct behaviour is to leave no
+        /// trace: it drops a frame nobody was waiting for, and every other observable
+        /// — the schedule's awaiting latch, the decoder's presence, the pixels — is
+        /// re-established by the live incarnation's own decode moments later. An
+        /// oracle read after the fact therefore cannot tell "refused" from "accepted
+        /// and then overwritten", which is how the first attempt at a test for this
+        /// guard passed with the guard deleted.
+        #[cfg(all(test, feature = "gtk-integration-tests"))]
+        pub(super) stale_decodes_dropped: Cell<u32>,
+        /// How many decodes belonging to a PREVIOUS incarnation have been stored here.
+        ///
+        /// The counter above proves the guard's BRANCH was entered; this proves its
+        /// EFFECT, and only the second is a refusal. Deleting just the `return` leaves
+        /// the branch counter moving and every test green — measured — so staleness is
+        /// captured before the guard and counted after it, at the install, where the
+        /// guard makes it unreachable.
+        #[cfg(all(test, feature = "gtk-integration-tests"))]
+        pub(super) stale_installs: Cell<u32>,
         pub(super) policy_watch: RefCell<Option<policy::PolicyWatch>>,
         /// The live subscription to `animation::visibility`'s signals for
         /// this picture's own `host`. Set up in `try_bootstrap`, alongside
@@ -386,6 +407,28 @@ impl AnimatedPaintable {
     )]
     pub(crate) fn decoder_active(&self) -> bool {
         self.imp().animation.borrow().is_some()
+    }
+
+    /// The current decoder incarnation's number. A test oracle for the staleness
+    /// guard: a decode dispatched under one generation and landing under another is
+    /// the case that guard exists for, and nothing outside this module can otherwise
+    /// tell the two incarnations apart.
+    #[cfg(all(test, feature = "gtk-integration-tests"))]
+    pub(crate) fn decoder_generation_for_test(&self) -> u64 {
+        self.imp().decoder_generation.get()
+    }
+
+    /// How many stale decodes the generation guard has refused. See the field.
+    #[cfg(all(test, feature = "gtk-integration-tests"))]
+    pub(crate) fn stale_decodes_dropped_for_test(&self) -> u32 {
+        self.imp().stale_decodes_dropped.get()
+    }
+
+    /// How many decodes from a previous incarnation have been stored here. See the
+    /// field — with the guard intact this is always zero.
+    #[cfg(all(test, feature = "gtk-integration-tests"))]
+    pub(crate) fn stale_installs_for_test(&self) -> u32 {
+        self.imp().stale_installs.get()
     }
 }
 

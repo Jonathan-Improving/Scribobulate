@@ -4,7 +4,7 @@
 //! re-computed callback, plus the `gtk-integration-tests` support
 //! ([`EnableAnimationsGuard`]) and coverage that exercises it.
 //!
-//! Split out of `policy`'s single file once it crossed POLICY's 500-line soft limit —
+//! Split out of `policy`'s single file once it crossed POLICY's file-size soft limit —
 //! see that module's doc comment for why the split falls here rather than somewhere
 //! else. Everything here reaches back into `super` for the pure decision core
 //! (`effective_play`, `choice_of`, `enabled_of`, `reduced_motion_of`) exactly as it did
@@ -125,6 +125,21 @@ impl EnableAnimationsGuard {
     pub(crate) fn set(enabled: bool) -> Self {
         let lock = SETTINGS_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let settings = gtk::Settings::default().expect("a display exists under gtktest");
+        // `effective_play` has THREE inputs and this guard owns one of them. The
+        // reader's choice is the test's to set; the OS's reduce-motion answer is
+        // neither, and on a host asking for reduced motion every playback assertion
+        // in the suite fails for a reason none of them mentions. Say it here, once,
+        // where the guard is taken — an unexplained red on one seat is how a host
+        // setting gets mistaken for a defect in the app.
+        assert!(
+            !crate::platform::system_reduced_motion().unwrap_or(false),
+            "this host is asking for REDUCED MOTION, so `policy::effective_play` is \
+             false whatever this guard sets and every playback assertion below will \
+             fail. That is the machine's setting, not a defect: turn it off for the \
+             run (Windows: Settings > Accessibility > Visual effects > Animation \
+             effects) and re-run. Only Windows currently has a source for this; \
+             Linux and macOS answer `None`."
+        );
         let previous = settings.is_gtk_enable_animations();
         settings.set_gtk_enable_animations(enabled);
         Self {

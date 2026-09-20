@@ -58,6 +58,7 @@ member. For a stateful action the work is driven by `change-state`, not
 | `win.redo` | — | — | Redo the last undone editor-buffer change. |
 | `win.cut` | — | — | Cut the editor selection. |
 | `win.copy` | — | — | Copy the selection. |
+| `win.paste` | — | — | Paste the clipboard into the editor at the caret, replacing the selection. Enabled while an editor pane is visible; the clipboard is not consulted to decide that (TDD 9.37). |
 | `win.delete` | — | — | Delete the editor selection without copying it. |
 | `win.select-all` | — | — | Select the whole buffer. |
 | `win.change-case` | `s` | — | Recase the editor selection. Targets below. |

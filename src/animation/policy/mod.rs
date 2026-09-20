@@ -29,7 +29,7 @@
 //! to know when to re-ask.
 //!
 //! **A directory, not a file**, for the same reason as `platform/win32/` and
-//! `platform/mac/`: this crossed POLICY's 500-line soft limit. The split is by CAUSE —
+//! `platform/mac/`: this crossed POLICY's file-size soft limit. The split is by CAUSE —
 //! this file is the decision core (pure functions plus the live readers built directly
 //! on them), [`watch`] is the live-subscription MECHANISM built on top of that core
 //! (connecting three independent change signals to one re-computed answer) — and every
@@ -198,55 +198,57 @@ mod tests {
         assert!(reduced_motion_of(Some(true)));
     }
 
-    /// **Linux behaviour is UNCHANGED by this input's existence.** This test's host
-    /// has no platform reduced-motion source — `platform::system_reduced_motion`
-    /// must answer `None` here, exactly as it did before this change added the
-    /// input at all — so folding it through `reduced_motion_of` lands on `false`,
-    /// which is the value [`current`]'s conjunction always had for this term prior
-    /// to the platform façade. No display needed: neither function touches GTK.
+    /// **What this host's own reduce-motion source says, and that the app agrees.**
     ///
-    /// Mutation test: claim the façade sees
-    /// reduced-motion on Linux (make `platform`'s Linux fallback answer
-    /// `Some(true)` instead of `None`) and this assertion goes red.
+    /// On a host with no source, behaviour is UNCHANGED by this input's existence:
+    /// the façade answers `None` exactly as it did before the input was added, so
+    /// folding it through `reduced_motion_of` lands on `false`, which is the value
+    /// [`current`]'s conjunction always had for this term. No display needed:
+    /// neither function touches GTK.
     ///
-    /// **`cfg`'d off on Windows, where the premise is false by design** — that arm
-    /// reads `SPI_GETCLIENTAREAANIMATION` and answers `Some(_)`, so an ungated
-    /// version of this test goes red on the Windows seat for being right. The
-    /// Windows host fact is its own test below. Do NOT "repair" this by asserting
+    /// **One test, branching at RUNTIME**, because the two platforms have different
+    /// host facts and neither may be compiled away. This was a `#[cfg(not(windows))]`
+    /// pair — a Windows-only arm and an everywhere-else arm — which is what POLICY
+    /// § Testing forbids verbatim: a `cfg`'d-off test does not skip loudly, it
+    /// vanishes, and the seat that most needs to know a check did not run is the one
+    /// that cannot see it is missing. Nothing is skipped here either, because both
+    /// arms carry a real assertion; a `SKIPPED` line is for a check that genuinely
+    /// cannot drive, not for one whose expected answer differs.
+    ///
+    /// Mutation test, no-source hosts: claim the façade sees reduced motion on Linux
+    /// (make `platform`'s Linux fallback answer `Some(true)` instead of `None`) and
+    /// this goes red. Windows: reduce the Win32 arm to the `None` stub the other
+    /// platforms use, or have `SystemParametersInfoW` fail and be swallowed, and it
+    /// goes red there.
+    ///
+    /// Which WAY Windows leans is deliberately not asserted — that is the reader's
+    /// OS setting, and pinning it would fail whenever "Show animations in Windows"
+    /// is legitimately switched off. Do NOT "repair" the no-source arm into
     /// `system_reduced_motion() == reduced_motion_of(platform::system_reduced_motion())`
-    /// on every host instead: that is `system_reduced_motion`'s definition spelled
-    /// out, so it holds under every mutation of either function and can never fail.
-    #[cfg(not(windows))]
+    /// either: that is the function's definition spelled out, so it holds under every
+    /// mutation of either side and can never fail.
     #[test]
-    fn system_reduced_motion_matches_the_platform_facade_with_no_source() {
-        assert_eq!(
-            crate::platform::system_reduced_motion(),
-            None,
-            "this host has no platform reduced-motion source"
-        );
-        assert!(
-            !system_reduced_motion(),
-            "no source must resolve to \"not reduced\", not a guess"
-        );
-    }
-
-    /// The Windows counterpart of the host fact above: this platform DOES have a
-    /// source, so the façade must hold an opinion rather than abstain. Which way it
-    /// leans is the reader's OS setting and is deliberately not asserted — a test
-    /// that pinned it would fail whenever the operator has "Show animations in
-    /// Windows" switched off, which is a legitimate configuration, not a defect.
-    ///
-    /// Failable in the direction that matters: it goes red if the Win32 arm is ever
-    /// reduced to the `None` stub the other platforms use, or if
-    /// `SystemParametersInfoW` fails at runtime and the arm swallows it — which is
-    /// the whole risk of an FFI no Linux seat can execute.
-    #[cfg(windows)]
-    #[test]
-    fn the_platform_facade_holds_an_opinion_on_windows() {
-        assert!(
-            crate::platform::system_reduced_motion().is_some(),
-            "Windows reads SPI_GETCLIENTAREAANIMATION and must answer Some(_); \
-             None means the FFI failed or the arm regressed to the no-source stub"
-        );
+    fn the_platform_facade_answers_what_this_host_is_able_to_know() {
+        let facade = crate::platform::system_reduced_motion();
+        if cfg!(windows) {
+            // Windows reads `SPI_GETCLIENTAREAANIMATION`, so it must hold an opinion
+            // rather than abstain — the whole risk of an FFI no Linux seat can run.
+            assert!(
+                facade.is_some(),
+                "Windows reads SPI_GETCLIENTAREAANIMATION and must answer Some(_); \
+                 None means the FFI failed or the arm regressed to the no-source stub"
+            );
+        } else {
+            // Linux and macOS have no source of their own: `GtkSettings` already
+            // carries the desktop's answer on Linux, and macOS's façade is deferred.
+            assert_eq!(
+                facade, None,
+                "this host has no platform reduced-motion source"
+            );
+            assert!(
+                !system_reduced_motion(),
+                "no source must resolve to \"not reduced\", not a guess"
+            );
+        }
     }
 }

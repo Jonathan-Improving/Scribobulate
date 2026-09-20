@@ -26,8 +26,9 @@ use gtk::graphene;
 /// to no height.
 ///
 /// `radius_design_px` is a design-time metric at zoom 1.0 — scaled here by the zoom
-/// THIS RENDER was laid out at, like every other themed pixel metric (POLICY: pixel
-/// metrics do not follow the CSS `font-size` rule).
+/// THIS RENDER was laid out at, like every other themed pixel metric (POLICY § Architecture
+/// rules, "No hard-coded styling": themed geometry is scaled by zoom explicitly and clamped,
+/// which is not the CSS `font-size` rule the type scale follows).
 ///
 /// **The band's sprites are resolved only past the visibility gate just below** (TDD
 /// 27.9): `ctx.frames()` is handed to `paint_band_into`, and a `Frames` call is that

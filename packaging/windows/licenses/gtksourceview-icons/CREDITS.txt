@@ -1,7 +1,7 @@
 Title:   GtkSourceView completion icons (lang-*-symbolic, completion-*-symbolic)
 Author:  Christian Hergert
 Source:  GtkSourceView 5.20.0 -- https://gitlab.gnome.org/GNOME/gtksourceview
-         (introduced in commit 5470523d "icons: add various icons for completion")
+         (introduced in GNOME/gtksourceview commit 5470523d "icons: add various icons for completion")
 Licence: CC BY-SA 3.0 -- http://creativecommons.org/licenses/by-sa/3.0/
 
 This credit is not decoration. CC BY-SA 3.0 s4(c) requires the attribution to be

@@ -1,4 +1,4 @@
-//! `AnimatedPaintable`'s GTK-object tests, split out at POLICY's 500-line soft
+//! `AnimatedPaintable`'s GTK-object tests, split out at POLICY's file-size soft
 //! limit exactly as `palette` splits its own (`mod`/`tests`).
 
 use super::*;
@@ -309,6 +309,133 @@ fn a_decode_landing_after_visibility_is_lost_is_discarded_and_restarts_at_frame_
         frame0_bytes,
         "returning to view must restart playback from frame 0, not resume \
          mid-sequence from wherever the discarded decode had left it"
+    );
+    window.destroy();
+}
+
+/// **The `decoder_generation` guard's first test.** Lose visibility while a decode is
+/// in flight, REGAIN it before that decode lands, and the frame that arrives belongs to
+/// a decoder incarnation that has already been torn down.
+///
+/// Until now this guard had no coverage at all — it could be deleted and the suite
+/// stayed green. The only late-decode test beside it loses visibility and stays lost,
+/// which the sibling `play_wanted` guard decides by itself; the generation check never
+/// got to answer. Its own doc comment says it exists for lose-then-REGAIN, and that is
+/// exactly the case nothing exercised.
+///
+/// It is reachable only while a decode is slow enough to outlive a visibility round
+/// trip, which a local decode never is — hence `worker::slow_decode`, the seam ported
+/// from `docio::pool` for precisely this class of window.
+#[gtktest::test]
+fn a_decode_outlived_by_its_own_decoder_is_dropped_even_though_the_picture_is_visible_again() {
+    let _enable = EnableAnimationsGuard::set(true);
+    // Long enough that a decode dispatched before the unmap is still on the pool
+    // thread after the remap has built a fresh decoder.
+    let _slow = crate::animation::worker::slow_decode(Duration::from_millis(600));
+
+    let app = test_app("stale-generation");
+    let pic = gtk::Picture::new();
+    let animated = AnimatedPaintable::new(pic.upcast_ref(), anim_bytes()).expect("fixture decodes");
+    pic.set_paintable(Some(&animated));
+
+    let other_page = gtk::Label::new(Some("other tab"));
+    let stack = gtk::Stack::new();
+    stack.add_titled(&pic, Some("pic"), "Picture");
+    stack.add_titled(&other_page, Some("other"), "Other");
+    stack.set_visible_child_name("pic");
+
+    let window = gtk::ApplicationWindow::new(&app);
+    window.set_default_size(200, 200);
+    window.set_child(Some(&stack));
+    window.present();
+    crate::testpump::until(crate::testpump::Clock::Idle, "the picture to map", || {
+        pic.is_mapped()
+    });
+    crate::testpump::until(crate::testpump::Clock::Idle, "playback to start", || {
+        animated.tick_installed()
+    });
+
+    // The same in-flight detector the sibling test uses: `start_decode` moves the
+    // animation out for the decode's duration, so the decoder reads inactive while
+    // the tick is still installed.
+    let caught_in_flight = crate::testpump::until_or_for(
+        crate::testpump::Clock::Worker,
+        Duration::from_secs(10),
+        || animated.tick_installed() && !animated.decoder_active(),
+    );
+    assert!(
+        caught_in_flight,
+        "precondition: never observed a decode in flight — cannot exercise the race \
+         this guard defends"
+    );
+    let stale_generation = animated.decoder_generation_for_test();
+
+    // Lose visibility, then REGAIN it, both while that decode is still on the pool.
+    stack.set_visible_child_name("other");
+    crate::testpump::until(crate::testpump::Clock::Idle, "the picture to unmap", || {
+        !pic.is_mapped()
+    });
+    stack.set_visible_child_name("pic");
+    crate::testpump::until(crate::testpump::Clock::Idle, "the picture to remap", || {
+        pic.is_mapped()
+    });
+
+    let live_generation = animated.decoder_generation_for_test();
+    assert_ne!(
+        live_generation, stale_generation,
+        "precondition: the round trip must have torn the decoder down and built a \
+         fresh one, or the decode that lands is not stale and this proves nothing"
+    );
+
+    // Wait for the stale decode to LAND rather than draining a fixed interval. A fixed
+    // drain is a bet on the machine: under full-suite load the decode can still be on
+    // the pool when it expires, and the absence assertions below would then pass
+    // vacuously while the presence one failed. Waiting on the event makes the test
+    // report "never arrived" as a precondition rather than as the finding.
+    let landed = crate::testpump::until_or_for(
+        crate::testpump::Clock::Worker,
+        Duration::from_secs(20),
+        || animated.stale_decodes_dropped_for_test() >= 1,
+    );
+    assert!(
+        landed,
+        "precondition: the stale decode never reached `on_decoded` within the \
+         deadline, so nothing below was exercised"
+    );
+
+    // The guard's whole job: the frame belongs to the previous incarnation, and the
+    // current one must be untouched by it. Visibility says PLAY here, so `play_wanted`
+    // cannot be what refuses it — only the generation check can.
+    assert_eq!(
+        animated.decoder_generation_for_test(),
+        live_generation,
+        "a stale frame must not disturb the live incarnation into rebuilding"
+    );
+    assert!(
+        animated.tick_installed(),
+        "the visible picture must still be playing after the stale frame was dropped"
+    );
+    // The assertion with teeth, and the reason it counts rather than inspects: a
+    // correct refusal leaves NO trace. The schedule's awaiting latch, the decoder's
+    // presence and the pixels are all re-established by the live incarnation's own
+    // decode a moment later, so anything read after the fact cannot distinguish
+    // "refused" from "accepted and then overwritten". A first version of this test
+    // asserted the awaiting latch and passed with the guard deleted.
+    // The EFFECT, which is what a refusal actually is. Asserted before the branch
+    // counter because it is the stronger claim: deleting only the `return` beneath the
+    // guard leaves the branch counter moving and every animation test green — measured
+    // — while this one reddens.
+    assert_eq!(
+        animated.stale_installs_for_test(),
+        0,
+        "the stale decode was STORED over the live incarnation's decoder — the guard's \
+         branch may have been entered, but it did not refuse"
+    );
+    assert_eq!(
+        animated.stale_decodes_dropped_for_test(),
+        1,
+        "exactly one stale decode was expected; the guard's branch count is the \
+         presence half of this test, and the install count above is the refusal half"
     );
     window.destroy();
 }

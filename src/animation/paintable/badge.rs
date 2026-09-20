@@ -1,5 +1,5 @@
 //! The paused-animation corner badge (TDD 27.8). Split out
-//! of `mod.rs` at POLICY's 500-line soft limit, the same reason `drive.rs`
+//! of `mod.rs` at POLICY's file-size soft limit, the same reason `drive.rs`
 //! and `gtk_tests.rs` are their own files.
 //!
 //! **Paint-only, by construction.** Everything here is called from

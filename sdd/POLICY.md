@@ -46,7 +46,10 @@ not complete until every step passes. The steps:
 - Never skip a step. A step that does not apply on a platform is announced in the run
   output, never silently omitted.
 - **A number has one owner.** A floor, limit, count or version is written in exactly one
-  place — the code or script that uses it — and never restated in a document.
+  place and cited from nowhere else. Usually that place is the code or script enforcing
+  it; where nothing enforces it mechanically — a product commitment, a limit a person
+  checks before an edit — this document is the owner. Either way the ban is on the
+  SECOND copy, which goes stale silently while reading as current.
 
 ## Continuous integration
 
@@ -254,8 +257,18 @@ applicable cell of that matrix, and derives its manual-test checks from them.
   engineering discipline → the `general-engineering-principles` skill; anything else →
   ANTI-PATTERNS.md.
 - Read an entry before citing it.
-- **Never cite a git commit hash** — squashing orphans them. Cite the fact itself, a
-  register entry, or the commit subject plus date.
+- **Never cite a git commit hash** — squashing orphans them, and an orphaned hash still
+  resolves in the clone that wrote it while resolving nowhere else, so the citation looks
+  sound exactly where it is checked. Cite the fact itself, a register entry, or the
+  commit subject plus date.
+- **Two things are not citations and the rule does not reach them.** A generated
+  build stamp that ties a crash report back to the revision it came from is machine
+  output, read by a maintainer holding the report, and it is emitted by the build
+  rather than written by anyone. A transient instruction about the working tree — *"fetch
+  and look at what I just pushed"* — names a commit in order to act on it now, not to
+  cite it later. Anything that enforces this rule mechanically carries both as
+  exceptions; a lint without them deletes the crash reporter's build stamp, and an agent
+  reading only the flat prohibition does the same by hand.
 
 ## Prohibited actions
 

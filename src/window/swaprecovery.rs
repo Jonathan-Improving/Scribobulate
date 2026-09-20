@@ -1297,6 +1297,7 @@ mod tests {
             // `open` now reads its file off the main thread and builds the window
             // when that comes back, so the windows do not exist the instant it
             // returns.
+            let _cold = crate::app::coldstart::force_for_test(true); // This launch models a COLD start — an empty process reached by a file argument,
             app.open(&[gtk::gio::File::for_path(&file)], "");
             assert!(
                 crate::docio::settle(|| !app.windows().is_empty()),

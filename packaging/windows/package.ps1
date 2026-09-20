@@ -155,9 +155,47 @@ The staged tree at $StageDir is complete; only the installer step is missing.
     Write-Host "MSVC redistributable: $redist" -ForegroundColor DarkGray
     Write-Host ("  vc_redist.x64.exe  {0}" -f (Get-Item $redist).VersionInfo.FileVersion) -ForegroundColor DarkGray
 
-    & $iscc "/DStageDir=$StageDir" "/DRedistFile=$redist" "$PSScriptRoot\scribobulate.iss"
+    # WHICH Inno Setup built this, captured from the run that built it.
+    #
+    # The obvious announcement -- `(Get-Item $iscc).VersionInfo` beside the redistributable
+    # one above -- prints `0.0.0.0`, and reads as a working check while saying nothing.
+    # ISCC.exe, Compil32.exe and ISSigTool.exe all ship with an empty version resource
+    # (MEASURED, Inno Setup 6.7.3, winget user-scope install). Nor is there a `--version`
+    # switch: `iscc /?` names only the major version, "Inno Setup 6".
+    #
+    # What ISCC does emit, while compiling, is `Compiler engine version: Inno Setup x.y.z`,
+    # so the version is read out of the compile that produced the artefact rather than
+    # probed off a binary that might not be the one invoked -- CI resolves ISCC from the
+    # runner image's PATH, and that copy floats with the image whatever the winget pin in
+    # the workflow says. The pin covers a branch that usually does not run; this line
+    # covers every run.
+    #
+    # Assigned through $script: deliberately. A ForEach-Object body is a CHILD scope, so a
+    # bare `$engine = ...` there writes a local that vanishes with the block and leaves the
+    # outer variable at its initial value -- the announcement then reports "unknown" on a
+    # run that told it the answer, and nothing errors.
+    $script:IsccEngine = $null
+    & $iscc "/DStageDir=$StageDir" "/DRedistFile=$redist" "$PSScriptRoot\scribobulate.iss" |
+        ForEach-Object {
+            if (-not $script:IsccEngine -and
+                $_ -cmatch '^\s*Compiler engine version:\s*(\S.*?)\s*$') {
+                $script:IsccEngine = $Matches[1]
+            }
+            # Echoed through unchanged: the compile's own output is the log a packaging
+            # failure is read from, and swallowing it to scrape one line out would trade a
+            # diagnosis for an announcement.
+            $_
+        }
     if ($LASTEXITCODE -ne 0) { throw "FAILED: build the installer (exit $LASTEXITCODE)" }
+    if (-not $script:IsccEngine) {
+        # FAILS rather than printing "unknown". The whole point of the line is to say which
+        # compiler built the artefact, and a run that cannot say has lost the fact, not
+        # merely the label -- a future Inno that stops printing the banner must be noticed
+        # here rather than quietly degrade the record on every release.
+        throw "FAILED: $iscc compiled the installer but never announced its engine version."
+    }
 
+    Write-Host "Inno Setup compiler: $script:IsccEngine" -ForegroundColor DarkGray
     Write-Host 'installer built.' -ForegroundColor Green
 }
 finally {

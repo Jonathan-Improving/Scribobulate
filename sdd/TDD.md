@@ -784,7 +784,7 @@
 ### 6.1 GPU memory under hard ceiling
 - **Given** a typical Markdown document open in the application
 - **When** GPU memory use is measured (e.g. `nvidia-smi` on Linux/NVIDIA)
-- **Then** the process holds **fewer than 50 MiB** of VRAM — and far below that viewer's ~594 MiB
+- **Then** the process holds VRAM **under the ceiling POLICY § Footprint verification states** — and far below that viewer's ~594 MiB
 
 ### 6.2 No GPU compositing pipeline held
 - **Given** the application is running with a document open
@@ -805,7 +805,7 @@
 
 - **Given** a typical Markdown document open on macOS
 - **When** the process's GPU memory and GPU engine utilization are measured (e.g. Activity Monitor / `ioreg`), first while the window is resized between small and maximized, and then with documents of very different sizes at a fixed window size
-- **Then** the reading stays far below 6.1's 50 MiB ceiling, **does not grow with window area**, **does not grow with document size or complexity**, and GPU engine utilization for the process stays at or near zero throughout — while system RAM (6.3) *does* rise with document size, confirming the document is rendered on the CPU
+- **Then** the reading stays far below 6.1's ceiling, **does not grow with window area**, **does not grow with document size or complexity**, and GPU engine utilization for the process stays at or near zero throughout — while system RAM (6.3) *does* rise with document size, confirming the document is rendered on the CPU
 - **And** a reading that scales with either dimension, or sustained GPU engine activity, means software compositing is not active and **fails** this gate — that, not a non-zero byte count, is the macOS signal that 6.2 has been violated
 
 ### 6.5 On Windows, GPU memory is fixed overhead — not a rendering cost
@@ -819,7 +819,7 @@
 
 - **Given** a typical Markdown document open on Windows
 - **When** the process's dedicated GPU memory and GPU engine utilisation are measured, first while the window is resized between small and maximised, and then with documents of very different sizes at a fixed window size
-- **Then** the reading stays far below 6.1's 50 MiB ceiling, **does not grow with window area**, **does not grow with document size or complexity**, and GPU engine utilisation for the process stays at or near zero throughout — while system RAM (6.3) *does* rise with document size, confirming the document is rendered on the CPU
+- **Then** the reading stays far below 6.1's ceiling, **does not grow with window area**, **does not grow with document size or complexity**, and GPU engine utilisation for the process stays at or near zero throughout — while system RAM (6.3) *does* rise with document size, confirming the document is rendered on the CPU
 - **And** a reading that scales with either dimension, or sustained GPU engine activity, means software compositing is not active and **fails** this gate — that, not a non-zero byte count, is the Windows signal that 6.2 has been violated
 
 ### 6.6 A re-render does not grow memory without bound
@@ -1082,6 +1082,21 @@
 - **And given** the second launch instead comes from a bare shell command with no activation token (e.g. `scribobulate path` typed directly into a terminal)
 - **Then** the window-manager's focus-stealing prevention may legitimately substitute a taskbar/demands-attention flash for an actual raise-and-focus — this is desktop-level behavior common to virtually every application, not an app bug, and is not something `gtk_window_present()` can or should override (researcher-verified, ScrAP-47); verify this rubric via a tokened launch method, not a bare terminal command
 
+### 8.2a A launch arriving during startup is never a second startup
+- **Given** the process has been launched once and is still starting up — session restore reads each tab's document one at a time, so for the whole of that interval no window exists yet
+- **When** a second launch arrives (bare, or carrying file arguments) and is handed to the running instance
+- **Then** it is treated as a re-activation, not as a cold start: the session is restored once and crash recovery offers once, however many launches land inside that interval
+- **And** the second launch does what a re-activation always does — a blank document, or its named files as tabs
+- **And** "is this the cold start?" is claimed **synchronously**, by one claim every entry point takes, rather than derived from observable state; a predicate over state the authorised work will itself change is true for as long as the work is pending, which is precisely the interval in question
+- **Rationale, so it is not re-derived as an optimisation:** a duplicate restore gives every document two tabs, each with its own baseline, file monitor and swapfile, so saving in one raises an external-change decision in the other. It is reachable exactly when restore is slow — large session, slow storage — and a slow start looks like nothing happening, which is what prompts the second launch
+
+### 8.2b One invocation naming a file twice opens it once
+- **Given** a single launch or `open` invocation whose arguments name the same document more than once — two spellings of one path, or overlapping globs a shell expanded without deduplicating
+- **When** it is handled
+- **Then** exactly one tab backs that document, and the duplicate names are absorbed rather than opened
+- **And** the comparison is the same one that decides whether a file is already open, so two spellings are one file here exactly as they are there
+- **Rationale:** deduplicating against already-open tabs answers a different question and leaves this one open. Two tabs on one document each carry their own baseline, file monitor and swap file, so saving in one raises an external-change decision in the other
+
 ### 8.3 Independent window lifecycle
 - **Given** multiple document windows are open in the one process
 - **When** the user closes one window
@@ -1308,7 +1323,7 @@
 - **Then** the indicator is hidden entirely, not shown stale or blank-but-present
 - **And given** the user switches tabs
 - **Then** the indicator immediately reflects the newly-active tab's own mode and caret position, never the tab just left
-- **And given** the window has been forced wider than its monitor — by the chrome's content-derived min-width (I5), or by a session restored from a larger screen — **then** the "Ln L, Col C" indicator — and likewise the bottom-right conflict/reload/info toast's action buttons — stay within the visible monitor rather than off its right edge; on a display wide enough to hold the toolbar they show at their normal right-hand placement, unchanged (`window::chrome_fit::overflow_inset`, applied at each show/update point).
+- **And given** the window has been forced wider than its monitor — by the chrome's own content-derived minimum width, or by a session restored from a larger screen — **then** the "Ln L, Col C" indicator — and likewise the bottom-right conflict/reload/info toast's action buttons — stay within the visible monitor rather than off its right edge; on a display wide enough to hold the toolbar they show at their normal right-hand placement, unchanged (`window::chrome_fit::overflow_inset`, applied at each show/update point).
 
 ### 9.22 View ▸ Toolbar hides individual toolbar sections, remembers them, and never orphans a separator
 - **Given** a document window with the toolbar shown
@@ -2988,6 +3003,14 @@ appearance that predates the feature; `Sepia` is the book-like reading theme.
 - **And** the tile does not nest: a quote inside a quote sits on the outer level's grid rather than starting a second one (TDD 2.11b)
 - **And** the pattern is CONTINUOUS down the quote on every surface — a decoration the medium draws line by line (the PDF page) anchors its grid to the page rather than to each line's own rect, so a diagonal or large-featured tile is not cut at every line boundary
 
+### 18.60 A themed picture is the same size on the page as on the screen
+- **Given** any theme key whose value is a picture — a tiled wash, a corner-anchored scene, a rule tile — and the same document shown on screen and exported to PDF
+- **When** the printed page is held beside the preview at 100% zoom
+- **Then** the picture is the same size on both, because a theme's dimensions are design-time **pixels** and the page is measured in **points**, so every picture crossing into the sink is converted exactly once
+- **And** the sink reserves room in points too: a comparison that decides how much space a tile needs never puts a raw pixel height against a converted metric, because the larger of two incommensurable numbers is not the taller one
+- **And** the *fitted* rendering needs no conversion and must not be given one — it divides a point-space height by the source's pixel height, so its units already cancel; the corner rendering keeps the source's own size and does need it. The two arms of that decision are in different unit regimes on purpose
+- **Rationale:** an unconverted picture prints at 4/3 its size, uniformly across every decoration, so the page looks internally consistent and deliberate and nothing on it can be compared against anything else on it. Only the page against the screen shows it — and a bar tile sized to a width metric is clipped a quarter of the way down its right edge, silently
+
 ## 19. Local document-link navigation
 
 ### 19.1 A relative link to a Markdown sibling opens as a new tab
@@ -3619,6 +3642,16 @@ up doing.
 - **And** the `<picture>` group yields exactly one image, its `src` having passed the same containment gate the preview applies
 - **And** the permitted element set is read from the single place the preview's scanner reads it from; a second copy of that set on the export path is a defect, not an implementation detail
 
+### 25.4a A link's destination reaches the artefact only if the artefact's reader may follow it
+- **Given** a document whose links cover every combination of scheme (`https`, `mailto`, relative, `javascript`, `data`, `file`) and fragment (absent, present, present-but-commented-out as in `javascript:alert(1)//#x`)
+- **When** it is exported
+- **Then** only an allowed external scheme or a genuinely relative reference keeps its destination; every other link is emitted as its text alone, keeping the reader's words and dropping the destination
+- **And** the decision is made by one predicate that every serialising sink asks, never by a disjunction whose second limb was written for a different question — a fragment-extractor documents a schemeless precondition it does not enforce, and reading `Some` from it as permission is what admitted `javascript:` into an artefact
+- **And** the relative limb is a **positive allowlist** — the destination must look like a relative reference — never "relative" inferred from "our scheme parser did not recognise this". An inference there inherits every disagreement between our parser and the reader's: ours implements RFC 3986 §3.1, the reader's strips leading control characters and spaces and removes every tab, line feed and carriage return anywhere in the URL *before* parsing a scheme, so a destination we reject as malformed is one the reader repairs and runs
+- **And** a protocol-relative destination (`//host/path`) is refused: it is not a relative reference, it inherits the artefact's scheme, and from a locally-opened export that is a filesystem fetch — on Windows, a UNC path reaching a remote share
+- **And** the fix for a disagreement of this kind is never a list of the characters that were measured; the class is *two parsers disagree*, and a blacklist closes the payloads someone happened to try
+- **And** the guard test is parameterised over scheme × fragment-presence, because one that fixes either axis passes on the vulnerable implementation
+
 ### 25.5 The export is of the buffer, not the file
 - **Given** a document with unsaved changes, or an untitled buffer never written to disk
 - **Then** the Export command is enabled, and the artefact carries the buffer's current text — not the bytes on disk, and not nothing
@@ -3904,7 +3937,8 @@ up doing.
 ### 27.5 View ▸ Play Animations pauses and resumes every animation
 - **Given** one or more windows showing animations
 - **When** the reader switches View ▸ Play Animations off
-- **Then** every animation in every window freezes on its current frame and shows the paused badge (27.8), and switching it on again resumes them
+- **Then** every animation in every window freezes on its current frame, and switching it on again resumes them
+- **And** a document IMAGE shows the paused badge (27.8) while frozen; a themed sprite does not — the badge belongs to the picture, and a decoration is not a picture the reader can point at. Stated because the unqualified version of this clause quantified over "every animation" and so described behaviour the sprite driver deliberately does not have
 - **And** the item sits beside Show Unsafe Images, every window's menu shows the same state, it is not on the toolbar, and it has no keyboard shortcut
 
 ### 27.6 Play Animations is on by default and remembered
@@ -3915,18 +3949,20 @@ up doing.
 ### 27.7 The system's "reduce animations" setting wins
 - **Given** the system's "reduce animations" setting is on
 - **When** a document with animations is shown
-- **Then** every animation shows its first frame with the paused badge and does not play, whatever Play Animations says
+- **Then** no animation plays, whatever Play Animations says; a document image shows its first frame with the paused badge (27.8), and a themed sprite freezes on the frame it was showing and carries no badge — the same split 27.5 draws, and for the same reason
 - **And** once the setting is switched off — while the application runs, or before its next launch — animations follow the reader's Play Animations choice again, and the system setting never changes that choice
 - **Per platform, because "the system's setting" is not one thing and the evidence differs**:
   - **Linux**: GTK's own `gtk-enable-animations`, which the desktop sets. Verified.
   - **Windows**: `gtk-enable-animations` is hardcoded `TRUE` by the GTK backend, so the OS preference is read directly (`SPI_GETCLIENTAREAANIMATION` — see 27.10). Operator-paced: it needs the reader to toggle Windows' own Animation effects, so it is a manual check rather than an automated one.
   - **macOS**: **UNVERIFIED, and deliberately so.** The source exists (`NSWorkspace.accessibilityDisplayShouldReduceMotion`) but wiring it needs Objective-C runtime FFI no seat can currently compile or verify, so the platform façade answers "no opinion" there and this rubric's behaviour does not yet hold on macOS. Tracked in `sdd/PLAN.accessibility.md`. Stated here rather than only in the plan, because a rubric that asserts unconditionally is read as verified everywhere
 
-### 27.8 A paused animation carries a pause badge
-- **Given** a paused animation
+### 27.8 A paused document IMAGE carries a pause badge
+- **Given** a paused animated image in the document
 - **When** it is shown
 - **Then** a small pause symbol sits in its bottom corner
 - **And** still images and playing animations never show it, an image under 48 pixels on a side does not show it, and clicking it does nothing
+- **And** the badge belongs to the document's own pictures and to nothing else: a themed sprite — a heading band, a quote bar, a list marker, a rule tile — is a decoration rather than a picture the reader can point at, and carries no badge at any size. 27.5 and 27.7 draw the same line, and a sprite freezing unbadged is the contract, not a gap in it
+- **Rationale, because the unqualified version misled three citations:** this rubric read "a paused animation", which quantifies over every animation in the application and so promised a badge the sprite driver deliberately does not draw
 
 ### 27.9 Animated theme sprites play
 - **Given** a reading theme with an animated sprite

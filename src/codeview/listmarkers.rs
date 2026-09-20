@@ -6,7 +6,7 @@
 //! questions and only one of them needs a view: `gutter` owns the SHAPES and the pure
 //! column arithmetic (unit-tested headlessly, at any metric and any zoom), this owns
 //! the live geometry read and the paint. Merging them would also have pushed that file
-//! well past the 500-line soft limit it already sits near.
+//! well past the file-size soft limit it already sits near.
 
 use super::gutter::{
     draw_list_marker, first_display_line, list_content_margin_px, marker_gap_px, MarkerPaint,

@@ -5,7 +5,7 @@
 //! Relocated here from `renderer::start` because it
 //! is fundamentally cache-client code — every function here exists to decide what to
 //! hand [`super::get_or_fetch`] and what to do with what comes back — and because that
-//! file was already well past POLICY's soft 500-line limit; this module is a better
+//! file was already well past POLICY's soft file-size limit; this module is a better
 //! home for logic that grows with the cache's own contract. `renderer::start`
 //! re-exports [`load_texture`] and [`LoadedImage`] at their old path so nothing
 //! outside this crate's image-loading code needed to change.

@@ -20,7 +20,7 @@
 /// caller RESTORING a reading position needs, where this module's own oracle answers
 /// *"is the layout valid?"*, which is what a caller ISSUING a scroll needs. Its own
 /// file because the two questions have different answers and different bounds — see
-/// its module docs — and because this one is already past the 500-line soft limit.
+/// its module docs — and because this one is already past the file-size soft limit.
 mod settle;
 
 pub(crate) use settle::after_scroll_settles;

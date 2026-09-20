@@ -127,7 +127,7 @@ pub(crate) fn wire_editor_annotate_card(
             pending.set((a.offset(), b.offset()));
             // Pre-populate with the comments this annotation is about to MERGE, so a
             // destructive merge is visible and user-controlled instead of silent
-            // (b4b9d6a, the preview-side sibling of this card). `insert_or_extend_highlight`
+            // (the preview-side sibling of this card does the same). `insert_or_extend_highlight`
             // extends rather than nests: it replaces every intersecting construct — its
             // `{>>comment<<}` included — with the union carrying the comment committed here.
             // Handing it only the newly typed text destroys the reviewer's earlier remarks
@@ -357,8 +357,8 @@ mod gtk_integration_tests {
     /// without it).
     ///
     /// **This does NOT pin the `win.select-all` standdown.** It once did: the standdown
-    /// walked the ancestor chain for this class, so the class was load-bearing. `7ebec83`
-    /// widened it to every text entry by keying on the focused widget's TYPE
+    /// walked the ancestor chain for this class, so the class was load-bearing. It was
+    /// widened to every text entry by keying on the focused widget's TYPE
     /// (`focus_in_text_entry` → `gtk::Text`), which reaches this card's entry regardless of
     /// any class. The behavioral guard now lives in `editoractions.rs`
     /// (`select_all_stands_down_for_every_text_entry_and_recovers_for_the_editor`), which

@@ -299,11 +299,22 @@ validate_contract() {
     # Worth having because an opt-in step is exactly where a typo survives: `package`
     # does not run unless asked, so a misspelled path there would otherwise be found by
     # whoever first tries to cut a release, which is the worst moment to find it.
+    # A SCRIPT INSIDE A COMMAND SUBSTITUTION IS STILL A SCRIPT THIS COMMAND NAMES.
+    # `$(scripts/foo.sh)` arrives here as one token ending `)`, so the patterns below miss
+    # it and the check passes over the one position where a missing script is WORST: the
+    # substitution's failure is silent — the shell puts an empty string in its place and
+    # the step runs a command shorter than the contract states, which for a test selection
+    # means a run WIDER than intended rather than a run that fails. The wrappers are
+    # stripped so the path inside is checked exactly like a bare one.
     for id in $ids; do
         local cmdline tok
         cmdline=$(contract_value "cmd.$PLATFORM" "$id")
         [ -n "$cmdline" ] || continue
         for tok in $cmdline; do
+            tok="${tok#\$(}"
+            tok="${tok#\`}"
+            tok="${tok%\`}"
+            tok="${tok%)}"
             case "$tok" in
                 */*.sh|*/*.ps1)
                     if [ ! -e "$tok" ]; then
@@ -574,6 +585,32 @@ contract_rejects() {
     return 0
 }
 
+# contract_accepts <label> [extra contract lines...]
+#
+# The counterpart to `contract_rejects`, and the reason it exists is that a validator is
+# only as good as its ability to say NO SOMETIMES. Every case in this harness is a
+# rejection, so a rule broadened until it refuses everything — or a validator wedged to
+# return non-zero unconditionally — passes all of them. A case that must be ACCEPTED is
+# what makes that failure visible, and it is required wherever a rule is loosened or its
+# input is pre-processed, since that is where over-matching is introduced.
+contract_accepts() {
+    local label="$1"
+    shift
+    local f out rc=0
+    f=$(synthetic_contract "$@") || { echo "pipeline: mktemp failed" >&2; return 1; }
+    out=$( CONTRACT="$f"; validate_contract 2>&1 ) || rc=$?
+    rm -f "$f"
+
+    if [ "$rc" -ne 0 ]; then
+        echo "pipeline: POSITIVE CASE REJECTED — $label" >&2
+        echo "  validate_contract refused a contract it must accept, so at least one rule" >&2
+        echo "  is matching more than its subject." >&2
+        echo "  it said: $(printf '%s' "$out" | head -3)" >&2
+        return 1
+    fi
+    return 0
+}
+
 # The whole harness, run from self_test. Returns non-zero if any case fails.
 contract_negative_cases() {
     # DELIBERATELY NOT `errs=$((errs + 1))`, which is what `validate_contract` uses.
@@ -688,6 +725,24 @@ contract_negative_cases() {
         "cmd.linux beta bash scripts/definitely-not-here.sh" \
         "cmd.macos beta bash scripts/definitely-not-here.sh" \
         "cmd.windows beta bash scripts/definitely-not-here.sh" || failed="$failed case"
+
+    # The same rule, reached through a command substitution. A separate case rather than a
+    # variant of the one above, because the wrapper-stripping is what makes it reachable
+    # and deleting that stripping must go red somewhere: without this case it does not.
+    contract_rejects "command substitutes a script that does not exist" "does not exist" \
+        "step 2 beta" "intent beta b" "verdict beta exit" "class beta required" \
+        "cmd.linux beta true \$(scripts/definitely-not-here.sh)" \
+        "cmd.macos beta true \$(scripts/definitely-not-here.sh)" \
+        "cmd.windows beta true \$(scripts/definitely-not-here.sh)" || failed="$failed case"
+
+    # PAIRED NEGATIVE. The stripping must not turn "any token with a bracket on it" into a
+    # path check — a rule that fires on everything is as useless as one that fires on
+    # nothing, and this accepts only because the substituted script genuinely exists.
+    contract_accepts "command substitutes a script that does exist" \
+        "step 2 beta" "intent beta b" "verdict beta exit" "class beta required" \
+        "cmd.linux beta true \$(scripts/coverage.sh)" \
+        "cmd.macos beta true \$(scripts/coverage.sh)" \
+        "cmd.windows beta true \$(scripts/coverage.sh)" || failed="$failed case"
 
     [ -z "$failed" ]
 }
@@ -1138,7 +1193,7 @@ run_all_steps() {
 PIPELINE_LIB_FNS="contract_value derived_step_ids step_ordinal validate_contract list_steps
 self_test announce step_disposition run_step carveouts_for carveout_skip_args
 apply_carveouts report_carveouts run_setup_phase run_all_steps
-synthetic_contract contract_rejects contract_negative_cases
+synthetic_contract contract_rejects contract_accepts contract_negative_cases
 run_step_capture execution_cases"
 
 PIPELINE_LIB_FN_PRINTS="$(

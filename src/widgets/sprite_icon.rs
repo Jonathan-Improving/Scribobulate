@@ -162,6 +162,7 @@ mod gtk_tests {
     /// under the real frame clock, driven by its own sprite table.
     #[gtktest::test]
     fn an_animated_sprite_icon_plays() {
+        let _enable = crate::animation::policy::EnableAnimationsGuard::set(true);
         crate::sprite::clear_cache();
         let (_dir, r) = testkit::animated_fixture();
         let (icon, win) = presented(&r, 64, "anim");
@@ -184,6 +185,7 @@ mod gtk_tests {
     /// replaced showed: `sprite::scaled` at the icon's size, drawn once into its box.
     #[gtktest::test]
     fn a_still_sprite_icon_paints_the_still_resample() {
+        let _enable = crate::animation::policy::EnableAnimationsGuard::set(true);
         crate::sprite::clear_cache();
         let (_dir, r) = testkit::still_fixture();
         let size = 16;
@@ -216,6 +218,7 @@ mod gtk_tests {
     /// viewport at its first paint never animated after the window grew to show it.
     #[gtktest::test]
     fn an_icon_first_painted_out_of_view_plays_once_scrolled_into_view() {
+        let _enable = crate::animation::policy::EnableAnimationsGuard::set(true);
         crate::sprite::clear_cache();
         let (_dir, r) = testkit::animated_fixture();
         let app = crate::window::testkit::test_app_suffixed("spriteicon.scrolled");

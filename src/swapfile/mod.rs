@@ -197,8 +197,8 @@ mod tests {
 
     #[test]
     fn a_valid_id_round_trips() {
-        let text = "3f2ac91b4d5e6f708192a3b4c5d6e7f8";
-        assert_eq!(DocId::from_hex(text).expect("valid").as_str(), text);
+        let doc_id = "3f2ac91b4d5e6f708192a3b4c5d6e7f8";
+        assert_eq!(DocId::from_hex(doc_id).expect("valid").as_str(), doc_id);
     }
 
     #[test]

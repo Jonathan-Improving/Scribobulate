@@ -535,7 +535,13 @@ impl Layouter<'_> {
                     .rule
                     .as_ref()
                     .and_then(crate::sprite::texture)
-                    .map(|t| f64::from(t.height()))
+                    // POINTS, not pixels. A texture's height is pixels and
+                    // `rule_space` arrives here already converted, so an unconverted
+                    // tile height would be maxed against a value in another unit and
+                    // the larger of two incommensurable numbers would win — reserving
+                    // 4/3 of the room the tile actually needs, or too little, with
+                    // nothing to indicate which.
+                    .map(|t| px_to_pt(t.height()))
                     .unwrap_or(0.0);
                 let height = px_to_pt(self.theme.metrics.rule_space).max(tile_h);
                 self.push_line(

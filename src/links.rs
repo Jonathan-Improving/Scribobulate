@@ -197,6 +197,85 @@ pub(crate) fn is_allowed_url(url: &str) -> bool {
     }
 }
 
+/// Whether `href` may be written into an **exported artefact's** link destination.
+///
+/// The one gate every serialising sink asks, so the answer cannot differ between
+/// them. Two ways to pass: an allowed external scheme, or a genuinely relative
+/// reference carrying a fragment (`TECH.md#map`, `#section`) — the cross-document
+/// and same-document links the artefact can still resolve for itself.
+///
+/// # Why this is not `is_allowed_url(h) || doc_link_fragment(h).is_some()`
+///
+/// That is what it used to be, and the second limb was not a gate. [`doc_link_fragment`]
+/// documents a *schemeless* precondition and enforces nothing — it returns `Some` for
+/// any href containing a non-empty `#`. `[click](javascript:alert(1)//#x)` satisfies
+/// it: the `#x` that matched is commented out by the `//` in the payload itself. The
+/// destination then reached `<a href>` intact, because the attribute escaper rewrites
+/// `& < > " '` and that payload contains none of them — script execution in the
+/// artefact's origin, which for a locally-opened export is `file://`.
+///
+/// The precondition is therefore enforced here, against [`has_uri_scheme`] rather than
+/// [`scheme_of`]. See that function for why the stricter grammar is the right one on
+/// this side of the boundary.
+pub(crate) fn is_exportable_href(href: &str) -> bool {
+    is_allowed_url(href) || (is_relative_reference(href) && doc_link_fragment(href).is_some())
+}
+
+/// Does `href` POSITIVELY look like a relative reference an artefact can resolve?
+///
+/// # This is an allowlist, and the previous version's failure is why
+///
+/// The second limb of [`is_exportable_href`] used to read `!has_uri_scheme(href)` —
+/// "relative" inferred from "my scheme parser did not recognise this". That is a
+/// rejection test standing in for an admission test, and it inherits every disagreement
+/// between the two parsers involved. [`has_uri_scheme`] implements RFC 3986 §3.1, where
+/// a scheme is `ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`; the engine reading the
+/// artefact implements the WHATWG URL Standard, which **strips leading C0 controls and
+/// spaces, and removes every tab, LF and CR anywhere in the URL, before it parses the
+/// scheme at all**. So a destination our parser rejects as malformed is one the engine
+/// repairs and runs, and the fragment limb then admitted it:
+///
+/// ```text
+/// [a](<{TAB}javascript:alert(1)//#x>)   // {TAB} is a literal U+0009
+/// ```
+///
+/// Blacklisting tab, LF and CR would close the payloads that were measured and leave the
+/// class open, because the class is *the two parsers disagree*, not *these characters*.
+/// So this asks what a relative reference IS, and anything it cannot recognise loses its
+/// destination and keeps its text — the direction that costs a link rather than the one
+/// that emits script.
+///
+/// Admitted:
+/// * a same-document fragment (`#section`);
+/// * a path whose characters are drawn from the unreserved/sub-delims set plus `/`,
+///   `.`, `%`, `#` and `?` — enough for `TECH.md#map`, `./sub/PLAN.md#caf%C3%A9` and a
+///   query string, and nothing that can carry a scheme.
+///
+/// Refused, each deliberately:
+/// * anything containing a colon, whatever surrounds it — a relative path does not need
+///   one here, and it is the only character that can make a scheme;
+/// * **a protocol-relative `//host/path`**, which is not a relative reference at all: it
+///   inherits the artefact's scheme, so from a `file://` page it is a filesystem fetch,
+///   and on Windows a `//host/share` is a UNC path reaching SMB;
+/// * any C0 control, space or DEL, which is what the engine strips or rejects, so our
+///   opinion of the rest is worthless once it has;
+/// * any non-ASCII byte: an artefact link in this project is a document path, and
+///   admitting the percent-encoded form only keeps this decidable.
+fn is_relative_reference(href: &str) -> bool {
+    if href.is_empty() || href.starts_with("//") {
+        return false;
+    }
+    href.chars().all(|c| {
+        matches!(c,
+            'a'..='z' | 'A'..='Z' | '0'..='9'
+            | '-' | '.' | '_' | '~'            // unreserved (RFC 3986 §2.3)
+            | '!' | '$' | '&' | '\'' | '(' | ')'
+            | '*' | '+' | ',' | ';' | '='      // sub-delims
+            | '/' | '%' | '#' | '?' | '@'      // path, escape, fragment, query
+        )
+    })
+}
+
 /// The URL scheme of `url` when it is a genuine URL reference, or `None` when `url`
 /// is really a **local filesystem path** (which must never be scheme-sniffed). Shared
 /// by [`is_allowed_url`], [`resolve_image`], and the doc-link gate so "does this
@@ -220,8 +299,27 @@ pub(crate) fn is_allowed_url(url: &str) -> bool {
 ///    as the local file it is — the bug this fixes;
 ///  • an unhandled dangerous bare-colon scheme (`javascript:`, `data:`) is *still* never
 ///    launched — with no `//` it is not a hierarchical URL, is not `mailto`, and so
-///    falls through to local resolution where it fails to resolve and is rendered inert.
-///    Security is preserved by fall-through, not by naming each dangerous scheme.
+///    falls through to local resolution where it fails to resolve and is rendered inert
+///    **in this process**. Security is preserved by fall-through, not by naming each
+///    dangerous scheme.
+///
+/// # That qualifier is load-bearing, and it was missing
+///
+/// "Rendered inert" is a property of **this** consumer, not of the value. The moment the
+/// same href is written into an artefact — an exported HTML file — it is read by an
+/// engine applying RFC 3986 §3.1, where a colon alone makes a scheme, and `javascript:`
+/// executes. This comment previously closed on the unqualified claim, and it is the
+/// comment a maintainer reads before touching the parser; the register entry that had
+/// the lesson right (ScrAP-247, *"no handler is registered for this scheme" is not a
+/// safety property*) is not what gets read at the moment of the edit.
+///
+/// So anything bound for serialisation asks [`is_exportable_href`], which does NOT
+/// consult this function at all. **Do not wire it back in.** The first fix did — it
+/// admitted a destination when this parser's stricter twin found no scheme — and that
+/// inherited every disagreement between an RFC 3986 parser and the WHATWG one the
+/// reader actually runs, which repairs a malformed scheme before parsing it. The export
+/// gate asks what a relative reference IS instead. Answering "not a scheme" is not the
+/// same question as "safe to serialise", whichever parser answers it (GEP-82, GEP-53).
 pub(crate) fn scheme_of(url: &str) -> Option<&str> {
     let (scheme, rest) = url.split_once(':')?;
     // RFC 3986 scheme token: non-empty, first char ALPHA, remainder ALPHA/DIGIT/+/-/.
@@ -661,9 +759,9 @@ pub(crate) fn relativize_for_insert(target: &Path, base: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        anchor_target, doc_link_fragment, is_allowed_url, percent_decode, percent_encode_path,
-        relativize_for_insert, resolve_contained_image, resolve_doc_link, resolve_image, scheme_of,
-        slugify, unique_slug, ImageResolution, LinkResolution,
+        anchor_target, doc_link_fragment, is_allowed_url, is_exportable_href, percent_decode,
+        percent_encode_path, relativize_for_insert, resolve_contained_image, resolve_doc_link,
+        resolve_image, scheme_of, slugify, unique_slug, ImageResolution, LinkResolution,
     };
     use std::collections::HashMap;
 
@@ -1475,6 +1573,83 @@ mod tests {
         assert_eq!(doc_link_fragment("TECH.md").as_deref(), None);
         // Trailing bare `#` (no text after it) — nothing to look up.
         assert_eq!(doc_link_fragment("TECH.md#").as_deref(), None);
+    }
+
+    /// `doc_link_fragment` documents a schemeless precondition and does not enforce
+    /// one — this pins that, so a future reader does not mistake it for a gate and
+    /// rebuild the hole `is_exportable_href` closes.
+    #[test]
+    fn doc_link_fragment_does_not_enforce_its_own_schemeless_precondition() {
+        assert_eq!(
+            doc_link_fragment("javascript:alert(1)//#x").as_deref(),
+            Some("x")
+        );
+    }
+
+    // ── export href gate ────────────────────────────────────────────────────────
+
+    #[test]
+    fn is_exportable_href_refuses_a_scheme_the_two_parsers_disagree_about() {
+        // R4-SEC-01. Every one of these is malformed by RFC 3986 and REPAIRED by the
+        // WHATWG URL Standard, which strips leading C0/space and removes every tab, LF
+        // and CR anywhere in the URL before parsing the scheme. Inferring "relative"
+        // from "my scheme parser did not recognise this" admitted all of them.
+        for href in [
+            "\tjavascript:alert(1)//#x",
+            " javascript:alert(1)//#x",
+            "\njavascript:alert(1)//#x",
+            "\rjavascript:alert(1)//#x",
+            "\u{0}javascript:alert(1)//#x",
+            "java\tscript:alert(1)//#x",
+            "java\nscript:alert(1)//#x",
+            "jav\u{0}ascript:alert(1)//#x",
+            "javascript\t:alert(1)//#x",
+            " \t javascript:alert(1)#x",
+        ] {
+            assert!(
+                !is_exportable_href(href),
+                "a destination the reader's parser repairs into a scheme: {href:?}"
+            );
+        }
+    }
+
+    /// A protocol-relative destination is not a relative reference: it inherits the
+    /// artefact's scheme. From a `file://` page that is a filesystem fetch, and on
+    /// Windows `//host/share` is a UNC path reaching SMB.
+    #[test]
+    fn is_exportable_href_refuses_a_protocol_relative_destination() {
+        assert!(!is_exportable_href("//evil.example/#x"));
+        assert!(!is_exportable_href("//evil.example/path#frag"));
+        assert!(!is_exportable_href("//#x"));
+    }
+
+    #[test]
+    fn is_exportable_href_refuses_a_hostile_scheme_that_carries_a_fragment() {
+        // The vulnerability, at the unit that decides it: the `//` comments out the
+        // `#x` for the engine, but the fragment limb matched on it.
+        assert!(!is_exportable_href("javascript:alert(1)//#x"));
+        assert!(!is_exportable_href("javascript:alert(1)#x"));
+        assert!(!is_exportable_href("JaVaScRiPt:alert(1)#x"));
+        assert!(!is_exportable_href(
+            "data:text/html,<script>alert(1)</script>#x"
+        ));
+        assert!(!is_exportable_href("file:///etc/passwd#x"));
+        assert!(!is_exportable_href("smb://host/share#x"));
+    }
+
+    #[test]
+    fn is_exportable_href_keeps_the_links_an_artefact_can_still_resolve() {
+        assert!(is_exportable_href("https://example.com"));
+        assert!(is_exportable_href("https://example.com/page#frag"));
+        assert!(is_exportable_href("HTTPS://example.com"));
+        assert!(is_exportable_href("mailto:user@example.com"));
+        assert!(is_exportable_href("TECH.md#module-map"));
+        assert!(is_exportable_href("./sub/PLAN.md#caf%C3%A9"));
+        assert!(is_exportable_href("#section"));
+        // Unchanged from before the gate: a relative link with no fragment has never
+        // been emitted with a destination.
+        assert!(!is_exportable_href("TECH.md"));
+        assert!(!is_exportable_href("TECH.md#"));
     }
 
     #[test]

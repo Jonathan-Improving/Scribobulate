@@ -1,4 +1,5 @@
-/* Q2: with NO hook present (master 7a6be98's state), is a same-app PRIMARY
+/* Q2: with NO hook present (the state master was in when this probe was written),
+   is a same-app PRIMARY
    paste of a lone-CRLF document byte-clean on Quartz?
    Uses the AUTOMATIC publish path: a realized GtkTextView, select-all, no
    manual add_selection_clipboard. */

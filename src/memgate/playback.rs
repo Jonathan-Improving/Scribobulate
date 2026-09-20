@@ -107,6 +107,8 @@ const PER_FRAME_DEADLINE: Duration = Duration::from_secs(2);
 /// real loops of a real tick-driven animation.
 #[gtktest::test]
 fn playback_slope_across_many_loops_ttd_6_10() {
+    // The footprint instrument is process-wide; hold it for the whole body.
+    let _measuring = crate::memgate::footprint::measuring();
     let _enable = EnableAnimationsGuard::set(true);
     let app = test_app_suffixed("playback-slope");
     let (pic, animated, _window) = build_playing(&app);
@@ -147,6 +149,8 @@ fn playback_slope_across_many_loops_ttd_6_10() {
 /// above.
 #[gtktest::test]
 fn scroll_away_and_back_cycles_do_not_grow_footprint_ttd_6_10() {
+    // The footprint instrument is process-wide; hold it for the whole body.
+    let _measuring = crate::memgate::footprint::measuring();
     let _enable = EnableAnimationsGuard::set(true);
     let app = test_app_suffixed("scroll-cycles");
     let (_pic, animated, _window) = build_playing(&app);
@@ -215,6 +219,8 @@ fn scroll_away_and_back_cycles_do_not_grow_footprint_ttd_6_10() {
 /// naming a single instance.
 #[gtktest::test]
 fn animation_state_finalizes_with_no_main_loop_pump_ttd_6_7() {
+    // The footprint instrument is process-wide; hold it for the whole body.
+    let _measuring = crate::memgate::footprint::measuring();
     let _enable = EnableAnimationsGuard::set(true);
     let app = test_app_suffixed("anim-finalize");
     let (pic, animated, window) = build_playing(&app);

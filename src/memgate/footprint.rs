@@ -38,6 +38,48 @@ pub(crate) const WARMUP: usize = 3;
 /// leaves ten readings, five per half.
 pub(crate) const SAMPLE_COUNT: usize = WARMUP + 10;
 
+/// Serialises every footprint measurement in the process.
+///
+/// **The instrument is process-wide and the failure direction is the reassuring one.**
+/// `current()` reads the whole process's footprint, so a foreign allocation made while
+/// a series is being collected lands in that series. If it arrives in the first half it
+/// raises the baseline and FLATTENS the slope — the gate then passes on a real leak,
+/// which is the reading nobody investigates.
+///
+/// That is reachable because these bodies register with both harnesses: the
+/// `harness = false` suite runs them one at a time on the main thread, and the ordinary
+/// libtest binary runs them in parallel threads. The runner script pins the first; it
+/// cannot pin the second, and a claim about a shared instrument that depends on which
+/// harness invoked it is not a claim.
+///
+/// Same shape, and the same cause, as the counting allocator in richimg's
+/// oversized-allocation targets: contention on a shared instrument presents as a null
+/// reading, and here the null reading is "no growth".
+#[cfg(all(test, feature = "memory-gates"))]
+static MEASUREMENT: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Claim the instrument for this test's whole body, and release it on drop.
+///
+/// A guard rather than a wrapper around the sampling loop, deliberately: building the
+/// window, decoding the fixture and pumping the loop all allocate, and a series whose
+/// BASELINE was taken while another test was allocating is as wrong as one whose
+/// samples were. The measured region is the test.
+///
+/// Poisoning is ignored: a failing assertion inside one series must not turn every
+/// later one into a second, misleading failure.
+#[cfg(all(test, feature = "memory-gates"))]
+#[must_use = "the instrument is only claimed while the guard is alive"]
+pub(crate) fn measuring() -> MeasurementGuard {
+    MeasurementGuard {
+        _lock: MEASUREMENT.lock().unwrap_or_else(|e| e.into_inner()),
+    }
+}
+
+#[cfg(all(test, feature = "memory-gates"))]
+pub(crate) struct MeasurementGuard {
+    _lock: std::sync::MutexGuard<'static, ()>,
+}
+
 /// Current process footprint in bytes, or `None` if this platform's sampler
 /// could not read it. A `None` is a broken instrument, not a zero — the
 /// caller must refuse rather than treat it as a flat series.

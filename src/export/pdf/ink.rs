@@ -24,7 +24,7 @@
 
 use super::super::pdftable;
 use super::geometry::px_to_pt;
-use super::geometry::{pango_to_pt, MIN_PRINTABLE_PT};
+use super::geometry::{pango_to_pt, MIN_PRINTABLE_PT, PT_PER_PX};
 use super::{Laid, LineKind, PageDrawn, TableCell};
 use crate::palette::Palette;
 use crate::theme::Theme;
@@ -53,6 +53,27 @@ fn set_ink(cr: &cairo::Context, colour: gtk::gdk::RGBA) {
     );
 }
 
+/// Where a tiled decoration's pattern grid starts, given the rect it fills and the tile's
+/// size **in points**.
+///
+/// Pure, and split out from the painting so the rule is testable without a surface: the
+/// two axes take different anchors and the asymmetry is easy to "tidy" into a symmetry
+/// that reintroduces a defect. `paint_wash` explains why each axis is what it is;
+/// `widgets::tile_texture` is the screen's copy of the same rule and the two must agree,
+/// because holding the page beside the screen is how a divergence is found.
+fn tile_origin(x: f64, y: f64, tile_w: f64, tile_h: f64) -> (f64, f64) {
+    // Horizontal: the rect's own left edge, so a decoration N tiles wide prints N WHOLE
+    // tiles. `tile_w` is unused by design and named for the caller's sake.
+    let _ = tile_w;
+    // Vertical: the document-origin grid line at or above the rect.
+    let oy = if tile_h > 0.0 {
+        (y / tile_h).floor() * tile_h
+    } else {
+        y
+    };
+    (x, oy)
+}
+
 /// Fill `rect` with a settled [`Wash`] — the cairo half, and nothing but.
 ///
 /// A tile repeats at its natural size from the rect's own origin (`translate` first, so
@@ -72,29 +93,54 @@ fn paint_wash(
             let pattern = cairo::SurfacePattern::create(surface);
             pattern.set_extend(cairo::Extend::Repeat);
             cr.save().ok();
-            // ⚠️ The grid is anchored to the PAGE, not to this rect — the nearest grid
-            // line at or above it, congruent to 0 modulo the tile's own size. This is
-            // `widgets::tile_texture`'s rule, and the screen has always followed it while
-            // this site did not: it translated to the rect's own origin, restarting the
-            // tile's phase at every rect.
+            // ⚠️ **The two axes take DIFFERENT anchors, and that asymmetry is the rule
+            // rather than an oversight.** `widgets::tile_texture` is the authority and it
+            // has always done this: vertically it takes the document-origin grid line at
+            // or above the rect (congruent to 0 modulo the tile), horizontally it takes
+            // `rect.x()` — the decoration's own left edge.
             //
-            // It matters because this medium draws a decoration LINE BY LINE. A quote
-            // panel is one rect per quoted line, abutting, so a per-rect phase cuts the
-            // pattern at every line boundary — invisible for a tile whose rows all look
-            // alike, and obvious for any diagonal or large-featured one. The same applied
-            // to the accent bar and the heading band, whose rects abut the same way.
+            // The VERTICAL anchor is the page's because this medium draws a decoration
+            // LINE BY LINE. A quote panel is one rect per quoted line, abutting, so a
+            // per-rect phase cuts the pattern at every line boundary — invisible for a
+            // tile whose rows all look alike, and obvious for any diagonal or
+            // large-featured one. The accent bar and the heading band abut the same way.
             //
-            // Rounded to whole tiles, so the anchor never introduces a fractional offset
-            // the pattern would have to resample across.
-            let (tw, th) = (f64::from(surface.width()), f64::from(surface.height()));
-            let anchor = |v: f64, size: f64| {
-                if size > 0.0 {
-                    (v / size).floor() * size
-                } else {
-                    v
-                }
-            };
-            let (ox, oy) = (anchor(x, tw), anchor(y, th));
+            // The HORIZONTAL anchor is the rect's because a decoration is a fixed number
+            // of tiles WIDE, and a page-anchored lattice phase-shifts it: an accent bar
+            // exactly one tile wide, sitting where the lattice boundary falls inside it,
+            // prints the right half of one plate beside the left half of the next —
+            // MANUAL-TEST 18.28's "column of half-rivets sliced down the left", which it
+            // names as the independent horizontal half that a fix for the vertical one
+            // reintroduces. That is exactly what this site did after it was generalised
+            // to both axes.
+            //
+            // ⚠️ **It bites only where the rect's x is NOT a whole multiple of the tile
+            // width, and that is why it survived a measurement.** MEASURED here by
+            // rasterising this function with a half-black tile: a 12pt tile under a bar at
+            // x=72 prints identically either way, because 72 is already on the 12pt
+            // lattice — so the shipped geometry looked correct and proved nothing. Move
+            // the same bar to x=78 and the page-anchored spelling opens with the plate's
+            // WHITE half and closes with the next plate's black; the rect-anchored one
+            // opens flush with a whole plate. Any bar width, indent or nesting depth that
+            // lands off the lattice reaches it.
+            //
+            // Rounded to whole tiles vertically, so the anchor never introduces a
+            // fractional offset the pattern would have to resample across.
+            //
+            // ⚠️ A tile's dimensions are PIXELS and this page is measured in POINTS, so
+            // both the lattice below and the pattern itself are converted. Laying the
+            // surface down unconverted prints it at 4/3 the size the preview draws it —
+            // coherent per decoration, so a tile checked on its own looks deliberate,
+            // and the error is only visible by holding the page beside the screen. The
+            // pattern matrix maps user space to pattern space, hence the reciprocal:
+            // one pixel is to occupy `PT_PER_PX` points.
+            let scale = 1.0 / PT_PER_PX;
+            pattern.set_matrix(cairo::Matrix::new(scale, 0.0, 0.0, scale, 0.0, 0.0));
+            let (tw, th) = (
+                f64::from(surface.width()) * PT_PER_PX,
+                f64::from(surface.height()) * PT_PER_PX,
+            );
+            let (ox, oy) = tile_origin(x, y, tw, th);
             cr.translate(ox, oy);
             if cr.set_source(&pattern).is_ok() {
                 cr.rectangle(x - ox, y - oy, width, height);
@@ -168,8 +214,16 @@ fn paint_scene(
         return;
     }
     // The fit takes the height; a corner keeps the source's own size.
+    //
+    // ⚠️ The two arms are in different unit regimes and only one of them needs a
+    // conversion, which is why this reads as inconsistent and is not. `nat_w`/`nat_h`
+    // are PIXELS. The fit divides a point-space height by a pixel height, so the units
+    // cancel and the ratio is already correct. The corner keeps the source's own size,
+    // and "its own size" on paper is its pixel size expressed in points — unconverted
+    // it prints 4/3 oversize, and a bar tile sized to `blockquote_bar_width` is clipped
+    // a quarter of the way down its right edge on every page, silently.
     let scale = match anchor {
-        Some(_) => 1.0,
+        Some(_) => PT_PER_PX,
         None => height / nat_h,
     };
     let (drawn_w, drawn_h) = (nat_w * scale, nat_h * scale);
@@ -668,4 +722,52 @@ fn draw_table_row(
         pangocairo::functions::show_layout(cr, &cell.layout);
     }
     cr.restore().ok();
+}
+
+#[cfg(test)]
+mod tile_origin_tests {
+    /// The two axes anchor differently, and a symmetry here is a defect in one of them.
+    ///
+    /// ⚠️ **The x under test must NOT be a whole multiple of the tile width.** The
+    /// geometry this was found on — a 12pt tile under a bar at x=72 — is on the lattice,
+    /// so both spellings agree there and an assertion built from it passes with the fix
+    /// removed. That is the trap this test exists downstream of: the shipped numbers
+    /// looked correct and proved nothing, and the defect was only visible once the bar
+    /// was moved off the lattice. MEASURED by rasterising `paint_wash` with a half-black
+    /// tile: at x=78 the page-anchored spelling opens on the plate's white half, the
+    /// rect-anchored one opens flush with a whole plate.
+    ///
+    /// Asserting the origin rather than the pixels because that is the decision; what a
+    /// reader sees on paper belongs to MANUAL-TEST 25.9a and 18.28.
+    #[test]
+    fn the_horizontal_origin_is_the_rect_and_the_vertical_is_the_page_grid() {
+        let (tile_w, tile_h) = (12.0, 12.0);
+
+        // x=78 against a 12pt tile: OFF the lattice, which the boundary at 72 would
+        // otherwise hide. This is the case that discriminates.
+        let (ox, oy) = super::tile_origin(78.0, 597.508, tile_w, tile_h);
+        assert_eq!(
+            ox, 78.0,
+            "the grid must start at the decoration's own left edge, not at the page \
+             lattice line below it (72.0) — a bar anchored there opens on half a plate"
+        );
+        assert_eq!(
+            oy, 588.0,
+            "vertically the grid stays the PAGE's — 597.508 sits between the 12pt grid \
+             lines at 588 and 600, so the anchor is the one at or above it, and abutting \
+             per-line rects do not re-phase the pattern at every line boundary"
+        );
+
+        // A rect already on a vertical boundary keeps it, and one whose x is fractional
+        // is not rounded — the horizontal axis never quantises, which is the whole point.
+        let (ox, oy) = super::tile_origin(91.5, 600.0, 18.0, 18.0);
+        assert_eq!(ox, 91.5);
+        assert_eq!(oy, 594.0);
+    }
+
+    /// A degenerate tile must not divide by zero or move the rect.
+    #[test]
+    fn a_zero_sized_tile_leaves_the_origin_alone() {
+        assert_eq!(super::tile_origin(10.0, 20.0, 0.0, 0.0), (10.0, 20.0));
+    }
 }

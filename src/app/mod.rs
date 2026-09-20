@@ -2,10 +2,11 @@
 //! per-window menubar builder, file-opening/live-reload wiring, and the
 //! `GApplication` setup. Split out of the former monolithic `app.rs` so each
 //! concern lives in a focused, independently-reviewable file (POLICY.md code-style
-//! 500-line guidance). The crate-level API other modules already depend on
+//! file-size guidance). The crate-level API other modules already depend on
 //! (`crate::app::X`) is re-exported below unchanged, so the split is internal.
 
 mod appactions;
+pub(crate) mod coldstart;
 mod commands;
 mod menubar;
 mod mnemonics;

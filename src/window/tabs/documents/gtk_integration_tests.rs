@@ -157,6 +157,7 @@ fn opening_a_file_into_a_reused_blank_tab_relabels_every_surface() {
     // The real entry point `File ▸ Open`'s dialog response calls
     // (`appactions::add_open_action`) — the "interactive" hint is what selects
     // the blank-tab-reuse branch in `build_opened_batch`.
+    let _cold = crate::app::coldstart::force_for_test(false); // This models a launch into a RUNNING instance: a window already exists, so it is
     app.open(&[gtk::gio::File::for_path(&file)], "interactive");
 
     // The read runs off the main thread (`docio::read_document`); wait for the
@@ -242,6 +243,7 @@ fn the_documents_list_relabels_a_reused_tab_while_layout_is_still_running() {
         crate::testpump::Clock::Idle,
         std::time::Duration::from_millis(300),
     );
+    let _cold = crate::app::coldstart::force_for_test(false); // This models a launch into a RUNNING instance: a window already exists, so it is
     app.open(&[gtk::gio::File::for_path(&alpha)], "interactive");
     assert!(crate::docio::settle(|| state(&window)
         .and_then(|st| st.path.borrow().clone())
@@ -306,6 +308,7 @@ fn the_documents_list_relabels_a_reused_tab_while_layout_is_still_running() {
         },
     );
 
+    let _cold = crate::app::coldstart::force_for_test(false); // This models a launch into a RUNNING instance: a window already exists, so it is
     app.open(&[gtk::gio::File::for_path(&beta)], "interactive");
     assert!(
         crate::docio::settle(|| labels(&window) == ["alpha.md", "beta.md"]),
@@ -416,4 +419,68 @@ fn window_title_names_the_active_document_and_counts_the_others() {
     );
 
     window.destroy();
+}
+
+/// **One invocation naming a file twice opens it ONCE.**
+///
+/// The dedup was against already-OPEN tabs, which is a different question, so a batch
+/// that repeated a path built a second tab on the same document — each with its own
+/// baseline, file monitor and swapfile, so saving in one raises an external-change
+/// decision in the other. Not a contrived input: the handler's own doc comment gives
+/// overlapping globs as the ordinary case, and a shell expands them without
+/// deduplicating.
+///
+/// Two SPELLINGS of the one path, not the same string twice, because string equality
+/// would have deduplicated the easy case and left the real one open.
+#[gtktest::test]
+fn one_invocation_naming_a_file_twice_opens_it_once() {
+    let app = gtk::Application::new(
+        Some("com.extollit.scribobulate.integrationtest.opendedup"),
+        gtk::gio::ApplicationFlags::HANDLES_OPEN | gtk::gio::ApplicationFlags::NON_UNIQUE,
+    );
+    crate::app::setup_app(&app);
+    app.register(gtk::gio::Cancellable::NONE)
+        .expect("register before building a window");
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = dir.path().join("notes.md");
+    std::fs::write(&file, "# once\n").expect("fixture");
+    // `dir/./notes.md` — the same file, spelled differently.
+    let indirect = dir.path().join(".").join("notes.md");
+
+    // A window must exist before `open`, or this is a cold start rather than a
+    // launch into a running instance.
+    let _window = crate::window::new_window(&app, "IT", "", None);
+    let _cold = crate::app::coldstart::force_for_test(false);
+    app.open(
+        &[
+            gtk::gio::File::for_path(&file),
+            gtk::gio::File::for_path(&indirect),
+        ],
+        "interactive",
+    );
+
+    // The claim is about DUPLICATION, not about blank-tab reuse: exactly one tab in
+    // the whole application backs this file. Counting tabs-with-this-path rather than
+    // total tabs keeps the assertion to the thing under test.
+    let backing_this_file = || {
+        app.windows()
+            .into_iter()
+            .filter_map(|w| w.downcast::<gtk::ApplicationWindow>().ok())
+            .flat_map(|w| winstate::tabs_for_window(&w))
+            .filter(|t| {
+                t.path
+                    .borrow()
+                    .as_deref()
+                    .is_some_and(|p| p == file.as_path())
+            })
+            .count()
+    };
+    assert!(
+        crate::docio::settle(|| backing_this_file() == 1),
+        "two spellings of one path in one invocation must produce ONE tab backing it, \
+         got {}",
+        backing_this_file()
+    );
+    // Non-vacuous: the file really was opened, rather than refused by both limbs.
+    assert_eq!(backing_this_file(), 1);
 }

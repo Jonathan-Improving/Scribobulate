@@ -24,7 +24,7 @@
 //! write per frame; measured) but explicitly does NOT compress scroll events.
 //!
 //! Upstream: GNOME/gtk#2971, fixed by the `GtkListTile` rewrite (MR !5584, commit
-//! `d949afb80e`) in **4.10.1** — and never backported to 4.6 or 4.8. Confirmed against
+//! GNOME/gtk `d949afb80e`) in **4.10.1** — and never backported to 4.6 or 4.8. Confirmed against
 //! the 4.6.9 sources; `probes/listview-scroll-snap.c` reproduces it in ~40 lines of
 //! plain GTK with a `GtkStringList` and uniform row heights, and also with the input
 //! stack removed entirely (a `g_timeout` writing the adjustment every 8ms).

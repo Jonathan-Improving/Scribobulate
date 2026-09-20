@@ -47,17 +47,20 @@ use std::task::{Context, Poll, Waker};
 /// How many animation decodes may occupy GLib's shared I/O thread pool at once,
 /// process-wide.
 ///
-/// That pool is **ten threads total** and is shared with the crash-recovery
-/// snapshot writer (ScrAP-243) — occupying too much of it does not fail a
-/// snapshot, it makes it *late*, which for a mechanism protecting unsaved work is
-/// the same problem. `docio::pool::MAX_CONCURRENT` already admits at most four
-/// document operations to that same pool. Two more from animation decodes brings
-/// the combined worst case to six, still four short of the measured cliff at the
-/// tenth blocked task (`docio/pool.rs`'s own table) — comfortable headroom for the
-/// snapshot writer even while both this cap and `docio`'s are fully occupied.
-/// Requests over the cap wait **here**, in-process, where waiting costs nothing;
-/// they never reach the pool at all.
-const MAX_CONCURRENT_DECODES: usize = 2;
+/// The pool is shared with the crash-recovery snapshot writer (ScrAP-243) —
+/// occupying too much of it does not fail a snapshot, it makes it *late*, which for a
+/// mechanism protecting unsaved work is the same problem. Requests over the cap wait
+/// **here**, in-process, where waiting costs nothing; they never reach the pool.
+///
+/// **The number is `docio::budget`'s, not this file's**, and that is the correction
+/// rather than a tidy-up. This comment used to do the arithmetic itself — *"two more
+/// brings the combined worst case to six, four short of the cliff"* — which was a
+/// claim about every gate in the application, written in the one file that cannot
+/// see them. It was seven and three by the time anybody re-read it: a third consumer
+/// had appeared and nothing computed the sum, so there was nowhere for the
+/// discrepancy to surface. The budget module asserts it at compile time instead.
+const MAX_CONCURRENT_DECODES: usize =
+    crate::docio::budget::cap(crate::docio::budget::Consumer::AnimationDecode);
 
 thread_local! {
     /// Main-thread-only (every future that touches this is driven on the GTK main
@@ -184,9 +187,78 @@ impl Drop for Acquire {
 /// bug elsewhere in `f` must not be swallowed into a silently wrong result.
 async fn on_pool<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
     let _slot = Acquire::new().await;
+    #[cfg(test)]
+    let f = {
+        let delay = injected_delay();
+        move || {
+            // On the POOL thread, exactly where a slow decode's latency lands, so the
+            // main loop keeps running throughout — a `sleep` here reproduces the
+            // condition rather than merely postponing the test.
+            std::thread::sleep(delay);
+            f()
+        }
+    };
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "sanctioned dispatcher for docio::budget::Consumer::AnimationDecode; the admission gate is this module's own"
+    )]
     match gtk::gio::spawn_blocking(f).await {
         Ok(value) => value,
         Err(panic) => std::panic::resume_unwind(panic),
+    }
+}
+
+// Test-only: how long each dispatched decode should pretend to take.
+//
+// Ported from `docio::pool`, where the same seam already exists, because the
+// behaviours that only exist while a decode is IN FLIGHT are otherwise unreachable:
+// a local decode completes before anything can be observed, so the window in which a
+// sprite can be hidden, re-shown, paused or re-themed does not open.
+//
+// The concrete gap this closes: the `decoder_generation` staleness guards in
+// `AnimatedPaintable::on_decoded` and `SpriteAnim::on_decoded` — which were themselves
+// the fix for an earlier defect — had NO test anywhere. Either could be deleted and the
+// suite stayed green. Their own comments say they exist for the lose-then-REGAIN case,
+// and the only late-decode coverage was lose-and-stay-lost, which the sibling
+// `play_wanted` guard handles by itself.
+//
+// `#[cfg(test)]` throughout, deliberately: an env-var-gated version would put a
+// fault-injection switch in the shipped binary. Here the delay does not exist in a
+// release build at all.
+#[cfg(test)]
+thread_local! {
+    static INJECTED_DELAY: Cell<std::time::Duration> = const {
+        Cell::new(std::time::Duration::ZERO)
+    };
+}
+
+#[cfg(test)]
+fn injected_delay() -> std::time::Duration {
+    INJECTED_DELAY.with(|d| d.get())
+}
+
+/// Make every decode dispatched here take at least `delay`, until the returned guard
+/// is dropped. Restores the previous value rather than zeroing, so nesting is safe and
+/// a panicking test cannot leave the delay set for whatever runs next on this thread.
+// Gated to its callers' cfg (the gtk-integration-tests modules), not the broader
+// `cfg(test)` — otherwise a bare `cargo test` compiles the injector with nothing to
+// inject into and reports it, its guard and the re-export as dead.
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+#[must_use = "the delay is only in force while the guard is alive"]
+pub(crate) fn slow_decode(delay: std::time::Duration) -> SlowDecodeGuard {
+    let previous = INJECTED_DELAY.with(|d| d.replace(delay));
+    SlowDecodeGuard { previous }
+}
+
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+pub(crate) struct SlowDecodeGuard {
+    previous: std::time::Duration,
+}
+
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+impl Drop for SlowDecodeGuard {
+    fn drop(&mut self) {
+        INJECTED_DELAY.with(|d| d.set(self.previous));
     }
 }
 

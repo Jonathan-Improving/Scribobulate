@@ -185,7 +185,7 @@ cd "$(dirname "$0")/.."
 # tests.rs` and cargo-llvm-cov stops reporting the file at all (`copymap/tests.rs` is
 # likewise absent from the summary) — 132 covered lines silently leave the denominator and
 # the gate fails with nothing about the product having changed. Weigh that against the
-# 500-line soft limit before splitting a test module out; `preview/scroll.rs` and
+# file-size soft limit before splitting a test module out; `preview/scroll.rs` and
 # `window/outline_nav.rs` both keep theirs inline for this reason.
 #
 # RAISED 76.61 -> 76.77 by the ScrAP-264 anchored-child navigation-key repair. 76.78
@@ -516,7 +516,7 @@ cd "$(dirname "$0")/.."
 #
 # The rest is test bodies in already-scoped modules: `theme/tests/diagnostics.rs`,
 # `theme/tests/registry.rs`, `palette/tests.rs` (the palette split its tests out at the
-# 500-line limit; both halves stay in scope) and the sprite/PDF guards.
+# file-size limit; both halves stay in scope) and the sprite/PDF guards.
 #
 # `tags/spec.rs` is the last extraction of the batch — the theme->tag decisions came out
 # of `tags.rs`, which this scope EXCLUDES, so the ink floor's condition and the band
@@ -877,7 +877,7 @@ IGNORE='src[/\\](window[/\\](tabs[/\\]|editbar[/\\]|navhistory[/\\])?[a-z_]+|app
 #
 # `preview/altsuppression.rs` is the third kind: not a rig but a whole module of
 # `#[gtktest::test]` bodies, sited in its own file because the one it would otherwise
-# have joined (`preview/build.rs`) is far past the 500-line soft limit. It is named
+# have joined (`preview/build.rs`) is far past the file-size soft limit. It is named
 # individually rather than by a `preview/[a-z_]+` shape, because that shape would also
 # swallow a future PRODUCTION file added beside it — the failure this block's own
 # depth-agnostic argument warns about, pointed the other way.
@@ -890,13 +890,13 @@ IGNORE='src[/\\](window[/\\](tabs[/\\]|editbar[/\\]|navhistory[/\\])?[a-z_]+|app
 # `animation/visibility/gtk_tests/` is the fourth kind and the first DIRECTORY of them:
 # a whole module of `#[gtktest::test]` bodies (the seven-row visibility table plus the
 # four GTK-behaviour claims it verifies before relying on them), sited outside
-# `visibility/mod.rs` because that file would otherwise pass the 500-line soft limit.
+# `visibility/mod.rs` because that file would otherwise pass the file-size soft limit.
 # Named depth-agnostically for the same reason the excursion term is: the table already
 # lives in its own file beside `mod.rs`, and a third would otherwise arrive as a leg-B
 # mismatch rather than being recognised as the scaffolding it is.
 # `window/tabs/documents/gtk_integration_tests.rs` is the fifth, and the same kind as
 # `altsuppression`: `documents.rs`'s `#[gtktest::test]` bodies, moved beside it when a new
-# body would have taken that file past the 500-line soft limit. Named individually for
+# body would have taken that file past the file-size soft limit. Named individually for
 # the reason `altsuppression` is — `IGNORE`'s `window/tabs/[a-z_]+` matches one level
 # only, so this deeper file would otherwise enter leg B as a scope mismatch.
 # `gtk_log_harness.rs` and `logrepeat_reproduce.rs` are the sixth and seventh: the GTK test

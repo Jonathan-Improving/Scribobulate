@@ -21,8 +21,8 @@
 use crate::lint::checks::references::citation_targets;
 use crate::lint::contract::{git_index, Contract, ScanSet};
 use crate::lint::patterns::{
-    bare_ap_citations, declares_whole_id, issues_rx, prose_prescriptions, reverse_dns_rx,
-    win_illegal_path,
+    bare_ap_citations, commit_hash_citations, declares_whole_id, issues_rx, prose_prescriptions,
+    reverse_dns_rx, win_illegal_path,
 };
 use crate::lint::patterns::{marker_reason, parser_dispatch_wildcards};
 use std::path::{Path, PathBuf};
@@ -55,6 +55,12 @@ const ISSUES_MUST_MATCH: &[&str] = &[
     "see CLSD-03",
     "the window is not grown (CLSD-07)",
     "workaround for CLSD-12 — do not remove",
+    // MEASURED blind spot: a word boundary does not fall between a letter and a digit,
+    // so every NUMBERED entry form was unmatchable. A live citation of one sat inside
+    // `sdd/TDD.md` — in the specification, past a gate whose whole subject it is.
+    "the ISSUES entry U12 covers it",
+    "ISSUES I5 is the narrow-window case",
+    "see ISSUES.md I5",
 ];
 
 /// Prose ABOUT the register, which must stay legal: the rule is against citing an ENTRY,
@@ -289,6 +295,117 @@ fn bare_citations_are_flagged() {
 fn legal_citations_and_near_misses_are_not_flagged() {
     for line in BARE_AP_MUST_NOT_FLAG {
         assert!(bare_ap_citations(line).is_empty(), "FALSE POSITIVE: {line}");
+    }
+}
+
+// ── Check 20: a cited git commit hash ─────────────────────────────────────────
+
+/// The discriminating cases are the tail again. A hash with no repository named is the
+/// defect whoever wrote it — it is unresolvable for the next reader either way — so the
+/// positive corpus includes forms that LOOK attributed but name nothing checkable.
+const COMMIT_HASH_MUST_FLAG: &[&str] = &[
+    "// the mechanism landed in 09b43a2 and was widened later",
+    "/// see `52ed7c3` for why disabling hands the key back",
+    "removed in `4b97c84`, so the provider no longer exists",
+    "Measured at 5666c2f: the runner rejects a well-formed line",
+    "with NO hook present (master 7a6be98's state)",
+    "landed as skill commit `8fd296b` and read back from the installed copy",
+    "(`09b43a2`, `49d21cb`) — two of them on one line",
+    // ── the three holes three reviewers MEASURED, one fixture each ────────────
+    //
+    // The gate caught ONE planted violation in THREE while reporting PASS. Every
+    // fixture below corresponds to a form that was live and invisible.
+    //
+    // A FULL 40-character SHA-1. The exempt pattern carried `[0-9a-f]{32,}`, argued as
+    // "a digest, never an abbreviated object name anyone cites" — true of an
+    // abbreviated name, and false of the longest and most citable form of the thing
+    // being banned.
+    "// the rework landed in 4b97c84a1f2e3d4c5b6a7980f1e2d3c4b5a69788",
+    "/// see `4b97c84a1f2e3d4c5b6a7980f1e2d3c4b5a69788` for the rework",
+    // A hash ENDING A SENTENCE. `[0-9a-f]{7,40}[/.]` blanked the hash together with the
+    // full stop before the matcher ever saw it.
+    "// the provider was removed in 4b97c84.",
+    "**Scribobulate**: there is no PRIMARY provider any more (removed in `4b97c84`).",
+    // ── the whole-line-exemption blind area, as MEASURED at HEAD ──────────────
+    //
+    // Both of these were green under the first version of the check, which tested
+    // whether the LINE contained a marker. In a GTK project a bare "gtk" is close to a
+    // blanket exemption, and these are the two permanent-register citations the check
+    // was written for — so it passed over its own motivating instances while its
+    // documentation asserted it had found them.
+    "**Scribobulate**: none — GTK-internal, unavoidable from application code; there \
+     is no PRIMARY provider in this tree any more (removed in `4b97c84`).",
+    "**See**: gtk4-rs skill → controllers-and-bindings (GTK4Rs/AP-303), landed as \
+     skill commit `8fd296b` and read back from the installed copy",
+    // A marker far away on a long line must not reach the hash.
+    "upstream is mentioned here and then the sentence runs on for well over the \
+     attribution window, discussing matters entirely unrelated to provenance, at \
+     sufficient length that nothing could reasonably call it the same clause, before \
+     finally arriving at our own 09b43a2",
+];
+
+const COMMIT_HASH_MUST_NOT_FLAG: &[&str] = &[
+    // Attributed to a repository that does not squash: resolvable, and evidence.
+    "fixed upstream in 4.16.13 by commit 86e962929bf2be13a721053141b33e4381f0312",
+    "GNOME/gtk `b300698629` (GNOME/gtk#4134) fixed it in 4.19.3",
+    "fixed by GNOME/gtk commit 492b44f20c in the 4.6 branch",
+    // Attribution as a trailing parenthetical, which is how several real citations in
+    // this tree read.
+    "fixed by commit `b300698629` (GNOME/gtk#4134) in 4.19.3",
+    // A named digest whose value is quoted and elided, so the shape regex cannot
+    // consume it adjacent to the word.
+    "`gtk-4.22.4.tar.xz` is SHA-256 `51bd9f60c7d23a66…`, byte-identical to",
+    "see https://example.invalid/commit/2a96dde115 for the reimplementation",
+    // The sanctioned build stamp, by name.
+    "commit: env!(\"SCRIB_GIT_COMMIT\"),",
+    "    println!(\"cargo:rustc-env=SCRIB_GIT_COMMIT={commit}\");",
+    // Shapes that are hex but never object names.
+    "const FILL: &str = \"#33669988\";",
+    "let mask = 0xdeadbeef;",
+    "sha256: 1f95a92d037f5292da05e6ab1037032ff21ddb7b20d4ac8e83e3674c864c07b0",
+    "doc_id = \"3f2ac91b4d5e6f708192a3b4c5d6e7f8\"",
+    "assert!(DocId::from_hex(\"3f2ac91b4d5e6f70/192a3b4c5d6e7f8\").is_none());",
+    "b\"7f2c1a09b000-7f2c1a0a0000 r--p 000c0000 08:02 1 /usr/lib/x.so\"",
+    "commit: \"0badc0de\",",
+    "a run of 123456 digits is a number, not an object name",
+];
+
+#[test]
+fn cited_commit_hashes_are_flagged() {
+    for line in COMMIT_HASH_MUST_FLAG {
+        assert!(
+            !commit_hash_citations(line).is_empty(),
+            "MISS (should flag): {line}"
+        );
+    }
+}
+
+#[test]
+fn attributed_hashes_and_hex_data_are_not_flagged() {
+    for line in COMMIT_HASH_MUST_NOT_FLAG {
+        assert!(
+            commit_hash_citations(line).is_empty(),
+            "FALSE POSITIVE: {:?} from: {line}",
+            commit_hash_citations(line)
+        );
+    }
+}
+
+/// The carve-out POLICY restored, asserted as a property of the CHECK rather than only
+/// as prose. This is the pairing the round-3 review called its single ordering
+/// constraint: a lint written against the flat prohibition flags the crash reporter's
+/// generated build stamp, and an agent enforcing the flat rule then deletes it.
+#[test]
+fn the_generated_build_stamp_is_never_a_citation() {
+    for line in [
+        "        commit: env!(\"SCRIB_GIT_COMMIT\"),",
+        "println!(\"cargo:rustc-env=SCRIB_GIT_COMMIT={commit}\");",
+        "// SCRIB_GIT_COMMIT is deadbeef1234567 on this build",
+    ] {
+        assert!(
+            commit_hash_citations(line).is_empty(),
+            "the build stamp must be exempt: {line}"
+        );
     }
 }
 
