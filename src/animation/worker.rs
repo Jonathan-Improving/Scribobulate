@@ -198,6 +198,10 @@ async fn on_pool<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T
             f()
         }
     };
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "sanctioned dispatcher for docio::budget::Consumer::AnimationDecode; the admission gate is this module's own"
+    )]
     match gtk::gio::spawn_blocking(f).await {
         Ok(value) => value,
         Err(panic) => std::panic::resume_unwind(panic),

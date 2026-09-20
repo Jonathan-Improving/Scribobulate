@@ -784,7 +784,7 @@
 ### 6.1 GPU memory under hard ceiling
 - **Given** a typical Markdown document open in the application
 - **When** GPU memory use is measured (e.g. `nvidia-smi` on Linux/NVIDIA)
-- **Then** the process holds **fewer than 50 MiB** of VRAM — and far below that viewer's ~594 MiB
+- **Then** the process holds VRAM **under the ceiling POLICY § Footprint verification states** — and far below that viewer's ~594 MiB
 
 ### 6.2 No GPU compositing pipeline held
 - **Given** the application is running with a document open
@@ -805,7 +805,7 @@
 
 - **Given** a typical Markdown document open on macOS
 - **When** the process's GPU memory and GPU engine utilization are measured (e.g. Activity Monitor / `ioreg`), first while the window is resized between small and maximized, and then with documents of very different sizes at a fixed window size
-- **Then** the reading stays far below 6.1's 50 MiB ceiling, **does not grow with window area**, **does not grow with document size or complexity**, and GPU engine utilization for the process stays at or near zero throughout — while system RAM (6.3) *does* rise with document size, confirming the document is rendered on the CPU
+- **Then** the reading stays far below 6.1's ceiling, **does not grow with window area**, **does not grow with document size or complexity**, and GPU engine utilization for the process stays at or near zero throughout — while system RAM (6.3) *does* rise with document size, confirming the document is rendered on the CPU
 - **And** a reading that scales with either dimension, or sustained GPU engine activity, means software compositing is not active and **fails** this gate — that, not a non-zero byte count, is the macOS signal that 6.2 has been violated
 
 ### 6.5 On Windows, GPU memory is fixed overhead — not a rendering cost
@@ -819,7 +819,7 @@
 
 - **Given** a typical Markdown document open on Windows
 - **When** the process's dedicated GPU memory and GPU engine utilisation are measured, first while the window is resized between small and maximised, and then with documents of very different sizes at a fixed window size
-- **Then** the reading stays far below 6.1's 50 MiB ceiling, **does not grow with window area**, **does not grow with document size or complexity**, and GPU engine utilisation for the process stays at or near zero throughout — while system RAM (6.3) *does* rise with document size, confirming the document is rendered on the CPU
+- **Then** the reading stays far below 6.1's ceiling, **does not grow with window area**, **does not grow with document size or complexity**, and GPU engine utilisation for the process stays at or near zero throughout — while system RAM (6.3) *does* rise with document size, confirming the document is rendered on the CPU
 - **And** a reading that scales with either dimension, or sustained GPU engine activity, means software compositing is not active and **fails** this gate — that, not a non-zero byte count, is the Windows signal that 6.2 has been violated
 
 ### 6.6 A re-render does not grow memory without bound
@@ -1089,6 +1089,13 @@
 - **And** the second launch does what a re-activation always does — a blank document, or its named files as tabs
 - **And** "is this the cold start?" is claimed **synchronously**, by one claim every entry point takes, rather than derived from observable state; a predicate over state the authorised work will itself change is true for as long as the work is pending, which is precisely the interval in question
 - **Rationale, so it is not re-derived as an optimisation:** a duplicate restore gives every document two tabs, each with its own baseline, file monitor and swapfile, so saving in one raises an external-change decision in the other. It is reachable exactly when restore is slow — large session, slow storage — and a slow start looks like nothing happening, which is what prompts the second launch
+
+### 8.2b One invocation naming a file twice opens it once
+- **Given** a single launch or `open` invocation whose arguments name the same document more than once — two spellings of one path, or overlapping globs a shell expanded without deduplicating
+- **When** it is handled
+- **Then** exactly one tab backs that document, and the duplicate names are absorbed rather than opened
+- **And** the comparison is the same one that decides whether a file is already open, so two spellings are one file here exactly as they are there
+- **Rationale:** deduplicating against already-open tabs answers a different question and leaves this one open. Two tabs on one document each carry their own baseline, file monitor and swap file, so saving in one raises an external-change decision in the other
 
 ### 8.3 Independent window lifecycle
 - **Given** multiple document windows are open in the one process
@@ -3640,7 +3647,9 @@ up doing.
 - **When** it is exported
 - **Then** only an allowed external scheme or a genuinely relative reference keeps its destination; every other link is emitted as its text alone, keeping the reader's words and dropping the destination
 - **And** the decision is made by one predicate that every serialising sink asks, never by a disjunction whose second limb was written for a different question — a fragment-extractor documents a schemeless precondition it does not enforce, and reading `Some` from it as permission is what admitted `javascript:` into an artefact
-- **And** the scheme is judged by the **reader's** grammar (a colon alone makes a scheme, RFC 3986 §3.1), not by this application's deliberately narrower one, which treats a bare-colon scheme as a local path so that a Windows drive letter still resolves; that fall-through renders a hostile scheme inert on screen and does not survive serialisation
+- **And** the relative limb is a **positive allowlist** — the destination must look like a relative reference — never "relative" inferred from "our scheme parser did not recognise this". An inference there inherits every disagreement between our parser and the reader's: ours implements RFC 3986 §3.1, the reader's strips leading control characters and spaces and removes every tab, line feed and carriage return anywhere in the URL *before* parsing a scheme, so a destination we reject as malformed is one the reader repairs and runs
+- **And** a protocol-relative destination (`//host/path`) is refused: it is not a relative reference, it inherits the artefact's scheme, and from a locally-opened export that is a filesystem fetch — on Windows, a UNC path reaching a remote share
+- **And** the fix for a disagreement of this kind is never a list of the characters that were measured; the class is *two parsers disagree*, and a blacklist closes the payloads someone happened to try
 - **And** the guard test is parameterised over scheme × fragment-presence, because one that fixes either axis passes on the vulnerable implementation
 
 ### 25.5 The export is of the buffer, not the file
@@ -3947,11 +3956,13 @@ up doing.
   - **Windows**: `gtk-enable-animations` is hardcoded `TRUE` by the GTK backend, so the OS preference is read directly (`SPI_GETCLIENTAREAANIMATION` — see 27.10). Operator-paced: it needs the reader to toggle Windows' own Animation effects, so it is a manual check rather than an automated one.
   - **macOS**: **UNVERIFIED, and deliberately so.** The source exists (`NSWorkspace.accessibilityDisplayShouldReduceMotion`) but wiring it needs Objective-C runtime FFI no seat can currently compile or verify, so the platform façade answers "no opinion" there and this rubric's behaviour does not yet hold on macOS. Tracked in `sdd/PLAN.accessibility.md`. Stated here rather than only in the plan, because a rubric that asserts unconditionally is read as verified everywhere
 
-### 27.8 A paused animation carries a pause badge
-- **Given** a paused animation
+### 27.8 A paused document IMAGE carries a pause badge
+- **Given** a paused animated image in the document
 - **When** it is shown
 - **Then** a small pause symbol sits in its bottom corner
 - **And** still images and playing animations never show it, an image under 48 pixels on a side does not show it, and clicking it does nothing
+- **And** the badge belongs to the document's own pictures and to nothing else: a themed sprite — a heading band, a quote bar, a list marker, a rule tile — is a decoration rather than a picture the reader can point at, and carries no badge at any size. 27.5 and 27.7 draw the same line, and a sprite freezing unbadged is the contract, not a gap in it
+- **Rationale, because the unqualified version misled three citations:** this rubric read "a paused animation", which quantifies over every animation in the application and so promised a badge the sprite driver deliberately does not draw
 
 ### 27.9 Animated theme sprites play
 - **Given** a reading theme with an animated sprite

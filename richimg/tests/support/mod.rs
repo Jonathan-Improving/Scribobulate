@@ -149,3 +149,122 @@ pub fn read_gif_ref_frame(stem: &str, index: u32) -> Vec<u8> {
         .join(format!("{stem}-{index}.rgba"));
     std::fs::read(&path).unwrap_or_else(|err| panic!("reading reference {}: {err}", path.display()))
 }
+
+// ── the counting allocator, shared by the three no-oversized-alloc targets ────
+
+/// A `#[global_allocator]` that records the LARGEST single allocation request the
+/// process has made.
+///
+/// **Why the three targets are three BINARIES and one implementation.** Only one
+/// `#[global_allocator]` may exist per binary, and this one instruments every
+/// allocation the whole process makes — so sharing a binary between these tests and
+/// any other richimg test would make "no huge allocation happened" depend on whatever
+/// else ran there. That argument is about needing three *binaries*. It was taken as an
+/// argument for three copies of the *body*, and the copies then drifted.
+///
+/// Each target keeps only its own `#[global_allocator]` line, its fixture and its
+/// assertions:
+///
+/// ```ignore
+/// #[global_allocator]
+/// static ALLOCATOR: support::CountingAllocator = support::CountingAllocator;
+/// ```
+pub struct CountingAllocator;
+
+/// The largest single allocation request seen since the last [`reset_largest_allocation`].
+pub static LARGEST_ALLOCATION: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+/// A canvas for a 16384x16384 RGBA claim would be 1,073,741,824 bytes. This threshold
+/// sits two orders of magnitude below that: generous enough never to trip on the small
+/// allocations a decoder legitimately makes (`Vec` growth, its own bookkeeping), and
+/// far below anything canvas-sized.
+pub const MAX_LEGITIMATE_ALLOCATION_BYTES: usize = 1024 * 1024;
+
+unsafe impl std::alloc::GlobalAlloc for CountingAllocator {
+    unsafe fn alloc(&self, layout: std::alloc::Layout) -> *mut u8 {
+        LARGEST_ALLOCATION.fetch_max(layout.size(), std::sync::atomic::Ordering::SeqCst);
+        std::alloc::System.alloc(layout)
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: std::alloc::Layout) {
+        std::alloc::System.dealloc(ptr, layout)
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: std::alloc::Layout, new_size: usize) -> *mut u8 {
+        LARGEST_ALLOCATION.fetch_max(new_size, std::sync::atomic::Ordering::SeqCst);
+        std::alloc::System.realloc(ptr, layout, new_size)
+    }
+}
+
+/// Serialises every measurement in the binary.
+///
+/// The counter is PROCESS-global — that is the whole point of a `#[global_allocator]`
+/// — and libtest runs a binary's tests in parallel threads, so two measurements in
+/// flight at once read each other's allocations and each other's resets. The tests in
+/// these targets shared one counter with no lock, and it was the positive control that
+/// exposed it: the control allocated four megabytes and then read a counter another
+/// test had zeroed in between, so the instrument looked dark when it was merely being
+/// trampled.
+///
+/// Every measured region takes this for its whole duration — hence [`measured`] rather
+/// than a bare reset, so there is no way to start a region without holding it.
+static MEASUREMENT: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Run `f` as the binary's only measurement, with the counter zeroed first.
+///
+/// Poisoning is ignored deliberately: a panicking assertion inside one measured region
+/// must not turn every later one into a second, misleading failure.
+pub fn measured<R>(f: impl FnOnce() -> R) -> R {
+    let _lock = MEASUREMENT.lock().unwrap_or_else(|e| e.into_inner());
+    reset_largest_allocation();
+    f()
+}
+
+/// Zero the counter before a measured region. Prefer [`measured`], which cannot be
+/// called without holding the lock.
+pub fn reset_largest_allocation() {
+    LARGEST_ALLOCATION.store(0, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// The counter's current value.
+pub fn largest_allocation() -> usize {
+    LARGEST_ALLOCATION.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+/// Assert nothing canvas-sized was allocated in the region just measured.
+pub fn assert_no_canvas_sized_allocation(what: &str) {
+    let seen = largest_allocation();
+    assert!(
+        seen < MAX_LEGITIMATE_ALLOCATION_BYTES,
+        "{what} allocated {seen} bytes in a single request, over the \
+         {MAX_LEGITIMATE_ALLOCATION_BYTES}-byte threshold"
+    );
+}
+
+/// **The positive control for the instrument itself.**
+///
+/// Every assertion above is an ABSENCE — "no allocation over the threshold happened" —
+/// and an absence proves nothing until the instrument has been shown capable of
+/// reporting a presence. Neuter `fetch_max` and every one of those assertions passes,
+/// in all three binaries, along with their fixture controls: the decode still works,
+/// the refusals still refuse, and the counter simply never moves.
+///
+/// So each target calls this: allocate something unmistakably canvas-sized, and require
+/// the counter to have seen it. Now a dead counter is a failure rather than a pass.
+pub fn assert_the_counter_can_see_a_large_allocation() {
+    let big = MAX_LEGITIMATE_ALLOCATION_BYTES * 4;
+    let seen = measured(|| {
+        // `black_box` on both sides: the allocation must survive optimisation, and so
+        // must the read, or the control can be compiled away into a vacuous pass.
+        let v: Vec<u8> = Vec::with_capacity(big);
+        std::hint::black_box(&v);
+        largest_allocation()
+    });
+    assert!(
+        seen >= big,
+        "the counting allocator did not observe a deliberate {big}-byte allocation \
+         (largest seen: {seen}) — the instrument is dark, so every 'nothing large was \
+         allocated' assertion in this binary is vacuous"
+    );
+}

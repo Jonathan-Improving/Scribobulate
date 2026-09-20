@@ -56,11 +56,28 @@ pub(super) fn on_open(app: &Application, files: &[gtk::gio::File], hint: &str) {
     // pass: split into "already open somewhere" (just focus that tab,
     // TDD 8.2/15.16 — scans every tab of every window, not just each
     // window's active one) and "needs opening".
-    let mut to_open = Vec::new();
+    let mut to_open: Vec<gtk::gio::File> = Vec::new();
     for f in files {
         if let Some(p) = f.path() {
             if let Some((win, tab)) = find_open_tab_for_path(app, &p) {
                 focus_tab(&win, &tab);
+                continue;
+            }
+            // ...and against the files THIS invocation has already accepted. The check
+            // above answers "is it open?", which is a different question and leaves
+            // one invocation naming a file twice opening it twice — two tabs on one
+            // document, each with its own baseline, monitor and swapfile. It is not a
+            // contrived input: this handler's own doc comment gives overlapping globs
+            // as the ordinary case (`docs/*.md sdd/*.md` over a symlinked tree), and a
+            // shell expands them without deduplicating.
+            //
+            // Same predicate as the open-tab scan, so two spellings of one path are
+            // one file here exactly as they are there.
+            if to_open
+                .iter()
+                .filter_map(gtk::gio::File::path)
+                .any(|seen| super::open::paths_refer_to_same_file(&seen, &p))
+            {
                 continue;
             }
         }

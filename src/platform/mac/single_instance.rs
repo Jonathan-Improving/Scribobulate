@@ -435,6 +435,7 @@ fn dispatch(app: &Application, line: &[u8]) {
         // `on_activate` already distinguishes this from a first activation
         // by "windows exist", so it opens a fresh document rather than
         // replaying the saved session.
+        let _cold = crate::app::coldstart::force_for_test(false); // Not a cold start: this exercises the forwarding substitute against a live app.
         app.activate();
     } else if files.is_empty() {
         // QA finding R1-17: every forwarded argument was rejected. That is a

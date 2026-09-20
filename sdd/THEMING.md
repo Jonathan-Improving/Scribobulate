@@ -334,6 +334,6 @@ surface GTK cannot repaint is the DWM-owned title bar, which
 `platform::win32::sync_caption_theme` sets from the same `desktop_is_dark()` probe on realize
 and on every re-render.
 
-The KDE/X11 live desktop dark↔light toggle (tracked in `sdd/ISSUES.md`) is the same
+The KDE/X11 live desktop dark↔light toggle is the same
 gap with a different missing source, and its fix belongs in the same shape:
 subscribe to the portal signal, write `prefer-dark`, change nothing downstream.

@@ -649,7 +649,7 @@ pub(super) fn build_products(buf: &TextBuffer, prepared: &Prepared<'_>) -> Rende
                     if let Some(kind) = &copy_kind {
                         let w = crate::copymap::cell_width(&r.scripts, src_start, kind);
                         cell_evs.push(crate::copymap::RawEv {
-                            buf: (cell_off, cell_off + w),
+                            buf: crate::copymap::BufSpan::new(cell_off, cell_off + w),
                             src: src_range.clone(),
                             kind: kind.clone(),
                         });
@@ -735,7 +735,7 @@ pub(super) fn build_products(buf: &TextBuffer, prepared: &Prepared<'_>) -> Rende
             (MapClaim::OwnNode, _) => {
                 if let Some(kind) = copy_kind {
                     raw_evs.push(crate::copymap::RawEv {
-                        buf: (before, after),
+                        buf: crate::copymap::BufSpan::new(before, after),
                         src: src_range,
                         kind,
                     });

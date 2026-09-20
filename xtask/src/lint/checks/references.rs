@@ -394,8 +394,17 @@ pub fn bare_ap_citations(tree: &Tree) -> bool {
 /// commit designed to stop existing. The failure is not loud — an orphaned hash still
 /// resolves in the clone that wrote it, which is the clone anyone verifying it is
 /// standing in, so the citation looks sound exactly where it is checked and is a dead
-/// end everywhere else. Eight such citations were found by review, all already orphaned,
-/// two of them in the permanent register.
+/// end everywhere else.
+///
+/// **This rustdoc previously asserted that the check had found the eight citations
+/// review reported, "two of them in the permanent register". It had not.** The first
+/// version exempted a line if it contained a marker ANYWHERE, and the marker list held a
+/// bare lowercase `gtk`; in a GTK project that is close to a blanket exemption, and both
+/// register citations were green under it. A gate passing over its own motivating
+/// instances is bad; a gate whose documentation claims it caught them is worse, because
+/// the next reader concludes the class is handled. The exemption is positional now — see
+/// `rx::attributed_nearby` — and the corpus carries both of those real lines as cases
+/// that must flag.
 ///
 /// **The carve-outs are in the predicate, and the order was the point.** POLICY exempts
 /// the generated crash-report build stamp; a lint written before that exemption was

@@ -29,6 +29,148 @@ const MANIFEST: &str = "sdd/scrap-numbers.manifest";
 /// already gone missing and hold the gate green forever after — a check that cannot fail,
 /// built that way at construction time. So: to ADD an entry, append its number. NEVER
 /// regenerate this file wholesale.
+/// Check 22 — no register entry PRESCRIBES a route `clippy.toml` bans.
+///
+/// **Second occurrence of this class in two review rounds, which makes it a mechanism.**
+/// Round 2 found ScrAP-343 prescribing the call that walked the next agent into a
+/// TOCTOU; round 3 found ScrAP-146 prescribing `Texture::from_file`, which `clippy.toml`
+/// bans by name and cites that very entry while banning it. An entry outlives the
+/// decision it records, and nothing re-checks a prescription when its subject is later
+/// forbidden.
+///
+/// The register is read as instruction — that is its whole purpose — so an entry telling
+/// the next agent to take a banned route is worse than silence: they follow it, hit the
+/// lint, and conclude the lint is wrong.
+///
+/// **Scope, stated because a wider check would be unusable.** This matches a banned
+/// method's own leaf NAME in the register, which cannot distinguish "do this" from "do
+/// not do this". Several entries legitimately name a banned call in order to warn about
+/// it — so the check requires the name to be absent OR accompanied by a word that marks
+/// it as a warning. It is a prompt to re-read, not a proof of prescription.
+pub fn register_prescribes_a_banned_route(tree: &Tree) -> bool {
+    header(
+        "22",
+        "a register entry prescribing a clippy.toml-banned route",
+    );
+    let Some(bans) = tree.text("clippy.toml") else {
+        return fail("clippy.toml is missing; refusing to guess", &[], &[]);
+    };
+    let Some(register) = tree.text(REGISTER) else {
+        return fail("the register is missing; refusing to guess", &[], &[]);
+    };
+    // The leaf name of every banned path: `gtk4::gdk::Texture::from_file` → `from_file`
+    // is too common a word, so the last TWO segments are used (`Texture::from_file`),
+    // which is how the register spells them.
+    let banned: Vec<String> = rx::banned_path_rx()
+        .captures_iter(bans)
+        .filter_map(|c| {
+            let path = c.get(1)?.as_str();
+            let mut parts = path.rsplit("::");
+            let leaf = parts.next()?;
+            let owner = parts.next()?;
+            Some(format!("{owner}::{leaf}"))
+        })
+        .collect();
+    // Words that mark a mention as a warning rather than an instruction.
+    const WARNS: &[&str] = &[
+        "ban",
+        "BAN",
+        "never",
+        "Never",
+        "NEVER",
+        "not ",
+        "NOT",
+        "no longer",
+        "refus",
+        "forbid",
+        "avoid",
+        "instead of",
+        "rather than",
+        "was ",
+        "used to",
+        "⚠",
+        // An entry's TITLE names the mistake — that IS the anti-pattern being
+        // catalogued — so the verbs that mark a title as describing an error are
+        // warnings too. Without these, every entry whose subject is a banned call
+        // reports itself, which is the false-positive rate that gets a check disabled.
+        "Assuming",
+        "assuming",
+        "Mistaking",
+        "mistaking",
+        "Treating",
+        "treating",
+    ];
+    let mut findings = Vec::new();
+    for (index, line) in register.lines().enumerate() {
+        for name in &banned {
+            if line.contains(name.as_str()) && !WARNS.iter().any(|w| line.contains(w)) {
+                findings.push(format!("{REGISTER}:{}: {name} — {line}", index + 1));
+            }
+        }
+    }
+    if findings.is_empty() {
+        return pass();
+    }
+    fail(
+        "an entry names a banned route without marking it as one:",
+        &findings,
+        &[
+            "if the entry PRESCRIBES it, correct the entry — the register is read as",
+            "instruction, and an agent who follows it will conclude the lint is wrong.",
+            "if it WARNS about it, say so in the same sentence.",
+        ],
+    )
+}
+
+/// Check 21 — the register's declared next-free number is above every heading it has.
+///
+/// One comparison, and it exists because the register's own header forbids the check a
+/// reader would otherwise make. It says *"never derive it from the highest heading
+/// below"* — correctly, since reserved gaps mean the highest heading is not the next
+/// free number — and the consequence is that nothing was checking the header at all. It
+/// read 354 while 354 and 355 both had bodies, so a writer who obeyed it minted a
+/// duplicate, and check 9 can only see a duplicate once it exists.
+///
+/// This does not derive the value. It asserts the one relation the header must satisfy
+/// whatever the gaps are: strictly greater than the highest heading present.
+pub fn next_free_number_is_free(tree: &Tree) -> bool {
+    header(
+        "21",
+        "the register's declared next-free number is actually free",
+    );
+    let Some(text) = tree.text(REGISTER) else {
+        return fail("the register is missing; refusing to guess", &[], &[]);
+    };
+    let declared = text
+        .lines()
+        .find_map(|line| rx::next_free_rx().captures(line))
+        .and_then(|caps| caps.get(1)?.as_str().parse::<u32>().ok());
+    let Some(declared) = declared else {
+        return fail(
+            "no \"Next free number: N\" line found in the register header",
+            &[],
+            &["the header is the only guard on minting; it may not be removed"],
+        );
+    };
+    let highest = text
+        .lines()
+        .filter_map(|line| rx::entry_number_rx().captures(line))
+        .filter_map(|caps| caps.get(1)?.as_str().parse::<u32>().ok())
+        .max()
+        .unwrap_or(0);
+    if declared > highest {
+        return pass();
+    }
+    fail(
+        &format!("the header declares {declared} free, but entry {highest} already has a body"),
+        &[],
+        &[
+            "bump the header ABOVE the highest heading, in the same change that mints.",
+            "reserved gaps are fine — this only requires the declared number to be free.",
+        ],
+    )
+}
+
 pub fn number_immutability(tree: &Tree) -> bool {
     header(
         "9",

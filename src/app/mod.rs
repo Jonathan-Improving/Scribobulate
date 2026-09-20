@@ -6,7 +6,7 @@
 //! (`crate::app::X`) is re-exported below unchanged, so the split is internal.
 
 mod appactions;
-mod coldstart;
+pub(crate) mod coldstart;
 mod commands;
 mod menubar;
 mod mnemonics;

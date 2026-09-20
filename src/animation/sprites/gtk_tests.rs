@@ -9,6 +9,7 @@
 use super::*;
 use crate::sprite::SpriteRef;
 use gtk::prelude::TextureExt;
+use std::time::Duration;
 
 fn test_app(suffix: &str) -> gtk::Application {
     crate::window::testkit::test_app_suffixed(&format!("spriteanim.{suffix}"))
@@ -76,6 +77,8 @@ fn a_still_sprite_is_returned_unchanged_and_creates_no_driver_state() {
     let app = test_app("still");
     let (host, _window) = mapped_host(&app);
     let r = still_sprite();
+    // A test is a holder too: `release()` before this goes out of scope, exactly as
+    // a host widget's `dispose` does. `TableInner`'s drop asserts it.
     let table = SpriteTable::default();
 
     table.begin_pass();
@@ -101,6 +104,7 @@ fn a_still_sprite_is_returned_unchanged_and_creates_no_driver_state() {
         "a still sprite must never gain an entry in the animation driver's table"
     );
     crate::sprite::clear_cache();
+    table.release();
 }
 
 /// TDD 27.9: a RESAMPLED animated sprite plays — the slot shape of a chip, a list
@@ -114,6 +118,8 @@ fn a_resampled_animated_sprite_plays_at_the_requested_size() {
     let app = test_app("scaled");
     let (host, window) = mapped_host(&app);
     let r = animated_sprite();
+    // A test is a holder too: `release()` before this goes out of scope, exactly as
+    // a host widget's `dispose` does. `TableInner`'s drop asserts it.
     let table = SpriteTable::default();
     let (w, h) = (96, 54);
 
@@ -146,6 +152,7 @@ fn a_resampled_animated_sprite_plays_at_the_requested_size() {
         "the resampled sprite never changed across 10s of wall clock"
     );
     crate::sprite::clear_cache();
+    table.release();
 }
 
 /// TDD 27.3 / 27.9: a pass that no longer draws the sprite releases it — no decoder,
@@ -157,6 +164,8 @@ fn a_pass_that_does_not_draw_the_sprite_drops_its_driver() {
     let app = test_app("pass");
     let (host, window) = mapped_host(&app);
     let r = animated_sprite();
+    // A test is a holder too: `release()` before this goes out of scope, exactly as
+    // a host widget's `dispose` does. `TableInner`'s drop asserts it.
     let table = SpriteTable::default();
 
     table.begin_pass();
@@ -175,6 +184,7 @@ fn a_pass_that_does_not_draw_the_sprite_drops_its_driver() {
         "a pass that did not draw the sprite must drop its driver"
     );
     crate::sprite::clear_cache();
+    table.release();
 }
 
 /// TDD 27.3: a host that is not on screen plays nothing, even when its paint asks —
@@ -186,6 +196,8 @@ fn an_unmapped_host_plays_nothing_and_paints_the_still_frame() {
     crate::sprite::clear_cache();
     let r = animated_sprite();
     let host = gtk::Label::new(Some("never shown"));
+    // A test is a holder too: `release()` before this goes out of scope, exactly as
+    // a host widget's `dispose` does. `TableInner`'s drop asserts it.
     let table = SpriteTable::default();
 
     table.begin_pass();
@@ -202,4 +214,103 @@ fn an_unmapped_host_plays_nothing_and_paints_the_still_frame() {
         "an invisible host must not create a driver"
     );
     crate::sprite::clear_cache();
+    table.release();
+}
+
+/// **The sprite driver's staleness guard, which had no test at all.**
+///
+/// `worker.rs`'s own comment names BOTH `AnimatedPaintable::on_decoded` and
+/// `SpriteAnim::on_decoded` as the gap `slow_decode` was ported to close, and only the
+/// first got one: deleting this guard outright left the whole integration suite green.
+/// That is the twin-driver drift pattern reproducing inside the fix for it.
+///
+/// The table drops a driver that a pass did not draw and builds a fresh one — with a
+/// fresh generation — when the sprite is drawn again, so a decode dispatched before the
+/// drop lands against a different incarnation. `Backref::with_anim` resolves to the NEW
+/// driver, which is what makes the stale frame reachable rather than merely orphaned.
+#[gtktest::test]
+fn a_decode_outlived_by_its_own_driver_is_refused_by_the_rebuilt_one() {
+    let _enable = crate::animation::policy::EnableAnimationsGuard::set(true);
+    // Long enough that the decode is still on the pool after the driver is rebuilt.
+    let _slow = crate::animation::worker::slow_decode(Duration::from_millis(600));
+    crate::sprite::clear_cache();
+
+    let app = test_app("stale-driver");
+    let (host, window) = mapped_host(&app);
+    let r = animated_sprite();
+    // A test is a holder too: `release()` before this goes out of scope, exactly as
+    // a host widget's `dispose` does. `TableInner`'s drop asserts it.
+    let table = SpriteTable::default();
+
+    // Pass 1: draw it, which builds a driver and starts a decode.
+    table.begin_pass();
+    let _ = table.frames(host.upcast_ref()).natural(&r);
+    table.end_pass();
+    let first = table
+        .with_anim(&r, SpriteAnim::generation_for_test)
+        .expect("precondition: drawn, so tracked");
+
+    // Wait until a decode is genuinely OUT on the pool. `start_decode` takes the
+    // animation for its duration, so "not holding the decoder" is the window. Without
+    // this the passes below run with nothing in flight and the guard is never reached
+    // — which is how the first version of this test passed with the guard deleted.
+    let in_flight = crate::testpump::until_or_for(
+        crate::testpump::Clock::Worker,
+        Duration::from_secs(10),
+        || table.with_anim(&r, SpriteAnim::decoder_held) == Some(false),
+    );
+    assert!(
+        in_flight,
+        "precondition: never observed a decode in flight — cannot exercise the race \
+         this guard defends"
+    );
+
+    // Pass 2 draws nothing, dropping that driver while its decode is still out.
+    table.begin_pass();
+    table.end_pass();
+    assert!(
+        table.with_anim(&r, |_| ()).is_none(),
+        "precondition: the undrawn pass must drop the driver"
+    );
+
+    // Pass 3 draws it again: a NEW driver, a NEW generation, and the in-flight decode
+    // from pass 1 now belongs to nobody.
+    table.begin_pass();
+    let _ = table.frames(host.upcast_ref()).natural(&r);
+    table.end_pass();
+    let second = table
+        .with_anim(&r, SpriteAnim::generation_for_test)
+        .expect("drawn again, so tracked again");
+    assert_ne!(
+        first, second,
+        "precondition: the rebuild must produce a new generation, or the decode that \
+         lands is not stale and this proves nothing"
+    );
+    // Wait for the stale decode to LAND rather than draining a fixed interval: under
+    // load it can still be on the pool when a fixed drain expires, and the absence
+    // assertion below would then pass vacuously. The driver's own decoder coming back
+    // is what says the decode completed.
+    let landed = crate::testpump::until_or_for(
+        crate::testpump::Clock::Worker,
+        Duration::from_secs(20),
+        || table.with_anim(&r, SpriteAnim::stale_arrivals).unwrap_or(0) >= 1,
+    );
+    assert!(
+        landed,
+        "precondition: no STALE decode reached `on_decoded` within the deadline, so \
+         the absence assertion below would be vacuous. Waiting on the driver merely \
+         holding its decoder is not enough — the LIVE decode satisfies that too."
+    );
+
+    assert_eq!(
+        table
+            .with_anim(&r, SpriteAnim::stale_installs)
+            .expect("still tracked"),
+        0,
+        "a decode belonging to the torn-down incarnation was stored into the REBUILT \
+         driver, overwriting the decoder it is actually playing from"
+    );
+    window.destroy();
+    crate::sprite::clear_cache();
+    table.release();
 }

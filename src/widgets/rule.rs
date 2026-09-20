@@ -267,6 +267,7 @@ mod gtk_integration_tests {
     /// rendered pixels change under the real frame clock.
     #[gtktest::test]
     fn an_animated_rule_tile_plays() {
+        let _enable = crate::animation::policy::EnableAnimationsGuard::set(true);
         use crate::animation::sprites::testkit;
         crate::sprite::clear_cache();
         let (_dir, r) = testkit::animated_fixture();

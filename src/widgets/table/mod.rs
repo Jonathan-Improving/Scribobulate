@@ -135,6 +135,18 @@ mod imp {
         fn dispose(&self) {
             // Children are parented directly (no layout manager owns them).
             crate::widgets::unparent_all_children(&*self.obj());
+            // Tear down every live sprite animation NOW rather than at this struct's
+            // eventual Rust `Drop`, which `dispose` is guaranteed to run before
+            // (GTK4Rs/AP-161). Each `SpriteAnim` removes its own tick callback and
+            // policy watch on drop, and the table's visibility watch disconnects the
+            // map/unmap, scroll and minimize subscriptions it installed.
+            //
+            // This was the ONE `SpriteTable` host that did not do it. The other three
+            // — the preview view, the sprite icon and the themed rule — always have.
+            // It matters more here than anywhere: those handlers sit on the scrolled
+            // window's adjustments and on the toplevel, which outlive this widget, and
+            // a table widget is rebuilt on EVERY live-preview re-render.
+            self.sprites.release();
         }
     }
 
@@ -570,6 +582,7 @@ mod gtk_integration_tests {
     /// cell is short, and the rows the fixture's frames change in need not fall inside it.
     #[gtktest::test]
     fn an_animated_header_scene_plays() {
+        let _enable = crate::animation::policy::EnableAnimationsGuard::set(true);
         use crate::animation::sprites::testkit;
         crate::sprite::clear_cache();
         let (_dir, r) = testkit::animated_fixture();

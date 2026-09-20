@@ -771,16 +771,25 @@ pub(crate) fn clear_cache() {
     ANIMATION_BYTES.with(|c| c.borrow_mut().clear());
 }
 
-/// How many decoded forms the three caches currently hold, including memoised
-/// failures. Test seam for TDD 18.58: a theme switch that claims to unload sprites
-/// is only as good as this going to zero (and a WeakRef proving the GObject
-/// actually finalized, rather than remaining reachable from a widget the cache
-/// no longer names).
+/// How many decoded forms the caches currently hold, including memoised failures.
+///
+/// Test seam for TDD 18.58: a theme switch that claims to unload sprites is only as
+/// good as this going to zero (and a WeakRef proving the GObject actually finalized,
+/// rather than remaining reachable from a widget the cache no longer names).
+///
+/// **All FOUR caches, and it used to be three.** `ANIMATION_BYTES` was missing, and it
+/// is the one that matters most: the other three hold decoded forms of a single frame,
+/// while this holds the whole encoded file an animation replays from — typically the
+/// largest thing any of them retains. An oracle for "the caches emptied" that cannot
+/// see the biggest cache reports zero while the bytes are still held, which is the
+/// direction that reads as success. `clear_cache` has always cleared all four; only
+/// the measurement was short.
 #[cfg(test)]
 pub(crate) fn occupancy() -> usize {
     NATURAL.with(|c| c.borrow().len())
         + RESAMPLED.with(|c| c.borrow().len())
         + SURFACES.with(|c| c.borrow().len())
+        + ANIMATION_BYTES.with(|c| c.borrow().len())
 }
 
 #[cfg(test)]

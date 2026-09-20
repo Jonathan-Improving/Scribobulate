@@ -43,16 +43,13 @@ fn collect_segs(inlines: &[Inline], out: &mut Vec<Seg>) {
     for inline in inlines {
         match inline {
             Inline::Image(img) => out.push(Seg::Image(img.clone())),
-            _ if contains_image(inline) => match inline {
-                Inline::Emphasis(v)
-                | Inline::Strong(v)
-                | Inline::Strikethrough(v)
-                | Inline::Superscript(v)
-                | Inline::Subscript(v)
-                | Inline::Highlight(v)
-                | Inline::Claim { inner: v, .. } => collect_segs(v, out),
-                Inline::Link { inner, .. } => collect_segs(inner, out),
-                other => push_text(out, other.clone()),
+            // Descend through whatever carries the image, from the one place that knows
+            // which variants carry anything. This used to enumerate them here and end
+            // in a catch-all, so a new nesting variant holding an image would have been
+            // pushed as TEXT — the image silently absent from the page.
+            _ if contains_image(inline) => match inline.nested() {
+                Some(nested) => collect_segs(nested, out),
+                None => push_text(out, inline.clone()),
             },
             other => push_text(out, other.clone()),
         }
@@ -70,15 +67,12 @@ fn push_text(out: &mut Vec<Seg>, inline: Inline) {
 pub(crate) fn contains_image(inline: &Inline) -> bool {
     match inline {
         Inline::Image(_) => true,
-        Inline::Emphasis(v)
-        | Inline::Strong(v)
-        | Inline::Strikethrough(v)
-        | Inline::Superscript(v)
-        | Inline::Subscript(v)
-        | Inline::Highlight(v)
-        | Inline::Claim { inner: v, .. } => v.iter().any(contains_image),
-        Inline::Link { inner, .. } => inner.iter().any(contains_image),
-        _ => false,
+        // Same reason as `collect_segs`: the nesting set is asked for, never restated.
+        // A variant this function called a leaf while `collect_segs` descended into it
+        // would disagree about where images are, which is the harder bug of the two.
+        other => other
+            .nested()
+            .is_some_and(|nested| nested.iter().any(contains_image)),
     }
 }
 

@@ -458,6 +458,6 @@ impl Palette {
 }
 
 /// Gated tests live beside the module rather than inside it: `sdd/POLICY.md` § Code
-/// style caps a file at 500 lines and this one had outgrown it.
+/// style caps a file's length and this one had outgrown it.
 #[cfg(test)]
 mod tests;

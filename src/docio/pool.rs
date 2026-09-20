@@ -241,6 +241,10 @@ pub(super) async fn off_main<T: Send + 'static>(f: impl FnOnce() -> T + Send + '
             f()
         }
     };
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "sanctioned dispatcher for docio::budget::Consumer::Document; the admission gate is this module's own"
+    )]
     match gtk::gio::spawn_blocking(f).await {
         Ok(value) => value,
         Err(panic) => std::panic::resume_unwind(panic),

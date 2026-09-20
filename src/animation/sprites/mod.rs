@@ -83,8 +83,9 @@ const MAX_SCALED_SIZES: usize = 16;
 ///
 /// Deliberately simpler than `AnimatedPaintable` in one respect: pausing for "reduce
 /// animations" freezes on the frame showing, the same as a Play Animations toggle-off,
-/// rather than resetting to frame 0. A theme sprite carries no pause badge (TDD 27.8 is
-/// the picture's), so nothing on screen would disagree with staying on the current frame.
+/// rather than resetting to frame 0. A theme sprite carries no pause badge — TDD 27.8 is
+/// scoped to the document's own pictures, and a decoration is not one the reader can
+/// point at — so nothing on screen would disagree with staying on the current frame.
 pub(crate) struct SpriteAnim {
     /// The frame currently painted, as pixels (for resampling) and as a texture.
     pixels: FramePixels,
@@ -106,6 +107,27 @@ pub(crate) struct SpriteAnim {
     /// sprite while a decode was in flight shares the key, and must not be advanced by
     /// a decode it never asked for (QA round 2, F-R2-2).
     generation: u64,
+    /// How many decodes belonging to a PREVIOUS incarnation have been stored here.
+    ///
+    /// The oracle for the staleness guard, and the placement is the whole of it. A
+    /// counter inside the guard's branch proves only that the branch was ENTERED:
+    /// deleting the `return` beneath it leaves such a counter moving and the suite
+    /// green — measured. A counter of all installs cannot discriminate either, because
+    /// the live incarnation's own decode installs legitimately moments later.
+    ///
+    /// So staleness is captured BEFORE the guard and counted AFTER it, at the install.
+    /// With the guard intact this is unreachable and stays zero; remove the guard, or
+    /// only its `return`, and it moves.
+    #[cfg(all(test, feature = "gtk-integration-tests"))]
+    stale_installs: u32,
+    /// How many decodes from a previous incarnation have ARRIVED here.
+    ///
+    /// The presence half. `stale_installs` is an absence assertion and is vacuous
+    /// until a stale decode has actually landed, so a test waits on this before
+    /// asserting that one — otherwise it is waiting on the LIVE decode, which also
+    /// completes, and measures nothing.
+    #[cfg(all(test, feature = "gtk-integration-tests"))]
+    stale_arrivals: u32,
 }
 
 /// Source of [`SpriteAnim::generation`]. Monotonic for the life of the process.
@@ -154,7 +176,39 @@ impl SpriteAnim {
             policy_watch: None,
             seen_this_pass: true,
             generation: NEXT_SPRITE_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+            #[cfg(all(test, feature = "gtk-integration-tests"))]
+            stale_installs: 0,
+            #[cfg(all(test, feature = "gtk-integration-tests"))]
+            stale_arrivals: 0,
         })
+    }
+
+    /// How many decodes from a previous incarnation have been stored here. See the
+    /// field — with the guard intact this is always zero.
+    #[cfg(all(test, feature = "gtk-integration-tests"))]
+    pub(crate) fn stale_installs(&mut self) -> u32 {
+        self.stale_installs
+    }
+
+    /// How many decodes from a previous incarnation have arrived. See the field.
+    #[cfg(all(test, feature = "gtk-integration-tests"))]
+    pub(crate) fn stale_arrivals(&mut self) -> u32 {
+        self.stale_arrivals
+    }
+
+    /// This driver incarnation's generation, for a test that needs to tell one from
+    /// the next after a rebuild.
+    #[cfg(all(test, feature = "gtk-integration-tests"))]
+    pub(crate) fn generation_for_test(&mut self) -> u64 {
+        self.generation
+    }
+
+    /// Whether this driver is holding its decoder, i.e. no decode is in flight.
+    /// `start_decode` takes the animation for the decode's duration, so `false` here is
+    /// "a decode is out on the pool right now" — the window a staleness test needs.
+    #[cfg(all(test, feature = "gtk-integration-tests"))]
+    pub(crate) fn decoder_held(&mut self) -> bool {
+        self.animation.is_some()
     }
 
     /// The current frame at its natural size.
@@ -302,8 +356,21 @@ impl SpriteAnim {
         animation: richimg::Animation,
         result: Result<richimg::Frame, richimg::Error>,
     ) -> bool {
+        #[cfg(all(test, feature = "gtk-integration-tests"))]
+        let was_stale = generation != self.generation;
         if generation != self.generation {
+            #[cfg(all(test, feature = "gtk-integration-tests"))]
+            {
+                self.stale_arrivals = self.stale_arrivals.saturating_add(1);
+            }
+            // This frame belongs to a driver incarnation that has since been torn down
+            // and rebuilt for the same sprite. Let `animation` — the STALE decoder —
+            // drop here rather than storing it over the live one.
             return false;
+        }
+        #[cfg(all(test, feature = "gtk-integration-tests"))]
+        if was_stale {
+            self.stale_installs = self.stale_installs.saturating_add(1);
         }
         self.animation = Some(animation);
         let frame = match result {
@@ -423,7 +490,41 @@ impl SpriteTable {
         self.inner.anims.borrow_mut().clear();
         self.inner.visibility.borrow_mut().take();
     }
+}
 
+/// A host that drops its table without releasing it is a defect, and this is what says
+/// so out loud.
+///
+/// **Every `SpriteTable` host must call [`SpriteTable::release`] from its `dispose`.**
+/// Rust's own `Drop` is not enough and not equivalent: the entries hold a tick callback
+/// on the frame clock and a visibility watch subscribed to the scrolled window's
+/// adjustments and to the toplevel, all of which OUTLIVE the widget — so waiting for
+/// the struct's drop leaves them installed for as long as anything else keeps the table
+/// alive. `dispose` is guaranteed to run first (GTK4Rs/AP-161), which is why the
+/// contract is written there.
+///
+/// It was a contract in four comments and three of the four hosts obeyed it. The table
+/// widget did not, and it is the host where it matters most — rebuilt on every
+/// live-preview re-render. Nothing could have noticed: a leaked handler has no symptom
+/// a test asserts on.
+///
+/// `debug_assert`, so a release build pays nothing and a developer or a CI run — which
+/// build in debug — hears about it at the moment it happens.
+impl Drop for TableInner {
+    fn drop(&mut self) {
+        debug_assert!(
+            self.anims.borrow().is_empty() && self.visibility.borrow().is_none(),
+            "a SpriteTable was dropped without release(): {} live animation(s) and {} \
+             visibility watch. Call `self.sprites.release()` from the host widget's \
+             `dispose` — the tick callbacks and the adjustment/toplevel subscriptions \
+             outlive the widget, so the struct's own Drop is too late.",
+            self.anims.borrow().len(),
+            usize::from(self.visibility.borrow().is_some()),
+        );
+    }
+}
+
+impl SpriteTable {
     /// Run `f` against the live entry for `r`, if there is one. Never creates one.
     #[cfg(all(test, feature = "gtk-integration-tests"))]
     pub(crate) fn with_anim<R>(

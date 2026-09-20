@@ -72,7 +72,7 @@ pub(super) fn find_reusable_blank_tab(
 /// (`../sibling.md`) — or the reverse — are the SAME file, but a bare
 /// `==` on the stored `PathBuf`s would call them different and duplicate the
 /// tab instead of focusing it (TDD 8.2/15.16).
-fn paths_refer_to_same_file(a: &std::path::Path, b: &std::path::Path) -> bool {
+pub(super) fn paths_refer_to_same_file(a: &std::path::Path, b: &std::path::Path) -> bool {
     let canon = |p: &std::path::Path| dunce::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
     canon(a) == canon(b)
 }

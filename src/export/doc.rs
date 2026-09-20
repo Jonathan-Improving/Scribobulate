@@ -306,39 +306,16 @@ fn mark_inlines(inlines: &mut Vec<Inline>, idx: usize, range: (i32, i32)) {
                     });
                 }
             }
-            Inline::Emphasis(mut v) => {
-                mark_inlines(&mut v, idx, range);
-                out.push(Inline::Emphasis(v));
+            // Every nesting variant, from the one place that knows which they are.
+            // This arm used to be six hand-written cases followed by a catch-all, so a
+            // new nesting variant would have fallen through as a leaf and its children
+            // never marked — losing the claim highlight inside it, silently.
+            mut other => {
+                if let Some(nested) = other.nested_mut() {
+                    mark_inlines(nested, idx, range);
+                }
+                out.push(other);
             }
-            Inline::Strong(mut v) => {
-                mark_inlines(&mut v, idx, range);
-                out.push(Inline::Strong(v));
-            }
-            Inline::Strikethrough(mut v) => {
-                mark_inlines(&mut v, idx, range);
-                out.push(Inline::Strikethrough(v));
-            }
-            Inline::Superscript(mut v) => {
-                mark_inlines(&mut v, idx, range);
-                out.push(Inline::Superscript(v));
-            }
-            Inline::Subscript(mut v) => {
-                mark_inlines(&mut v, idx, range);
-                out.push(Inline::Subscript(v));
-            }
-            Inline::Highlight(mut v) => {
-                mark_inlines(&mut v, idx, range);
-                out.push(Inline::Highlight(v));
-            }
-            Inline::Link {
-                href,
-                title,
-                mut inner,
-            } => {
-                mark_inlines(&mut inner, idx, range);
-                out.push(Inline::Link { href, title, inner });
-            }
-            other => out.push(other),
         }
     }
     *inlines = out;

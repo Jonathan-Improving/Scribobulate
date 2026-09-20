@@ -3,7 +3,7 @@
 ## Problem
 
 The project has a **footprint gate** and no **profiling strategy**, and the two are
-not the same instrument. TDD §6 asks *"is this stack viable?"* — VRAM under 50 MiB,
+not the same instrument. TDD §6 asks *"is this stack viable?"* — VRAM under the ceiling,
 RSS bounded — and that question was answered once, affirmatively, by a viability
 spike. Nothing in the tree asks the question a maturing application actually needs
 answered: *"did this change make something slower, or make something leak?"*

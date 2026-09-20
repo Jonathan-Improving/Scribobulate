@@ -65,8 +65,8 @@ use std::time::{Duration, Instant};
 /// Total decoded-pixel bytes the cache may hold before evicting the
 /// least-recently-used entry. This bounds **system RAM under the Cairo software
 /// renderer this project forces** (POLICY § Architecture rules) — a decoded
-/// `GdkTexture` never touches the GPU, so it does not count against the 50 MiB
-/// VRAM ceiling (TDD §6), but it is exactly the same "measure it, don't guess
+/// `GdkTexture` never touches the GPU, so it does not count against the VRAM
+/// ceiling (TDD §6), but it is exactly the same "measure it, don't guess
 /// it" discipline that ceiling is held to, so the number is chosen the same way:
 /// `limits::MAX_REMOTE_IMAGE_BYTES`'s own doc comment measured a real 1280px
 /// photographic JPEG at 583 KiB compressed; decoded to ARGB32 pixels that is

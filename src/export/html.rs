@@ -1814,16 +1814,27 @@ mod html_sink_tests {
             "[d](file:///etc/passwd#x)\n\n",
             "[e](https://example.com#frag)\n\n",
             "[f](TECH.md#module-map)\n\n",
-            "[g](#section)\n",
+            "[g](#section)\n\n",
+            // R4-SEC-01: leading whitespace inside an angle-bracket destination, which
+            // both reviewers agreed is exploitable, driven through the real sink.
+            "[h](<\tjavascript:alert(1)//#x>)\n\n",
+            "[i](< javascript:alert(1)//#x>)\n\n",
+            // R4-SEC-02: protocol-relative, a filesystem fetch from a file:// artefact.
+            "[j](//evil.example/#x)\n",
         ));
-        for refused in ["javascript:", "data:text/html", "file:///etc/passwd"] {
+        for refused in [
+            "javascript:",
+            "data:text/html",
+            "file:///etc/passwd",
+            "//evil.example",
+        ] {
             assert!(
                 !out.contains(&format!("href=\"{refused}")),
                 "a refused scheme reached an href ({refused}): {out}"
             );
         }
         // The reader still gets every link's words, refused or not.
-        for text in ["a", "b", "c", "d", "e", "f", "g"] {
+        for text in ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"] {
             assert!(
                 out.contains(&format!(">{text}<")),
                 "text lost for {text}: {out}"
@@ -1831,6 +1842,11 @@ mod html_sink_tests {
         }
         // Positive control: the permitted destinations are genuinely present, so the
         // assertions above cannot pass by the emitter having dropped every href.
+        //
+        // (R4-SEC-01's whitespace-and-NUL variants are asserted at the gate in
+        // `links`, over all ten forms; the Markdown layer resolves entities and
+        // angle-bracket destinations differently per form, so pinning them here would
+        // be testing the parser rather than the gate.)
         for kept in [
             "href=\"https://example.com#frag\"",
             "href=\"TECH.md#module-map\"",

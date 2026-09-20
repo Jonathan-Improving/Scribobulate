@@ -32,12 +32,57 @@
 /// Every entry point that can start a cold process claims through here, so the claim
 /// and the work it authorises cannot be separated by an await.
 pub(super) fn claim() -> bool {
-    thread_local! {
-        /// Main-thread-only: both callers are GApplication signal handlers, which GTK
-        /// emits on the main thread. Never reset — a process starts up once.
-        static CLAIMED: Claim = const { Claim::new() };
-    }
     CLAIMED.with(Claim::take)
+}
+
+thread_local! {
+    /// Main-thread-only: both callers are GApplication signal handlers, which GTK
+    /// emits on the main thread. A process starts up once, so production never resets
+    /// it — but a TEST BINARY is one process running many launches, which is what
+    /// [`ClaimResetGuard`] exists for.
+    static CLAIMED: Claim = const { Claim::new() };
+}
+
+/// Put the latch into the state this test requires, and restore it on drop.
+///
+/// **The production latch is deliberately unresettable, and that is what broke the
+/// suite.** Every `#[gtktest::test]` runs on the single main thread of one binary, so
+/// the first test to drive `activate` or `open` claimed the process's cold start and
+/// every later one saw `false`. The predicate this replaced — "no windows exist yet" —
+/// was per-`gtk::Application`, so tests were independent by construction; the fix traded
+/// a production race for a suite-ordering coupling, and the guard protecting the `open`
+/// recovery route passed only because of where it happened to sort.
+///
+/// **It takes the answer it wants rather than merely resetting**, and that distinction
+/// is the whole fix. A bare reset makes every launching test a cold start, which is just
+/// as wrong in the other direction: a test that builds a window and then calls `open` is
+/// modelling a launch into a RUNNING instance, and forcing a cold start there runs crash
+/// recovery it never expected. Both were observed — resetting unconditionally reddened
+/// two `documents` tests that had been green. So a test states which launch it is
+/// modelling, and no test's verdict depends on which ran first.
+///
+/// A guard rather than a setter: a test that set state on the way in and panicked would
+/// leave it set for everything after it, which is the same order-dependence one step
+/// removed.
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+#[must_use = "the forced state only holds while the guard is alive"]
+pub(crate) fn force_for_test(is_cold_start: bool) -> ClaimGuard {
+    // `claim` returns `!claimed`, so "the next claim answers `is_cold_start`" means
+    // the flag must hold its negation.
+    let previous = CLAIMED.with(|c| c.0.replace(!is_cold_start));
+    ClaimGuard { previous }
+}
+
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+pub(crate) struct ClaimGuard {
+    previous: bool,
+}
+
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+impl Drop for ClaimGuard {
+    fn drop(&mut self) {
+        CLAIMED.with(|c| c.0.set(self.previous));
+    }
 }
 
 /// The claim itself, as a value rather than as the process's one global.

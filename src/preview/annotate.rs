@@ -229,17 +229,17 @@ mod tests {
         let n = md.chars().count() as i32;
         let evs = vec![
             RawEv {
-                buf: (0, 0),
+                buf: crate::copymap::BufSpan::new(0, 0),
                 src: 0..md.len(),
                 kind: RawKind::Start(Construct::Paragraph),
             },
             RawEv {
-                buf: (0, n),
+                buf: crate::copymap::BufSpan::new(0, n),
                 src: 0..md.len(),
                 kind: RawKind::Text(md.to_string()),
             },
             RawEv {
-                buf: (n, n),
+                buf: crate::copymap::BufSpan::new(n, n),
                 src: 0..md.len(),
                 kind: RawKind::End(Construct::Paragraph),
             },
@@ -258,32 +258,32 @@ mod tests {
         let md = "para one\n\npara two".to_string();
         let evs = vec![
             RawEv {
-                buf: (0, 0),
+                buf: crate::copymap::BufSpan::new(0, 0),
                 src: 0..8,
                 kind: RawKind::Start(Construct::Paragraph),
             },
             RawEv {
-                buf: (0, 8),
+                buf: crate::copymap::BufSpan::new(0, 8),
                 src: 0..8,
                 kind: RawKind::Text("para one".into()),
             },
             RawEv {
-                buf: (8, 8),
+                buf: crate::copymap::BufSpan::new(8, 8),
                 src: 0..8,
                 kind: RawKind::End(Construct::Paragraph),
             },
             RawEv {
-                buf: (8, 10),
+                buf: crate::copymap::BufSpan::new(8, 10),
                 src: 10..18,
                 kind: RawKind::Start(Construct::Paragraph),
             },
             RawEv {
-                buf: (10, 18),
+                buf: crate::copymap::BufSpan::new(10, 18),
                 src: 10..18,
                 kind: RawKind::Text("para two".into()),
             },
             RawEv {
-                buf: (18, 18),
+                buf: crate::copymap::BufSpan::new(18, 18),
                 src: 10..18,
                 kind: RawKind::End(Construct::Paragraph),
             },
@@ -669,32 +669,32 @@ mod tests {
         let n = cleaned.chars().count() as i32;
         let evs = vec![
             RawEv {
-                buf: (0, 0),
+                buf: crate::copymap::BufSpan::new(0, 0),
                 src: 0..p1_end,
                 kind: RawKind::Start(Construct::Paragraph),
             },
             RawEv {
-                buf: (0, p1_end as i32),
+                buf: crate::copymap::BufSpan::new(0, p1_end as i32),
                 src: 0..p1_end,
                 kind: RawKind::Text(cleaned[..p1_end].to_string()),
             },
             RawEv {
-                buf: (p1_end as i32, p1_end as i32),
+                buf: crate::copymap::BufSpan::new(p1_end as i32, p1_end as i32),
                 src: 0..p1_end,
                 kind: RawKind::End(Construct::Paragraph),
             },
             RawEv {
-                buf: (p1_end as i32, p2_start as i32),
+                buf: crate::copymap::BufSpan::new(p1_end as i32, p2_start as i32),
                 src: p2_start..cleaned.len(),
                 kind: RawKind::Start(Construct::Paragraph),
             },
             RawEv {
-                buf: (p2_start as i32, n),
+                buf: crate::copymap::BufSpan::new(p2_start as i32, n),
                 src: p2_start..cleaned.len(),
                 kind: RawKind::Text(cleaned[p2_start..].to_string()),
             },
             RawEv {
-                buf: (n, n),
+                buf: crate::copymap::BufSpan::new(n, n),
                 src: p2_start..cleaned.len(),
                 kind: RawKind::End(Construct::Paragraph),
             },
@@ -824,7 +824,7 @@ mod tests {
                         let before = off;
                         let after = off + w;
                         evs.push(RawEv {
-                            buf: (before, after),
+                            buf: crate::copymap::BufSpan::new(before, after),
                             src: src.clone(),
                             kind: k.clone(),
                         });

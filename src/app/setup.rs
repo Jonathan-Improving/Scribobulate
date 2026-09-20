@@ -379,7 +379,7 @@ fn on_activate(app: &Application) {
     // hand-off with no file args) — just open a fresh blank document rather
     // than replaying the saved session again. `restore_session` is only for the
     // very first activation of a brand-new process, and the claim below is what
-    // says so: see `claim_cold_start` for why counting windows answered a
+    // says so: see `coldstart::claim` for why counting windows answered a
     // different question during the interval restore itself occupies.
     let cold_start = super::coldstart::claim();
     if !cold_start {
@@ -428,8 +428,10 @@ fn on_activate(app: &Application) {
 /// and a later bare launch still finds it), but the offer did not appear at the moment the
 /// user expected it, which for a recovery feature is most of its value.
 ///
-/// `cold_start` must be evaluated **before** the caller creates any window, since the
-/// signal is "no windows existed yet".
+/// `cold_start` is [`super::coldstart::claim`]'s answer, taken **before** the caller
+/// creates any window and before its first await. It is no longer "no windows existed
+/// yet" — that predicate stayed true for the whole of the interval restore occupies,
+/// which is the one interval it was being asked about.
 ///
 /// Ordering: after the windows and tabs exist, because a recovered document usually
 /// belongs in a tab that already does; and before the deferred pre-render pump, so

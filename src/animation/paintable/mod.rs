@@ -147,8 +147,17 @@ mod imp {
         /// oracle read after the fact therefore cannot tell "refused" from "accepted
         /// and then overwritten", which is how the first attempt at a test for this
         /// guard passed with the guard deleted.
-        #[cfg(test)]
+        #[cfg(all(test, feature = "gtk-integration-tests"))]
         pub(super) stale_decodes_dropped: Cell<u32>,
+        /// How many decodes belonging to a PREVIOUS incarnation have been stored here.
+        ///
+        /// The counter above proves the guard's BRANCH was entered; this proves its
+        /// EFFECT, and only the second is a refusal. Deleting just the `return` leaves
+        /// the branch counter moving and every test green — measured — so staleness is
+        /// captured before the guard and counted after it, at the install, where the
+        /// guard makes it unreachable.
+        #[cfg(all(test, feature = "gtk-integration-tests"))]
+        pub(super) stale_installs: Cell<u32>,
         pub(super) policy_watch: RefCell<Option<policy::PolicyWatch>>,
         /// The live subscription to `animation::visibility`'s signals for
         /// this picture's own `host`. Set up in `try_bootstrap`, alongside
@@ -404,15 +413,22 @@ impl AnimatedPaintable {
     /// guard: a decode dispatched under one generation and landing under another is
     /// the case that guard exists for, and nothing outside this module can otherwise
     /// tell the two incarnations apart.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "gtk-integration-tests"))]
     pub(crate) fn decoder_generation_for_test(&self) -> u64 {
         self.imp().decoder_generation.get()
     }
 
     /// How many stale decodes the generation guard has refused. See the field.
-    #[cfg(test)]
+    #[cfg(all(test, feature = "gtk-integration-tests"))]
     pub(crate) fn stale_decodes_dropped_for_test(&self) -> u32 {
         self.imp().stale_decodes_dropped.get()
+    }
+
+    /// How many decodes from a previous incarnation have been stored here. See the
+    /// field — with the guard intact this is always zero.
+    #[cfg(all(test, feature = "gtk-integration-tests"))]
+    pub(crate) fn stale_installs_for_test(&self) -> u32 {
+        self.imp().stale_installs.get()
     }
 }
 

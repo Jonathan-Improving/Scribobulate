@@ -1364,6 +1364,91 @@ fn a_banded_headings_text_is_inset_while_its_band_keeps_the_column() {
 /// `line.fill.is_some()`, which is a claim about the LAYOUT: deleting the whole
 /// `if let Some(band)` block in `ink.rs` — the code that actually puts the band on the
 /// page — left the suite green. This asserts on pixels, so it cannot.
+/// **The UNANCHORED fit branch needs no conversion, and this is what says so.**
+///
+/// Its sibling — the corner-anchored branch — reads a pixel dimension and must convert
+/// it. This one divides a point-space height by the source's PIXEL height, so the units
+/// cancel and the ratio is already right. The two arms of one `match` are therefore in
+/// different unit regimes on purpose, which reads as an inconsistency and is not.
+///
+/// It had no coverage at all: a 3/4 error introduced here was green across every PDF
+/// test, while the corner branch's own control reddened correctly. So the branch that
+/// is correct BY ACCIDENT OF ARITHMETIC — the fragile kind of correct, because nothing
+/// about it is stated at the call site — was the one nothing was watching.
+///
+/// The oracle is the drawn HEIGHT, which the fit rule pins to the cell and the corner
+/// rule does not: an unanchored scene is scaled to fill the row's height whatever its
+/// source size, so a scene deliberately given the wrong aspect ratio must still come
+/// out exactly as tall as the row.
+#[test]
+fn an_unanchored_scene_is_fitted_to_the_row_and_needs_no_unit_conversion() {
+    const MARGIN: f64 = 54.0;
+    // Deliberately tall and narrow, so "fitted to the height" and "its own size" give
+    // visibly different answers and the assertion can tell them apart.
+    const SCENE_W_PX: u32 = 8;
+    const SCENE_H_PX: u32 = 64;
+    let p = palette(&theme());
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("fit.png");
+    std::fs::write(&path, png(SCENE_W_PX, SCENE_H_PX, [255, 0, 255])).unwrap();
+
+    let mut themed = theme();
+    // `None` is the fit: the key's documented default, and the branch under test.
+    themed.table_head_scene_anchor = None;
+    themed.sprites.table_head_scene = Some(crate::sprite::SpriteRef::File(path));
+    crate::sprite::clear_cache();
+
+    let rows = colour_rows(drawn_page(TABLE, &themed, &p, MARGIN), (0xff, 0x00, 0xff));
+    crate::sprite::clear_cache();
+    let drawn_h = rows.iter().filter(|xs| !xs.is_empty()).count() as f64;
+    assert!(drawn_h > 0.0, "the fitted scene must reach the page");
+
+    // The header row's own height, from the same measurement pass the sink draws from.
+    let laid = lay_out(
+        &doc::build(TABLE, &RenderOptions::default()),
+        &ctx(),
+        PAGE_WIDTH_PT,
+        PAGE_HEIGHT_PT,
+        &themed,
+    );
+    let row_h = laid
+        .lines
+        .iter()
+        .find_map(|l| match &l.kind {
+            super::LineKind::TableRow {
+                is_head: true,
+                box_height,
+                ..
+            } => Some(*box_height),
+            _ => None,
+        })
+        .expect("the fixture has a header row");
+
+    // Two points of slack for the clip's edge antialiasing. A conversion applied here
+    // would make this 3/4 of the row, which is far outside it.
+    assert!(
+        (drawn_h - row_h).abs() <= 2.0,
+        "an unanchored scene must be fitted to the row's {row_h}pt, not drawn at \
+         {drawn_h}pt.{}",
+        if drawn_h < row_h - 2.0 {
+            " Shorter by about a quarter means a unit conversion was applied to a ratio \
+             whose units already cancel."
+        } else {
+            " Taller means the fit was replaced by the corner rule, which keeps the \
+             source's own size."
+        }
+    );
+    // The fixture must discriminate: its own height must differ from the row's, or a
+    // corner rule would satisfy the assertion above by coincidence.
+    assert!(
+        (px_to_pt(SCENE_H_PX as i32) - row_h).abs() > 2.0,
+        "this oracle only discriminates while the source height ({}pt) differs from \
+         the row's ({row_h}pt)",
+        px_to_pt(SCENE_H_PX as i32)
+    );
+}
+
 /// **The rule's reserved height compares two POINT values, never a point and a pixel.**
 ///
 /// Separate from the pixel assertions above, and it has to be: they measure what was

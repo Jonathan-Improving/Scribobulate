@@ -387,8 +387,21 @@ fn a_decode_outlived_by_its_own_decoder_is_dropped_even_though_the_picture_is_vi
          fresh one, or the decode that lands is not stale and this proves nothing"
     );
 
-    // Let the stale decode land on the main context.
-    crate::testpump::drain_for(crate::testpump::Clock::Worker, Duration::from_millis(900));
+    // Wait for the stale decode to LAND rather than draining a fixed interval. A fixed
+    // drain is a bet on the machine: under full-suite load the decode can still be on
+    // the pool when it expires, and the absence assertions below would then pass
+    // vacuously while the presence one failed. Waiting on the event makes the test
+    // report "never arrived" as a precondition rather than as the finding.
+    let landed = crate::testpump::until_or_for(
+        crate::testpump::Clock::Worker,
+        Duration::from_secs(20),
+        || animated.stale_decodes_dropped_for_test() >= 1,
+    );
+    assert!(
+        landed,
+        "precondition: the stale decode never reached `on_decoded` within the \
+         deadline, so nothing below was exercised"
+    );
 
     // The guard's whole job: the frame belongs to the previous incarnation, and the
     // current one must be untouched by it. Visibility says PLAY here, so `play_wanted`
@@ -408,12 +421,21 @@ fn a_decode_outlived_by_its_own_decoder_is_dropped_even_though_the_picture_is_vi
     // decode a moment later, so anything read after the fact cannot distinguish
     // "refused" from "accepted and then overwritten". A first version of this test
     // asserted the awaiting latch and passed with the guard deleted.
+    // The EFFECT, which is what a refusal actually is. Asserted before the branch
+    // counter because it is the stronger claim: deleting only the `return` beneath the
+    // guard leaves the branch counter moving and every animation test green — measured
+    // — while this one reddens.
+    assert_eq!(
+        animated.stale_installs_for_test(),
+        0,
+        "the stale decode was STORED over the live incarnation's decoder — the guard's \
+         branch may have been entered, but it did not refuse"
+    );
     assert_eq!(
         animated.stale_decodes_dropped_for_test(),
         1,
-        "the stale frame was not refused by the generation guard — it belongs to an \
-         incarnation that was torn down, and the live schedule was restarted when \
-         this decoder was built, so it holds no request that decode could satisfy"
+        "exactly one stale decode was expected; the guard's branch count is the \
+         presence half of this test, and the install count above is the refusal half"
     );
     window.destroy();
 }

@@ -54,7 +54,12 @@ pub fn issues_rx() -> &'static Regex {
     static RX: OnceLock<Regex> = OnceLock::new();
     rx(
         &RX,
-        r#"\bISSUES(\.md)?([ .:_-]*([a-z]+ )?[A-Z]\b|[ .:_-]*#[A-Z]+\b|[ .:_-]*"[^"]+")|\bCLSD-[0-9]+\b"#,
+        // `[A-Z][0-9]*\b`, not `[A-Z]\b`: a word boundary does not fall between a
+        // letter and a digit, so the bare form `I5` was unmatchable — measured, on a
+        // live citation inside `sdd/TDD.md`. The register's letters are positional and
+        // a numbered variant is exactly the shape someone reaches for.
+        //
+        r#"\bISSUES(\.md)?([ .:_-]*([a-z]+ )?[A-Z][0-9]*\b|[ .:_-]*#[A-Z]+[0-9]*\b|[ .:_-]*"[^"]+")|\bCLSD-[0-9]+\b"#,
     )
 }
 
@@ -305,13 +310,22 @@ fn commit_hash_rx() -> &'static Regex {
 /// Nothing can decide the question from the hash itself: an orphaned local hash and a
 /// live upstream one are both forty hex characters, and — the trap the rule exists for —
 /// the orphaned one still RESOLVES in the clone that wrote it, which is the clone anyone
-/// verifying it is standing in. So the discriminator is whether the line says whose
-/// commit it is. A citation that does not name its repository is one the next reader
-/// cannot resolve, whoever wrote it, which is the defect either way.
-const FOREIGN_SOURCE_MARKERS: &[&str] = &[
-    "GNOME/", "gtk", "GTK", "Gtk", "upstream", "glib", "GLib", "pango", "Pango", "librsvg",
-    "http://", "https://",
-];
+/// verifying it is standing in. So the discriminator is whether the text AROUND the hash
+/// says whose commit it is.
+///
+/// # Why these four, and why the list used to be longer
+///
+/// It began as twelve, including a bare lowercase `gtk`, tested with a WHOLE-LINE
+/// `contains`. In a GTK project that is close to a blanket exemption, and it was: the
+/// check passed over both of the permanent-register citations it was written for —
+/// *"there is no PRIMARY provider in this tree any more (removed in `…`)"* exempted by
+/// the words "GTK-internal" earlier in the same sentence, and a skill-repo hash exempted
+/// by a `GTK4Rs/AP-N` citation beside it. A gate green over its own motivating instances,
+/// while its documentation asserted it had found them.
+///
+/// So: four markers that name a REPOSITORY rather than a toolkit, matched
+/// case-insensitively, and matched POSITIONALLY — see [`WINDOW_BEFORE`].
+const FOREIGN_SOURCE_MARKERS: &[&str] = &["gnome/", "upstream", "http://", "https://"];
 
 /// Contexts where a hex run is DATA rather than any kind of citation — a parser's own
 /// fixture, or an identifier being decoded. Narrow on purpose: each names a construct in
@@ -323,9 +337,42 @@ const HEX_DATA_MARKERS: &[&str] = &[
     // and file offsets are hex of exactly the length an abbreviated object name has, and
     // the permission triplet is what makes the line unmistakable.
     "r--p", "rw-p", "r-xp", "/proc/",
+    // A named content digest. The digest WORD is on the line and the value follows it,
+    // often quoted and often elided — `SHA-256 \`51bd9f60…\`` — so the value is not
+    // adjacent to the word in a way the shape regex can consume.
+    "SHA-256", "sha256",
 ];
 
-/// A hex run that is not a commit hash however it looks.
+/// How much text before a hash may carry its attribution.
+///
+/// A marker must sit in the same clause as the hash, not merely somewhere on the line.
+/// Whole-line matching is what made the list above a blanket exemption; the window is
+/// what makes "this line says whose commit it is" mean "this citation says whose commit
+/// it is".
+const WINDOW_BEFORE: usize = 80;
+
+/// And after, because attribution is sometimes a parenthetical that follows:
+/// ``fixed by commit `b30…` (GNOME/gtk#4134)``.
+const WINDOW_AFTER: usize = 40;
+
+/// Is the hash at `at..end` attributed to another repository by the text around it?
+fn attributed_nearby(line: &str, at: usize, end: usize) -> bool {
+    let from = line[..at]
+        .char_indices()
+        .rev()
+        .take(WINDOW_BEFORE)
+        .last()
+        .map_or(at, |(i, _)| i);
+    let to = line[end..]
+        .char_indices()
+        .take(WINDOW_AFTER)
+        .last()
+        .map_or(end, |(i, c)| end + i + c.len_utf8());
+    let window = line[from..to].to_ascii_lowercase();
+    FOREIGN_SOURCE_MARKERS.iter().any(|m| window.contains(m))
+}
+
+/// A hex run that is not a commit hash however it looks./// A hex run that is not a commit hash however it looks.
 ///
 /// Every term is a real construct this tree contains, not a hypothetical. Without them
 /// the check reports colour literals and digests as citations, which is the failure mode
@@ -337,10 +384,22 @@ fn hash_exempt_rx() -> &'static Regex {
         // A colour (`#rrggbbaa`, `0xRRGGBB`), a hex byte literal, a content digest
         // (`sha256:`/`sha256 `/`SHA256`), a URL path segment, or a version-like run.
         // A colour, a hex literal, an escape, anything a digest word governs, a URL
-        // path segment, a run with a dot or slash attached, a run of 32 or more (a
-        // digest or an opaque identifier, never an abbreviated object name anyone
-        // cites), or a fixture standing in for a hash rather than naming one.
-        r"(#[0-9a-fA-F]{6,8}|0x[0-9a-fA-F]+|\\x[0-9a-fA-F]+|(?i:sha)[0-9-]*[: =]|/[0-9a-f]{7,40}|[0-9a-f]{7,40}[/.]|[0-9a-f]{32,}|0badc0de|[0-9a-f]{7,}/[0-9a-f]{7,})",
+        // path segment, a run with a SLASH attached, or a fixture standing in for a
+        // hash rather than naming one.
+        //
+        // ⚠️ Two alternatives were removed here after three reviewers measured the gate
+        // catching ONE planted violation in THREE, and both removals matter:
+        //
+        // * `[0-9a-f]{7,40}[/.]` also matched a hash ENDING A SENTENCE — the exempt
+        //   pattern is blanked before the hash matcher runs, so a trailing full stop ate
+        //   the citation with it. `(removed in `4b97c84`.)` was invisible.
+        // * `[0-9a-f]{32,}` was justified as "a digest, never an abbreviated object name
+        //   anyone cites". True of an ABBREVIATED name and false of a full one: a SHA-1
+        //   is exactly 40 characters, so the longest and most citable form of the thing
+        //   being banned was the one form exempted. A genuine digest is still excluded,
+        //   by the digest WORD that names it (`HEX_DATA_MARKERS`), which is evidence
+        //   about the line rather than a guess from length.
+        r"(#[0-9a-fA-F]{6,8}|0x[0-9a-fA-F]+|\\x[0-9a-fA-F]+|(?i:sha)[0-9-]*[: =]|/[0-9a-f]{7,40}|0badc0de|[0-9a-f]{7,}/[0-9a-f]{7,})",
     )
 }
 
@@ -370,28 +429,50 @@ pub fn commit_hash_citations(line: &str) -> Vec<String> {
     if line.contains("SCRIB_GIT_COMMIT") {
         return Vec::new();
     }
-    // A hash attributed to another repository is resolvable and is not this rule's
-    // subject. See `FOREIGN_SOURCE_MARKERS`.
-    if FOREIGN_SOURCE_MARKERS.iter().any(|m| line.contains(m)) {
-        return Vec::new();
-    }
     if HEX_DATA_MARKERS.iter().any(|m| line.contains(m)) {
         return Vec::new();
     }
-    let stripped = hash_exempt_rx().replace_all(line, " ");
+    // Blank out the shapes that are hex but never object names, PRESERVING LENGTH, so
+    // every offset below still indexes the original line and the attribution window is
+    // read from the real text rather than from a rewritten copy.
+    let stripped: String = hash_exempt_rx()
+        .find_iter(line)
+        .fold(line.to_string(), |mut acc, m| {
+            acc.replace_range(m.range(), &" ".repeat(m.len()));
+            acc
+        });
     let mut found: Vec<String> = commit_hash_rx()
         .find_iter(&stripped)
-        .map(|m| {
-            m.as_str()
-                .trim_matches(|c: char| !c.is_ascii_hexdigit())
-                .to_string()
+        .filter_map(|m| {
+            let hit = m.as_str().trim_matches(|c: char| !c.is_ascii_hexdigit());
+            // A run of only digits is a number, not an object name.
+            if !hit.chars().any(|c| c.is_ascii_alphabetic()) {
+                return None;
+            }
+            // Attributed to another repository BY THE TEXT AROUND IT, not merely by a
+            // token elsewhere on the line. See `attributed_nearby`.
+            let at = m.start() + m.as_str().find(hit)?;
+            if attributed_nearby(line, at, at + hit.len()) {
+                return None;
+            }
+            Some(hit.to_string())
         })
-        // A run of only digits is a number, not an object name.
-        .filter(|hit| hit.chars().any(|c| c.is_ascii_alphabetic()))
         .collect();
     found.sort();
     found.dedup();
     found
+}
+
+/// Check 22's reader: a `disallowed-methods` entry's path in `clippy.toml`.
+pub fn banned_path_rx() -> &'static Regex {
+    static RX: OnceLock<Regex> = OnceLock::new();
+    rx(&RX, r#"path\s*=\s*"([^"]+)""#)
+}
+
+/// Check 21's reader: the register header's declared next-free number.
+pub fn next_free_rx() -> &'static Regex {
+    static RX: OnceLock<Regex> = OnceLock::new();
+    rx(&RX, r"Next free number:\s*\*{0,2}\s*([0-9]+)")
 }
 
 /// Check 12's predicate: is this a tracked path Windows refuses to check out?

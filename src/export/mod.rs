@@ -42,7 +42,10 @@
 //!   would put text on the page the preview never showed) and certainly not passed
 //!   through. The permitted set is [`crate::renderer::RENDERED_HTML_ELEMENTS`], read
 //!   from its one owner rather than reproduced here (TDD 25.4).
-//! * A link's URL passes [`crate::links::is_allowed_url`]'s scheme allowlist.
+//! * A link's destination passes [`crate::links::is_exportable_href`] — an allowed
+//!   external scheme, or a destination that positively looks like a relative
+//!   reference. Never `is_allowed_url` alone, and never "relative" inferred from a
+//!   scheme parser failing to recognise it (TDD 25.4a).
 //! * A local image passes the containment gate before its bytes are embedded; a
 //!   remote one is referenced and not fetched unless the document's own "Show Unsafe
 //!   Images" consent is on (TDD 25.12).
@@ -236,6 +239,51 @@ pub(crate) enum Inline {
         tail: bool,
         inner: Vec<Inline>,
     },
+}
+
+impl Inline {
+    /// The nested inlines this variant carries, or `None` if it is a leaf.
+    ///
+    /// **The one answer to "which variants contain inlines", and the reason it exists
+    /// is the shape of the sites that used to answer it themselves.** Six places
+    /// enumerated the nesting variants by hand, and three of those ended in a catch-all
+    /// arm — so a new variant would be routed to "leaf" silently, and its children
+    /// simply not visited. Two of the three are the annotation-marking pass and the PDF
+    /// image-splitting pass, where not visiting a child is not a cosmetic miss: the
+    /// claim highlight, or the image, is dropped from the artefact with nothing said.
+    ///
+    /// The leaf arm below is ENUMERATED rather than `_`, which is the whole point. A
+    /// variant added to this enum stops compiling HERE, in the one place that decides,
+    /// instead of compiling everywhere and being wrong in three of them.
+    pub(crate) fn nested_mut(&mut self) -> Option<&mut Vec<Inline>> {
+        match self {
+            Inline::Emphasis(v)
+            | Inline::Strong(v)
+            | Inline::Strikethrough(v)
+            | Inline::Superscript(v)
+            | Inline::Subscript(v)
+            | Inline::Highlight(v)
+            | Inline::Link { inner: v, .. }
+            | Inline::Claim { inner: v, .. } => Some(v),
+            // Leaves. Listed, never `_`.
+            Inline::Text { .. } | Inline::Code(_) | Inline::Image(_) | Inline::Break => None,
+        }
+    }
+
+    /// [`Self::nested_mut`]'s shared-reference twin. Same enumeration, same reason.
+    pub(crate) fn nested(&self) -> Option<&Vec<Inline>> {
+        match self {
+            Inline::Emphasis(v)
+            | Inline::Strong(v)
+            | Inline::Strikethrough(v)
+            | Inline::Superscript(v)
+            | Inline::Subscript(v)
+            | Inline::Highlight(v)
+            | Inline::Link { inner: v, .. }
+            | Inline::Claim { inner: v, .. } => Some(v),
+            Inline::Text { .. } | Inline::Code(_) | Inline::Image(_) | Inline::Break => None,
+        }
+    }
 }
 
 /// One list item. `task` is `Some(checked)` for a task-list item.

@@ -218,37 +218,62 @@ pub(crate) fn is_allowed_url(url: &str) -> bool {
 /// [`scheme_of`]. See that function for why the stricter grammar is the right one on
 /// this side of the boundary.
 pub(crate) fn is_exportable_href(href: &str) -> bool {
-    is_allowed_url(href) || (!has_uri_scheme(href) && doc_link_fragment(href).is_some())
+    is_allowed_url(href) || (is_relative_reference(href) && doc_link_fragment(href).is_some())
 }
 
-/// Does `href` open with something a **browser** will read as a URL scheme?
+/// Does `href` POSITIVELY look like a relative reference an artefact can resolve?
 ///
-/// Deliberately stricter than [`scheme_of`], and the two must never be merged into
-/// one predicate — they answer questions for two different consumers.
+/// # This is an allowlist, and the previous version's failure is why
 ///
-/// [`scheme_of`] answers *this app's* resolution question, and accepts only a
-/// hierarchical `scheme://…` or the bare-colon `mailto:` it launches, so that a
-/// Windows drive path (`C:\dir\img.png`), a path segment with a colon
-/// (`assets/notes:v2.png`) or a file called `report:draft.md` still resolve as the
-/// local files they are. A bare-colon `javascript:` is left inert there by
-/// *fall-through*: it resolves as a local path, finds nothing, and renders dead.
+/// The second limb of [`is_exportable_href`] used to read `!has_uri_scheme(href)` —
+/// "relative" inferred from "my scheme parser did not recognise this". That is a
+/// rejection test standing in for an admission test, and it inherits every disagreement
+/// between the two parsers involved. [`has_uri_scheme`] implements RFC 3986 §3.1, where
+/// a scheme is `ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`; the engine reading the
+/// artefact implements the WHATWG URL Standard, which **strips leading C0 controls and
+/// spaces, and removes every tab, LF and CR anywhere in the URL, before it parses the
+/// scheme at all**. So a destination our parser rejects as malformed is one the engine
+/// repairs and runs, and the fragment limb then admitted it:
 ///
-/// **Fall-through does not survive serialisation.** An exported artefact is read by
-/// an engine that applies RFC 3986 §3.1 — a colon alone makes a scheme — and runs
-/// what it finds. So anything bound for an `href` is judged by that grammar, not
-/// ours. The asymmetry is deliberate: erring here costs a link its destination and
-/// leaves the text; erring the other way emits attacker-authored script.
+/// ```text
+/// [a](<{TAB}javascript:alert(1)//#x>)   // {TAB} is a literal U+0009
+/// ```
 ///
-/// **Do not merge this with [`scheme_of`].** The two are not duplicates, and a reviewer
-/// collapsing them believes they are deleting one — which is the most likely way this
-/// fix regresses. See [`scheme_of`]'s own note for the other half of the warning.
-pub(crate) fn has_uri_scheme(href: &str) -> bool {
-    let Some((scheme, _)) = href.split_once(':') else {
+/// Blacklisting tab, LF and CR would close the payloads that were measured and leave the
+/// class open, because the class is *the two parsers disagree*, not *these characters*.
+/// So this asks what a relative reference IS, and anything it cannot recognise loses its
+/// destination and keeps its text — the direction that costs a link rather than the one
+/// that emits script.
+///
+/// Admitted:
+/// * a same-document fragment (`#section`);
+/// * a path whose characters are drawn from the unreserved/sub-delims set plus `/`,
+///   `.`, `%`, `#` and `?` — enough for `TECH.md#map`, `./sub/PLAN.md#caf%C3%A9` and a
+///   query string, and nothing that can carry a scheme.
+///
+/// Refused, each deliberately:
+/// * anything containing a colon, whatever surrounds it — a relative path does not need
+///   one here, and it is the only character that can make a scheme;
+/// * **a protocol-relative `//host/path`**, which is not a relative reference at all: it
+///   inherits the artefact's scheme, so from a `file://` page it is a filesystem fetch,
+///   and on Windows a `//host/share` is a UNC path reaching SMB;
+/// * any C0 control, space or DEL, which is what the engine strips or rejects, so our
+///   opinion of the rest is worthless once it has;
+/// * any non-ASCII byte: an artefact link in this project is a document path, and
+///   admitting the percent-encoded form only keeps this decidable.
+fn is_relative_reference(href: &str) -> bool {
+    if href.is_empty() || href.starts_with("//") {
         return false;
-    };
-    let mut chars = scheme.chars();
-    chars.next().is_some_and(|c| c.is_ascii_alphabetic())
-        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+    }
+    href.chars().all(|c| {
+        matches!(c,
+            'a'..='z' | 'A'..='Z' | '0'..='9'
+            | '-' | '.' | '_' | '~'            // unreserved (RFC 3986 §2.3)
+            | '!' | '$' | '&' | '\'' | '(' | ')'
+            | '*' | '+' | ',' | ';' | '='      // sub-delims
+            | '/' | '%' | '#' | '?' | '@'      // path, escape, fragment, query
+        )
+    })
 }
 
 /// The URL scheme of `url` when it is a genuine URL reference, or `None` when `url`
@@ -288,11 +313,13 @@ pub(crate) fn has_uri_scheme(href: &str) -> bool {
 /// the lesson right (ScrAP-247, *"no handler is registered for this scheme" is not a
 /// safety property*) is not what gets read at the moment of the edit.
 ///
-/// So anything bound for serialisation asks [`is_exportable_href`], which judges the
-/// scheme with [`has_uri_scheme`] instead. **Do not merge the two parsers.** They look
-/// like duplicates and are not: this one is deliberately permissive so a local path with
-/// a colon still resolves, and that one is deliberately strict because its reader is not
-/// us. Deleting either as a duplicate restores the vulnerability (GEP-82, GEP-53).
+/// So anything bound for serialisation asks [`is_exportable_href`], which does NOT
+/// consult this function at all. **Do not wire it back in.** The first fix did — it
+/// admitted a destination when this parser's stricter twin found no scheme — and that
+/// inherited every disagreement between an RFC 3986 parser and the WHATWG one the
+/// reader actually runs, which repairs a malformed scheme before parsing it. The export
+/// gate asks what a relative reference IS instead. Answering "not a scheme" is not the
+/// same question as "safe to serialise", whichever parser answers it (GEP-82, GEP-53).
 pub(crate) fn scheme_of(url: &str) -> Option<&str> {
     let (scheme, rest) = url.split_once(':')?;
     // RFC 3986 scheme token: non-empty, first char ALPHA, remainder ALPHA/DIGIT/+/-/.
@@ -732,10 +759,9 @@ pub(crate) fn relativize_for_insert(target: &Path, base: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        anchor_target, doc_link_fragment, has_uri_scheme, is_allowed_url, is_exportable_href,
-        percent_decode, percent_encode_path, relativize_for_insert, resolve_contained_image,
-        resolve_doc_link, resolve_image, scheme_of, slugify, unique_slug, ImageResolution,
-        LinkResolution,
+        anchor_target, doc_link_fragment, is_allowed_url, is_exportable_href, percent_decode,
+        percent_encode_path, relativize_for_insert, resolve_contained_image, resolve_doc_link,
+        resolve_image, scheme_of, slugify, unique_slug, ImageResolution, LinkResolution,
     };
     use std::collections::HashMap;
 
@@ -1562,31 +1588,39 @@ mod tests {
 
     // ── export href gate ────────────────────────────────────────────────────────
 
-    /// `has_uri_scheme` is the browser's grammar, not `scheme_of`'s. The two
-    /// disagree deliberately on every bare-colon form, and this pins the
-    /// disagreement so a later "simplification" onto one predicate fails here.
     #[test]
-    fn has_uri_scheme_is_stricter_than_scheme_of() {
+    fn is_exportable_href_refuses_a_scheme_the_two_parsers_disagree_about() {
+        // R4-SEC-01. Every one of these is malformed by RFC 3986 and REPAIRED by the
+        // WHATWG URL Standard, which strips leading C0/space and removes every tab, LF
+        // and CR anywhere in the URL before parsing the scheme. Inferring "relative"
+        // from "my scheme parser did not recognise this" admitted all of them.
         for href in [
-            "javascript:alert(1)",
-            "data:text/html,x",
-            "vbscript:msgbox(1)",
-            "report:draft.md",
+            "\tjavascript:alert(1)//#x",
+            " javascript:alert(1)//#x",
+            "\njavascript:alert(1)//#x",
+            "\rjavascript:alert(1)//#x",
+            "\u{0}javascript:alert(1)//#x",
+            "java\tscript:alert(1)//#x",
+            "java\nscript:alert(1)//#x",
+            "jav\u{0}ascript:alert(1)//#x",
+            "javascript\t:alert(1)//#x",
+            " \t javascript:alert(1)#x",
         ] {
             assert!(
-                has_uri_scheme(href),
-                "browser grammar sees a scheme: {href}"
+                !is_exportable_href(href),
+                "a destination the reader's parser repairs into a scheme: {href:?}"
             );
-            assert_eq!(scheme_of(href), None, "ours deliberately does not: {href}");
         }
-        // Agreement on the hierarchical forms and on genuine local references.
-        assert!(has_uri_scheme("https://example.com"));
-        assert!(!has_uri_scheme("TECH.md#map"));
-        assert!(!has_uri_scheme("#section"));
-        assert!(!has_uri_scheme("./sub/PLAN.md"));
-        // A colon that is not a scheme token: the first char must be ALPHA.
-        assert!(!has_uri_scheme("1time:x"));
-        assert!(!has_uri_scheme("a b:x"));
+    }
+
+    /// A protocol-relative destination is not a relative reference: it inherits the
+    /// artefact's scheme. From a `file://` page that is a filesystem fetch, and on
+    /// Windows `//host/share` is a UNC path reaching SMB.
+    #[test]
+    fn is_exportable_href_refuses_a_protocol_relative_destination() {
+        assert!(!is_exportable_href("//evil.example/#x"));
+        assert!(!is_exportable_href("//evil.example/path#frag"));
+        assert!(!is_exportable_href("//#x"));
     }
 
     #[test]

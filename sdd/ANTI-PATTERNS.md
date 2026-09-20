@@ -9,7 +9,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 2. General engineering discipline that survives deleting every Scribobulate noun? → route it to `general-engineering-principles`, cited `GEP-N`; leave a one-line `**Routed**` tombstone here. No ScrAP number is needed for provenance.
 3. Neither — Scribobulate internals, or a non-gtk4-rs dependency (Pango, GtkSourceView, pulldown-cmark, librsvg, syntect, serde/toml, the toolchain)? → it stays here, **in ≤ 6 lines**: Symptom · Root cause · Resolution · Lesson · Scribobulate · See. Extend an existing entry rather than minting a sibling for the same root cause. Route a Pango lesson on whose API *contract* it is about, and raise it before routing.
 
-**Numbers are frozen** (check 9): never renumbered, never reused; a retired entry keeps its `## N.` heading as a landing spot. Reserved gaps — do not fill: **176–179** (Windows port; holder gone, held pending operator resolution), **186** (`feat/spelling`, inbound), **276–289** (unmerged branches). **Next free number: 356**+ — check this table and announce the range you claim; never derive it from the highest heading below. (It read 354 while 354 and 355 both had bodies, so a writer who obeyed it minted a duplicate — and the same sentence forbids the one check that would have caught it. Check 9 can only see a duplicate after it exists, so the header is the guard and it has to be moved in the same change that mints.)
+**Numbers are frozen** (check 9): never renumbered, never reused; a retired entry keeps its `## N.` heading as a landing spot. Reserved gaps — do not fill: **176–179** (Windows port; holder gone, held pending operator resolution), **186** (`feat/spelling`, inbound), **276–289** (unmerged branches). **Next free number: 356**+ — check this table and announce the range you claim; never derive it from the highest heading below. (It read 354 while 354 and 355 both had bodies, so a writer who obeyed it minted a duplicate — and the same sentence forbids the one check a reader would otherwise make. Check 9 can only see a duplicate after it exists. **Check 21 now asserts the one relation the header must satisfy whatever the reserved gaps are — strictly above the highest heading present** — so this line is no longer guarded by prose alone; move it in the same change that mints.)
 
 **Growth** is gated in bytes (check 11). The ratchet only tightens; consolidate in the change that trips it.
 
@@ -988,7 +988,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **Scribobulate**: this register's `ScrAP-N` citation prefix and the citation-convention paragraph at the top of this file; `lint-references` check 8, which makes the ambiguous bare form illegal rather than defaulted.
 
 ## 146. Assuming `GdkTexture::from_file` ignores installed gdk-pixbuf loaders, and adding a manual `Pixbuf` fallback
-**Scribobulate**: `src/imagedecode`, the one decode choke point. ⚠️ **The route this entry used to prescribe — `Texture::from_file`, letting its built-in chain handle native and registered-pixbuf formats — is now BANNED** (`clippy.toml`, which names it as this entry's route): that chain is the gdk-pixbuf loader chain ScrAP-351 and ScrAP-352 measured leaking on every decode. The lesson that survives is the original one — a manual `Pixbuf` fallback beside the toolkit's own chain is not the fix, and a format that will not render despite an installed loader is a **registration** problem (regenerate `loaders.cache`, point `GDK_PIXBUF_MODULE_FILE` at the right one), not a reason to route around `G…
+**Scribobulate**: `src/imagedecode`, the one decode choke point. ⚠️ **The route this entry once prescribed — `Texture::from_file`, letting its built-in chain handle native and registered-pixbuf formats — is now BANNED** (`clippy.toml`, which names it as this entry's route): that chain is the gdk-pixbuf loader chain ScrAP-351 and ScrAP-352 measured leaking on every decode. The lesson that survives is the original one — a manual `Pixbuf` fallback beside the toolkit's own chain is not the fix, and a format that will not render despite an installed loader is a **registration** problem (regenerate `loaders.cache`, point `GDK_PIXBUF_MODULE_FILE` at the right one), not a reason to route around `G…
 **See**: gtk4-rs skill → app-lifecycle-and-env (GTK4Rs/AP-66; kin GTK4Rs/AP-34).
 
 ## 147. Raw-HTML `<picture>`/`<img>` silently dropped — block HTML is emitted per-line, wrapped in `Tag::HtmlBlock`
@@ -1623,7 +1623,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **See**: gtk4-rs skill → textview-scrolling-and-adjustments (GTK4Rs/AP-291), which holds the measurement and reframes that module's clamp family — lazy validation is the family's trigger, not the clamp's preco…
 
 ## 292. A `GFile` built from an `https://` URI resolves only where a GVfs backend claims the scheme
-**Scribobulate**: `imagefetch.rs` owns the fetch (an explicit HTTP GET, bounded by connect/global timeouts and `limits::MAX_REMOTE_IMAGE_BYTES`) and `imagecache::loader::load_remote_texture` decodes it with `GdkTexture::from_bytes`, logging fetch and decode failures separately at `warn`; the transport is replaced for **…
+**Scribobulate**: `imagefetch.rs` owns the fetch (an explicit HTTP GET, bounded by connect/global timeouts and `limits::MAX_REMOTE_IMAGE_BYTES`) and `imagecache::loader::load_remote_texture` decodes it through `imagedecode::decode`, the one decode choke point, logging fetch and decode failures separately at `warn` (this entry used to name `GdkTexture::from_bytes` here, which `clippy.toml` has since banned outright — ScrAP-351); the transport is replaced for **…
 **See**: gtk4-rs skill → app-lifecycle-and-env (GTK4Rs/AP-292), which holds the measurement, the daemon-not-library mechanism, and the general lesson about a toolkit API whose capability is supplied by a separ…
 
 ## 293. Sizing a drawn affordance from one font's row height and fitting it to a container laid out in another
@@ -1719,7 +1719,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **Scribobulate**: `src/lineendings.rs` owns the rule and the display-free repair; `docio`'s three readers and `window::actions::load_into_editor` apply it, and that half is landed and sound.
 
 ## 313. `GtkTextBufferContent` refs the buffer and never unrefs it — a whole document leaks per select-then-deselect
-**Scribobulate**: none — GTK-internal, unavoidable from application code; there is no PRIMARY provider in this tree any more (removed in `4b97c84`).
+**Scribobulate**: none — GTK-internal, unavoidable from application code; there is no PRIMARY provider in this tree any more, and `renderer::end`'s `INERT_URI` is what remains of that path.
 **See**: gtk4-rs skill → threading-async-and-memory (GTK4Rs/AP-318); the refcount table and the negative tracker search live there.
 
 ## 314. Instantiating ANY `sourceview::Buffer` subclass corrupts the heap — and the backtrace is innocent
@@ -1740,7 +1740,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **Resolution**: Do not bracket: the no-lone-CR invariant outranks byte-exact undo of a sequence no buffer may legally hold, and the two only ever differ on a buffer that already violates the invariant.
 **Lesson**: This was filed as not-currently-reachable on the strength of two lines appearing in the right order inside one function, with a comment saying the order was load-bearing.
 **Scribobulate**: `src/lineendings.rs` — `new_editor_buffer` (the choke point, the only route to an armed buffer) and the private `wire_paste_normalization`; `window::tabs::lifecycle`'s `build_tab_editor` is its single production caller.
-**See**: gtk4-rs skill → controllers-and-bindings (GTK4Rs/AP-303), landed as skill commit `8fd296b` and read back from the installed copy on this host rather than taken on report; attribution there is split th…
+**See**: gtk4-rs skill → controllers-and-bindings (GTK4Rs/AP-303), read back from the installed copy of the skill on this host rather than taken on report; attribution there is split th…
 
 ## 317. A counter that stops being able to SEE its subject reports the intervention as a success
 **Routed**: GEP-68 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
@@ -1887,7 +1887,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 
 ## 349. Judging whether a cursor took from a screenshot — and letting an uncontrolled variable name the defect
 **Root cause**: pixels cannot NAME a cursor, so "sometimes the hover cursor does not take, on some elements" survived months and three hypotheses. It was neither intermittent nor per-element: ONE variable — whether the pointer was inside the window's frame when it MAPPED — decided the whole surface, and which runs fell either side of it produced the per-element table. Read identity by name (`probes/quartz-cursor-identity.m`; `XFixesGetCursorImage` on X11), and validate the reader against two genuinely different LIVE windows first — both seats built readers that answered "always arrow" for every input, which is indistinguishable from the defect under test.
-**Scribobulate**: `src/platform/mac/pointercrossing.rs` buys the crossing events GDK's Quartz backend never delivers. Load-bearing on GTK commit `f207402228`'s coupling of input regions to tracking areas, NOT a documented contract; nothing in-repo can pin it and `tests/MANUAL-TEST.md` 7.25m is the only cover. Scope is TOPLEVELS — popovers and text handles set their own regions, which is also the control.
+**Scribobulate**: `src/platform/mac/pointercrossing.rs` buys the crossing events GDK's Quartz backend never delivers. Load-bearing on GNOME/gtk commit `f207402228`'s coupling of input regions to tracking areas, NOT a documented contract; nothing in-repo can pin it and `tests/MANUAL-TEST.md` 7.25m is the only cover. Scope is TOPLEVELS — popovers and text handles set their own regions, which is also the control.
 **Also**: a 20-point GRID scan is not 20 readings about the button — every point after the first re-enters an already-hovered region, so a grid reported the same affordance healthy on one platform and broken on another, both truthfully. A procedure that destroys the condition under test while looking thorough (TDD 2.3b, 7.25).
 **See**: GEP-13; `probes/macos-cursor-map-latch.c`; GTK issue #6134.
 

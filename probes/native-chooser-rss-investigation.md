@@ -235,7 +235,7 @@ n=2. No stale name, folder, title or prompt; `-URL` derives from the current cyc
 and name; `_panelIsNowUseless` stayed 0 through the last cycle.
 
 ⛔ **BUT CACHING THE FILTER CONTROL AS WRITTEN IS A USE-AFTER-FREE.** Verified on **GTK 4.6.9**
-(`/opt/dev/oss/gtk`, branch `gtk-4-6` @ `492b44f20c`) — and the same shape holds on `main`
+(`/opt/dev/oss/gtk`, GNOME/gtk branch `gtk-4-6` @ `492b44f20c`) — and the same shape holds on `main`
 under different names, see the version table below:
 
 ```objc
@@ -493,7 +493,7 @@ probe above.
   Recovering it is an upstream GTK change, not an app-side one, so the prohibition on
   app-side mitigation is untouched.
 
-⚠️ **Do not restate this cost against the 50 MiB ceiling.** That ceiling (TDD §6) is a
+⚠️ **Do not restate this cost against the VRAM ceiling.** That ceiling (TDD §6) is a
 **VRAM** contract and this is resident memory; they are different budgets. The arithmetic is
 tempting and has already been attempted twice from two directions. If a severity statement is
 needed, state it in RSS terms and say so.
@@ -828,7 +828,7 @@ sub-part is unambiguous on its own terms and worth naming: the filter control an
 else retains the panel. It will still not produce an observable dealloc while the panel
 outlives the button.
 
-⚠️ **Do not restate this issue's cost against the 50 MiB ceiling.** That ceiling (TDD §6) is
+⚠️ **Do not restate this issue's cost against the VRAM ceiling.** That ceiling (TDD §6) is
 a **VRAM** contract, and this is resident memory. The two are different budgets and
 conflating them would put a false claim into an upstream bug report.
 

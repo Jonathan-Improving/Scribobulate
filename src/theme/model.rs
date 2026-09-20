@@ -179,7 +179,7 @@ impl Typography {
 /// 16 B still leaks on every tag/attributes destruction, which is why the theme vocabulary
 /// has no `heading_overline_rgba` key at all rather than merely warning against combining
 /// it with `heading_underline_rgba`. Fixed upstream by commit
-/// `86e962929bf2be13a721053141b33e4381f0312` ("gtktextattributes: Make sure to free the
+/// GNOME/gtk `86e962929bf2be13a721053141b33e4381f0312` ("gtktextattributes: Make sure to free the
 /// right color", found by Coverity CID 1621077, GitLab MR !8137) in GTK **4.16.13** and
 /// **4.18.0**; never backported to any earlier stable branch, so nothing short of raising
 /// this project's floor past 4.16.13 makes the key safe.

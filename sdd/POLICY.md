@@ -46,7 +46,10 @@ not complete until every step passes. The steps:
 - Never skip a step. A step that does not apply on a platform is announced in the run
   output, never silently omitted.
 - **A number has one owner.** A floor, limit, count or version is written in exactly one
-  place — the code or script that uses it — and never restated in a document.
+  place and cited from nowhere else. Usually that place is the code or script enforcing
+  it; where nothing enforces it mechanically — a product commitment, a limit a person
+  checks before an edit — this document is the owner. Either way the ban is on the
+  SECOND copy, which goes stale silently while reading as current.
 
 ## Continuous integration
 
