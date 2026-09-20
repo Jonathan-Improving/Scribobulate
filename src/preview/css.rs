@@ -529,7 +529,7 @@ pub(crate) fn theme_css(theme: &Theme, palette: &Palette) -> String {
         ".scrib-broken-image {{ border: 1px dashed {}; border-radius: 3px; \
          padding: 4px; background-color: {}; }}\n",
         to_hex_opaque(palette.rule),
-        rgba_css(palette.code_inline_bg, 0.60)
+        rgba_css(palette.code_chips.page(), 0.60)
     ));
 
     // ── preview-floating cards ────────────────────────────────────────────────

@@ -117,6 +117,35 @@ application path").
 | **C — generated CSS** | the page (background/`color`/`font-family`), table cells (their ink, borders, metrics — and their header's fill only while it is FLAT; see the hand-off below), the rule separator, the image-selection tint, the preview's floating cards | GTK4 removed the GTK3 widget style overrides, so a widget's background/font is **CSS-only**. CSS is a *generated artifact* here, never a source of truth — `preview/css.rs::theme_css` `format!`s it from the theme, as `zoom_css_rule` already did. ⚠️ **A `format!`ed sheet can be malformed, and GTK will not tell you.** `load_from_data` returns nothing and logs nothing; a declaration GTK cannot parse is dropped and the theme's intent simply never reaches the screen. Nor can a test that string-matches the generated sheet see it, because the malformed text still `contains` the fragments such a test looks for. So every builtin theme's sheet is loaded into a real `GtkCssProvider` with `connect_parsing_error` armed (`preview::css::parses`) — a helper that returns a whole declaration must be spliced *after* a semicolon, never into another declaration's value, and that guard is what proves it. |
 | **D — inserted shape** | the end-of-heading marker (`heading_marker_sprite`, `heading_marker_size`) | The theme's own picture placed INSIDE the buffer, as a Pango shape, by `renderer::emit::insert_heading_marker` — the only mechanism here that puts a decoration into the text rather than beside or behind it. It exists because the marker's position is *after the heading's last glyph*, and that x is unobtainable: at GTK 4.6-4.12 the only source of an end-of-text x is a `GtkTextLineDisplay`, its non-caching accessor (`gtk_text_layout_get_line_display`, `size_only=TRUE`) is absent from `libgtk-4.so.1`'s dynamic symbol table so no binding or shim reaches it, and every public path that yields an x inserts into the display cache — ScrAP-105's use-after-free. `gtk_text_buffer_insert_paintable` dissolves the question instead of answering it: Pango places the shape past the final glyph run, so a soft-wrapped heading carries its marker onto the LAST display row for free. ⚠️ **The cost is a `U+FFFC` in the buffer that owns no child anchor.** The copymap's guard assumed every `U+FFFC` was an anchored child — an unclaimed one silently drops its construct from copied source — and a decoration paintable needs the opposite verdict, since it stands for no source at all. The two are told apart by asking the buffer for a child anchor, never by a list of offsets: the splice route re-bases a region render, so any offset captured during it is in the wrong coordinate space by the time the guard runs. ⚠️ **An ANIMATED marker is an anchored `SpriteIcon` instead, at the same size and place** (TDD 27.9): GTK caches a text line's render node and re-snapshots a buffer paintable only after its `invalidate-contents`, which re-wraps and revalidates the line — per frame, restarting the text view's validation idles. An anchored child repaints alone. Its anchor carries a decoration mark, so the copymap guard gives it the paintable's verdict (ScrAP-346). ⚠️ Sized by a themed metric rather than font metrics, and that is only safe because **zoom re-renders the buffer** (`window::zoom::apply_zoom`); a size baked in at render time would otherwise go stale on zoom. |
 
+**The inline-code chip is mechanism A resolved PER SURFACE, and it is the one place A
+and B have to agree about a colour.** A chip is the surface it sits on tinted 8% toward
+the ink *that surface* carries — so a run inside a banded heading takes that level's
+band and ink, one inside a filled quote takes the panel's, a header cell's takes the
+header's fill, and body prose (an unbanded heading and an unfilled quote included) keeps
+the page's, which is the only one a theme may state outright (`code_inline_bg`).
+`palette::codechips` resolves all of them once and every sink reads it: the buffer's
+tags, the table cell's Pango span, the HTML sheet's one descendant selector per surface,
+and the PDF's runs. ⚠️ It is **one tag per surface** — a tag carries a single background
+and cannot ask what mechanism B painted behind it — so the renderer picks, and
+`palette::surface_at` is the one definition of the precedence (the nearer surface wins: a
+band beats a quote it sits inside). ⚠️ A surface whose colour is unknown, i.e. a level
+banded with a **tile** and no fill stated, gets **no chip at all** — absent, not guessed
+from the page, the same verdict `Band::is_present` gives the band. And the tint goes
+*away* from the ink on any surface already sitting at the 4.5:1 floor, because toward the
+ink is a move down the ink's own contrast and a decoration may not make text unreadable
+(ScrAP-356).
+
+**A chip MODULATES its surface; a card OCCLUDES it — so they owe the surface different
+things.** The fenced code block's card keeps one colour on every surface, because it is
+the backdrop a third-party syntax palette's token colours are tuned for and a card that
+changed with what sits behind it would put those colours on a fill nothing has tested.
+What it owes the surface is GEOMETRY: a card is drawn by mechanism B, which is told
+nothing by the tags that indented the text it covers, so at the page's content column a
+quoted block's card is exactly the quote panel's own rectangle and erases it. The card is
+therefore inset by that depth's `quote_indent_px` and the block's body tag is registered
+per depth — after the `bq-{depth}` family, so it wins the one `left-margin` property both
+set — which keeps the gap between card and code the same at every depth (TDD 18.62).
+
 **Mechanism C's reach is the narrow one, and the export HTML sink's is not.** CSS
 here styles about ten widget nodes and reaches no heading, paragraph, list, quote or
 inline-code run — every one of those is buffer text (A) or self-drawn (B), which is

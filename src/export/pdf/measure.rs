@@ -44,9 +44,14 @@ pub(crate) fn lay_out(
     height_pt: f64,
     theme: &Theme,
 ) -> Laid {
+    // Derived from the theme here rather than passed alongside it, for the reason
+    // `preview::build::Prepared` derives its palette the same way: the two cannot then
+    // describe different themes. This sink's palette is always the PAPER one (TDD
+    // 25.9), and the drawing pass is handed the same resolution of the same theme.
     let mut b = Layouter {
         ctx,
         theme,
+        chips: crate::palette::Palette::for_paper(theme).code_chips,
         width_pt,
         max_height_pt: height_pt,
         lines: Vec::new(),
@@ -93,6 +98,10 @@ struct ParagraphSpec {
 struct Layouter<'a> {
     ctx: &'a pango::Context,
     theme: &'a Theme,
+    /// The inline-code chip's fill per surface, resolved from the PAPER palette this
+    /// export was prepared with — the same one the drawing pass inks from, handed in
+    /// rather than re-derived so the two stages cannot answer differently.
+    chips: crate::palette::CodeChips,
     width_pt: f64,
     /// The printable height of one page — an image is contained to it, so a tall one
     /// is scaled to fit rather than running off the bottom.
@@ -104,6 +113,19 @@ struct Layouter<'a> {
 }
 
 impl Layouter<'_> {
+    /// The inline-code chip for a run at this position — the SAME precedence the
+    /// preview's tag choice takes (`palette::surface_at`): a banded heading level wins
+    /// over a quote it sits inside, and everything else is the page.
+    fn chip(
+        &self,
+        heading_level: Option<usize>,
+        quote: Option<&QuoteRef>,
+    ) -> Option<gtk::gdk::RGBA> {
+        let on =
+            crate::palette::surface_at(self.theme, heading_level, usize::from(quote.is_some()));
+        self.chips.on(on.fill())
+    }
+
     /// Build a Pango layout for this sink, from the four things that actually vary.
     ///
     /// **One constructor, because there were two and they had already drifted.** The
@@ -296,7 +318,12 @@ impl Layouter<'_> {
                     super::super::markup::heading_span(self.theme, level_index);
                 let markup = format!(
                     "{span_open}{}{span_close}",
-                    inline_markup(inlines, doc, self.theme)
+                    inline_markup(
+                        inlines,
+                        doc,
+                        self.theme,
+                        self.chip(Some(level_index), quote.as_ref())
+                    )
                 );
                 // A heading keeps its first body line company where it can — the
                 // paginator honours it only when the pair actually fits.
@@ -368,7 +395,12 @@ impl Layouter<'_> {
                 for seg in split_on_images(inlines) {
                     match seg {
                         Seg::Text(run) => {
-                            let markup = inline_markup(&run, doc, self.theme);
+                            let markup = inline_markup(
+                                &run,
+                                doc,
+                                self.theme,
+                                self.chip(None, quote.as_ref()),
+                            );
                             if !markup.trim().is_empty() {
                                 self.paragraph(
                                     &markup,
@@ -481,7 +513,7 @@ impl Layouter<'_> {
                 let (span_open, span_close) = super::super::markup::disclosure_span(self.theme);
                 let markup = format!(
                     "{span_open}<b>{}</b>{span_close}",
-                    inline_markup(summary, doc, self.theme)
+                    inline_markup(summary, doc, self.theme, self.chip(None, quote.as_ref()))
                 );
                 let first = self.lines.len();
                 self.paragraph(
@@ -618,6 +650,7 @@ impl Layouter<'_> {
             std::slice::from_ref(&Inline::Image(img.clone())),
             doc,
             self.theme,
+            self.chip(None, quote.as_ref()),
         );
         self.paragraph(
             &markup,
@@ -769,7 +802,15 @@ impl Layouter<'_> {
                         // grammar by the projection that knows it — so it is spliced in
                         // rather than run through `escape_pango` a second time, which
                         // would put a literal `&amp;` on the page for a themed glyph.
-                        let markup = format!("{marker}{}", inline_markup(inlines, doc, self.theme));
+                        let markup = format!(
+                            "{marker}{}",
+                            inline_markup(
+                                inlines,
+                                doc,
+                                self.theme,
+                                self.chip(None, quote.as_ref())
+                            )
+                        );
                         self.paragraph(
                             &markup,
                             ParagraphSpec {

@@ -19,48 +19,71 @@ use std::fmt::Write as _;
 ///
 /// Markup, not a second renderer: the constructs were already identified upstream, so
 /// this only chooses how each one is *spelled* for Pango.
-pub(super) fn inline_markup(inlines: &[Inline], doc: &ExportDoc, theme: &Theme) -> String {
+pub(super) fn inline_markup(
+    inlines: &[Inline],
+    doc: &ExportDoc,
+    theme: &Theme,
+    chip: Option<gtk::gdk::RGBA>,
+) -> String {
     let mut out = String::new();
-    emit_markup(inlines, doc, theme, &mut out);
+    emit_markup(inlines, doc, theme, chip, &mut out);
     out
 }
 
-fn emit_markup(inlines: &[Inline], doc: &ExportDoc, theme: &Theme, out: &mut String) {
+fn emit_markup(
+    inlines: &[Inline],
+    doc: &ExportDoc,
+    theme: &Theme,
+    chip: Option<gtk::gdk::RGBA>,
+    out: &mut String,
+) {
     for inline in inlines {
         match inline {
             Inline::Text { text, .. } => out.push_str(&escape_pango(text)),
             Inline::Code(c) => {
-                // The theme's inline-code fill (TDD 18.7), on the code's own run —
-                // which is what a `<code>` background is in every other medium too.
-                // It reached the preview and the HTML sink and nothing here.
-                let bg = theme
-                    .code_inline_bg
-                    .map(|c| format!(" background=\"{}\"", crate::palette::to_hex_rgba(c)))
-                    .unwrap_or_default();
-                out.push_str(&format!("<span font_family=\"monospace\"{bg}>"));
+                // The chip, from the ONE builder the preview's table cell also reads.
+                // `chip` is the caller's, because the fill is a function of the SURFACE
+                // this run sits on — a banded heading, a quote panel, a header cell —
+                // and only the caller knows which (`palette::CodeChips`; ScrAP-356).
+                let span = crate::pangospan::code(chip);
+                out.push_str(&span.open);
                 out.push_str(&escape_pango(c));
-                out.push_str("</span>");
+                out.push_str(span.close);
             }
-            Inline::Emphasis(v) => tag(out, "i", "", v, doc, theme),
+            Inline::Emphasis(v) => tag(out, "i", "", v, doc, theme, chip),
             // Themed: `bold_weight` / `supsub_scale` + rise — the SAME `Typography`
             // methods the table cell uses (`renderer::bold_open` etc.), called
             // directly here because this sink resolves against an EXPLICIT `Theme`
             // (System-light for the PDF, TDD 25.9), never `crate::theme::active()`
             // (TDD 18.18 / plan constraint 1 — now a three-way parity, not two).
-            Inline::Strong(v) => span(out, &crate::pangospan::bold(theme), v, doc, theme),
+            Inline::Strong(v) => span(out, &crate::pangospan::bold(theme), v, doc, theme, chip),
             // Themed: the strike colour — the same key the body tag and the table cell
             // read (TDD 18.23). Unset ⇒ the bare `<s>` this sink always emitted, which
             // is why the pair comes from one call (ScrAP-163).
-            Inline::Strikethrough(v) => span(out, &crate::pangospan::strike(theme), v, doc, theme),
-            Inline::Superscript(v) => {
-                span(out, &crate::pangospan::superscript(theme), v, doc, theme)
+            Inline::Strikethrough(v) => {
+                span(out, &crate::pangospan::strike(theme), v, doc, theme, chip)
             }
-            Inline::Subscript(v) => span(out, &crate::pangospan::subscript(theme), v, doc, theme),
+            Inline::Superscript(v) => span(
+                out,
+                &crate::pangospan::superscript(theme),
+                v,
+                doc,
+                theme,
+                chip,
+            ),
+            Inline::Subscript(v) => span(
+                out,
+                &crate::pangospan::subscript(theme),
+                v,
+                doc,
+                theme,
+                chip,
+            ),
             // The SAME span the preview's table cell emits, from the one builder — it
             // was a second copy, byte-identical except for `mark_fg`, and that single
             // difference is the whole mechanism behind `mark_fg` never reaching the
             // page (POLICY "One theme key, every application path").
-            Inline::Highlight(v) => span(out, &crate::pangospan::mark(theme), v, doc, theme),
+            Inline::Highlight(v) => span(out, &crate::pangospan::mark(theme), v, doc, theme, chip),
             Inline::Claim {
                 idx,
                 tail,
@@ -72,6 +95,7 @@ fn emit_markup(inlines: &[Inline], doc: &ExportDoc, theme: &Theme, out: &mut Str
                     v,
                     doc,
                     theme,
+                    chip,
                 );
                 // The comment as a margin note beside its claim — the in-file review
                 // loop is the product thesis, and an export that drops the review is
@@ -121,7 +145,7 @@ fn emit_markup(inlines: &[Inline], doc: &ExportDoc, theme: &Theme, out: &mut Str
                 // so a bare link label loses the only thing it carried.
                 // The ink, the underline STYLE and its own optional colour, from the
                 // one builder (TDD 18.23).
-                span(out, &crate::pangospan::link(theme), inner, doc, theme);
+                span(out, &crate::pangospan::link(theme), inner, doc, theme, chip);
                 let label = super::plain_text(inner);
                 if !href.is_empty() && *href != label {
                     out.push_str(&escape_pango(&format!(" ({href})")));
@@ -232,12 +256,20 @@ fn finish_heading_span(attrs: String) -> (String, &'static str) {
     }
 }
 
-fn tag(out: &mut String, name: &str, attrs: &str, v: &[Inline], doc: &ExportDoc, theme: &Theme) {
+fn tag(
+    out: &mut String,
+    name: &str,
+    attrs: &str,
+    v: &[Inline],
+    doc: &ExportDoc,
+    theme: &Theme,
+    chip: Option<gtk::gdk::RGBA>,
+) {
     out.push('<');
     out.push_str(name);
     out.push_str(attrs);
     out.push('>');
-    emit_markup(v, doc, theme, out);
+    emit_markup(v, doc, theme, chip, out);
     out.push_str("</");
     out.push_str(name);
     out.push('>');
@@ -254,9 +286,10 @@ fn span(
     v: &[Inline],
     doc: &ExportDoc,
     theme: &Theme,
+    chip: Option<gtk::gdk::RGBA>,
 ) {
     out.push_str(&s.open);
-    emit_markup(v, doc, theme, out);
+    emit_markup(v, doc, theme, chip, out);
     out.push_str(s.close);
 }
 
@@ -310,7 +343,7 @@ mod markup_tests {
         let Some(Block::Paragraph(inlines)) = d.blocks.first() else {
             panic!("expected one paragraph: {:?}", d.blocks);
         };
-        let out = inline_markup(inlines, &d, &theme);
+        let out = inline_markup(inlines, &d, &theme, None);
         assert!(out.contains("background=\"#1a334d\""), "{out}");
         assert!(out.contains("foreground=\"#ffffff\""), "{out}");
         assert!(out.contains("[my note]"), "{out}");
@@ -325,7 +358,7 @@ mod markup_tests {
         let Some(Block::Paragraph(inlines)) = d.blocks.first() else {
             panic!("expected one paragraph: {:?}", d.blocks);
         };
-        let out = inline_markup(inlines, &d, &theme);
+        let out = inline_markup(inlines, &d, &theme, None);
         assert!(out.contains("weight=\"650\""), "{out}");
         assert!(out.contains("size=\"75%\""), "{out}");
         // Rise, in Pango units — same `value * pango::SCALE` the body tag and the
@@ -403,7 +436,7 @@ mod markup_tests {
         };
 
         // Unset ⇒ byte-identical to what this sink always emitted.
-        let plain = inline_markup(inlines, &d, &theme);
+        let plain = inline_markup(inlines, &d, &theme, None);
         assert!(plain.contains("<s>gone</s>"), "{plain}");
         assert!(plain.contains("underline=\"single\""), "{plain}");
         assert!(!plain.contains("strikethrough_color"), "{plain}");
@@ -412,7 +445,7 @@ mod markup_tests {
         theme.strikethrough_color = Some(gtk::gdk::RGBA::new(1.0, 0.0, 0.0, 1.0));
         theme.link_underline = crate::theme::LineStyle::Wavy;
         theme.link_underline_color = Some(gtk::gdk::RGBA::new(0.0, 1.0, 0.0, 1.0));
-        let themed = inline_markup(inlines, &d, &theme);
+        let themed = inline_markup(inlines, &d, &theme, None);
         assert!(
             themed.contains("strikethrough=\"true\" strikethrough_color=\"#ff0000\""),
             "{themed}"

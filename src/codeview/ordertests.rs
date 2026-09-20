@@ -262,7 +262,10 @@ fn a_code_card_inside_a_quote_lands_on_the_quote_panel() {
         gdk::RGBA::new(0.0, 1.0, 0.0, 1.0),
     );
     view.set_code_blocks(
-        vec![BufferSpan::new(chars(intro), chars(&text) - 1)],
+        vec![crate::span::CodeBlockSpan {
+            span: BufferSpan::new(chars(intro), chars(&text) - 1),
+            quote_depth: 0,
+        }],
         gdk::RGBA::new(0.8, 0.2, 0.0, 1.0),
     );
 
@@ -380,7 +383,10 @@ fn the_accent_bar_lands_on_a_quoted_code_card() {
         gdk::RGBA::new(0.0, 1.0, 0.0, 1.0),
     );
     view.set_code_blocks(
-        vec![BufferSpan::new(chars(intro), chars(&text) - 1)],
+        vec![crate::span::CodeBlockSpan {
+            span: BufferSpan::new(chars(intro), chars(&text) - 1),
+            quote_depth: 0,
+        }],
         gdk::RGBA::new(0.8, 0.2, 0.0, 1.0),
     );
 
@@ -427,7 +433,10 @@ fn a_list_marker_lands_on_a_code_card_sharing_its_row() {
     let text = format!("{fenced}plain second item\n");
     let view = view_with(&text);
     view.set_code_blocks(
-        vec![BufferSpan::new(0, chars(fenced) - 1)],
+        vec![crate::span::CodeBlockSpan {
+            span: BufferSpan::new(0, chars(fenced) - 1),
+            quote_depth: 0,
+        }],
         gdk::RGBA::new(0.8, 0.2, 0.0, 1.0),
     );
     view.set_list_markers(
@@ -462,7 +471,10 @@ fn a_copy_button_lands_on_its_own_code_card() {
     let text = "short\ncode\nlines\n";
     let view = view_with(text);
     view.set_code_blocks(
-        vec![BufferSpan::new(0, chars(text) - 1)],
+        vec![crate::span::CodeBlockSpan {
+            span: BufferSpan::new(0, chars(text) - 1),
+            quote_depth: 0,
+        }],
         gdk::RGBA::new(0.8, 0.2, 0.0, 1.0),
     );
     // Reveal the button: it is drawn only for the block under the pointer or the one

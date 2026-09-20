@@ -23,8 +23,8 @@ mod spec;
 pub(crate) use spec::{list_indent_px, quote_indent_px};
 
 use crate::config::config;
-use crate::palette::{to_hex_opaque, Palette};
-use crate::theme::Theme;
+use crate::palette::{to_hex_opaque, CodeRunSurface, Palette};
+use crate::theme::{Theme, HEADING_LEVELS};
 use gtk::prelude::*;
 use gtk::{TextBuffer, TextTag};
 
@@ -59,6 +59,17 @@ const LI_NAMES: [&str; MAX_LIST_DEPTH as usize] = ["li-1", "li-2", "li-3", "li-4
 pub(crate) const MAX_QUOTE_DEPTH: u8 = 6;
 
 const BQ_NAMES: [&str; MAX_QUOTE_DEPTH as usize] = ["bq-1", "bq-2", "bq-3", "bq-4", "bq-5", "bq-6"];
+
+/// The `code-block-bq-{depth}` name table, indexed by `depth - 1` — a fenced block's body
+/// tag inside a quote of that depth. Same shape and same reason as [`BQ_NAMES`].
+const CODE_BLOCK_BQ_NAMES: [&str; MAX_QUOTE_DEPTH as usize] = [
+    "code-block-bq-1",
+    "code-block-bq-2",
+    "code-block-bq-3",
+    "code-block-bq-4",
+    "code-block-bq-5",
+    "code-block-bq-6",
+];
 const LI_CONT_NAMES: [&str; MAX_LIST_DEPTH as usize] = [
     "li-1-cont",
     "li-2-cont",
@@ -66,6 +77,38 @@ const LI_CONT_NAMES: [&str; MAX_LIST_DEPTH as usize] = [
     "li-4-cont",
     "li-5-cont",
     "li-6-cont",
+];
+
+/// The `code-inline-h{level}` name table, indexed by level — the chip an inline-code
+/// run wears inside a BANDED heading, one tag per level because each level's band and
+/// ink are its own. Same shape and same reason as `LI_NAMES`/`BQ_NAMES` above: the
+/// strings exist once, and [`TagName::name`] is the only reader.
+const CODE_INLINE_H_NAMES: [&str; HEADING_LEVELS] = [
+    "code-inline-h1",
+    "code-inline-h2",
+    "code-inline-h3",
+    "code-inline-h4",
+    "code-inline-h5",
+];
+
+/// The chip an inline-code run wears inside a quote the theme fills a panel for.
+const CODE_INLINE_QUOTE_NAME: &str = "code-inline-quote";
+
+/// **The inline-code chip's whole surface family, in one place.**
+///
+/// [`setup_tags_with_theme`] registers from this and every test that walks the family
+/// reads it, so a surface added to `CodeRunSurface` cannot reach the vocabulary while
+/// missing a registration — or reach a registration while missing the checks that hold
+/// the family's invariants (the wrap mode GTK4Rs/AP-136 is about, and the annotation
+/// highlight's priority over every chip).
+pub(crate) const CODE_INLINE_SURFACES: [CodeRunSurface; HEADING_LEVELS + 2] = [
+    CodeRunSurface::Page,
+    CodeRunSurface::Heading(0),
+    CodeRunSurface::Heading(1),
+    CodeRunSurface::Heading(2),
+    CodeRunSurface::Heading(3),
+    CodeRunSurface::Heading(4),
+    CodeRunSurface::Quote,
 ];
 
 /// The complete, closed vocabulary of the **fixed** `GtkTextTag` names used by the
@@ -150,10 +193,36 @@ pub(crate) enum TagName {
     Mark,
     Superscript,
     Subscript,
-    /// Inline `code` span.
-    CodeInline,
-    /// A fenced code block's monospace + inset-margin body tag.
-    CodeBlock,
+    /// Inline `code` span, **on the surface it sits on**.
+    ///
+    /// One tag per surface rather than one tag, because the chip's fill is a function
+    /// of what is drawn BEHIND the run and the buffer cannot ask that at paint time: a
+    /// tag carries one background, so the surfaces have to be separate tags and the
+    /// renderer has to pick. A single page-derived tag is what put a pale page chip
+    /// under a heading's cream ink on a brown band (ScrAP-356).
+    ///
+    /// **The chip sets no foreground on any surface**, so the heading, quote or body
+    /// ink above it still wins — which is the whole point: the fill moves to meet the
+    /// ink rather than the ink being re-stated per surface.
+    CodeInline {
+        on: CodeRunSurface,
+    },
+    /// A fenced code block's monospace + inset-margin body tag, **at the quote depth it
+    /// sits at** (0 = top level).
+    ///
+    /// One tag per depth for the same reason [`TagName::Blockquote`] is non-accumulative:
+    /// a margin is ONE property, and a line inside a quote carries both tags, so only the
+    /// higher-priority one is read. The depth-0 tag is registered before the `bq-{depth}`
+    /// family and deliberately loses to it — that is what keeps quoted prose and quoted
+    /// code on one content column. But a code block also needs the card's inner padding,
+    /// and the block's card is SELF-DRAWN, so the padding exists only as this margin: at
+    /// depth 0 it is `code_pad` past the page's column, and at depth d it must be
+    /// `code_pad` past THAT depth's column. The quoted variants are therefore registered
+    /// after the quote family and win, and the card is inset by the quote's own indent so
+    /// the padding is the same on every surface (TDD 18.62).
+    CodeBlock {
+        quote_depth: u8,
+    },
     /// Top-inner-padding tag for a code block's first line.
     CodeBlockTop,
     /// Bottom-inner-padding tag for a code block's last line.
@@ -207,8 +276,23 @@ impl TagName {
             TagName::Mark => "mark",
             TagName::Superscript => "superscript",
             TagName::Subscript => "subscript",
-            TagName::CodeInline => "code-inline",
-            TagName::CodeBlock => "code-block",
+            TagName::CodeInline { on } => match on {
+                CodeRunSurface::Page => "code-inline",
+                // Clamped like the two families above rather than indexed raw: the
+                // renderer folds h6-and-deeper onto h5 before it reaches here, and a
+                // total answer is what keeps a future level bump from arming a panic
+                // on the render path.
+                CodeRunSurface::Heading(level) => {
+                    CODE_INLINE_H_NAMES[level.min(HEADING_LEVELS - 1)]
+                }
+                CodeRunSurface::Quote => CODE_INLINE_QUOTE_NAME,
+            },
+            TagName::CodeBlock { quote_depth } => match quote_depth {
+                0 => "code-block",
+                // Clamped like every other depth family here: the renderer clamps at the
+                // push, and a total answer keeps a future bound change off the paint path.
+                d => CODE_BLOCK_BQ_NAMES[usize::from(d.min(MAX_QUOTE_DEPTH)) - 1],
+            },
             TagName::CodeBlockTop => "code-block-top",
             TagName::CodeBlockBottom => "code-block-bottom",
             TagName::Link => "link",
@@ -271,7 +355,6 @@ pub(crate) fn setup_tags_with_theme(buf: &TextBuffer, palette: &Palette, zoom: f
         buf.tag_table().add(&tag);
     };
 
-    let code_inline_bg = to_hex_opaque(palette.code_inline_bg);
     // Note: the code-*block* background is self-drawn by codeview::CodePreviewView
     // (GTK4Rs/AP-21), not set here as a paragraph_background.
     let link_fg = to_hex_opaque(palette.link_fg);
@@ -492,25 +575,39 @@ pub(crate) fn setup_tags_with_theme(buf: &TextBuffer, palette: &Palette, zoom: f
     // the tag set — so the monospace span holds on a serif page).
     let code_font = config().code.font.clone();
     let code_pad = px(config().code.block_padding);
-    add(TagName::CodeInline.name(), &|t| {
-        t.set_family(Some(&code_font));
-        t.set_background(Some(&code_inline_bg));
-        // Long inline code spans have no spaces, so WrapMode::Word pushes the
-        // entire span to the next line.  Char breaks at character boundaries
-        // within the span, keeping it on the same line as the preceding text.
-        //
-        // Char, NOT WordChar — a screen reader reading a run over this tag aborts
-        // the app on GTK 4.6: its AT-SPI text-attribute path casts the raw
-        // GtkWrapMode straight to PangoWrapMode (gtkatspitextbuffer.c:259, Site B),
-        // and WordChar(3) is out of PangoWrapMode's range → `pango_wrap_mode_to_string`
-        // hits `g_assert_not_reached()` → `Aborted` (GTK4Rs/AP-136;
-        // researcher-verified against 4.6.9 source). Char(1) and Word(2) are both in
-        // range (Char→"char", Word→mislabelled "word-char" but no crash); Char keeps
-        // the char-boundary break WordChar gave us. The buggy cast is 4.6-ONLY —
-        // fixed in gtk-4-8+ (translated via gtk_wrap_mode_to_string) — so WordChar
-        // may be restored once the toolkit floor moves to ≥4.8.
-        t.set_wrap_mode(gtk::WrapMode::Char);
-    });
+    // ONE registration per surface an inline-code run can sit on. The family, the
+    // wrap mode and the ink (none) are identical across all of them — only the chip's
+    // fill differs, and it differs because the surface does.
+    //
+    // A surface whose colour is unknown (a level banded with a TILE alone) registers
+    // its tag with NO background at all: absent, not guessed. The run keeps its
+    // monospace face on the tile, which is the same "absent, not transparent" verdict
+    // `Band::is_present` gives the band itself.
+    let chips = palette.code_chips;
+    for on in CODE_INLINE_SURFACES {
+        let fill = chips.hex_on(on.fill());
+        add(TagName::CodeInline { on }.name(), &|t| {
+            t.set_family(Some(&code_font));
+            if let Some(hex) = &fill {
+                t.set_background(Some(hex));
+            }
+            // Long inline code spans have no spaces, so WrapMode::Word pushes the
+            // entire span to the next line.  Char breaks at character boundaries
+            // within the span, keeping it on the same line as the preceding text.
+            //
+            // Char, NOT WordChar — a screen reader reading a run over this tag aborts
+            // the app on GTK 4.6: its AT-SPI text-attribute path casts the raw
+            // GtkWrapMode straight to PangoWrapMode (gtkatspitextbuffer.c:259, Site B),
+            // and WordChar(3) is out of PangoWrapMode's range → `pango_wrap_mode_to_string`
+            // hits `g_assert_not_reached()` → `Aborted` (GTK4Rs/AP-136;
+            // researcher-verified against 4.6.9 source). Char(1) and Word(2) are both in
+            // range (Char→"char", Word→mislabelled "word-char" but no crash); Char keeps
+            // the char-boundary break WordChar gave us. The buggy cast is 4.6-ONLY —
+            // fixed in gtk-4-8+ (translated via gtk_wrap_mode_to_string) — so WordChar
+            // may be restored once the toolkit floor moves to ≥4.8.
+            t.set_wrap_mode(gtk::WrapMode::Char);
+        });
+    }
     // The block background is NOT a paragraph_background — that fill is pinned to
     // the text's left/right margin and so can never show inner horizontal padding
     // (GTK4Rs/AP-21).  Instead `codeview::CodePreviewView` self-draws the block rect under
@@ -518,7 +615,7 @@ pub(crate) fn setup_tags_with_theme(buf: &TextBuffer, palette: &Palette, zoom: f
     // (view margin + pad) so it sits padded inside that drawn rect.
     let view_lm = px(config().view.left_margin);
     let view_rm = px(config().view.right_margin);
-    add(TagName::CodeBlock.name(), &|t| {
+    add(TagName::CodeBlock { quote_depth: 0 }.name(), &|t| {
         t.set_family(Some(&code_font));
         t.set_left_margin(view_lm + code_pad);
         t.set_right_margin(view_rm + code_pad);
@@ -588,6 +685,25 @@ pub(crate) fn setup_tags_with_theme(buf: &TextBuffer, palette: &Palette, zoom: f
             t.set_left_margin(view_lm + indent);
             t.set_right_margin(view_rm + indent);
         });
+    }
+
+    // A quoted code block's body tag, one per depth, registered HERE — after the quote
+    // family — because that is the whole point: it must out-prioritise the `bq-{depth}`
+    // margin its lines also carry, so the block's text keeps the card's inner padding
+    // instead of sitting flush against the card edge (TDD 18.62). The card itself is
+    // inset by `indent`, so the gap between card and text is `code_pad` at every depth,
+    // exactly as at top level.
+    for depth in 1..=MAX_QUOTE_DEPTH {
+        let indent = spec::quote_indent_px(i32::from(depth), zoom, metrics);
+        let code_font = code_font.clone();
+        add(
+            TagName::CodeBlock { quote_depth: depth }.name(),
+            &move |t| {
+                t.set_family(Some(&code_font));
+                t.set_left_margin(view_lm + indent + code_pad);
+                t.set_right_margin(view_rm + indent + code_pad);
+            },
+        );
     }
 
     // Uniform per-level content margins for list items, one per nesting depth (up to

@@ -406,9 +406,14 @@ impl Renderer {
         // [block_start, end_iter). The block's *background* is self-drawn by the preview
         // view — record the block's char extent for it (GTK4Rs/AP-21).
         let ei = self.tip();
-        self.apply_tag_per_line(TagName::CodeBlock, block_start, ei.offset());
-        self.code_blocks
-            .push(crate::span::BufferSpan::new(block_start, ei.offset()));
+        let quote_depth = (self.inter.blockquote_depth as u8).min(crate::tags::MAX_QUOTE_DEPTH);
+        self.apply_tag_per_line(TagName::CodeBlock { quote_depth }, block_start, ei.offset());
+        // The depth travels WITH the span: the card is self-drawn, so nothing downstream
+        // can ask the tags how far this block's text was pushed in (`CodeBlockSpan`).
+        self.code_blocks.push(crate::span::CodeBlockSpan {
+            span: crate::span::BufferSpan::new(block_start, ei.offset()),
+            quote_depth,
+        });
 
         // 12 px top padding on the first line; 12 px bottom padding on the last.
         // pixels_above/below_lines expand the paragraph height, and paragraph_background
@@ -462,9 +467,11 @@ mod code_block_per_line_tests {
         buf.tag_table()
             .add(&gtk::TextTag::new(Some("code-block-bottom")));
 
+        let theme = crate::theme::active();
         let mut r = Renderer::new(
             buf.clone(),
-            crate::theme::active(),
+            theme.clone(),
+            crate::palette::Palette::for_theme(&theme).code_chips,
             "InspiredGitHub".to_string(),
             None,
             false,

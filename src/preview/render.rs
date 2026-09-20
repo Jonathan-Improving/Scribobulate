@@ -531,18 +531,79 @@ mod gtk_integration_tests {
 
         // Site B — the CodeInline tag's wrap mode (per-run tag attributes), read from
         // the rendered view's own buffer (setup_tags installed it during render).
-        let code_tag = view
-            .buffer()
-            .tag_table()
-            .lookup(crate::tags::TagName::CodeInline.name())
-            .expect("code-inline tag installed by setup_tags");
-        assert_ne!(
-            code_tag.wrap_mode(),
-            WrapMode::WordChar,
-            "GTK4Rs/AP-136: the code-inline tag must not use WrapMode::WordChar — it aborts the \
-             app under a screen reader on GTK 4.6 (gtkatspitextbuffer.c Site B)"
+        //
+        // EVERY tag in the family, not just the page's: the chip is one tag per
+        // surface now, and a screen reader reading a run inside a banded heading takes
+        // the same AT-SPI path. A per-surface tag that missed this is an abort nobody
+        // would reproduce without that surface in the document.
+        for on in crate::tags::CODE_INLINE_SURFACES {
+            let name = crate::tags::TagName::CodeInline { on }.name();
+            let code_tag = view
+                .buffer()
+                .tag_table()
+                .lookup(name)
+                .unwrap_or_else(|| panic!("{name} installed by setup_tags"));
+            assert_ne!(
+                code_tag.wrap_mode(),
+                WrapMode::WordChar,
+                "GTK4Rs/AP-136: {name} must not use WrapMode::WordChar — it aborts the \
+                 app under a screen reader on GTK 4.6 (gtkatspitextbuffer.c Site B)"
+            );
+            assert_eq!(code_tag.wrap_mode(), WrapMode::Char);
+        }
+    }
+
+    /// TDD 18.61 / Document Rendering CAM row 12 — **a table cell's inline code wears
+    /// the same chip prose does**, tinted from the cell's OWN surface: the header's
+    /// fill for a header cell, the page for a body one.
+    ///
+    /// The cell path emitted a bare `<tt>` — monospace and no chip at all — so inline
+    /// code in a table looked nothing like inline code in the paragraph above it, and
+    /// the header cell (the one sitting on a fill) was the case that looked most
+    /// wrong. Asserted on the cell's own markup, because that is where the two paths
+    /// could drift.
+    #[gtktest::test]
+    fn a_table_cells_inline_code_wears_its_surfaces_chip() {
+        const MD: &str = "| head `tcode` | b |\n|---|---|\n| body `bcode` | 2 |\n";
+        let mut themes = crate::theme::themes();
+        themes.merge_over_for_test(
+            "[themes.chips]\nbackground = \"#ffffff\"\nforeground = \"#111111\"\n\
+             table_head_bg = \"#22603a\"\ntable_head_fg = \"#ffd400\"\n",
         );
-        assert_eq!(code_tag.wrap_mode(), WrapMode::Char);
+        let theme = themes.resolve("chips");
+        let chips = crate::palette::Palette::for_theme(&theme).code_chips;
+        let _active = crate::theme::activate_for_test(theme);
+
+        let pane =
+            crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default(), 0);
+        let view = crate::preview::view_of(&pane).expect("the preview tree render() built");
+        let labels = crate::preview::cell_search_targets(&view);
+        let markup_of = |word: &str| {
+            labels
+                .iter()
+                .find(|(_, l)| l.text().contains(word))
+                .map(|(_, l)| l.label().to_string())
+                .unwrap_or_else(|| panic!("no cell holds {word}"))
+        };
+
+        use crate::palette::CodeSurface;
+        for (word, surface) in [
+            ("tcode", CodeSurface::TableHead),
+            ("bcode", CodeSurface::Page),
+        ] {
+            let markup = markup_of(word);
+            let want = crate::palette::to_hex_rgba(
+                chips.on(surface).expect("this surface carries a chip"),
+            );
+            assert!(
+                markup.contains(&format!("background=\"{want}\"")),
+                "the {word} cell must wear its surface's chip ({want}): {markup}"
+            );
+            assert!(
+                markup.contains("font_family=\"monospace\""),
+                "and keep the code face: {markup}"
+            );
+        }
     }
 
     /// A link in a **mixed** table cell — a cell holding a link *plus* other content —

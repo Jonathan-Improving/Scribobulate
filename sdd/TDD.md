@@ -3011,6 +3011,24 @@ appearance that predates the feature; `Sepia` is the book-like reading theme.
 - **And** the *fitted* rendering needs no conversion and must not be given one — it divides a point-space height by the source's pixel height, so its units already cancel; the corner rendering keeps the source's own size and does need it. The two arms of that decision are in different unit regimes on purpose
 - **Rationale:** an unconverted picture prints at 4/3 its size, uniformly across every decoration, so the page looks internally consistent and deliberate and nothing on it can be compared against anything else on it. Only the page against the screen shows it — and a bar tile sized to a width metric is clipped a quarter of the way down its right edge, silently
 
+### 18.61 An inline-code chip takes the colour of the surface it sits on
+- **Given** a theme that draws a surface behind text — a heading band at any level, a blockquote panel, a table header's fill — and a document with inline `code` on each of them
+- **When** it is rendered, and separately exported to HTML and to PDF
+- **Then** each run's chip is derived from **that surface** and not from the page: a banded level's from its own band and ink, a quoted run's from the panel, a header cell's from the header's fill — on all three surfaces, in all three renderings
+- **And** the run's ink is left alone, so a heading, a quote or a header keeps the colour it chose for itself — and the resulting pair clears the 4.5:1 text floor wherever the surface's own ink does, which means the chip is tinted AWAY from the ink on a surface already sitting at that floor
+- **And** a surface whose colour is unknown — a level banded with a tile and no fill stated — takes **no chip at all** rather than the page's, exactly as an absent band draws nothing rather than something transparent
+- **And** a table CELL's inline code wears the same chip prose does (it wore none at all), and body prose, an unbanded heading and a quote the theme does not fill all keep the page's
+- **Rationale:** a chip derived from the page carries the page's assumption that nothing else is drawn there. Measured: Pixel Quest's h2 band put cream heading ink on a pale page chip at ~1.3:1 — one unreadable word inside a legible heading, on a theme whose every other pairing had been tuned (ScrAP-356)
+
+### 18.62 A code block's card sits on the surface it is quoted in, rather than replacing it
+- **Given** a theme that fills a blockquote panel, and a document with a fenced code block inside a quote at any depth
+- **When** it is rendered
+- **Then** the card is inset by that depth's quote indent on **both** sides, so the panel — and any decoration drawn on it — still frames the block on every side instead of ending wherever the quote holds code
+- **And** the gap between the card's edge and the code inside it is the same inner padding a top-level block has, at every depth and every zoom, which means the quoted block's own margin out-prioritises the quote's rather than being lost to it
+- **And** the card keeps its colour: unlike a chip, a card does not take the surface's — it is drawn on a backdrop the syntax palette is tuned for, and a card that changed colour with what is behind it would put third-party token colours on an untested fill
+- **Rationale:** the card is **self-drawn** (GTK4Rs/AP-21), so no tag tells it how far the text it covers was pushed in; drawn at the page's content column it is exactly the quote panel's own rectangle and erases it. The distinction the two decorations draw is the useful one: **a chip modulates its surface, a card occludes it** — so a chip owes the surface its colour (18.61) and a card owes it its geometry
+
+
 ## 19. Local document-link navigation
 
 ### 19.1 A relative link to a Markdown sibling opens as a new tab

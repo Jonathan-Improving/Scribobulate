@@ -223,3 +223,22 @@ pub(crate) struct QuoteSpan {
     /// 1-based nesting depth: 1 is an unnested quote.
     pub(crate) depth: u8,
 }
+
+/// One fenced code block's buffer extent, together with the quote depth it sits at.
+///
+/// The depth travels with the span for the same reason [`QuoteSpan`]'s does: the card is
+/// self-drawn (GTK4Rs/AP-21), so the painter gets no tag margins and must be TOLD how far
+/// the block's text was pushed in. Without it every card is drawn at the page's content
+/// column, which for a quoted block means the card covers the quote panel edge to edge
+/// and the quote stops being visible wherever it contains code (TDD 18.62).
+///
+/// `quote_depth` is 0 for a block at top level and otherwise 1-based, already clamped to
+/// `tags::MAX_QUOTE_DEPTH` by the renderer — the same contract `QuoteSpan::depth` carries,
+/// so a painter can multiply by it without re-checking the bound.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct CodeBlockSpan {
+    /// The block's own extent: `[first char of the first code line, end of the last)`.
+    pub(crate) span: BufferSpan,
+    /// 0 at top level; otherwise the 1-based depth of the quote enclosing it.
+    pub(crate) quote_depth: u8,
+}

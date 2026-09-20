@@ -178,7 +178,15 @@ impl Layouter<'_> {
         cells
             .iter()
             .map(|cell| {
-                let markup = inline_markup(cell, doc, self.theme);
+                // A header cell's chip is tinted from the HEADER's own fill, a body
+                // cell's from the page — the same split the preview's cell markup
+                // makes (`palette::CodeSurface`).
+                let surface = if head {
+                    crate::palette::CodeSurface::TableHead
+                } else {
+                    crate::palette::CodeSurface::Page
+                };
+                let markup = inline_markup(cell, doc, self.theme, self.chips.on(surface));
                 if head {
                     format!("<span{}>{markup}</span>", self.theme.typography.bold_attr())
                 } else {

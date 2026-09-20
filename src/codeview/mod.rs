@@ -103,7 +103,7 @@ mod imp {
 
     pub(crate) struct CodePreviewView {
         /// (first-char offset, exclusive end offset) per fenced code block.
-        pub(crate) blocks: RefCell<Vec<crate::span::BufferSpan>>,
+        pub(crate) blocks: RefCell<Vec<crate::span::CodeBlockSpan>>,
         pub(crate) bg: RefCell<gdk::RGBA>,
         /// (first-char offset, exclusive end offset) per blockquote, + the accent-bar
         /// colour. Blockquotes are buffer text now; the view draws the left bar over
@@ -1067,7 +1067,7 @@ impl CodePreviewView {
     /// Set the code blocks and fill color (called after a (re-)render), then
     /// repaint. Extents are measured live in `snapshot_layer`, so there is no
     /// cache to refresh — a redraw is all that's needed.
-    pub(crate) fn set_code_blocks(&self, blocks: Vec<crate::span::BufferSpan>, bg: gdk::RGBA) {
+    pub(crate) fn set_code_blocks(&self, blocks: Vec<crate::span::CodeBlockSpan>, bg: gdk::RGBA) {
         use gtk::subclass::prelude::*;
         let imp = self.imp();
         imp.blocks.replace(blocks);
@@ -1255,7 +1255,7 @@ impl CodePreviewView {
     /// if one ever does.
     pub(crate) fn code_block_text(&self, idx: usize) -> Option<String> {
         use gtk::subclass::prelude::*;
-        let span = *self.imp().blocks.borrow().get(idx)?;
+        let span = self.imp().blocks.borrow().get(idx)?.span;
         let buffer = self.buffer();
         let start = buffer.iter_at_offset(span.start);
         let end = buffer.iter_at_offset(span.end);
@@ -1409,7 +1409,7 @@ impl Default for CodePreviewView {
 mod gtk_integration_tests {
     use super::geometry::span_card_y_extent;
     use super::painttest::{
-        contains_rgb, framebuffer_of, present_for_paint, write_half_clear_tile,
+        contains_rgb, framebuffer_of, present_for_paint, rows_with, write_half_clear_tile,
     };
     use super::*;
 
@@ -1871,6 +1871,68 @@ mod gtk_integration_tests {
              the fill is not a precondition for the tile (TDD 18.59)"
         );
         crate::sprite::clear_cache();
+    }
+
+    /// **A quoted code block's card sits ON the panel, it does not replace it (TDD 18.62).**
+    ///
+    /// The oracle is per ROW, not presence: the panel runs the whole quote, so a card
+    /// drawn at the page's content column leaves green on the quote's OTHER rows and
+    /// `contains_rgb` alone is satisfied by a card that erased the panel everywhere it
+    /// covered. What has to be true is that on the card's own rows the panel is still
+    /// visible — which it can only be if the card was inset within it.
+    ///
+    /// Card and panel are primary colours, and distinct from the bar for the reason
+    /// [`quoted_framebuffer`] states: a shared colour would let the wrong decoration
+    /// satisfy the assertion.
+    #[gtktest::test]
+    fn a_quoted_code_cards_panel_survives_on_the_cards_own_rows() {
+        const W: usize = 400;
+        const PANEL: (u8, u8, u8) = (0x00, 0xff, 0x00);
+        const CARD: (u8, u8, u8) = (0xff, 0x00, 0x00);
+
+        let mut themes = crate::theme::themes();
+        themes.merge_over_for_test(
+            "[themes.panelled]\nbackground = \"#ffffff\"\nforeground = \"#000000\"\n\
+             blockquote_bg = \"#00ff00\"\nblockquote_bar_color = \"#0000ff\"\n",
+        );
+        let _theme = crate::theme::activate_for_test(themes.resolve("panelled"));
+
+        let view = CodePreviewView::new();
+        view.buffer().set_text("A quoted line\ncode line\n");
+        let text_len = view.buffer().char_count();
+        view.set_blockquotes(
+            vec![crate::span::QuoteSpan {
+                span: crate::span::BufferSpan::new(0, text_len),
+                depth: 1,
+            }],
+            gdk::RGBA::new(0.0, 0.0, 1.0, 1.0),
+        );
+        view.set_code_blocks(
+            vec![crate::span::CodeBlockSpan {
+                span: crate::span::BufferSpan::new(14, text_len),
+                quote_depth: 1,
+            }],
+            gdk::RGBA::new(1.0, 0.0, 0.0, 1.0),
+        );
+        let window = present_for_paint(&view);
+        let data = framebuffer_of(&view, W as f64, 200.0);
+        window.destroy();
+
+        let card_rows = rows_with(&data, CARD, W);
+        let panel_rows = rows_with(&data, PANEL, W);
+        assert!(card_rows.iter().any(|&r| r), "no card reached the frame");
+        let covered: Vec<usize> = card_rows
+            .iter()
+            .zip(&panel_rows)
+            .enumerate()
+            .filter(|(_, (card, panel))| **card && !**panel)
+            .map(|(y, _)| y)
+            .collect();
+        assert!(
+            covered.is_empty(),
+            "the card erased the quote panel on rows {covered:?} — a quoted card must be \
+             inset by the quote's own indent so the panel still frames it (TDD 18.62)"
+        );
     }
 
     /// One quoted line, presented and captured — the fixture
@@ -2441,11 +2503,11 @@ mod gtk_integration_tests {
         let mut checked = 0usize;
         for cb in &blocks {
             let (_card_top, card_bottom) =
-                span_card_y_extent(&view, &buffer, *cb, vis_start, vis_end, vtop, vbot);
+                span_card_y_extent(&view, &buffer, cb.span, vis_start, vis_end, vtop, vbot);
             // The line immediately AFTER the block starts here — the card must not paint
             // over its top (the GTK4Rs/AP-127 overlap was exactly the card reaching 12 px past
             // its own last line onto the abutting loose paragraph).
-            let next_line = buffer.iter_at_offset(cb.last_content()).line() + 1;
+            let next_line = buffer.iter_at_offset(cb.span.last_content()).line() + 1;
             if let Some(next) = buffer.iter_at_line(next_line) {
                 let (next_top, _) = view.line_yrange(&next);
                 let next_top = next_top as f32;

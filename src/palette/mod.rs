@@ -3,6 +3,9 @@ use crate::renderer::syntect;
 use gtk::gdk;
 use gtk::prelude::*;
 
+mod codechips;
+pub(crate) use codechips::{surface_at, CodeChips, CodeRunSurface, CodeSurface};
+
 /// Convert a syntect highlighting color (0–255 channels) to a GDK RGBA.
 fn syntect_color_to_rgba(c: syntect::highlighting::Color) -> gdk::RGBA {
     gdk::RGBA::new(
@@ -148,7 +151,11 @@ pub(crate) struct Palette {
     pub(crate) page_bg: gdk::RGBA,
     /// The body foreground.
     pub(crate) body_fg: gdk::RGBA,
-    pub(crate) code_inline_bg: gdk::RGBA,
+    /// The inline-code chip's fill on **every surface it can sit on** — the page, a
+    /// banded heading level, a quote panel, a table's header cell. One field rather
+    /// than one colour, because the page's answer is wrong everywhere the preview
+    /// draws a surface of its own behind the text (`codechips`; ScrAP-356).
+    pub(crate) code_chips: CodeChips,
     pub(crate) code_block_bg: gdk::RGBA,
     pub(crate) link_fg: gdk::RGBA,
     /// Colour of the blockquote's left accent bar (drawn by the preview view, not a
@@ -330,10 +337,6 @@ impl Palette {
             }
         });
 
-        let code_inline_bg = theme
-            .code_inline_bg
-            .unwrap_or_else(|| mix_rgba(bg, fg, 0.08));
-
         // Canonical code-block panel: the syntax-highlight theme's own background is
         // the backdrop its token colors are tuned for, so prefer it — but only when
         // it is visibly distinct from the document background.  Some themes (e.g.
@@ -380,10 +383,20 @@ impl Palette {
             walk_to_contrast(better, selection_bg)
         });
 
+        // The header's fill is needed twice — by the struct below and by the chip
+        // that sits on it — so it is derived ONCE here rather than spelled at both.
+        let table_head_bg = theme
+            .table_head_bg
+            .unwrap_or_else(|| mix_rgba(bg, chrome_fg, 0.08));
+
         Palette {
             page_bg: bg,
             body_fg: fg,
-            code_inline_bg,
+            // Every surface's chip, resolved together: the page's is the one a theme
+            // may state, and each other surface is tinted from ITS OWN fill toward ITS
+            // OWN ink. A chip derived from the page is wrong on every drawn surface
+            // (`codechips`; ScrAP-356).
+            code_chips: CodeChips::resolve(theme, bg, fg, table_head_bg),
             code_block_bg,
             link_fg: theme.link_color.unwrap_or(link_fg),
             blockquote_bar: theme.blockquote_bar_color.unwrap_or(accent),
@@ -398,9 +411,7 @@ impl Palette {
             table_border: theme
                 .table_border_color
                 .unwrap_or_else(|| mix_rgba(bg, chrome_fg, 0.25)),
-            table_head_bg: theme
-                .table_head_bg
-                .unwrap_or_else(|| mix_rgba(bg, chrome_fg, 0.08)),
+            table_head_bg,
             rule: theme
                 .rule_color
                 .unwrap_or_else(|| mix_rgba(bg, chrome_fg, 0.25)),

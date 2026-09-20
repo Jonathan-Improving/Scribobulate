@@ -158,11 +158,23 @@ impl Renderer {
 
             Event::Code(t) => {
                 if self.in_table_cell() {
+                    // The cell twin of the body tag below, from the ONE span builder
+                    // both read (`pangospan::code`): a header cell's chip is tinted
+                    // from the header's own fill, a body cell's from the page. It was
+                    // a bare `<tt>` — monospace and no chip at all — so inline code in
+                    // a table looked nothing like inline code in prose (Document
+                    // Rendering CAM row 12).
+                    let surface = if self.table.as_ref().is_some_and(|ts| ts.in_head) {
+                        crate::palette::CodeSurface::TableHead
+                    } else {
+                        crate::palette::CodeSurface::Page
+                    };
+                    let span = crate::pangospan::code(self.code_chips.on(surface));
                     if let Some(ts) = &mut self.table {
                         let before = ts.cell_off;
-                        ts.cell_markup.push_str("<tt>");
+                        ts.cell_markup.push_str(&span.open);
                         ts.cell_markup.push_str(&glib::markup_escape_text(&t));
-                        ts.cell_markup.push_str("</tt>");
+                        ts.cell_markup.push_str(span.close);
                         ts.cell_plain.push_str(&t);
                         ts.cell_off += t.chars().count() as i32;
                         let after = ts.cell_off;
@@ -178,7 +190,16 @@ impl Renderer {
                     self.insert(&t);
                     let si = self.buf.iter_at_offset(start);
                     let ei = self.tip();
-                    self.apply(crate::tags::TagName::CodeInline, &si, &ei);
+                    // WHICH chip — decided by what is drawn behind this run, from the
+                    // one precedence function every sink reads. A run inside a banded
+                    // heading takes that level's chip even inside a quote; the band is
+                    // the nearer surface (`palette::surface_at`).
+                    let on = crate::palette::surface_at(
+                        &self.theme,
+                        self.heading.map(|l| crate::theme::heading_slot(l as u8)),
+                        self.inter.blockquote_depth,
+                    );
+                    self.apply(crate::tags::TagName::CodeInline { on }, &si, &ei);
                 }
             }
 

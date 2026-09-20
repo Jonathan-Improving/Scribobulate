@@ -90,6 +90,26 @@ pub(crate) fn mark(t: &Theme) -> Span {
     Span::attrs(&attrs)
 }
 
+/// An inline `code` run: the monospace face, and the chip's fill where the surface it
+/// sits on has one.
+///
+/// **The one span here that takes a colour rather than a `&Theme`**, and deliberately:
+/// the chip's fill is a function of the SURFACE behind the run, not of the theme
+/// alone, so the caller — which is the only thing that knows where it is — resolves it
+/// through `palette::CodeChips` and hands the answer down. A `&Theme` here would let
+/// this module answer "the page's chip" for a run inside a heading band, which is the
+/// defect ScrAP-356 records.
+///
+/// `None` ⇒ face only, for a surface whose colour is unknown (a tile). Absent, not
+/// guessed.
+pub(crate) fn code(fill: Option<gtk::gdk::RGBA>) -> Span {
+    let mut attrs = " font_family=\"monospace\"".to_string();
+    if let Some(c) = fill {
+        let _ = write!(attrs, " background=\"{}\"", crate::palette::to_hex_rgba(c));
+    }
+    Span::attrs(&attrs)
+}
+
 /// A CriticMarkup claim's highlight wash (TDD 18.5/18.6).
 pub(crate) fn annotation_claim(t: &Theme) -> Span {
     let c = &t.annotation_hl_color;

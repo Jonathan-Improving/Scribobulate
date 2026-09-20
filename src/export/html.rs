@@ -496,6 +496,39 @@ a {{ color: {link};{link_line} }}
     css
 }
 
+/// The inline-code chip on every surface that is **not** the page.
+///
+/// The preview needs one `GtkTextTag` per surface because a tag carries one background
+/// and cannot ask what is drawn behind it; here the same fact is one descendant
+/// selector per surface, which is the cheaper half of the same rule (THEMING.md's
+/// "the export already does this" caveat, in the direction that favours the export).
+///
+/// A surface whose colour is unknown — a level banded with a tile alone — emits
+/// nothing and keeps the page's chip off it: absent, not guessed, exactly as the tag
+/// does (`palette::CodeChips`).
+fn code_surface_css(p: &Palette) -> String {
+    use crate::palette::CodeSurface;
+    let mut css = String::new();
+    for level in 0..crate::theme::HEADING_LEVELS {
+        if let Some(hex) = p.code_chips.hex_on(CodeSurface::Heading(level)) {
+            // `h6` rides h5's slot, the same h6→h5 fold every other surface takes.
+            let tail = if level == crate::theme::HEADING_LEVELS - 1 {
+                ", h6 code"
+            } else {
+                ""
+            };
+            let _ = writeln!(css, "h{} code{tail} {{ background: {hex}; }}", level + 1);
+        }
+    }
+    if let Some(hex) = p.code_chips.hex_on(CodeSurface::Quote) {
+        let _ = writeln!(css, "blockquote code {{ background: {hex}; }}");
+    }
+    if let Some(hex) = p.code_chips.hex_on(CodeSurface::TableHead) {
+        let _ = writeln!(css, "th code {{ background: {hex}; }}");
+    }
+    css
+}
+
 /// Block-level constructs: code, quotes, the rule, and tables.
 fn block_rules(p: &Palette, t: &Theme, uris: &SpriteUris) -> String {
     let m = &t.metrics;
@@ -503,7 +536,7 @@ fn block_rules(p: &Palette, t: &Theme, uris: &SpriteUris) -> String {
     let _ = write!(
         css,
         "code {{ background: {code_inline}; border-radius: 3px; padding: 0.1em 0.3em; }}
-pre {{ background: {code_block}; padding: 0.6em 0.8em; overflow-x: auto; }}
+{code_surfaces}pre {{ background: {code_block}; padding: 0.6em 0.8em; overflow-x: auto; }}
 pre code {{ background: none; padding: 0; }}
 blockquote {{ border-left: {bar_w}px solid {bar}; margin-left: 0;
   padding-left: {bar_gap}px; }}
@@ -516,7 +549,13 @@ td.a-l, th.a-l {{ text-align: left; }}
 td.a-c, th.a-c {{ text-align: center; }}
 td.a-r, th.a-r {{ text-align: right; }}
 ",
-        code_inline = to_hex_rgba(p.code_inline_bg),
+        code_inline = to_hex_rgba(p.code_chips.page()),
+        // The chip on every surface that is NOT the page — a banded heading level, a
+        // quote panel, a header cell. Emitted BEFORE `pre code { background: none }`
+        // so a fenced block inside a quote still loses its chip: these are
+        // equal-specificity selectors, and equal specificity is decided by source
+        // order (`code_surface_css`; ScrAP-356).
+        code_surfaces = code_surface_css(p),
         code_block = to_hex_rgba(p.code_block_bg),
         bar = to_hex_rgba(p.blockquote_bar),
         bar_w = m.blockquote_bar_width,
@@ -2785,6 +2824,59 @@ mod html_sink_tests {
         assert!(
             h1.contains("no-repeat"),
             "a scene with no fill must still paint: {h1}"
+        );
+    }
+
+    /// The chip reaches the artefact per SURFACE (TDD 18.61 / 25.9): one descendant
+    /// selector per banded level, one for the quote panel, one for a header cell — and
+    /// a level the theme does not band contributes nothing, so the page's `code` rule
+    /// is all that reaches it.
+    ///
+    /// **And the order is load-bearing**: `pre code { background: none }` must still
+    /// win inside a quote or a heading, and it does so only because these are
+    /// equal-specificity selectors emitted BEFORE it.
+    #[test]
+    fn the_chip_reaches_the_artefact_on_every_surface_it_sits_on() {
+        let mut themes = crate::theme::Themes::builtin();
+        themes.merge_over_for_test(
+            "[themes.chips]\nbackground = \"#ffffff\"\nforeground = \"#111111\"\n\
+             heading_band_color_h2 = \"#5b2e1c\"\nheading_color_h2 = \"#fff3c4\"\n\
+             blockquote_bg = \"#2b8ff0\"\nblockquote_fg = \"#17263b\"\n\
+             table_head_bg = \"#22603a\"\ntable_head_fg = \"#ffd400\"\n",
+        );
+        let theme = themes.resolve("chips");
+        let palette = Palette::from_base(
+            theme.background.unwrap(),
+            theme.foreground.unwrap(),
+            theme.foreground.unwrap(),
+            gtk::gdk::RGBA::new(0.2, 0.5, 0.9, 1.0),
+            &theme,
+        );
+        let css = super::stylesheet(&palette, &theme, &super::SpriteUris::default());
+        let chips = palette.code_chips;
+        use crate::palette::CodeSurface;
+
+        for (selector, surface) in [
+            ("h2 code", CodeSurface::Heading(1)),
+            ("blockquote code", CodeSurface::Quote),
+            ("th code", CodeSurface::TableHead),
+        ] {
+            let hex = chips.hex_on(surface).expect("this surface carries a chip");
+            assert!(
+                css.contains(&format!("{selector} {{ background: {hex}; }}")),
+                "{selector} must carry its own chip: {css}"
+            );
+        }
+        assert!(
+            !css.contains("h3 code"),
+            "an unbanded level states no chip of its own: {css}"
+        );
+        let surfaces = css.find("h2 code").expect("the surface rules are emitted");
+        let pre_code = css.find("pre code").expect("the pre rule is emitted");
+        assert!(
+            surfaces < pre_code,
+            "`pre code {{ background: none }}` must come LAST or a fenced block inside \
+             a quote takes the quote's chip — equal specificity is decided by order"
         );
     }
 

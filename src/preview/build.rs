@@ -44,7 +44,7 @@ pub(super) struct ViewInstall {
 /// exactly the property a splice relies on when it installs PASS A's decor into the
 /// live pane after proving the two buffers hold the same characters.
 pub(super) struct InstallDecor {
-    pub(super) code_blocks: Vec<crate::span::BufferSpan>,
+    pub(super) code_blocks: Vec<crate::span::CodeBlockSpan>,
     pub(super) code_block_bg: gtk::gdk::RGBA,
     pub(super) blockquote_ranges: Vec<crate::span::QuoteSpan>,
     pub(super) blockquote_bar: gtk::gdk::RGBA,
@@ -300,6 +300,7 @@ impl<'a> Prepared<'a> {
         Renderer::new(
             buf,
             self.theme.clone(),
+            self.palette.code_chips,
             self.palette.syntect_theme.clone(),
             self.doc_dir.clone(),
             self.allow_unsafe_images,
@@ -2331,14 +2332,22 @@ mod gtk_integration_tests {
         let products = build_render_products(annotated, None, 1.0, false);
         let table = products.buf.tag_table();
         let hl = table.lookup("annotation-highlight").expect("highlight tag");
-        let code = table.lookup("code-inline").expect("code-inline tag");
-        assert!(
-            hl.priority() > code.priority(),
-            "highlight (prio {}) must outrank code-inline (prio {}) or the code \
-             background paints over it",
-            hl.priority(),
-            code.priority()
-        );
+        // EVERY chip in the family, not only the page's: an annotated claim inside a
+        // banded heading or a filled quote wears a different chip tag, and one left
+        // below the highlight buries it exactly as `code-inline` once did.
+        for on in crate::tags::CODE_INLINE_SURFACES {
+            let name = crate::tags::TagName::CodeInline { on }.name();
+            let code = table
+                .lookup(name)
+                .unwrap_or_else(|| panic!("{name} tag registered"));
+            assert!(
+                hl.priority() > code.priority(),
+                "highlight (prio {}) must outrank {name} (prio {}) or the code \
+                 background paints over it",
+                hl.priority(),
+                code.priority()
+            );
+        }
         // The highlight tag is actually applied over the rendered code text.
         let text = buffer_slice(&products.buf); // "before code word after"
         let cs = char_off(&text, "code");
@@ -2625,6 +2634,112 @@ mod gtk_integration_tests {
             "a link inside the quote keeps its OWN colour — if this says blockquote-ink, \
              the ink tag was registered after `link` and now outranks it"
         );
+    }
+
+    /// **The inline-code chip follows the surface it sits on** (TDD 18.61): a run
+    /// inside a banded heading takes that LEVEL's chip, one inside a filled quote takes
+    /// the panel's, and body prose keeps the page's.
+    ///
+    /// Asserted as *which tag wins the background*, not as a colour, because the defect
+    /// was a tag choice: one page-derived `code-inline` for every surface, under a
+    /// heading ink chosen for its band — cream on a pale page chip at ~1.3:1
+    /// (ScrAP-356). A test on the colour alone would pass on a build that applied the
+    /// right colour to the wrong run.
+    #[gtktest::test]
+    fn an_inline_code_chip_takes_the_surface_it_sits_on() {
+        let md = "## Banded `hcode` head\n\n> quoted `qcode` text\n\nbody `bcode` prose\n\n\
+                  ### Unbanded `ucode` head\n";
+        let mut themes = crate::theme::themes();
+        themes.merge_over_for_test(
+            "[themes.chips]\nbackground = \"#ffffff\"\nforeground = \"#111111\"\n\
+             heading_band_color_h2 = \"#5b2e1c\"\nheading_color_h2 = \"#fff3c4\"\n\
+             blockquote_bg = \"#2b8ff0\"\nblockquote_fg = \"#17263b\"\n",
+        );
+        let _theme = crate::theme::activate_for_test(themes.resolve("chips"));
+        let products = build_render_products(md, None, 1.0, false);
+        let text = buffer_slice(&products.buf);
+
+        for (word, expected) in [
+            ("hcode", "code-inline-h2"),
+            ("qcode", "code-inline-quote"),
+            ("bcode", "code-inline"),
+            // h3 carries no band, so its run sits on the page like any other prose —
+            // the surface is what decides, never the construct.
+            ("ucode", "code-inline"),
+        ] {
+            assert_eq!(
+                winning_tag(&products.buf, char_off(&text, word), "background-set").as_deref(),
+                Some(expected),
+                "`{word}` must wear the chip of the surface it sits on"
+            );
+        }
+    }
+
+    /// **TDD 18.62 — a quoted code block keeps the card's inner padding.**
+    ///
+    /// A margin is ONE property, so the line's winning `left-margin` tag *is* the
+    /// answer: the `bq-{depth}` family deliberately out-prioritises the depth-0
+    /// `code-block` tag (that is what keeps quoted prose and quoted code on one column),
+    /// which left a quoted block's text flush against its own card. The per-depth
+    /// variant is registered after the quote family for exactly that reason, and this
+    /// asserts BOTH halves of it — which tag wins, and that its margin is the quote's
+    /// plus the card's padding rather than either alone.
+    #[gtktest::test]
+    fn a_quoted_code_blocks_margin_is_the_quotes_plus_the_cards_padding() {
+        let md = "> quoted prose\n>\n> ```\n> fenced\n> ```\n\n```\nplain\n```\n";
+        let mut themes = crate::theme::themes();
+        themes.merge_over_for_test(
+            "[themes.cards]\nbackground = \"#ffffff\"\nforeground = \"#111111\"\n\
+             blockquote_bg = \"#2b8ff0\"\n",
+        );
+        let theme = themes.resolve("cards");
+        let _theme = crate::theme::activate_for_test(theme.clone());
+        let products = build_render_products(md, None, 1.0, false);
+        let text = buffer_slice(&products.buf);
+        let table = products.buf.tag_table();
+        let margin_of = |name: &str| {
+            table
+                .lookup(name)
+                .unwrap_or_else(|| panic!("{name} registered"))
+                .left_margin()
+        };
+
+        assert_eq!(
+            winning_tag(&products.buf, char_off(&text, "fenced"), "left-margin-set").as_deref(),
+            Some("code-block-bq-1"),
+            "a quoted block's line must resolve its margin to its own depth's tag — \
+             `bq-1` alone loses the card's inner padding, `code-block` alone loses the \
+             quote's indent"
+        );
+        assert_eq!(
+            winning_tag(&products.buf, char_off(&text, "plain"), "left-margin-set").as_deref(),
+            Some("code-block"),
+            "an unquoted block is unchanged"
+        );
+
+        // The arithmetic, stated twice over because one relation alone does not pin it.
+        // First: the quoted tag is exactly the quote's own indent past the unquoted one,
+        // so the card — inset by that same indent — leaves the same gap it does at top
+        // level. Second: the gap OVER the quote's own margin is the card's padding and is
+        // the same at every depth, which is what makes "the same padding at any depth"
+        // true rather than true at depth 1.
+        assert_eq!(
+            margin_of("code-block-bq-1") - margin_of("code-block"),
+            crate::tags::quote_indent_px(1, 1.0, &theme.metrics)
+        );
+        let pad_at =
+            |d: u8| margin_of(&format!("code-block-bq-{d}")) - margin_of(&format!("bq-{d}"));
+        assert!(
+            pad_at(1) > 0,
+            "a quoted card with no inner padding is the defect"
+        );
+        for depth in 2..=crate::tags::MAX_QUOTE_DEPTH {
+            assert_eq!(
+                pad_at(depth),
+                pad_at(1),
+                "the card's inner padding must not vary with quote depth"
+            );
+        }
     }
 
     /// TDD 18.29 / SCHEMA § Blockquote — the `blockquote_fg` row exempts **three**
@@ -4126,9 +4241,11 @@ mod gtk_integration_tests {
             "AFTER",
         );
 
+        let theme = crate::theme::active();
         let mut r = crate::renderer::Renderer::new(
             buf.clone(),
-            crate::theme::active(),
+            theme.clone(),
+            crate::palette::Palette::for_theme(&theme).code_chips,
             "InspiredGitHub".into(),
             None,
             false,

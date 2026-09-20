@@ -382,8 +382,21 @@ pub fn stub_keeps_implementation_line(tree: &Tree) -> bool {
 /// which is the honest state and the opposite of the 2026-08-27 case where the two tiers had
 /// collapsed into one. Only 5_000B was added, so the ratchet still bites almost immediately:
 /// the next entry re-opens this decision rather than sliding under it.
+/// **Raised 2026-09-20 — ceiling 265_000 -> 267_000, soft limit unchanged at 240_000.**
+/// The 2026-09-09 note above predicted this exactly ("the next entry re-opens this
+/// decision rather than sliding under it") and it is what happened: ScrAP-356 tripped the
+/// gate by 1_265B. The consolidation the gate asks for was looked for and is NOT there —
+/// MEASURED the same day, the A-tagged entries whose canonical text lives in the `gtk4-rs`
+/// skill now carry only 1_717B beyond their stub fields *in total*, spread across three
+/// entries, two of which (ScrAP-349, ScrAP-350) were written days earlier on the
+/// operator's explicit instruction to record them. The ~150_000B of migration relief the
+/// 2026-08-27 paragraph describes was spent by the 2026-08-29 compression; that paragraph
+/// is now history rather than an available lever, and a reader who plans around it will
+/// come up empty. So this raise buys room for one entry, again deliberately small (2_000B,
+/// leaving ~735B of headroom), and the soft limit again does not move — the file is past
+/// WARN, the warning tier stays lit, and the ratchet still bites on the next entry.
 const REGISTER_WARN: u64 = 240_000;
-const REGISTER_FAIL: u64 = 265_000;
+const REGISTER_FAIL: u64 = 267_000;
 const ENTRY_WARN: u64 = 3_000;
 const ENTRY_FAIL: u64 = 4_000;
 

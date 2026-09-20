@@ -23,7 +23,21 @@ pub(super) fn draw(snapshot: &gtk::Snapshot, ctx: &PaintCtx) {
     // above-text pass, which is why the two steps' order is a real constraint
     // and not a formatting choice (`decorplan::PAINT_ORDER`).
     let mut card_rects: Vec<(graphene::Rect, usize)> = Vec::new();
-    for (bi, &block) in blocks.iter().enumerate() {
+    // The zoom and metrics the quote's own `bq-{depth}` tag indented its text by, read
+    // once because every quoted block on screen insets by the same arithmetic.
+    // `gutter_zoom` is this render's zoom — named for the list gutter that first needed
+    // it, and already the shared reading for the bands, the quote bar and the copy
+    // button (`bandpaint`).
+    let zoom = ctx.imp.gutter_zoom.get();
+    let theme = crate::theme::active();
+    for (
+        bi,
+        &crate::span::CodeBlockSpan {
+            span: block,
+            quote_depth,
+        },
+    ) in blocks.iter().enumerate()
+    {
         if block.is_empty() {
             continue;
         }
@@ -31,6 +45,18 @@ pub(super) fn draw(snapshot: &gtk::Snapshot, ctx: &PaintCtx) {
         if block.is_outside(vis_start, vis_end) {
             continue;
         }
+        // **A card sits ON its surface; it does not replace it.** A quoted block's text
+        // is pushed in on both sides by the `bq-{depth}` tag, and the card is self-drawn
+        // (GTK4Rs/AP-21) so no tag reaches it — drawn at the page's column it covers the
+        // quote panel edge to edge, and the quote stops being visible wherever it holds
+        // code (TDD 18.62). The inset is `tags::quote_indent_px`, the SAME arithmetic the
+        // tag used, rather than a second rounding of the same metrics.
+        let inset = if quote_depth == 0 {
+            0.0
+        } else {
+            crate::tags::quote_indent_px(i32::from(quote_depth), zoom, &theme.metrics) as f32
+        };
+        let (lm, card_w) = (lm + inset, (card_w - 2.0 * inset).max(0.0));
         // Clamp the RECT, never the iters: measure a boundary only when its
         // line is on-screen (validated); a boundary that straddles the
         // viewport edge clamps to that edge instead of reading an off-screen

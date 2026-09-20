@@ -2568,3 +2568,84 @@ fn a_themed_disclosure_band_fills_the_summary_label_line() {
          the top-level one wearing a different fixture"
     );
 }
+
+/// TDD 18.61 / 25.9 — **the chip reaches the page per SURFACE here too.** A run inside
+/// a banded heading takes that level's chip, one in a header cell takes the header's,
+/// and body prose keeps the page's.
+///
+/// Read off the laid-out layouts' own attributes rather than off a markup string: this
+/// asserts the span survived `set_markup` and landed on a real run, which is what the
+/// sibling list-marker test does and a stronger claim than "the string contained a hex
+/// code". The PDF resolves at System-light by default (TDD 25.9), so the fixture
+/// states the band itself — the machinery has to be there for a theme that does.
+#[test]
+fn an_inline_code_chip_reaches_the_pdf_on_the_surface_it_sits_on() {
+    let mut themes = crate::theme::Themes::builtin();
+    themes.merge_over_for_test(
+        "[themes.chips]\nbackground = \"#ffffff\"\nforeground = \"#111111\"\n\
+         heading_band_color_h2 = \"#5b2e1c\"\nheading_color_h2 = \"#fff3c4\"\n\
+         table_head_bg = \"#22603a\"\ntable_head_fg = \"#ffd400\"\n",
+    );
+    let t = themes.resolve("chips");
+    let chips = crate::palette::Palette::for_paper(&t).code_chips;
+    let d = doc::build(
+        "## Banded `hcode` head\n\nbody `bcode` prose\n\n\
+         | head `tcode` | b |\n|---|---|\n| body | 2 |\n",
+        &RenderOptions::default(),
+    );
+    let laid = lay_out(&d, &ctx(), PAGE_WIDTH_PT, PAGE_HEIGHT_PT, &t);
+
+    // Every background colour the laid-out page carries, against the text it covers.
+    let mut seen: Vec<(String, String)> = Vec::new();
+    let mut sweep = |layout: &gtk::pango::Layout| {
+        let Some(attrs) = layout.attributes() else {
+            return;
+        };
+        let text = layout.text().to_string();
+        for a in attrs.attributes() {
+            if a.type_() != gtk::pango::AttrType::Background {
+                continue;
+            }
+            let Ok(c) = a.downcast::<gtk::pango::AttrColor>() else {
+                continue;
+            };
+            let c = c.color();
+            seen.push((
+                text.clone(),
+                format!(
+                    "#{:02x}{:02x}{:02x}",
+                    c.red() >> 8,
+                    c.green() >> 8,
+                    c.blue() >> 8
+                ),
+            ));
+        }
+    };
+    // A table ROW is one line holding its cells' own layouts, so a sweep over
+    // `LineKind::Text` alone would silently see no cell at all — and pass.
+    for line in &laid.lines {
+        match &line.kind {
+            crate::export::pdf::LineKind::Text { layout, .. } => sweep(layout),
+            crate::export::pdf::LineKind::TableRow { cells, .. } => {
+                for cell in cells {
+                    sweep(cell.layout());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    use crate::palette::CodeSurface;
+    for (word, surface) in [
+        ("hcode", CodeSurface::Heading(1)),
+        ("bcode", CodeSurface::Page),
+        ("tcode", CodeSurface::TableHead),
+    ] {
+        let want = chips.hex_on(surface).expect("this surface carries a chip");
+        assert!(
+            seen.iter()
+                .any(|(text, hex)| text.contains(word) && *hex == want),
+            "`{word}` must carry {want} on the page; saw {seen:?}"
+        );
+    }
+}

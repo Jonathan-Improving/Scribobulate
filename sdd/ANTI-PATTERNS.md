@@ -9,7 +9,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 2. General engineering discipline that survives deleting every Scribobulate noun? → route it to `general-engineering-principles`, cited `GEP-N`; leave a one-line `**Routed**` tombstone here. No ScrAP number is needed for provenance.
 3. Neither — Scribobulate internals, or a non-gtk4-rs dependency (Pango, GtkSourceView, pulldown-cmark, librsvg, syntect, serde/toml, the toolchain)? → it stays here, **in ≤ 6 lines**: Symptom · Root cause · Resolution · Lesson · Scribobulate · See. Extend an existing entry rather than minting a sibling for the same root cause. Route a Pango lesson on whose API *contract* it is about, and raise it before routing.
 
-**Numbers are frozen** (check 9): never renumbered, never reused; a retired entry keeps its `## N.` heading as a landing spot. Reserved gaps — do not fill: **176–179** (Windows port; holder gone, held pending operator resolution), **186** (`feat/spelling`, inbound), **276–289** (unmerged branches). **Next free number: 356**+ — check this table and announce the range you claim; never derive it from the highest heading below. (It read 354 while 354 and 355 both had bodies, so a writer who obeyed it minted a duplicate — and the same sentence forbids the one check a reader would otherwise make. Check 9 can only see a duplicate after it exists. **Check 21 now asserts the one relation the header must satisfy whatever the reserved gaps are — strictly above the highest heading present** — so this line is no longer guarded by prose alone; move it in the same change that mints.)
+**Numbers are frozen** (check 9): never renumbered, never reused; a retired entry keeps its `## N.` heading as a landing spot. Reserved gaps — do not fill: **176–179** (Windows port; holder gone, held pending operator resolution), **186** (`feat/spelling`, inbound), **276–289** (unmerged branches). **Next free number: 357**+ — check this table and announce the range you claim; never derive it from the highest heading below. (It read 354 while 354 and 355 both had bodies, so a writer who obeyed it minted a duplicate — and the same sentence forbids the one check a reader would otherwise make. Check 9 can only see a duplicate after it exists. **Check 21 now asserts the one relation the header must satisfy whatever the reserved gaps are — strictly above the highest heading present** — so this line is no longer guarded by prose alone; move it in the same change that mints.)
 
 **Growth** is gated in bytes (check 11). The ratchet only tightens; consolidate in the change that trips it.
 
@@ -368,6 +368,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 | 353 | A coalescing slot shared by every subject, whose loser nothing re-issues | B |
 | 354 | A reachability probe whose PRECONDITION names an asset that does not resolve — the key reads as reaching nothing | C |
 | 355 | Solving a themed fill against the surface it is MIXED from rather than the page it is READ on | C |
+| 356 | Deriving a text run's own fill from the PAGE when the preview draws a surface behind it | C |
 
 ---
 
@@ -1931,3 +1932,11 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **Lesson**: perceptual distance is necessary, not sufficient, and the reference is half the measurement.
 **Scribobulate**: Candy's `blockquote_bg_sprite`, whose derivation comment in `data/themes.toml` carries the ratios and why three swatches are absent.
 **See**: TDD 18.59.
+
+## 356. Deriving a text run's own fill from the PAGE when the preview draws a surface behind it
+**Symptom**: inline `code` in a Pixel Quest h2 was a pale blue chip carrying the heading's cream ink — one unreadable word (~1.3:1) inside a legible heading; the same clash on every banded level and the quote panel, and no chip at all in a table cell.
+**Root cause**: the fill was `mix(page, body_ink, 0.08)`, right only where the page IS what is behind the run — a band, a panel and a header fill are all drawn over it. And a `GtkTextTag` setting a background and no foreground is not self-contained: GTK resolves each attribute to the highest-priority tag that SETS it, so the ink stayed the heading's while the fill answered to the page (kin GTK4Rs/AP-84).
+**Resolution**: the chip is a relationship — *this surface, 8% toward the ink that surface carries* — resolved once per surface for every sink, one tag per surface because a tag carries one background and cannot ask what is painted behind it. An unknown surface (a tile) gets NO chip rather than the page's.
+**Lesson**: a decoration derived from the page inherits the page's assumption that nothing else is drawn there; and toward-the-ink is a move DOWN the ink's own contrast, so a surface already at the floor must be tinted the other way.
+**Scribobulate**: `palette::codechips` (resolution + precedence), `tags::CODE_INLINE_SURFACES`, `pangospan::code`, `export::html::code_surface_css`.
+**See**: TDD 18.61; kin ScrAP-355, GTK4Rs/AP-84.

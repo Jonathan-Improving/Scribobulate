@@ -485,6 +485,11 @@ pub(crate) struct Renderer {
     /// sites made the whole render-products construction exercisable only against
     /// whatever the process happened to have active (F-BUILDPRODUCTS-001).
     pub(crate) theme: std::rc::Rc<crate::theme::Theme>,
+    /// The inline-code chip's fill on each surface, resolved with the palette this
+    /// render was built against. Held rather than re-derived per cell: the cell markup
+    /// this walk emits carries a concrete colour, and a second derivation is a second
+    /// chance to answer differently (`palette::codechips`).
+    pub(crate) code_chips: crate::palette::CodeChips,
     pub anchored: Vec<(TextChildAnchor, gtk::Widget)>,
     /// Anchored children whose width must track the live content column, each with
     /// the fixed chrome to its left (`inset`). Handed to
@@ -502,8 +507,10 @@ pub(crate) struct Renderer {
     pub tables: Vec<ScribTableWidget>,
     /// The buffer span of every fenced code block, so
     /// the preview view can self-draw each block's padded background under the
-    /// text (a `paragraph-background` tag cannot pad — GTK4Rs/AP-21).
-    pub code_blocks: Vec<crate::span::BufferSpan>,
+    /// text (a `paragraph-background` tag cannot pad — GTK4Rs/AP-21). Each carries the
+    /// quote depth it sits at, because a self-drawn card is told nothing by the tags
+    /// that indented its text (`span::CodeBlockSpan`).
+    pub code_blocks: Vec<crate::span::CodeBlockSpan>,
     /// One entry per rendered list item, in document order — the data seam the drawn
     /// marker gutter reads. Populated at `Tag::Item` (bullet/number) and upgraded to
     /// `Task` at the item's `TaskListMarker`; consumed by `codeview`'s `snapshot_layer`
@@ -1233,6 +1240,7 @@ impl Renderer {
     pub(crate) fn new(
         buf: TextBuffer,
         theme: std::rc::Rc<crate::theme::Theme>,
+        code_chips: crate::palette::CodeChips,
         syntect_theme: String,
         doc_dir: Option<std::path::PathBuf>,
         allow_unsafe_images: bool,
@@ -1248,6 +1256,7 @@ impl Renderer {
         Renderer {
             buf,
             theme,
+            code_chips,
             ann_highlights,
             scripts: std::rc::Rc::new(BlockScripts::scan(&cleaned)),
             cleaned,

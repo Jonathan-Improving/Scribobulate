@@ -254,6 +254,16 @@ struct TableCell {
     column: usize,
 }
 
+impl TableCell {
+    /// The cell's laid-out text. Read by the tests that assert on what a cell's RUNS
+    /// carry — a table row is one line holding its cells' layouts, so a sweep over the
+    /// page's text lines never reaches inside one.
+    #[cfg(test)]
+    pub(crate) fn layout(&self) -> &pango::Layout {
+        &self.layout
+    }
+}
+
 /// What one cell's content wants, in points — the two measurements CSS calls
 /// max-content and min-content, and the two [`pdftable::fit`] shares a page between.
 struct CellWidths {
