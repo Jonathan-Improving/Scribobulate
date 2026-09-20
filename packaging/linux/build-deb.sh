@@ -90,13 +90,22 @@ find "$stage" -type d -exec chmod 755 {} +
 # NO ICON THEME DEPENDENCY, deliberately rather than by oversight: the app bundles its
 # own symbolic icons in its GResource and renders correctly with no icon theme present.
 # Declaring adwaita-icon-theme would claim a requirement we do not have.
+#
+# THE SVG LOADER IS THE ONE EXCEPTION to the paragraph above, and it is named for the
+# reason that paragraph gives: gdk-pixbuf arrives via the toolkit's chain, but its SVG
+# LOADER MODULE does not -- librsvg2-common is a separate package nothing here pulls,
+# and gdk-pixbuf without it reports an SVG as an unrecognised format. MEASURED on a
+# stock Ubuntu 24.04 image: with the package absent no `svg` entry exists among
+# gdk-pixbuf's formats; with it present the same file reports its declared size. An
+# install without it renders every SVG in a document, and every SVG theme sprite, as
+# nothing -- silently, since a missing loader is a decode failure and not a crash.
 cat > "$stage/DEBIAN/control" <<EOF
 Package: $PKG
 Version: $VERSION
 Section: editors
 Priority: optional
 Architecture: $ARCH
-Depends: libc6 (>= $GLIBC_MIN), libgtk-4-1 (>= 4.6), libgtksourceview-5-0
+Depends: libc6 (>= $GLIBC_MIN), libgtk-4-1 (>= 4.6), libgtksourceview-5-0, librsvg2-common
 Installed-Size: $(du -ks "$stage" | cut -f1)
 Maintainer: extollIT Enterprises <sales@extollit.com>
 Description: Native Markdown viewer and editor that renders on the CPU

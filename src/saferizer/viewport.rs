@@ -129,7 +129,6 @@ impl ViewportRange {
 #[cfg(all(test, feature = "gtk-integration-tests"))]
 mod tests {
     use super::*;
-    use gtk::glib;
 
     /// ScrAP-263 — a view with no allocation must report the TOP of the buffer,
     /// and the raw call it replaces must be shown reporting the BOTTOM, in the
@@ -196,20 +195,27 @@ mod tests {
 
         // Pump until mapped AND the full document height has been validated —
         // GtkTextView validates ~a screenful per idle, so `upper` only reaches the
-        // real content extent (well past one page) after several idles. Bounded so
-        // an idle display can never block forever.
-        let ctx = glib::MainContext::default();
+        // real content extent (well past one page) after several idles.
+        //
+        // Through the shared pump (M31), not a hand-rolled turn count. This site used
+        // to spin 400 turns with a 4 ms sleep between them, which is both halves of
+        // GTK4Rs/AP-261 wrong for idle-driven work: the sleep delays a source that is
+        // already runnable, and the budget it buys is a turn count rather than time —
+        // ~1.6 s, which a hosted macOS runner does not always finish validating inside.
+        // The failure was a red test on CI and a green one everywhere else, saying
+        // nothing about the seam under test.
         let vadj = view.vadjustment().expect("vadjustment");
-        let mut ready = false;
-        for _ in 0..400 {
-            ctx.iteration(false);
-            std::thread::sleep(std::time::Duration::from_millis(4));
-            if view.is_mapped() && view.height() > 0 && vadj.upper() > vadj.page_size() * 3.0 {
-                ready = true;
-                break;
-            }
-        }
-        assert!(ready, "view mapped and full document height validated");
+        crate::testpump::until(
+            crate::testpump::Clock::Idle,
+            "the view to map and GTK to validate the full document height",
+            {
+                let view = view.clone();
+                let vadj = vadj.clone();
+                move || {
+                    view.is_mapped() && view.height() > 0 && vadj.upper() > vadj.page_size() * 3.0
+                }
+            },
+        );
 
         // Scroll well past the top so the viewport-top line is NOT line 0. With the
         // document height validated, `upper` is the real content extent (not the
@@ -217,10 +223,15 @@ mod tests {
         // deterministically — no deferred, one-shot `scroll_to_iter` that would land
         // pre-validation at the top (GTK4Rs/AP-115/22).
         crate::saferizer::scrollpos::jump(&vadj, vadj.upper() * 0.5);
-        for _ in 0..50 {
-            ctx.iteration(false);
-            std::thread::sleep(std::time::Duration::from_millis(4));
-        }
+        crate::testpump::until(
+            crate::testpump::Clock::Idle,
+            "the view's visible rect to follow the adjustment",
+            {
+                let view = view.clone();
+                let vadj = vadj.clone();
+                move || (f64::from(view.visible_rect().y()) - vadj.value()).abs() < 1.0
+            },
+        );
 
         // Manual GTK4Rs/AP-15 read.
         let vis = view.visible_rect();

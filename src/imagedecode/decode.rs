@@ -557,19 +557,27 @@ mod tests {
     }
 
     /// The no-fallback rule, with a SELF-VERIFYING oracle: a GIF whose header is
-    /// valid (so `richimg::sniff` claims it) but whose image data is cut off, which
+    /// valid (so `richimg::sniff` claims it) but whose image data stops early, which
     /// `richimg` refuses and gdk-pixbuf's own lenient GIF loader decodes anyway. The
     /// first assertion PROVES the GTK route would have succeeded on these exact
     /// bytes; the second proves `decode` returns `None` regardless. Without the first,
     /// a day when GTK also refuses the fixture would leave this passing vacuously
     /// (ScrAP-209's species).
+    ///
+    /// **The vehicle must be GIF and cannot be APNG**, because whether gdk-pixbuf will
+    /// so much as CLAIM an APNG is a per-host answer. MEASURED on the same bytes:
+    /// decoded by 2.42.8 (Ubuntu 22.04) and by 2.44.7 (Homebrew), and refused outright
+    /// by 2.42.10 (Ubuntu 24.04) with "Unrecognized image file format". So it is not a
+    /// version floor to raise and wait out — the APNG fixture that held this role made
+    /// the oracle's premise false on one live platform while the rule it guards was
+    /// never in doubt. GIF is claimed by all three.
     #[test]
     fn a_format_richimg_claims_never_falls_back_to_gtk() {
-        let bytes = gtk_decodable_apng_richimg_refuses();
+        let bytes = gtk_decodable_gif_richimg_refuses();
         assert_eq!(
             richimg::sniff(&bytes),
-            Some(richimg::Format::Apng),
-            "precondition: the fixture is content-sniffed as APNG"
+            Some(richimg::Format::Gif),
+            "precondition: the fixture is content-sniffed as GIF"
         );
         assert!(
             richimg::first_frame(&bytes, &richimg_limits()).is_err(),
@@ -585,34 +593,44 @@ mod tests {
         );
     }
 
-    /// An APNG whose still image is perfectly valid — gdk-pixbuf decodes it, ignoring
-    /// the animation chunks entirely — but whose first `fcTL` declares a frame wider
-    /// than the canvas, which `richimg`'s APNG codec refuses. The two decoders
-    /// deliberately disagree about these bytes, and that disagreement is what makes
-    /// the no-fallback assertion above able to fail at all.
-    fn gtk_decodable_apng_richimg_refuses() -> Vec<u8> {
+    /// A GIF89a that is structurally complete — logical screen descriptor, global
+    /// colour table, one frame, block terminator, trailer — whose first frame's LZW
+    /// stream sends End-of-Information after four of its sixteen pixels. gdk-pixbuf's
+    /// GIF loader leaves the rest of the frame at the background colour and reports
+    /// success; the `gif` crate (`richimg`'s GIF codec) insists the frame buffer be
+    /// filled and returns `Malformed`. The two decoders deliberately disagree about
+    /// these bytes, and that disagreement is what makes the no-fallback assertion
+    /// above able to fail at all.
+    ///
+    /// MEASURED against gdk-pixbuf 2.42.8, 2.42.10, 2.44.6 and 2.44.7 — all four decode
+    /// it — and `gif` 0.14.2, which refuses it. The four are worth keeping named: at
+    /// 2.44 GIF is built into gdk-pixbuf rather than being a loader module, so the two
+    /// pairs exercise different code inside the decoder this oracle rests on.
+    ///
+    /// Malformed-but-tolerated, never truncated: a file that simply ENDS early is
+    /// refused by gdk-pixbuf too ("Not all frames of the GIF image were loaded"), which
+    /// would leave the oracle unsatisfiable rather than live. That control has been run
+    /// — truncating this fixture six bytes early fails the ORACLE assertion below, which
+    /// is how we know the assertion is not vacuous here (ScrAP-357, ScrAP-209).
+    fn gtk_decodable_gif_richimg_refuses() -> Vec<u8> {
         #[rustfmt::skip]
-        const BYTES: [u8; 271] = [
-            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
-            0x44, 0x52, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x04, 0x08, 0x06, 0x00, 0x00,
-            0x00, 0xA9, 0xF1, 0x9E, 0x7E, 0x00, 0x00, 0x00, 0x08, 0x61, 0x63, 0x54, 0x4C, 0x00,
-            0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x01, 0xB9, 0xEA, 0x8A, 0x56, 0x00, 0x00, 0x00,
-            0x1A, 0x66, 0x63, 0x54, 0x4C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00,
-            0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00,
-            0x0A, 0x00, 0x00, 0xC7, 0xF6, 0x8A, 0x9E, 0x00, 0x00, 0x00, 0x12, 0x49, 0x44, 0x41,
-            0x54, 0x78, 0xDA, 0x63, 0xF8, 0xCF, 0xC0, 0xF0, 0x1F, 0x19, 0x33, 0x90, 0x2E, 0x00,
-            0x00, 0x3C, 0x40, 0x1F, 0xE1, 0x1A, 0xF3, 0xA5, 0x48, 0x00, 0x00, 0x00, 0x1A, 0x66,
-            0x63, 0x54, 0x4C, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00,
-            0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x0A, 0x00,
-            0x00, 0x73, 0x27, 0x36, 0xD4, 0x00, 0x00, 0x00, 0x12, 0x66, 0x64, 0x41, 0x54, 0x00,
-            0x00, 0x00, 0x02, 0x78, 0xDA, 0x63, 0x60, 0xF8, 0x0F, 0x85, 0x30, 0x06, 0x00, 0x43,
-            0xCE, 0x07, 0xF9, 0xC3, 0x00, 0x69, 0xAF, 0x00, 0x00, 0x00, 0x1A, 0x66, 0x63, 0x54,
-            0x4C, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x02, 0x00,
-            0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01, 0x00, 0x0A, 0x00, 0x00, 0x51,
-            0x42, 0x4D, 0xD5, 0x00, 0x00, 0x00, 0x14, 0x66, 0x64, 0x41, 0x54, 0x00, 0x00, 0x00,
-            0x04, 0x78, 0xDA, 0x63, 0x60, 0x60, 0xF8, 0xFF, 0x1F, 0x82, 0xA1, 0x0C, 0x00, 0x3F,
-            0xD2, 0x07, 0xF9, 0x99, 0x35, 0xD9, 0xCA, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E,
-            0x44, 0xAE, 0x42, 0x60, 0x82,
+        const BYTES: [u8; 45] = [
+            // "GIF89a"
+            0x47, 0x49, 0x46, 0x38, 0x39, 0x61,
+            // Logical screen descriptor: 4x4, global colour table of two entries.
+            0x04, 0x00, 0x04, 0x00, 0x80, 0x00, 0x00,
+            // The global colour table: black, white.
+            0x00, 0x00, 0x00, 0xFF, 0xFF, 0xFF,
+            // Graphic control extension: 100 ms, no transparent index.
+            0x21, 0xF9, 0x04, 0x00, 0x0A, 0x00, 0x00, 0x00,
+            // Image descriptor: at 0,0, 4x4, no local colour table.
+            0x2C, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x04, 0x00, 0x00,
+            // LZW minimum code size, then one 4-byte sub-block holding
+            // CLEAR, index 0, CLEAR, index 0, CLEAR, index 0, CLEAR, index 0,
+            // CLEAR, EOI -- four pixels for a sixteen-pixel frame.
+            0x02, 0x04, 0x04, 0x41, 0x10, 0x2C,
+            // Block terminator, then the trailer.
+            0x00, 0x3B,
         ];
         BYTES.to_vec()
     }

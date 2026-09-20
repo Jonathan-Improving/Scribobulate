@@ -2379,6 +2379,13 @@ the app's windows appear on the operator's screen and keystrokes go to whatever 
 focus, so warn them before a live run and prefer `cargo test` whenever it would prove
 the same thing.
 
+**Client-area animation must be ON** (Settings > Accessibility > Visual effects >
+Animation effects). It is the source `src/platform/win32/reduced_motion.rs` reads, and
+with it off every animation-playback test refuses to run rather than fail 49 assertions
+for a reason none of them names — a hosted CI image has it off by default, which is why
+the workflow provisions it. This is a real accessibility preference, so turn it back on
+for the run rather than teaching the tests to ignore it.
+
 **Before any driven run, check the BINARY, not just the tree.** `cargo test` proves
 the working tree and says nothing about `target\release\scribobulate.exe`. Confirm
 `(Get-Item target\release\scribobulate.exe).LastWriteTime` is newer than the commit

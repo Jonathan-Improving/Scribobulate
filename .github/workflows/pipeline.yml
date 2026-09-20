@@ -211,11 +211,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # librsvg2-common is PROVISIONING, not dressing: it is the package that registers
+      # the SVG loader with gdk-pixbuf, and `--no-install-recommends` is exactly what
+      # keeps it off a machine that has libgtk-4-dev. A desktop has it, so the
+      # scalable-image tests passed on every dev box while failing here for months of
+      # runs -- a host loader is PROVISIONING, which is the premise src/imagedecode's
+      # own module doc is built on.
       - name: Install GTK4, GtkSourceView 5 and the gates' tooling
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends -y \
-            libgtk-4-dev libgtksourceview-5-dev \
+            libgtk-4-dev libgtksourceview-5-dev librsvg2-common \
             xvfb libxml2-utils fonts-dejavu-core
 
       # Packaging tooling, and ONLY when packaging -- ubuntu-latest ships dpkg-deb but
@@ -623,6 +629,63 @@ jobs:
           if (-not $hit) { throw "ISCC.exe not found after install; looked in: $($dirs -join '; ')" }
           Write-Host "ISCC installed at $hit"
           Add-Content -Path $env:GITHUB_PATH -Value $hit
+
+      # PROVISIONING, and the whole animation half of the suite depends on it. A hosted
+      # Windows image has client-area animation OFF, which is a real accessibility
+      # preference and the one `src/platform/win32/reduced_motion.rs` reads. With it off,
+      # `policy::effective_play` is false no matter what a test sets, so
+      # `EnableAnimationsGuard::set` refuses to run rather than let 49 playback
+      # assertions fail for a reason none of them mentions -- the guard behaving exactly
+      # as designed, on a machine nobody had configured for it.
+      #
+      # It is set here rather than worked around in the tests because the alternative is
+      # a seam that forces the platform's answer, and the platform's answer is precisely
+      # what the animation policy exists to obey.
+      #
+      # READS BACK AND FAILS: the only trustworthy evidence that the call took is
+      # SPI_GETCLIENTAREAANIMATION agreeing afterwards. A step that set it and assumed
+      # would hand the pipeline the same 49 failures with one more green step above
+      # them. It runs before the test binary exists, so whether a RUNNING process
+      # re-reads the setting after SPIF_SENDCHANGE never arises here.
+      - name: Client-area animation on, so the animation suite can run
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Add-Type @"
+          using System;
+          using System.Runtime.InteropServices;
+          public static class Spi {
+              [DllImport("user32.dll", SetLastError = true)]
+              public static extern bool SystemParametersInfo(uint a, uint p, ref int v, uint f);
+              [DllImport("user32.dll", SetLastError = true)]
+              public static extern bool SystemParametersInfo(uint a, uint p, IntPtr v, uint f);
+          }
+          "@
+          $GET = 0x1042; $SET = 0x1043; $SENDCHANGE = 0x0002
+          $before = 0
+          [void][Spi]::SystemParametersInfo($GET, 0, [ref]$before, 0)
+          Write-Host "SPI_GETCLIENTAREAANIMATION before: $before"
+          if ($before -eq 0) {
+              # The value goes in pvParam and uiParam MUST be 0 -- MEASURED on the
+              # Windows seat: every uiParam=1 spelling returns FALSE with
+              # ERROR_INVALID_PARAMETER and moves nothing. Do not "also try" the other
+              # spelling as insurance; under the pvParam reading a uiParam=1 call is
+              # read as FALSE and would UNDO the line above, provisioning green and
+              # leaving the suite red.
+              $ok = [Spi]::SystemParametersInfo($SET, 0, [IntPtr]1, $SENDCHANGE)
+              # The BOOL return, never GetLastError: the successful calls were measured
+              # leaving a stale ERROR_ENVVAR_NOT_FOUND behind them.
+              Write-Host "SPI_SETCLIENTAREAANIMATION returned: $ok"
+              $after = 0
+              [void][Spi]::SystemParametersInfo($GET, 0, [ref]$after, 0)
+              Write-Host "SPI_GETCLIENTAREAANIMATION after:  $after"
+              if (-not $ok -or $after -eq 0) {
+                  throw ("Could not turn client-area animation on for this session. " +
+                         "Every animation-playback test will refuse to run (see " +
+                         "EnableAnimationsGuard::set), so the pipeline is stopped here, " +
+                         "where the cause is named, rather than 49 assertions later.")
+              }
+          }
 
       # The gate. No step is named here; the runner derives them from the contract --
       # `-Package` is the runner's own opt-in flag for the `packaging`-class step.

@@ -103,6 +103,19 @@ BuildArch:      $ARCH
 
 Requires:       gtk4 >= 4.6
 Requires:       gtksourceview5
+# The SVG loader MODULE, which the toolkit's own chain does not pull: gdk-pixbuf
+# arrives with GTK, its SVG loader does not, and without it an SVG is reported as an
+# unrecognised format rather than failing loudly.
+#
+# THE NAME IS THE LOADER'S, NEVER THE LIBRARY'S, and the two are different packages.
+# MEASURED on Fedora 41: `librsvg2` carries librsvg-2.so and NOT the loader, which
+# ships separately as `rsvg-pixbuf-loader` -- so requiring the library reads correct,
+# installs cleanly, and leaves the loader absent, which is the exact failure this line
+# exists to prevent. Derived with
+# `dnf repoquery --whatprovides '<libdir>/gdk-pixbuf-2.0/2.10.0/loaders/libpixbufloader_svg.so'`;
+# re-derive it rather than assume when adding a distribution (openSUSE's is
+# gdk-pixbuf-loader-rsvg).
+Requires:       rsvg-pixbuf-loader
 
 # The binary is built by the pipeline's step 3 and staged into BUILDROOT before
 # rpmbuild runs, so there is deliberately no %prep and no %build. Re-compiling here
