@@ -16,9 +16,13 @@ pub(crate) fn refresh_outline(window: &ApplicationWindow) {
     let Some(st) = state(window) else { return };
     let md = st.shown_source(current_mode(window));
     let headings = extract_headings(&md);
-    // Cache the src_offsets so a caret move can binary-search them instead of
-    // re-parsing the document (U-3) — see `heading_src_offsets`'s doc comment.
-    *st.heading_src_offsets.borrow_mut() = headings.iter().map(|h| h.src_offset).collect();
+    // Cache what the hot paths read, so neither a caret move nor a viewport change has to
+    // re-parse the document — see `TabState::heading_index`'s doc comment, and the
+    // Hot-path CAM rows it anchors.
+    *st.heading_index.borrow_mut() = headings
+        .iter()
+        .map(crate::outline::HeadingRef::from)
+        .collect();
     let roots = build_tree(&headings);
     // The durable name of every heading this build shows, cached beside the offsets above
     // and for the same reason — it comes from this same parse, and the capture hook below
@@ -550,10 +554,10 @@ fn preview_top_doc_index(window: &ApplicationWindow) -> Option<usize> {
 /// (`cursor-position`) is converted to a byte offset before the binary search into
 /// `extract_headings` src_offsets (byte offsets into the source string).
 ///
-/// Headings come from `heading_src_offsets` — `refresh_outline`'s cache of its own
-/// `extract_headings` result — rather than a fresh re-parse (U-3: re-parsing the
-/// whole document on every caret move measured at ~30ms/call on a 10 MB document,
-/// and a caret move fires on every keystroke, not just navigation).
+/// Headings come from `TabState::heading_index` — `refresh_outline`'s cache of its own
+/// `extract_headings` result — rather than a fresh re-parse: re-parsing the whole document
+/// on every caret move measured at ~30 ms/call on a 10 MB document, and a caret move fires
+/// on every keystroke, not just navigation (Hot-path CAM row 3).
 fn editor_cursor_doc_index(window: &ApplicationWindow) -> Option<usize> {
     let st = state(window)?;
     let char_off = st.editor_buf.property::<i32>("cursor-position").max(0) as usize;
@@ -566,13 +570,13 @@ fn editor_cursor_doc_index(window: &ApplicationWindow) -> Option<usize> {
         .map(|(b, _)| b)
         .unwrap_or(text.len());
 
-    let offsets = st.heading_src_offsets.borrow();
-    if offsets.is_empty() {
+    let headings = st.heading_index.borrow();
+    if headings.is_empty() {
         return None;
     }
 
     // Largest heading src_offset ≤ byte_off = the caret's enclosing (or preceding) heading.
-    match offsets.partition_point(|o| o.raw() <= byte_off) {
+    match headings.partition_point(|h| h.src_offset.raw() <= byte_off) {
         0 => None, // caret is above the very first heading
         n => Some(n - 1),
     }
@@ -588,8 +592,8 @@ fn current_heading_levels(window: &ApplicationWindow) -> Vec<u8> {
     let Some(st) = state(window) else {
         return Vec::new();
     };
-    let md = st.shown_source(current_mode(window));
-    extract_headings(&md).iter().map(|h| h.level).collect()
+    let headings = st.heading_index.borrow();
+    headings.iter().map(|h| h.level).collect()
 }
 
 /// Flat `GtkTreeListModel` position of the deepest still-materialised (VISIBLE)
@@ -1306,6 +1310,139 @@ mod disclosure_reveal_tests {
         crate::testpump::until(crate::testpump::Clock::Idle, "the body to go", || {
             !text(&window).contains("the body text")
         });
+        window.destroy();
+    }
+}
+
+/// **The scroll-spy's cost, not its answer.** Its own module because the question is
+/// where a hot handler's data comes from rather than what the outline shows — the
+/// correctness of the selection is `collapse_all_tests`' and `disclosure_reveal_tests`'
+/// subject, and a spy that re-parses the whole document passes every one of those.
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+mod scroll_spy_cost_tests {
+    use super::*;
+    use crate::window::testkit::test_app;
+
+    /// **Hot-path CAM row 1 — the scroll-spy READS the heading cache, it does not
+    /// re-derive it.**
+    ///
+    /// The oracle is a cache that DISAGREES with the document. `current_heading_levels`
+    /// re-parsed the source on every `value-changed` of the preview's vertical
+    /// adjustment, which GTK moves once per validated line while it lays a large buffer
+    /// out — 4,001 whole-document parses and 20 seconds of unpainted window to open this
+    /// project's own `sdd/TDD.md`. A test that scrolls and asserts the selection is right
+    /// passes either way, because the re-parse produced the correct answer; the only
+    /// thing that separates the two implementations is WHERE the answer came from.
+    ///
+    /// So the cache is overwritten with a shape the document cannot produce, and the spy
+    /// is asked for the ancestor chain: reading the cache yields the planted depth,
+    /// re-parsing yields the document's.
+    #[gtktest::test]
+    fn the_scroll_spy_reads_the_heading_cache_rather_than_re_parsing() {
+        let app = test_app("com.extollit.scribobulate.integrationtest.spycache");
+        let window = new_window(&app, "IT", "# A\n\ntext\n\n## B\n\nmore\n", None);
+        crate::testpump::until(crate::testpump::Clock::Idle, "the first outline", || {
+            state(&window).is_some_and(|st| !st.heading_index.borrow().is_empty())
+        });
+
+        let from_document = current_heading_levels(&window);
+        assert_eq!(
+            from_document,
+            vec![1, 2],
+            "precondition: the cache mirrors the document after a refresh"
+        );
+
+        // A shape `# A` / `## B` cannot yield, so only a reader of the cache can report
+        // it. The offsets are irrelevant here and are left as the refresh built them.
+        {
+            let st = state(&window).expect("tab state");
+            let mut cache = st.heading_index.borrow_mut();
+            for h in cache.iter_mut() {
+                h.level = 6;
+            }
+        }
+        assert_eq!(
+            current_heading_levels(&window),
+            vec![6, 6],
+            "the spy re-parsed the document instead of reading `heading_index` — on a \
+             large file that is one whole-document parse per scroll tick (Hot-path CAM \
+             row 1)"
+        );
+        window.destroy();
+    }
+
+    /// **Hot-path CAM row 1, cell F — the cache the spy now reads is FRESH in every mode
+    /// and after every mutation.**
+    ///
+    /// The companion to the test above, and the one that makes the pair complete. A spy
+    /// that re-derives cannot be stale — it reads the document every time — so removing
+    /// the derivation is not a pure win: it trades cost for a staleness surface, in modes
+    /// the change was not driven in and after events nobody enumerated. Worse, the two
+    /// editor modes and preview read the source from DIFFERENT places
+    /// (`TabState::shown_source`), so a cache built in one and read in another fails
+    /// invisibly — the outline still highlights *a* heading.
+    ///
+    /// So each is driven rather than argued: a view-mode switch (C), an edit past the
+    /// live-preview debounce (A), and a reload from disk (B).
+    #[gtktest::test]
+    fn the_spys_heading_cache_is_fresh_in_every_mode_and_after_a_mutation() {
+        use gtk::prelude::TextBufferExt;
+
+        let app = test_app("com.extollit.scribobulate.integrationtest.spyfresh");
+        // Opened FROM a path, because cell B's event is the document changing on disk and
+        // the reload choke point reads the tab's own path.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("doc.md");
+        std::fs::write(&path, "# A\n\ntext\n\n## B\n\nmore\n").expect("write");
+        let window = new_window(
+            &app,
+            "IT",
+            "# A\n\ntext\n\n## B\n\nmore\n",
+            Some(path.as_path()),
+        );
+        let settled = |clock, what: &str, want: Vec<u8>| {
+            crate::testpump::until(clock, what, || current_heading_levels(&window) == want);
+        };
+
+        // C — every mode, in both directions, so a cache built for one source cannot be
+        // read against the other.
+        for mode in ["preview", "split", "edit", "preview", "edit", "split"] {
+            change_action_state(&window, "view-mode", &mode.to_variant());
+            assert_eq!(
+                current_heading_levels(&window),
+                vec![1, 2],
+                "the spy's levels went stale on switching to {mode} mode"
+            );
+        }
+
+        // A — an in-session edit. The cache follows the live buffer in the editor modes,
+        // after the live-preview debounce; `Clock::Frame` is what lets that timer run.
+        change_action_state(&window, "view-mode", &"split".to_variant());
+        let st = state(&window).expect("tab state");
+        let mut end = st.editor_buf.end_iter();
+        st.editor_buf.insert(&mut end, "\n### C\n\ntail\n");
+        settled(
+            crate::testpump::Clock::Frame,
+            "the edited heading to reach the spy's cache",
+            vec![1, 2, 3],
+        );
+
+        // ...and the new level survives the crossing back to preview, which re-reads the
+        // source the flush just wrote rather than the buffer.
+        change_action_state(&window, "view-mode", &"preview".to_variant());
+        assert_eq!(current_heading_levels(&window), vec![1, 2, 3]);
+
+        // B — the document changes underneath. `reload_from_disk` is the choke point the
+        // live external reload and the prompted one both reach, and it reads off GLib's
+        // worker, which is why this wait is the one that needs `Clock::Worker`.
+        std::fs::write(&path, "#### D\n\nonly\n").expect("rewrite");
+        crate::window::reload_from_disk(&window);
+        settled(
+            crate::testpump::Clock::Worker,
+            "the reloaded document to reach the spy's cache",
+            vec![4],
+        );
+
         window.destroy();
     }
 }

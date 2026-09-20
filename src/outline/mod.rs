@@ -34,6 +34,30 @@ pub(crate) struct Heading {
     pub src_offset: OriginalByteOffset,
 }
 
+/// A heading reduced to the two facts a continuously-firing handler asks for.
+///
+/// The cached projection of [`Heading`] that `TabState::heading_index` holds — the label
+/// is dropped because no hot reader wants it and keeping it would make the cache as large
+/// as the document's headings' text. One struct rather than two parallel vectors so the
+/// offsets and the levels cannot fall out of step (Hot-path CAM, "the cache belongs to
+/// the writer").
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct HeadingRef {
+    /// Heading tier, 1–6.
+    pub(crate) level: u8,
+    /// Byte offset into the ORIGINAL source where the heading block begins.
+    pub(crate) src_offset: OriginalByteOffset,
+}
+
+impl From<&Heading> for HeadingRef {
+    fn from(h: &Heading) -> Self {
+        HeadingRef {
+            level: h.level,
+            src_offset: h.src_offset,
+        }
+    }
+}
+
 /// Where a heading is reachable in the rendered preview, for **every** heading the
 /// source declares — including the ones a collapsed disclosure is hiding.
 ///

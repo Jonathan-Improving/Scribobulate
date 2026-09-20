@@ -236,8 +236,9 @@ recurring is promoted into a type or choke point that makes the wrong call impos
 ## Change accountability matrices (CAM)
 
 A change in a [CAM](CAM.md) category — commands, rendering features, views derived from
-the document, anything holding a position in it, document I/O — accounts for every
-applicable cell of that matrix, and derives its manual-test checks from them.
+the document, anything holding a position in it, document I/O, anything wired to a signal
+that fires continuously — accounts for every applicable cell of that matrix, and derives
+its manual-test checks from them.
 
 ## Version control
 

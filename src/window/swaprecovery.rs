@@ -1173,7 +1173,7 @@ mod tests {
             let doc_id = DocId::generate();
             tab.adopt_doc_id(doc_id.clone());
             assert!(
-                tab.heading_src_offsets.borrow().is_empty(),
+                tab.heading_index.borrow().is_empty(),
                 "precondition: the document on disk has no headings"
             );
             seed_swap(
@@ -1196,7 +1196,7 @@ mod tests {
                 "and the two must not be allowed to drift apart in the first place"
             );
             assert_eq!(
-                tab.heading_src_offsets.borrow().len(),
+                tab.heading_index.borrow().len(),
                 1,
                 "the outline of the active tab is rebuilt from the recovered text, not left \
                  describing the file on disk"

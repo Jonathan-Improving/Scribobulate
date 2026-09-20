@@ -101,7 +101,7 @@ pub(crate) struct TabState {
     /// following the reader into another's.
     ///
     /// `outline_paths` is the current build's `doc_index` → path map, cached where
-    /// `heading_src_offsets` is and for the same reason: it is derived from the same parse,
+    /// `heading_index` is and for the same reason: it is derived from the same parse,
     /// and the capture site would otherwise have to re-parse the document to name a row.
     ///
     /// NOT round-tripped through `session.rs`, matching `folds` below — see
@@ -122,15 +122,23 @@ pub(crate) struct TabState {
     /// [`TabState::fold_epoch`]. Private, because the only legitimate write is
     /// `note_source_offsets_moved`'s.
     fold_epoch: std::cell::Cell<u64>,
-    /// The current outline's heading source-byte-offsets, in document order —
-    /// `refresh_outline`'s own `extract_headings` result, kept around so a caret
-    /// move (`editor_cursor_doc_index`) can binary-search it instead of re-parsing
-    /// the whole document on every keystroke (U-3: re-parsing was measured at
-    /// ~30ms/call on a 10 MB document, and every caret move pays it). Only ever as
-    /// fresh as the last `refresh_outline` — the same staleness window the
-    /// rebuilt tree widget already has during the live-edit debounce, so this
-    /// does not desync the spy's selection from what the tree currently shows.
-    pub(crate) heading_src_offsets: RefCell<Vec<crate::span::OriginalByteOffset>>,
+    /// The current outline's headings reduced to what a HOT PATH needs — source byte
+    /// offset and level, in document order — i.e. `refresh_outline`'s own
+    /// `extract_headings` result, kept so the handlers that fire continuously can read
+    /// it instead of re-parsing the document (Hot-path CAM rows 1 and 3).
+    ///
+    /// **One cache, every hot reader.** Both fields live here rather than in two vectors
+    /// because two readers wanted two different projections of ONE parse: a caret move
+    /// binary-searches the offsets (`editor_cursor_doc_index`), and the scroll-spy maps
+    /// the levels (`current_heading_levels`). The second of those re-parsed the whole
+    /// document on every viewport change for as long as it existed — 4,001 parses and 20
+    /// seconds of frozen window to open this project's own `sdd/TDD.md` — because the
+    /// cache was there and it simply did not read it.
+    ///
+    /// **Staleness, stated:** only ever as fresh as the last `refresh_outline` — the same
+    /// window the rebuilt tree widget already has during the live-edit debounce, so a
+    /// reader here cannot disagree with what the tree currently shows.
+    pub(crate) heading_index: RefCell<Vec<crate::outline::HeadingRef>>,
     /// The source-span START byte of the annotation last activated in the annotations
     /// viewer, if any — its **identity**, not a row index (the list is a filtered
     /// subsequence of all constructs, so position is not identity).
@@ -514,7 +522,7 @@ impl TabState {
             outline_collapsed: RefCell::default(),
             outline_paths: RefCell::default(),
             folds: RefCell::new(crate::fold::FoldState::default()),
-            heading_src_offsets: RefCell::new(Vec::new()),
+            heading_index: RefCell::new(Vec::new()),
             annotations_selected: Cell::new(None),
             outline_spy_selecting: Cell::new(false),
             outline_spy_doc: Cell::new(None),

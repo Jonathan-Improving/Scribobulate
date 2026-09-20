@@ -36,7 +36,8 @@ themselves.
 | 7 | Deferred-operation CAM | Work whose completion lands later (every document read and write), and everything that can change while it is out |
 | 8 | Status-notice CAM | Transient status-bar notices, whose retraction must survive the holder being destroyed or moved |
 | 9 | Document-Identity CAM | State keyed on a document's PATH, and the events that change it |
-| 10 | Granted CAM exceptions | Operator-approved deviations, recorded so they are not re-litigated |
+| 10 | Hot-path CAM | Handlers on a signal that fires continuously, whose cost is invisible on a small document |
+| 11 | Granted CAM exceptions | Operator-approved deviations, recorded so they are not re-litigated |
 
 ---
 
@@ -884,6 +885,107 @@ rather than implied:
 **Neither is fixed under this matrix, and neither is confirmed.** Both are cheap to
 settle (`save.rs` already has a `drive_save_as` test helper) and both belong to Save
 As rather than to Rename.
+
+## Hot-path CAM — handlers on a continuously-firing signal
+
+A **hot path** is a handler wired to a signal that fires many times per user gesture, or
+many times unattended per document: a viewport adjustment, a caret move, a keystroke, a
+size allocation, a frame-clock tick, a paint. A change that wires one, or that adds work
+inside one, must account for every applicable cell.
+
+This is a latent gap of the purest kind. The handler is *correct* — it computes the right
+answer every time — so no test goes red, no assertion can be written against "it is
+right", and the happy path is not merely hidden but genuinely passed. What is wrong is the
+**cost per emission**, and cost is invisible on the document a feature is built against: a
+20-line fixture makes a whole-document re-parse free. It appears only at scale, and it
+appears as a symptom no one attributes to the handler — *the app hangs when I resize*, *the
+UX is ridiculously laggy*.
+
+**Measured, and the reason this matrix exists.** The outline's scroll-spy re-derived the
+whole document on every `value-changed` of the preview's vertical adjustment:
+`on_scroll` → `deepest_visible_row_pos` → `current_heading_levels` →
+`outline::extract_headings`, a full Markdown parse. That made the cost quadratic in
+document length — and worse than "per scroll", because GTK validates a large buffer
+incrementally and nudges the adjustment once per validated line, so merely *opening* a file
+drove it. On this project's own `sdd/TDD.md` (3,987 lines) it called `extract_headings`
+**4,001 times** and held the main loop at 100% for **20 seconds** in a release build, during
+which the window did not paint. The fix was one line of reading — the same parse's result
+was already cached for the caret path, and only this reader had been missed.
+
+**The columns are OBLIGATIONS, not event classes** — unlike every matrix above. A hot path
+has one event by definition (its own signal), so what varies is what the handler owes:
+
+- **B — bounded per emission.** The work is O(1) or O(log n) in document size. No
+  whole-document parse, no whole-document scan, no walk of a model whose length is the
+  document's.
+- **C — reads a cache with ONE refresh choke point.** The derived value is computed where
+  the document *changes* — which is a Derived-view CAM row's choke point — and read here.
+  Two caches of one fact, or a cache written from two places, is the drift this forbids.
+- **S — staleness named.** What invalidates the cache and which event refreshes it, stated
+  where the cache is declared. A hot path may legitimately read a value one render old;
+  what it may not do is leave the window unstated.
+- **D — coalesced.** Where the work genuinely cannot be bounded, it runs on a debounce or
+  an idle with a stated cap and a generation guard, never once per emission.
+- **M — measured at scale.** Proven on a document large enough for the cost to show, with
+  the number written down. A fixture is not a measurement, and "it feels fine" is not
+  either.
+- **F — fresh in every mode and after every mutation.** The cache column C introduces is
+  read in **edit-only, split and preview-only**, and after each of the Derived-view CAM's
+  four event classes — an in-session edit (A), a save / open / external reload (B), a
+  view-mode switch, theme or zoom (C), and a tab switch, cross-window move or session
+  restore (D). Proven in each, not argued from the refresh's call sites.
+
+**F is the cell this matrix exists to pair with C, and the order matters.** A hot path
+that re-derives is *expensively* correct: it cannot be stale, because it reads the
+document every time, so every mode and every mutation is satisfied by construction and
+nobody has to think about it. Replacing that derivation with a cache read removes the cost
+**and introduces a staleness surface that did not previously exist** — the handler now
+depends on someone else having refreshed, in a mode it may not have been tested in, after
+an event nobody enumerated. So the fix for a B/C violation is not complete when the
+measurement improves; it is complete when F is proven. A hot path is thereby pulled into
+the Derived-view CAM's jurisdiction the moment it starts reading a cache, and the two
+matrices have to be satisfied together.
+
+| # | Hot path | B | C | S | D | M | F | Anchor |
+|---|---|:-:|:-:|:-:|:-:|:-:|:-:|---|
+| 1 | Viewport adjustment `value-changed` — outline scroll-spy, split scroll-sync, wheel coalescing, far-scroll settle | ✓ | ✓ | ✓ | — | ✓ | ✓ | `outline_nav::on_scroll`; `scrollsync`; `wheelcoalesce`; `farscroll`. F: Derived-view row 2's own choke points refresh it — `livepreview` (A), `reload`/`swaprecovery` (B), `viewactions` (C), `tabs::switch`/`window::new_window`/`app::setup` (D) |
+| 2 | Buffer `changed` (once per keystroke) — dirty status, word/line counts, live-preview re-render, crash-recovery snapshot | — | ✓ | ✓ | ✓ | ✓ | ✓ | `statusbar::note_buffer_changed` (debounced, generation-guarded, counted off-thread); `window::swap` |
+| 3 | Buffer `cursor-position` — Ln/Col indicator, outline caret spy, formatting overlay | ✓ | ✓ | ✓ | — | ✓ | ✓ | `refresh_position_indicator`; `outline_nav::editor_cursor_doc_index` (binary search over `TabState::heading_index`) |
+| 4 | `size_allocate` / content-column change — anchored-child bounds, table width binding | ✓ | — | ✓ | — | ✓ | — | `codeview::CodePreviewView::size_allocate`; `set_bound_width` (re-binds only on a real width change — GTK4Rs/AP-23). Reads no document-derived cache, so F does not arise |
+| 5 | `snapshot_layer`, once per frame per decoration | ✓ | — | — | — | ✓ | ✓ | `decorplan::PAINT_ORDER`; every painter is gated to the VISIBLE range before it measures (which is also the ScrAP-22 correctness rule, so the two agree). F: each decoration vector is REPLACED by its `set_*` on every render, and `DRAWN_VECTORS` is what keeps a new one from being forgotten |
+| 6 | Frame-clock tick (`add_tick_callback`) — animation frames, sprite advance, scroll settle | ✓ | — | ✓ | — | — | — | `animation::tick`; `animation::sprites`; `farscroll::settle` |
+| 7 | Pointer motion / hover — copy-button, checkbox and marker hit-boxes | ✓ | ✓ | ✓ | — | — | ✓ | `codeview`'s `*_hitboxes`, repopulated per paint for the visible rows only and cleared by the setter that invalidates them |
+
+Rules that give the matrix its teeth:
+
+- **"It is only called on scroll" is the claim to distrust.** A signal you reason about as
+  user-driven is also driven by the toolkit: GTK's incremental validation moves a scroll
+  adjustment, a theme switch re-allocates, a reflow re-snapshots. Count the emissions on a
+  real document rather than reasoning about who causes them — and count them by
+  instrumenting the handler, not by estimating.
+- **The cache belongs to the writer, not to the reader.** A hot path that needs a derived
+  value does not compute it and memoise it locally; it reads the cache the Derived-view
+  CAM row that owns that value already refreshes. This is what makes the two matrices one
+  system: Derived-view says *when* the value is recomputed, this one says *that* nothing
+  else may recompute it.
+- **A second reader of an existing cache is a cell, not a free change.** The defect that
+  produced this matrix was not an uncached value — the cache existed and was already
+  correct. It was a *second reader* of the same fact that re-derived instead. When adding
+  one, look for an existing cache of that fact before writing the derivation.
+- **Bounded beats coalesced.** A debounce hides a cost rather than removing it, and it
+  buys nothing for the emissions the toolkit drives in a burst — they all land after the
+  timer too. Reach for column D only when the work is irreducibly whole-document, and then
+  give it a generation guard so a stale result cannot overwrite a fresh one.
+- **A mode is not a context you can reason your way past.** The three view modes read the
+  document from two different places — `TabState::shown_source` answers the editor buffer
+  in edit and split and the stored source in preview — so a cache built in one mode and
+  read in another is the specific way F fails, and it fails invisibly: the outline still
+  highlights *a* heading. Drive each mode.
+- **Swept** when written (2026-09-20): all seven rows above were walked against the shipped
+  code. Six were already satisfied; row 1's scroll-spy was the single defect, and it is
+  fixed in the change that adds this matrix. Rows 5 and 6 carry no **M** because their cost
+  is bounded by the viewport rather than by the document, which is the property the
+  footprint gate and `decorplan`'s visibility gates already measure.
 
 ## Granted CAM exceptions
 
