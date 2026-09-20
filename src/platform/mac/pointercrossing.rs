@@ -60,7 +60,7 @@
 //! ⚠ **This is load-bearing on an implementation detail and the next reader deserves to
 //! know it.** Input regions exist to describe where a surface accepts input; the
 //! coupling to tracking areas is an internal choice of the macOS backend, made in commit
-//! `f207402228` ("macos: use input_region to specify tracking areas", Feb 2022). If that
+//! GNOME/gtk `f207402228` ("macos: use input_region to specify tracking areas", Feb 2022). If that
 //! coupling is ever undone this module stops working silently — the cursor simply goes
 //! back to being an arrow, with nothing failing anywhere.
 //!

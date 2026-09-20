@@ -405,8 +405,9 @@ fn restore_textview_scroll_to_line_progressive(sw: &ScrolledWindow, view: &TextV
 /// is mapped+allocated (below) also VALIDATES the heights, so even the pre-fix
 /// one-shot lands correctly (QA Round-4 mutation test confirmed this); not pumping
 /// at all leaves `is_mapped()` false so the progressive path never runs either. So
-/// the actual snap-to-top settling is a genuinely GUI-only path: POLICY's
-/// "regression coverage — two independent areas" is satisfied by the automated
+/// the actual snap-to-top settling is a genuinely GUI-only path: POLICY's rule that a
+/// regression fix needs BOTH an automated test and a manual-test check that was actually
+/// run (§ Manual integration testing) is satisfied by the automated
 /// tests below (decidable: mark placement, no-panic on a huge buffer, no-op at the
 /// top, and viewport-reaches-target on a *mapped* view) PLUS **MANUAL-TEST 3.2a as
 /// the area-2 live regression guard** (POLICY §"Manual integration testing" —

@@ -743,21 +743,52 @@ mod export_doc_tests {
         assert_eq!(text, "let x = a ~~ b == c;\n");
     }
 
+    /// Parameterised over scheme × fragment-presence, because the version that was
+    /// not could not see the defect it was written to guard. It used
+    /// `javascript:alert(1)` — no fragment — so the refused-scheme limb decided it
+    /// alone and the test stayed green while `javascript:alert(1)//#x` was emitted
+    /// with its destination intact: the fragment limb answered first, and the `#x`
+    /// it matched was commented out by the payload's own `//`. Any new gate here
+    /// must keep every `false` row below refused.
     #[test]
-    fn a_link_with_a_refused_scheme_keeps_its_text_and_loses_its_destination() {
-        let doc = doc_of("[click](javascript:alert(1)) and [ok](https://example.com)\n");
-        let Some(Block::Paragraph(inlines)) = doc.blocks.first() else {
-            panic!("expected a paragraph");
-        };
-        let hrefs: Vec<String> = inlines
-            .iter()
-            .filter_map(|i| match i {
-                Inline::Link { href, .. } => Some(href.clone()),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(hrefs, vec!["https://example.com".to_string()]);
-        assert!(text_of(&doc).contains("click"), "the text survives");
+    fn a_links_destination_survives_export_only_when_its_scheme_is_allowed() {
+        // (href, is the destination expected to survive)
+        let cases: &[(&str, bool)] = &[
+            ("https://example.com", true),
+            ("https://example.com/page#frag", true),
+            ("mailto:user@example.com", true),
+            ("TECH.md#module-map", true), // relative, fragment — resolvable in the artefact
+            ("#section", true),           // same-document anchor
+            ("javascript:alert(1)", false),
+            ("javascript:alert(1)//#x", false), // the defect: fragment present, scheme hostile
+            ("javascript:alert(1)#x", false),
+            ("JaVaScRiPt:alert(1)#x", false), // scheme grammar is case-insensitive
+            ("data:text/html,<script>alert(1)</script>#x", false),
+            ("vbscript:msgbox(1)#x", false),
+            ("file:///etc/passwd#x", false),
+            ("TECH.md", false), // relative, no fragment — refused before and still is
+        ];
+        for (href, survives) in cases {
+            let doc = doc_of(&format!("[click]({href})\n"));
+            let Some(Block::Paragraph(inlines)) = doc.blocks.first() else {
+                panic!("expected a paragraph for {href:?}");
+            };
+            let hrefs: Vec<String> = inlines
+                .iter()
+                .filter_map(|i| match i {
+                    Inline::Link { href, .. } => Some(href.clone()),
+                    _ => None,
+                })
+                .collect();
+            let expected: Vec<String> = if *survives {
+                vec![(*href).to_string()]
+            } else {
+                vec![]
+            };
+            assert_eq!(hrefs, expected, "href {href:?}");
+            // Whatever the verdict, the reader still sees the link's text.
+            assert!(text_of(&doc).contains("click"), "text survives {href:?}");
+        }
     }
 
     #[test]

@@ -280,6 +280,120 @@ pub fn bare_ap_citations(line: &str) -> Vec<String> {
     found
 }
 
+// ── Check 20: a cited git commit hash ─────────────────────────────────────────
+
+/// A bare hex run long enough to be a git object name, at a word boundary.
+///
+/// Seven is git's own default abbreviation and the shortest form anyone cites; forty is
+/// a full SHA-1. Shorter runs are excluded because `deadbe` is as likely to be a colour
+/// or a fixture byte as an object name, and a check with false positives gets switched
+/// off while an incomplete one gets extended.
+fn commit_hash_rx() -> &'static Regex {
+    static RX: OnceLock<Regex> = OnceLock::new();
+    rx(&RX, r"(^|[^0-9a-zA-Z_/-])[0-9a-f]{7,40}([^0-9a-zA-Z_-]|$)")
+}
+
+/// Markers that attribute a hash to a repository OTHER than this one.
+///
+/// **This is the line between a citation that rots and one that does not, and it is the
+/// whole design of the check.** POLICY's rule is about THIS project's hashes: it squashes
+/// each batch, so its own hashes name commits designed to stop existing. An upstream
+/// GTK or GNOME commit is permanent and independently resolvable, and citing one is how
+/// a finding says where a toolkit defect was fixed — banning that would delete real
+/// evidence to enforce a rule that does not apply to it.
+///
+/// Nothing can decide the question from the hash itself: an orphaned local hash and a
+/// live upstream one are both forty hex characters, and — the trap the rule exists for —
+/// the orphaned one still RESOLVES in the clone that wrote it, which is the clone anyone
+/// verifying it is standing in. So the discriminator is whether the line says whose
+/// commit it is. A citation that does not name its repository is one the next reader
+/// cannot resolve, whoever wrote it, which is the defect either way.
+const FOREIGN_SOURCE_MARKERS: &[&str] = &[
+    "GNOME/", "gtk", "GTK", "Gtk", "upstream", "glib", "GLib", "pango", "Pango", "librsvg",
+    "http://", "https://",
+];
+
+/// Contexts where a hex run is DATA rather than any kind of citation — a parser's own
+/// fixture, or an identifier being decoded. Narrow on purpose: each names a construct in
+/// this tree, not a shape a citation might coincidentally take.
+const HEX_DATA_MARKERS: &[&str] = &[
+    // A document identifier being parsed or asserted on.
+    "from_hex", "DocId", "doc_id",
+    // A `/proc/<pid>/maps` line — the crash reporter's own fixture. Its address ranges
+    // and file offsets are hex of exactly the length an abbreviated object name has, and
+    // the permission triplet is what makes the line unmistakable.
+    "r--p", "rw-p", "r-xp", "/proc/",
+];
+
+/// A hex run that is not a commit hash however it looks.
+///
+/// Every term is a real construct this tree contains, not a hypothetical. Without them
+/// the check reports colour literals and digests as citations, which is the failure mode
+/// that gets a gate disabled rather than fixed.
+fn hash_exempt_rx() -> &'static Regex {
+    static RX: OnceLock<Regex> = OnceLock::new();
+    rx(
+        &RX,
+        // A colour (`#rrggbbaa`, `0xRRGGBB`), a hex byte literal, a content digest
+        // (`sha256:`/`sha256 `/`SHA256`), a URL path segment, or a version-like run.
+        // A colour, a hex literal, an escape, anything a digest word governs, a URL
+        // path segment, a run with a dot or slash attached, a run of 32 or more (a
+        // digest or an opaque identifier, never an abbreviated object name anyone
+        // cites), or a fixture standing in for a hash rather than naming one.
+        r"(#[0-9a-fA-F]{6,8}|0x[0-9a-fA-F]+|\\x[0-9a-fA-F]+|(?i:sha)[0-9-]*[: =]|/[0-9a-f]{7,40}|[0-9a-f]{7,40}[/.]|[0-9a-f]{32,}|0badc0de|[0-9a-f]{7,}/[0-9a-f]{7,})",
+    )
+}
+
+/// Does `line` cite a git commit hash, in violation of POLICY § SDD register writes?
+///
+/// # The two carve-outs are built in, and the order they were written in mattered
+///
+/// POLICY's rule has two exceptions, and this check was written only AFTER they were
+/// restored to it — deliberately, and the review that found both said so as its single
+/// ordering constraint. A lint for the flat prohibition flags the crash reporter's
+/// generated build stamp, and an agent enforcing a flat rule then deletes it. The
+/// exceptions are:
+///
+/// * **A generated build stamp.** `build.rs` emits `SCRIB_GIT_COMMIT` and
+///   `forensics::identity` reads it, so a crash report names the revision it came from.
+///   That is machine output read by a maintainer holding the report, not a citation, and
+///   the lines that carry it name the variable rather than a literal hash — so they are
+///   matched by name here rather than by shape.
+/// * **A transient instruction about the working tree.** Naming a commit in order to act
+///   on it now is not citing it later. Those do not live in tracked files, so nothing is
+///   needed for them here; the carve-out exists in POLICY for the human.
+///
+/// Returns the offending hex runs, sorted and deduplicated; empty means clean.
+pub fn commit_hash_citations(line: &str) -> Vec<String> {
+    // The build stamp, by NAME. A line mentioning the environment variable is the
+    // sanctioned mechanism talking about itself.
+    if line.contains("SCRIB_GIT_COMMIT") {
+        return Vec::new();
+    }
+    // A hash attributed to another repository is resolvable and is not this rule's
+    // subject. See `FOREIGN_SOURCE_MARKERS`.
+    if FOREIGN_SOURCE_MARKERS.iter().any(|m| line.contains(m)) {
+        return Vec::new();
+    }
+    if HEX_DATA_MARKERS.iter().any(|m| line.contains(m)) {
+        return Vec::new();
+    }
+    let stripped = hash_exempt_rx().replace_all(line, " ");
+    let mut found: Vec<String> = commit_hash_rx()
+        .find_iter(&stripped)
+        .map(|m| {
+            m.as_str()
+                .trim_matches(|c: char| !c.is_ascii_hexdigit())
+                .to_string()
+        })
+        // A run of only digits is a number, not an object name.
+        .filter(|hit| hit.chars().any(|c| c.is_ascii_alphabetic()))
+        .collect();
+    found.sort();
+    found.dedup();
+    found
+}
+
 /// Check 12's predicate: is this a tracked path Windows refuses to check out?
 ///
 /// `< > : " | ? *`, a control character, a trailing dot or space, or a reserved device name

@@ -5,9 +5,10 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for taking the time to report this. Only the first four fields are
-        required — fill in what you know, and send it even if the rest is blank.
-        A vague report that arrives beats a precise one that doesn't.
+        Thanks for taking the time to report this. Most fields are optional — fill in
+        what you know, and send it even if the rest is blank. A vague report that
+        arrives beats a precise one that doesn't. The required ones are marked, and
+        they include the two tick-boxes at the bottom.
 
         **Please check two places before you file.** The
         [open issues](https://github.com/MadMartian/Scribobulate/issues), and
@@ -104,6 +105,12 @@ body:
         `crash-*.log` in `~/.local/state/scribobulate` on Linux and macOS, or in
         `%LOCALAPPDATA%\scribobulate` on Windows. Terminal output helps too, if you
         launched it from one.
+
+
+        ⚠️ **Read it before you paste it.** A crash report replays what the application
+        was doing, which includes the full path of every document you had open and the
+        address of any remote image it fetched. It does not contain your documents'
+        text. Edit out anything you would rather not publish — this is a public issue.
       render: shell
 
   - type: checkboxes

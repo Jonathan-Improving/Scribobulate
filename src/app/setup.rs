@@ -284,8 +284,8 @@ fn connect_theme_change(app: &Application) {
 /// A second consumer exists because a focused popover with its own GDK surface never
 /// reaches the window's accelerator machinery, and has to re-offer the same set locally
 /// (`codeview::card`); re-listing the tables there would be a second copy of exactly the
-/// thing every one of these tables exists to prevent (POLICY, "Keyboard accelerators are
-/// part of the single-source-of-truth contract").
+/// thing every one of these tables exists to prevent (POLICY § Architecture rules, "One
+/// action per command": an accelerator is declared once, in its descriptor).
 pub(crate) fn accelerator_bindings() -> Vec<(String, String)> {
     accelerator_bindings_for(crate::accel::host())
 }
@@ -377,11 +377,12 @@ pub(crate) fn register_accelerators(app: &Application) {
 fn on_activate(app: &Application) {
     // A bare re-activation of an ALREADY-running instance (single-instance
     // hand-off with no file args) — just open a fresh blank document rather
-    // than replaying the saved session again (`restore_session` is only for
-    // the very first activation of a brand-new process, detected by "no
-    // windows exist yet": TDD 8.3 means a running process can never reach
-    // zero windows, so this is an unambiguous signal).
-    if !app.windows().is_empty() {
+    // than replaying the saved session again. `restore_session` is only for the
+    // very first activation of a brand-new process, and the claim below is what
+    // says so: see `claim_cold_start` for why counting windows answered a
+    // different question during the interval restore itself occupies.
+    let cold_start = super::coldstart::claim();
+    if !cold_start {
         new_window(app, "Scribobulate", WELCOME, None);
         return;
     }
@@ -409,7 +410,9 @@ fn on_activate(app: &Application) {
         if !crate::window::restore_session(&app).await {
             new_window(&app, "Scribobulate", WELCOME, None);
         }
-        recover_if_cold_start(&app, true).await;
+        // `cold_start`, not a literal: the two must not be able to drift, and this
+        // path is reached only when the claim succeeded.
+        recover_if_cold_start(&app, cold_start).await;
     });
 }
 

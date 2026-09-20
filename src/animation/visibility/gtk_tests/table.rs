@@ -1,4 +1,4 @@
-//! The table-row tests, split from `gtk_tests/mod.rs` at POLICY's 500-line soft
+//! The table-row tests, split from `gtk_tests/mod.rs` at POLICY's file-size soft
 //! limit — one test per row of the plan's "not visible because…" table this
 //! project can produce headlessly, plus the return-to-view restart test.
 

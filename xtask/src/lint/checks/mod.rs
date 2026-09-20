@@ -39,6 +39,7 @@ pub fn run_all(tree: &Tree) -> bool {
         manpage::about_dialog_parity(tree),
         register::duplicate_entry_numbers(tree),
         packaging::desktop_categories(tree),
+        references::commit_hashes_cited(tree),
     ];
     verdicts.into_iter().all(|ok| ok)
 }

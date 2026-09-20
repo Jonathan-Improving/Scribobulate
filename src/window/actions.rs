@@ -142,9 +142,10 @@ pub(crate) const ANNOTATION_CARD_CLASS: &str = "annotation-entry";
 /// The established window-level focus test (GTK4Rs/AP-20/ScrAP-72) — walk from the focused widget to
 /// the root rather than trust any single widget's `has_focus`. Used to stand `win.*`
 /// actions down while such an entry owns the keyboard, so the key reaches the entry's
-/// own binding instead (see `register_editor_actions`'s `select-all` wiring, commit
-/// `52ed7c3`, for the full mechanism and why disabling — not just withholding — is
-/// what hands the key back).
+/// own binding instead (see `register_editor_actions`'s `select-all` wiring for the
+/// full mechanism, and `editoractions.rs`'s own comment for why DISABLING — not merely
+/// withholding — is what hands the key back: a shortcut whose action activation fails
+/// leaves propagation continuing, so the entry's own binding then runs).
 ///
 /// Deliberately keyed on the WIDGET TYPE, not an ancestor CSS class: a `GtkTextView`
 /// (the editor/preview panes) is a different GObject type entirely, so this predicate

@@ -724,8 +724,8 @@ function Invoke-SelfTest {
     # Written BEFORE the contract carries a `disarm.` line, deliberately. The readers must
     # accept the line before the writer emits it, or the first run after the contract gains
     # one goes red on this platform over a declaration that says nothing about this
-    # platform. Measured at 5666c2f: a well-formed `disarm.macos` line is rejected outright
-    # by a runner that has not yet learned the keyword.
+    # platform. Measured: a well-formed `disarm.macos` line is rejected outright by a
+    # runner that has not yet learned the keyword.
     $base = @(
         'platform linux    Linux',
         'platform macos    macOS',

@@ -59,7 +59,7 @@
 //!
 //! **The whole account of why is upstream, not here.** It is one `top_margin` per
 //! compensating `::changed` emission, the defect GTK fixed in 4.19.3 by commit
-//! `b300698629`; the emission count is the region's own child count, bounded by the
+//! GNOME/gtk `b300698629`; the emission count is the region's own child count, bounded by the
 //! 2 000 px validation budget `gtk_text_layout_validate` spends. That is recorded as
 //! **ScrAP-339** and, in reusable form, as the gtk4-rs skill's
 //! **GTK4Rs/AP-321**. Seven characterization arms once measured it here — a dose

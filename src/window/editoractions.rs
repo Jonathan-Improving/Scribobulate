@@ -139,8 +139,8 @@ pub(super) fn register_editor_actions(window: &ApplicationWindow, heading_btn: &
     // BEFORE a focused widget's own GTK_PHASE_BUBBLE keybinding (gtkwidget.c:4416). So this
     // action BEATS the focused `GtkText` on every such entry: with one focused, Ctrl+A
     // would select the whole document (`focused_text_view` resolves to a *pane*, never an
-    // entry) instead of the entry's own text. Confirmed live on Xvfb (commit `52ed7c3`
-    // established this for the annotation card; this predicate widens it to every entry).
+    // entry) instead of the entry's own text. Confirmed live on Xvfb: established first
+    // for the annotation card, and this predicate widens it to every entry.
     //
     // Disabling is what hands the key back rather than merely withholding it: when a
     // shortcut's action activation fails, the controller leaves its return FALSE and

@@ -53,6 +53,7 @@ fn sprite_ref(path: &std::path::Path) -> SpriteRef {
 /// sleep), applied here to the FULL painted framebuffer of a real themed document.
 #[gtktest::test]
 fn an_animated_heading_band_sprite_plays_while_the_heading_is_in_view() {
+    let _enable = crate::animation::policy::EnableAnimationsGuard::set(true);
     let (_dir, path) = animated_sprite_file();
     let _theme = activate_banded_theme(&path);
 
@@ -88,6 +89,7 @@ fn an_animated_heading_band_sprite_plays_while_the_heading_is_in_view() {
 /// `bandpaint::paint_band`'s `span.is_outside` early return at all.
 #[gtktest::test]
 fn scrolling_the_banded_heading_off_screen_drops_the_sprite_driver_and_stops_ticking() {
+    let _enable = crate::animation::policy::EnableAnimationsGuard::set(true);
     let (_dir, path) = animated_sprite_file();
     let _theme = activate_banded_theme(&path);
     let r = sprite_ref(&path);
@@ -194,6 +196,7 @@ fn scrolling_the_banded_heading_off_screen_drops_the_sprite_driver_and_stops_tic
 /// OTHER test above, re-verified unaffected by this fix rather than duplicated here.
 #[gtktest::test]
 fn a_background_tab_releases_the_sprite_driver_and_returning_restores_it() {
+    let _enable = crate::animation::policy::EnableAnimationsGuard::set(true);
     let (_dir, path) = animated_sprite_file();
     let _theme = activate_banded_theme(&path);
     let r = sprite_ref(&path);
@@ -285,6 +288,7 @@ fn a_background_tab_releases_the_sprite_driver_and_returning_restores_it() {
 /// same mechanism.
 #[gtktest::test]
 fn a_hidden_pane_releases_the_sprite_driver_and_returning_restores_it() {
+    let _enable = crate::animation::policy::EnableAnimationsGuard::set(true);
     let (_dir, path) = animated_sprite_file();
     let _theme = activate_banded_theme(&path);
     let r = sprite_ref(&path);
@@ -468,6 +472,7 @@ fn painted_frame(view: &CodePreviewView, r: &SpriteRef) -> Option<Vec<u8>> {
 /// RESAMPLED to the bar's width, the route the band slots never took.
 #[gtktest::test]
 fn an_animated_blockquote_bar_sprite_plays() {
+    let _enable = crate::animation::policy::EnableAnimationsGuard::set(true);
     let (_dir, r) = crate::animation::sprites::testkit::animated_fixture();
     let _theme = activate_barred_theme(&r);
 
@@ -509,6 +514,7 @@ fn an_animated_blockquote_bar_sprite_plays() {
 /// rate for pixels nobody can see.
 #[gtktest::test]
 fn a_blockquote_bar_sprite_below_the_viewport_is_never_played() {
+    let _enable = crate::animation::policy::EnableAnimationsGuard::set(true);
     let (_dir, r) = crate::animation::sprites::testkit::animated_fixture();
     let _theme = activate_barred_theme(&r);
 
@@ -548,6 +554,7 @@ fn a_blockquote_bar_sprite_below_the_viewport_is_never_played() {
 /// seam the annotation chip and the disclosure indicator take.
 #[gtktest::test]
 fn an_animated_list_bullet_sprite_plays() {
+    let _enable = crate::animation::policy::EnableAnimationsGuard::set(true);
     let (_dir, r) = crate::animation::sprites::testkit::animated_fixture();
     let mut themes = crate::theme::themes();
     themes.merge_over_for_test(
@@ -594,6 +601,7 @@ fn an_animated_list_bullet_sprite_plays() {
 /// the indicator advanced once and then froze, which a single-change check passes.
 #[gtktest::test]
 fn an_animated_disclosure_indicator_keeps_playing_anchored_in_the_preview() {
+    let _enable = crate::animation::policy::EnableAnimationsGuard::set(true);
     let (_dir, r) = crate::animation::sprites::testkit::animated_fixture();
     let mut themes = crate::theme::themes();
     themes.merge_over_for_test(

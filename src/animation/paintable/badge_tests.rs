@@ -1,5 +1,5 @@
 //! `#[gtktest::test]` coverage for the pause badge (TDD 27.8), split out of
-//! `gtk_tests.rs` for the same 500-line reason that file is its own — every
+//! `gtk_tests.rs` for the same file-size reason that file is its own — every
 //! assertion here renders the paintable's OWN `snapshot()` into real pixels
 //! and inspects the result, never reading `AnimatedPaintable`'s internal
 //! flags (POLICY's "assert on the running behaviour, not your own

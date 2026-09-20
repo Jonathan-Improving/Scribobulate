@@ -37,7 +37,7 @@ use super::frontmatter::Show;
 use super::rawhtml::{has_attr, RawHtml, RawHtmlElement, RawItem, TagKind};
 
 /// The collapsed-summary body-preview shortening rule (TDD 2.26) — split out rather
-/// than grown in here, per the 500-line soft limit (`sdd/POLICY.md` § Code style),
+/// than grown in here, per the file-size soft limit (`sdd/POLICY.md` § Code style),
 /// mirroring how `tags.rs`/`tags/spec.rs` already split registration from decision.
 mod preview;
 pub(crate) use preview::preview_insert_text;

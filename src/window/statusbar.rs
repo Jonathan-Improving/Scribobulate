@@ -454,9 +454,23 @@ struct Counter {
     pending: VecDeque<CountJob>,
 }
 
+/// This gate's share of GLib's I/O pool, from the one place the shares are added up.
+///
+/// It is a `bool` below rather than a counter because the share is one; the assertion
+/// is what keeps those two facts the same fact. Raising the budget without reshaping
+/// the gate would silently leave this at one thread while the pool accounting believed
+/// otherwise — the sum would still be honoured, so nothing else would complain.
+const MAX_CONCURRENT_COUNTS: usize =
+    crate::docio::budget::cap(crate::docio::budget::Consumer::WordCount);
+const _: () = assert!(
+    MAX_CONCURRENT_COUNTS == 1,
+    "the single-slot latch below IS this cap; give the budget more and this gate has \
+     to become a counter, like docio's and animation's, rather than a bool"
+);
+
 thread_local! {
     /// The application-wide bound: one count on the pool at a time (ScrAP-243), the
-    /// rest queued one deep per tab.
+    /// rest queued one deep per tab. The number is `docio::budget`'s.
     static COUNTER: RefCell<Counter> = RefCell::default();
 }
 

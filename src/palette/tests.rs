@@ -1,4 +1,4 @@
-//! The palette's own tests, split out at the 500-line soft limit.
+//! The palette's own tests, split out at the file-size soft limit.
 //!
 //! Split by AUDIENCE rather than by subject: everything here drives the module beside
 //! it, and the alternative — splitting the production half by cause — would have moved

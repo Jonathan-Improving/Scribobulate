@@ -1,4 +1,4 @@
-//! Tests for [`super`] — split out of `splice.rs` past the 500-line soft limit
+//! Tests for [`super`] — split out of `splice.rs` past the file-size soft limit
 //! (POLICY § Code style), same shape as `copymap/tests.rs`. The whole file is
 //! `#[cfg(all(test, feature = "gtk-integration-tests"))]`, applied once at the
 //! `mod tests;` declaration in `splice.rs` rather than repeated here.

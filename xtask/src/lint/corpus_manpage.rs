@@ -4,7 +4,7 @@
 //! copy of it, because a corpus over a re-implementation is evidence about the copy.
 //!
 //! SEPARATE FILE, for two reasons and neither is taste. `corpus.rs` is already twice the
-//! 500-line soft limit, and it carries a self-exclusion (`lint::CORPUS_FILE`) it needs
+//! file-size soft limit, and it carries a self-exclusion (`lint::CORPUS_FILE`) it needs
 //! because it quotes the citation forms checks 1, 6a and 8 hunt for. Nothing here quotes a
 //! citation, so this file is linted like any other source — which is the better default,
 //! and worth not giving up by parking these cases next to the exclusion.

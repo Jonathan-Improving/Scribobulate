@@ -66,6 +66,7 @@
 //! module draws is **document I/O off the main thread; the application's own
 //! state files not**.
 
+pub(crate) mod budget;
 mod pool;
 pub(crate) mod rename;
 

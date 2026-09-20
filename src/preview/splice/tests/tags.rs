@@ -9,7 +9,7 @@
 //! did not re-ink it, so a collapse left the preview un-inked on the drawn summary band
 //! (TDD 18.49), silently, on exactly the themes that state `disclosure_fg`.
 //!
-//! Its own file rather than more of `tests.rs`, which is at the 500-line soft limit,
+//! Its own file rather than more of `tests.rs`, which is at the file-size soft limit,
 //! and because the shape is different: a tag-range comparison rather than a text one.
 
 use crate::fold::FoldState;

@@ -137,7 +137,7 @@ pub(crate) fn create_from_editor_selection(
 /// comment — the editor-side sibling of [`selection_target`].
 ///
 /// The shared first half of [`create_from_editor_selection`], split out for the same reason
-/// the preview's was (b4b9d6a): the comment card must pre-populate from the annotations the
+/// the preview's was: the comment card must pre-populate from the annotations the
 /// commit is *going* to merge, so both must resolve the selection to the same source range.
 /// Re-deriving the char→byte + balance mapping at the card would be a second implementation
 /// free to drift, and any drift shows up as the card displaying comments that are not the
@@ -398,7 +398,7 @@ mod tests {
 
     /// The editor card must offer back the comment its commit is about to overwrite.
     ///
-    /// The editor-side equivalent of the preview's pre-population (b4b9d6a). The card
+    /// The editor-side equivalent of the preview's pre-population. The card
     /// resolves the selection with `editor_selection_target` and asks `merged_comment_for`
     /// — the same pair the commit uses — so what is shown is exactly what is destroyed.
     #[test]

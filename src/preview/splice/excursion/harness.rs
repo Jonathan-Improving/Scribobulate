@@ -1,7 +1,7 @@
 //! The shared experiment harness: the fixture, one arm's reading, and the two ways a
 //! toggle can be driven through the splice.
 //!
-//! Split out of `excursion.rs` at the 500-line soft limit (POLICY § Code style), and
+//! Split out of `excursion.rs` at the file-size soft limit (POLICY § Code style), and
 //! the cut was by cause rather than by size — there were several experiments over this
 //! same rig, so what they shared stopped being one file's private detail. Only
 //! [`super`]'s excursion comparison survives; the others measured GTK's validation

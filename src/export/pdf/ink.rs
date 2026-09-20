@@ -24,7 +24,7 @@
 
 use super::super::pdftable;
 use super::geometry::px_to_pt;
-use super::geometry::{pango_to_pt, MIN_PRINTABLE_PT};
+use super::geometry::{pango_to_pt, MIN_PRINTABLE_PT, PT_PER_PX};
 use super::{Laid, LineKind, PageDrawn, TableCell};
 use crate::palette::Palette;
 use crate::theme::Theme;
@@ -86,7 +86,20 @@ fn paint_wash(
             //
             // Rounded to whole tiles, so the anchor never introduces a fractional offset
             // the pattern would have to resample across.
-            let (tw, th) = (f64::from(surface.width()), f64::from(surface.height()));
+            //
+            // ⚠️ A tile's dimensions are PIXELS and this page is measured in POINTS, so
+            // both the lattice below and the pattern itself are converted. Laying the
+            // surface down unconverted prints it at 4/3 the size the preview draws it —
+            // coherent per decoration, so a tile checked on its own looks deliberate,
+            // and the error is only visible by holding the page beside the screen. The
+            // pattern matrix maps user space to pattern space, hence the reciprocal:
+            // one pixel is to occupy `PT_PER_PX` points.
+            let scale = 1.0 / PT_PER_PX;
+            pattern.set_matrix(cairo::Matrix::new(scale, 0.0, 0.0, scale, 0.0, 0.0));
+            let (tw, th) = (
+                f64::from(surface.width()) * PT_PER_PX,
+                f64::from(surface.height()) * PT_PER_PX,
+            );
             let anchor = |v: f64, size: f64| {
                 if size > 0.0 {
                     (v / size).floor() * size
@@ -168,8 +181,16 @@ fn paint_scene(
         return;
     }
     // The fit takes the height; a corner keeps the source's own size.
+    //
+    // ⚠️ The two arms are in different unit regimes and only one of them needs a
+    // conversion, which is why this reads as inconsistent and is not. `nat_w`/`nat_h`
+    // are PIXELS. The fit divides a point-space height by a pixel height, so the units
+    // cancel and the ratio is already correct. The corner keeps the source's own size,
+    // and "its own size" on paper is its pixel size expressed in points — unconverted
+    // it prints 4/3 oversize, and a bar tile sized to `blockquote_bar_width` is clipped
+    // a quarter of the way down its right edge on every page, silently.
     let scale = match anchor {
-        Some(_) => 1.0,
+        Some(_) => PT_PER_PX,
         None => height / nat_h,
     };
     let (drawn_w, drawn_h) = (nat_w * scale, nat_h * scale);

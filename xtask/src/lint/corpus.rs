@@ -21,8 +21,8 @@
 use crate::lint::checks::references::citation_targets;
 use crate::lint::contract::{git_index, Contract, ScanSet};
 use crate::lint::patterns::{
-    bare_ap_citations, declares_whole_id, issues_rx, prose_prescriptions, reverse_dns_rx,
-    win_illegal_path,
+    bare_ap_citations, commit_hash_citations, declares_whole_id, issues_rx, prose_prescriptions,
+    reverse_dns_rx, win_illegal_path,
 };
 use crate::lint::patterns::{marker_reason, parser_dispatch_wildcards};
 use std::path::{Path, PathBuf};
@@ -289,6 +289,80 @@ fn bare_citations_are_flagged() {
 fn legal_citations_and_near_misses_are_not_flagged() {
     for line in BARE_AP_MUST_NOT_FLAG {
         assert!(bare_ap_citations(line).is_empty(), "FALSE POSITIVE: {line}");
+    }
+}
+
+// ── Check 20: a cited git commit hash ─────────────────────────────────────────
+
+/// The discriminating cases are the tail again. A hash with no repository named is the
+/// defect whoever wrote it — it is unresolvable for the next reader either way — so the
+/// positive corpus includes forms that LOOK attributed but name nothing checkable.
+const COMMIT_HASH_MUST_FLAG: &[&str] = &[
+    "// the mechanism landed in 09b43a2 and was widened later",
+    "/// see `52ed7c3` for why disabling hands the key back",
+    "removed in `4b97c84`, so the provider no longer exists",
+    "Measured at 5666c2f: the runner rejects a well-formed line",
+    "with NO hook present (master 7a6be98's state)",
+    "landed as skill commit `8fd296b` and read back from the installed copy",
+    "(`09b43a2`, `49d21cb`) — two of them on one line",
+];
+
+const COMMIT_HASH_MUST_NOT_FLAG: &[&str] = &[
+    // Attributed to a repository that does not squash: resolvable, and evidence.
+    "fixed upstream in 4.16.13 by commit 86e962929bf2be13a721053141b33e4381f0312",
+    "GNOME/gtk `b300698629` (GNOME/gtk#4134) fixed it in 4.19.3",
+    "the gtk 4.6.9 source at 492b44f20c has the typo",
+    "see https://example.invalid/commit/2a96dde115 for the reimplementation",
+    // The sanctioned build stamp, by name.
+    "commit: env!(\"SCRIB_GIT_COMMIT\"),",
+    "    println!(\"cargo:rustc-env=SCRIB_GIT_COMMIT={commit}\");",
+    // Shapes that are hex but never object names.
+    "const FILL: &str = \"#33669988\";",
+    "let mask = 0xdeadbeef;",
+    "sha256: 1f95a92d037f5292da05e6ab1037032ff21ddb7b20d4ac8e83e3674c864c07b0",
+    "doc_id = \"3f2ac91b4d5e6f708192a3b4c5d6e7f8\"",
+    "assert!(DocId::from_hex(\"3f2ac91b4d5e6f70/192a3b4c5d6e7f8\").is_none());",
+    "b\"7f2c1a09b000-7f2c1a0a0000 r--p 000c0000 08:02 1 /usr/lib/x.so\"",
+    "commit: \"0badc0de\",",
+    "a run of 123456 digits is a number, not an object name",
+];
+
+#[test]
+fn cited_commit_hashes_are_flagged() {
+    for line in COMMIT_HASH_MUST_FLAG {
+        assert!(
+            !commit_hash_citations(line).is_empty(),
+            "MISS (should flag): {line}"
+        );
+    }
+}
+
+#[test]
+fn attributed_hashes_and_hex_data_are_not_flagged() {
+    for line in COMMIT_HASH_MUST_NOT_FLAG {
+        assert!(
+            commit_hash_citations(line).is_empty(),
+            "FALSE POSITIVE: {:?} from: {line}",
+            commit_hash_citations(line)
+        );
+    }
+}
+
+/// The carve-out POLICY restored, asserted as a property of the CHECK rather than only
+/// as prose. This is the pairing the round-3 review called its single ordering
+/// constraint: a lint written against the flat prohibition flags the crash reporter's
+/// generated build stamp, and an agent enforcing the flat rule then deletes it.
+#[test]
+fn the_generated_build_stamp_is_never_a_citation() {
+    for line in [
+        "        commit: env!(\"SCRIB_GIT_COMMIT\"),",
+        "println!(\"cargo:rustc-env=SCRIB_GIT_COMMIT={commit}\");",
+        "// SCRIB_GIT_COMMIT is deadbeef1234567 on this build",
+    ] {
+        assert!(
+            commit_hash_citations(line).is_empty(),
+            "the build stamp must be exempt: {line}"
+        );
     }
 }
 

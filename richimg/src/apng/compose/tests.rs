@@ -1,6 +1,6 @@
 //! Unit tests for `apng::compose` — split into its own file (rather than an
 //! inline `#[cfg(test)] mod tests { ... }`) purely to keep `compose.rs`
-//! itself under the crate's 500-line-per-file limit.
+//! itself under the crate's file-size-per-file limit.
 use super::*;
 
 fn geometry(

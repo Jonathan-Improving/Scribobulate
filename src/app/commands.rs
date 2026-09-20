@@ -150,8 +150,8 @@ pub(crate) const FILE_CMDS: [Cmd; 9] = [
         section_start: false,
         is_toggle: true,
     },
-    // A DEDICATED per-tab security toggle for local-link navigation containment
-    // (`09b43a2`, `49d21cb`) — deliberately NOT a reuse of "Show Unsafe Images"
+    // A DEDICATED per-tab security toggle for local-link navigation containment —
+    // deliberately NOT a reuse of "Show Unsafe Images"
     // (that toggle governs image loading; overloading one label onto two
     // unrelated consents would let a user who ticked it for pictures silently
     // grant filesystem navigation). The two remain distinct per-tab consents

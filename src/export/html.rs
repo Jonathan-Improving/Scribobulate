@@ -1798,6 +1798,51 @@ mod html_sink_tests {
         );
     }
 
+    /// TDD 25.4a, asserted on **the artefact's bytes** rather than on the model.
+    ///
+    /// The model-level test in `export::doc` proves the gate decides correctly; this
+    /// proves nothing downstream re-admits what it refused. They are not redundant:
+    /// the escaper sits between them and rewrites only `& < > " '`, so a payload made
+    /// of anything else travels from model to file unchanged and unremarked. Reading
+    /// the emitted `href=` is the only place that is visible.
+    #[test]
+    fn a_hostile_scheme_never_reaches_an_href_in_the_artefact() {
+        let out = html_of(concat!(
+            "[a](javascript:alert(document.domain)//#x)\n\n",
+            "[b](javascript:alert(1)#x)\n\n",
+            "[c](data:text/html,alert#x)\n\n",
+            "[d](file:///etc/passwd#x)\n\n",
+            "[e](https://example.com#frag)\n\n",
+            "[f](TECH.md#module-map)\n\n",
+            "[g](#section)\n",
+        ));
+        for refused in ["javascript:", "data:text/html", "file:///etc/passwd"] {
+            assert!(
+                !out.contains(&format!("href=\"{refused}")),
+                "a refused scheme reached an href ({refused}): {out}"
+            );
+        }
+        // The reader still gets every link's words, refused or not.
+        for text in ["a", "b", "c", "d", "e", "f", "g"] {
+            assert!(
+                out.contains(&format!(">{text}<")),
+                "text lost for {text}: {out}"
+            );
+        }
+        // Positive control: the permitted destinations are genuinely present, so the
+        // assertions above cannot pass by the emitter having dropped every href.
+        for kept in [
+            "href=\"https://example.com#frag\"",
+            "href=\"TECH.md#module-map\"",
+            "href=\"#section\"",
+        ] {
+            assert!(
+                out.contains(kept),
+                "an allowed destination was dropped: {out}"
+            );
+        }
+    }
+
     #[test]
     fn every_construct_reaches_the_artefact() {
         // TDD 25.3, across the contexts Document Rendering CAM row 2 names.

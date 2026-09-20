@@ -271,7 +271,7 @@ by not saying which tree it meant:
 | populate | `addItemsWithObjectValues:` (`:304`) | `addItemsWithTitles:` (`:315`) |
 | launch priming | none | `[… popUpButtonSelectionChanged:NULL]` (`:348`) |
 
-The reimplementation landed in `2a96dde115` ("macos: use NSPopUpButton for filter selection in
+The reimplementation landed in GNOME/gtk `2a96dde115` ("macos: use NSPopUpButton for filter selection in
 native filechooser"). **Direction matters and was initially got backwards here:
 `NSComboBox` is the OLDER shape.** 4.6 is the pre-2023 code; `main` and the 4.22.4 the
 measurements run on are both post-migration. Settled by the strongest artefact available — the
@@ -769,7 +769,7 @@ and every backend, `gtkfilechoosernativequartz.c` included, remain live internal
 `G_GNUC_BEGIN_IGNORE_DEPRECATIONS`. So **every `GtkFileDialog.open()` / `save()` /
 `select_folder()` on macOS runs the leaking path.**
 
-**Vintage: present since day one, nine years.** `ff2c5e38` (Tom Schoonjans, 2017-06-30,
+**Vintage: present since day one, nine years.** GNOME/gtk `ff2c5e38` (Tom Schoonjans, 2017-06-30,
 "GtkFilechooserNative: add macOS support") introduced the retains *and*
 `setReleasedWhenClosed:YES`, with `[data->panel close]` already confined to the hide path.
 The shape has never changed; the accessory-view leak joined in 2023-08-11.

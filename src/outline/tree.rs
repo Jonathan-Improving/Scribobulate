@@ -2,7 +2,7 @@
 //! into a forest by level, and answering "what are this heading's ancestors" for the
 //! scroll-spy.
 //!
-//! Split out of `outline/mod.rs` (POLICY's 500-line soft limit) once `extract_headings`
+//! Split out of `outline/mod.rs` (POLICY's file-size soft limit) once `extract_headings`
 //! grew its own exhaustive `Event` match — the tree-building half has no dependency on
 //! parsing at all, so the split is along an existing seam rather than an invented one.
 

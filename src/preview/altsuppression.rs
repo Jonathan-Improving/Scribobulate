@@ -5,7 +5,7 @@
 //! for the reason `codeview::painttest` gives: a render needs a `GtkTextBuffer`.
 //!
 //! Its own module rather than more of `build.rs`, which is already far past the
-//! 500-line soft limit, and because the subject is one contract rather than one
+//! file-size soft limit, and because the subject is one contract rather than one
 //! function: the leak these guard was `Event::Text` being the ONLY event the
 //! suppression named, so what has to be asserted is the *other* events an alt is
 //! made of — and each of them is a separate document.

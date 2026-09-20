@@ -30,14 +30,15 @@ use gtk::prelude::*;
 /// Pure, so it is unit-testable without a display. Because it clamps at zero,
 /// applying it is a no-op on any display wide enough to hold the toolbar (the
 /// overwhelmingly common case): the widget keeps its designed margin and there is no
-/// behavioural change there. It only ever acts on the too-narrow-screen case K
-/// describes.
+/// behavioural change there. It only ever acts on the too-narrow-screen case: a window
+/// forced wider than its monitor, by the chrome's own content-derived minimum width or by
+/// a session restored from a larger screen (TDD 9.21, final clause).
 ///
 /// **Assumption:** the window's left edge sits at (or near) the monitor's left edge,
 /// so the overflow is entirely on the right. That is how a stock X11 WM (kwin) places
 /// a window whose requested minimum exceeds the monitor, and it matches the symptom
-/// two independent test agents observed (K: the *right-hand* chrome went off-screen,
-/// reachable "only by shifting the whole window left"). GTK4 deliberately exposes no
+/// two independent test agents observed: the *right-hand* chrome went off-screen,
+/// reachable "only by shifting the whole window left". GTK4 deliberately exposes no
 /// toplevel screen position (client-side positioning is gone), so a fully
 /// position-independent clamp is not available; were a compositor instead to centre
 /// the over-wide window, this would under-correct (chrome still partly clipped) but

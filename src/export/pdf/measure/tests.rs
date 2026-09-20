@@ -5,6 +5,7 @@
 //! `measure.rs` to change the measurement pass should meet the pass, not scroll past
 //! seven hundred lines of fixtures to reach it.
 
+use super::super::geometry::px_to_pt;
 use super::super::{draw_page, metrics_for};
 use super::lay_out;
 use crate::export::{doc, paginate, RenderOptions};
@@ -688,29 +689,44 @@ fn a_rule_sprite_tiles_across_the_page_and_is_given_room_for_a_whole_tile() {
 
     // A 2x6 magenta tile: wider than one pixel so "tiled" is falsifiable, and TALLER
     // than the shipped `rule_space` so the measured line has to grow to hold it.
+    //
+    // ⚠️ The tile is 6 PIXELS tall and this page is measured in POINTS, so the room it
+    // needs is `px_to_pt(6)` — 4.5pt, and the surface below is one pixel per point. The
+    // expected row count is DERIVED from that conversion rather than written down:
+    // writing the pixel count is writing the unit error, which is exactly what the
+    // previous version of this test did and why the defect was invisible to it.
+    const TILE_PX: i32 = 6;
+    let tile_pt = px_to_pt(TILE_PX);
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("rule.png");
-    std::fs::write(&path, png(2, 6, [255, 0, 255])).unwrap();
+    std::fs::write(&path, png(2, TILE_PX as u32, [255, 0, 255])).unwrap();
     let mut tiled = theme();
     tiled.sprites.rule = Some(crate::sprite::SpriteRef::File(path));
     assert!(
-        f64::from(tiled.metrics.rule_space) < 6.0,
+        px_to_pt(tiled.metrics.rule_space) < tile_pt,
         "this fixture only tests the height fold while the tile is TALLER than \
-         rule_space ({}) — pick a taller tile if that metric ever grows",
+         rule_space ({}px) — pick a taller tile if that metric ever grows",
         tiled.metrics.rule_space
     );
 
     let rows = rows_where(drawn_page(md, &tiled, &p, MARGIN), magenta);
-    // 5 or 6, not exactly 6: the rule's y is the running sum of Pango line heights in
-    // points and is not an integer, so the band's top or bottom row is antialiased and
-    // fails the fully-opaque filter above. The claim being made is that the line grew
-    // past `rule_space` to hold a whole tile — at the un-grown height it would be 3-4.
+    // One row short of a whole tile is allowed, two is not: the rule's y is the running
+    // sum of Pango line heights in points and is not an integer, so the band's top or
+    // bottom row is antialiased and fails the fully-opaque filter above. The claim
+    // being made is that the line grew past `rule_space` to hold a whole tile.
+    let want = tile_pt.round() as usize;
     assert!(
-        (5..=6).contains(&rows.len()),
+        (want - 1..=want).contains(&rows.len()),
         "the rule must be one whole tile tall — {} rows carry the tile, against a \
-         6px tile and a rule_space of {}",
+         {TILE_PX}px ({tile_pt}pt) tile and a rule_space of {}.{}",
         rows.len(),
-        tiled.metrics.rule_space
+        tiled.metrics.rule_space,
+        if rows.len() > want {
+            " More rows than the tile has POINTS means it was laid down at its PIXEL \
+             height: a pixel dimension consumed as a point dimension prints 4/3 over."
+        } else {
+            ""
+        }
     );
     // Tiled ACROSS: a 2px tile drawn once would colour two columns, not the column.
     let widest = widest_row_where(drawn_page(md, &tiled, &p, MARGIN), magenta);
@@ -1348,6 +1364,162 @@ fn a_banded_headings_text_is_inset_while_its_band_keeps_the_column() {
 /// `line.fill.is_some()`, which is a claim about the LAYOUT: deleting the whole
 /// `if let Some(band)` block in `ink.rs` — the code that actually puts the band on the
 /// page — left the suite green. This asserts on pixels, so it cannot.
+/// **The rule's reserved height compares two POINT values, never a point and a pixel.**
+///
+/// Separate from the pixel assertions above, and it has to be: they measure what was
+/// DRAWN, and this site decides what was RESERVED. A tile that reserves too much just
+/// adds whitespace no row-count assertion can see, so the defect — `max` between a
+/// converted metric and a raw texture height, i.e. the larger of two incommensurable
+/// numbers — is invisible from the page and visible here.
+///
+/// The fixture picks a tile whose pixel height falls BETWEEN the two, so the two
+/// regimes disagree about which side of the `max` wins rather than merely by how much.
+#[test]
+fn the_rule_reserves_the_taller_of_two_point_values_not_of_a_point_and_a_pixel() {
+    let mut t = theme();
+    // `rule_space` is set rather than taken from the theme: the straddling tile has to
+    // be a WHOLE number of pixels strictly between `0.75 * rule_space` and
+    // `rule_space`, and the shipped metric is too small for one to exist. The number
+    // is the fixture's, not a claim about any theme.
+    t.metrics.rule_space = 16;
+    let space = t.metrics.rule_space;
+    let tile_px = 14;
+    assert!(
+        px_to_pt(tile_px) < px_to_pt(space) && f64::from(tile_px) > px_to_pt(space),
+        "the fixture must straddle the two regimes: {tile_px}px is {}pt against a \
+         rule_space of {space}px = {}pt",
+        px_to_pt(tile_px),
+        px_to_pt(space)
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("rule.png");
+    std::fs::write(&path, png(2, tile_px as u32, [255, 0, 255])).unwrap();
+    t.sprites.rule = Some(crate::sprite::SpriteRef::File(path));
+    crate::sprite::clear_cache();
+
+    let laid = lay_out(
+        &doc::build("before\n\n---\n\nafter\n", &RenderOptions::default()),
+        &ctx(),
+        PAGE_WIDTH_PT,
+        PAGE_HEIGHT_PT,
+        &t,
+    );
+    crate::sprite::clear_cache();
+    let height = laid
+        .lines
+        .iter()
+        .find(|l| matches!(l.kind, super::LineKind::Rule))
+        .map(|l| l.height)
+        .expect("the document has a rule");
+
+    assert!(
+        (height - px_to_pt(space)).abs() < 0.01,
+        "the rule reserved {height}pt; the metric is {}pt and the tile is {}pt, so the \
+         metric must win.{}",
+        px_to_pt(space),
+        px_to_pt(tile_px),
+        if (height - f64::from(tile_px)).abs() < 0.01 {
+            " It reserved the tile's PIXEL height, which is a pixel value winning a \
+             comparison against a point value."
+        } else {
+            ""
+        }
+    );
+}
+
+/// **TDD 18.60 / 25.9 — a corner-anchored scene prints at its source size in POINTS.**
+///
+/// The corner branch had no test at all, which is how it reached the tree reading a
+/// pixel dimension as a point one. The fit branch beside it divides a point-space
+/// height by a pixel height, so its units cancel and it is right by arithmetic
+/// accident; the corner branch keeps "the source's own size" and had to convert. Every
+/// corner-anchored scene printed 4/3 oversize, coherently, so no page looked wrong on
+/// its own.
+///
+/// The table header's is the ONLY scene that reaches paper — `heading_band_scene` and
+/// `blockquote_scene` are `not_on_paper` because this sink draws those line by line and
+/// a wrapped one has no single edge to anchor a picture to — so this is where the
+/// branch is reachable.
+///
+/// The oracle is the drawn WIDTH, which the corner rule fixes to the source's own size
+/// and the fit rule does not, measured against the conversion rather than against a
+/// literal, so it cannot be satisfied by writing down what the code happens to produce.
+#[test]
+fn a_corner_anchored_scene_prints_at_its_source_size_converted_to_points() {
+    const MARGIN: f64 = 54.0;
+    // Wide enough that the 4/3 error is many points and cannot hide in antialiasing,
+    // and narrow enough to sit inside one header cell of the fixture below.
+    const SCENE_W_PX: i32 = 40;
+    const SCENE_H_PX: i32 = 12;
+    let p = palette(&theme());
+
+    // The control: without the scene key, nothing magenta is on the page, so the
+    // measurement below is of the scene and not of some other ink.
+    assert_eq!(
+        extent_where(drawn_page(TABLE, &theme(), &p, MARGIN), magenta),
+        None,
+        "a theme stating no header scene must put no scene on the page"
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("scene.png");
+    std::fs::write(
+        &path,
+        png(SCENE_W_PX as u32, SCENE_H_PX as u32, [255, 0, 255]),
+    )
+    .unwrap();
+
+    let mut themed = theme();
+    themed.table_head_scene_anchor = Some(crate::theme::SceneAnchor::TopLeft);
+    themed.sprites.table_head_scene = Some(crate::sprite::SpriteRef::File(path));
+    crate::sprite::clear_cache();
+
+    // Per COLUMN, not per row: the header draws the scene once in each cell, so the
+    // page-wide extent spans the whole table and says nothing about one scene's size.
+    // Measure the longest CONTIGUOUS run instead, which is one scene.
+    let rows = colour_rows(drawn_page(TABLE, &themed, &p, MARGIN), (0xff, 0x00, 0xff));
+    crate::sprite::clear_cache();
+    let drawn = rows
+        .iter()
+        .map(|xs| {
+            let mut best = 0usize;
+            let mut run = 0usize;
+            let mut prev: Option<usize> = None;
+            for x in xs {
+                run = if prev == Some(x - 1) { run + 1 } else { 1 };
+                best = best.max(run);
+                prev = Some(*x);
+            }
+            best
+        })
+        .max()
+        .expect("the page has rows") as f64;
+    assert!(drawn > 0.0, "a corner-anchored scene must reach the page");
+    let want = px_to_pt(SCENE_W_PX);
+
+    // The surface is one pixel per point, so the drawn extent IS the point width. Two
+    // points of slack for the clip's edge antialiasing, far below the 10pt the unit
+    // error adds.
+    assert!(
+        (drawn - want).abs() <= 2.0,
+        "a corner-anchored scene printed {drawn}pt wide; its source is {SCENE_W_PX}px, \
+         which is {want}pt.{}",
+        if drawn > want + 2.0 {
+            " Wider means the pixel dimension was consumed as a point dimension - the \
+             4/3 error, which also clips a bar tile a quarter of the way down its edge."
+        } else {
+            " Narrower means the corner rule was replaced by a fit; a corner keeps the \
+             source's own size."
+        }
+    );
+    assert!(
+        (drawn - f64::from(SCENE_W_PX)).abs() > 2.0,
+        "this oracle only discriminates while the point width differs from the pixel \
+         width - {drawn}pt against {SCENE_W_PX}px"
+    );
+}
+
 #[test]
 fn a_heading_band_reaches_the_page_and_a_sprite_replaces_its_fill() {
     const MARGIN: f64 = 54.0;
@@ -1522,14 +1694,28 @@ fn a_blockquote_bar_sprite_tiles_down_the_bar_on_the_page() {
 /// anchored to each rect restarts its phase at every line, cutting any diagonal or
 /// large-featured pattern at every text row. The oracle is a tile whose FIRST row is a
 /// different colour: with the grid anchored to the page, every marker row lands on the
-/// same 8-point lattice; with it anchored per rect, marker rows follow the line tops
-/// instead, which do not share a residue.
+/// same lattice; with it anchored per rect, marker rows follow the line tops instead,
+/// which do not share a residue.
+///
+/// ⚠️ **The lattice pitch is the tile's height in POINTS, not in pixels**, and it is
+/// derived here rather than written down. The surface is one pixel per point, so a
+/// tile laid down unconverted would put marker rows on an 8-row pitch while the page's
+/// own geometry says 6 — and a test that asserts the pixel pitch asserts the unit
+/// error. That is what this test did, which is why it was green while every themed
+/// image on the page printed 4/3 oversize.
 #[test]
 fn a_blockquote_panel_sprite_tiles_across_the_page_and_keeps_one_grid() {
     const MARGIN: f64 = 54.0;
     const FLAT: (u8, u8, u8) = (0x00, 0xcc, 0x00);
     const MARK: (u8, u8, u8) = (0xff, 0x00, 0x00);
-    const TILE: u32 = 8;
+    // 16px tall, so the page lattice is 12pt and differs from the pixel height, which
+    // is what lets the assertion below tell a point-space grid from a pixel-space one.
+    const TILE: u32 = 16;
+    // The marker BAND is four pixels, not one. At one pixel it is 0.75pt after the
+    // conversion, lands between page rows, and antialiases away entirely — the
+    // fully-opaque filter then finds nothing and the vacuity guard fires. The oracle
+    // has to survive the very conversion it exists to measure.
+    const MARK_PX: usize = 4;
     // Long enough to wrap over several lines, which is what makes the grid assertion
     // meaningful — a one-line quote has one rect and cannot show a phase reset.
     let md = "> a quoted paragraph long enough to occupy several lines of the page, so the \
@@ -1548,7 +1734,9 @@ fn a_blockquote_panel_sprite_tiles_across_the_page_and_keeps_one_grid() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("panel.png");
     let mut rows = vec![[255, 0, 255]; TILE as usize];
-    rows[0] = [255, 0, 0];
+    for row in rows.iter_mut().take(MARK_PX) {
+        *row = [255, 0, 0];
+    }
     std::fs::write(&path, png_rows(TILE, &rows)).unwrap();
     let mut tiled = flat.clone();
     tiled.sprites.blockquote_bg = Some(crate::sprite::SpriteRef::File(path));
@@ -1578,12 +1766,36 @@ fn a_blockquote_panel_sprite_tiles_across_the_page_and_keeps_one_grid() {
         "the fixture must put the tile's marker row on the page more than once, or the \
          grid assertion below is vacuous (rows: {marker_rows:?})"
     );
-    let residue = marker_rows[0] % TILE as usize;
+    // The pitch the PAGE uses: the tile's pixel height expressed in points.
+    let pitch = px_to_pt(TILE as i32).round() as usize;
     assert!(
-        marker_rows.iter().all(|y| y % TILE as usize == residue),
+        pitch > 0 && pitch != TILE as usize,
+        "this oracle only discriminates while the point pitch ({pitch}) differs from \
+         the pixel height ({TILE}) — pick a tile size where they differ"
+    );
+    // The marker is a BAND, so the rows within one repeat hold consecutive residues.
+    // What must be constant is where each repeat BEGINS: collapse the rows to run
+    // starts first, then ask whether those share a residue. Asserting over every row
+    // would demand a one-row marker, and a one-row marker cannot survive the point
+    // conversion this test exists to measure.
+    let starts: Vec<usize> = marker_rows
+        .iter()
+        .copied()
+        .filter(|y| *y == 0 || !marker_rows.contains(&(y - 1)))
+        .collect();
+    assert!(
+        starts.len() > 1,
+        "the fixture must repeat the tile down the quote, or the grid assertion is \
+         vacuous (marker rows {marker_rows:?}, run starts {starts:?})"
+    );
+    let residue = starts[0] % pitch;
+    assert!(
+        starts.iter().all(|y| y % pitch == residue),
         "the tile's grid restarts inside the quote: the panel is drawn line by line, so \
          a grid anchored to each line's own rect cuts the pattern at every text row \
-         (marker rows {marker_rows:?} do not share one residue mod {TILE})"
+         (run starts {starts:?} do not share one residue mod {pitch}). If they instead \
+         share a residue mod {TILE}, the lattice is in PIXELS and the tile is printing \
+         4/3 oversize."
     );
     crate::sprite::clear_cache();
 }

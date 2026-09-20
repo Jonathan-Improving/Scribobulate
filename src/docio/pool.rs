@@ -49,13 +49,19 @@
 //! `blocking_other_task` first, and that flag is set only for tasks queued from
 //! *inside* a pool thread (`:1534`), which none of ours are.
 //!
-//! # Hence [`MAX_CONCURRENT`]
+//! # Hence an admission gate, and hence [`super::budget`]
 //!
-//! This module admits at most four document operations to the pool at once, so at
-//! least six of the base ten threads are always free and a snapshot never crosses
-//! the cliff — however many tabs change at the same instant, and however slow the
-//! filesystem holding them is. Anything over the limit waits **here**, in the
-//! application, where waiting costs nothing.
+//! This module admits a bounded number of document operations to the pool at once, so
+//! that threads are always left free and a snapshot never crosses the cliff — however
+//! many tabs change at the same instant, and however slow the filesystem holding them
+//! is. Anything over the limit waits **here**, in the application, where waiting costs
+//! nothing.
+//!
+//! **How many is not this module's to say.** Two other gates admit to the same pool,
+//! and the quantity that has to stay under the cliff is their SUM plus the snapshot
+//! writer's reserve — which no one gate can check. The caps therefore live in
+//! [`super::budget`], where the sum is asserted at compile time. The evidence above is
+//! why there is a budget; that module is what the budget IS.
 //!
 //! The fan-out is real rather than theoretical: session restore and the multi-file
 //! open both read strictly sequentially, but the live-reload monitor fires one read
@@ -71,11 +77,11 @@ use std::task::{Context, Poll, Waker};
 
 /// How many document operations may occupy GLib's I/O thread pool at once.
 ///
-/// Four, against a base pool of ten, leaves six threads free — comfortably clear of
-/// the measured cliff at the tenth blocked task (see this module's doc comment).
-/// It is a bound on *held threads*, not on throughput: a local-disk read returns in
-/// microseconds and never queues here at all.
-const MAX_CONCURRENT: usize = 4;
+/// Taken from [`super::budget`] rather than declared here, because the number that
+/// matters is the SUM across every gate over this one pool and no single gate can see
+/// it. It is a bound on *held threads*, not on throughput: a local-disk read returns
+/// in microseconds and never queues here at all.
+const MAX_CONCURRENT: usize = super::budget::cap(super::budget::Consumer::Document);
 
 thread_local! {
     /// Main-thread-only, so plain interior mutability with no locking: every future

@@ -197,6 +197,60 @@ pub(crate) fn is_allowed_url(url: &str) -> bool {
     }
 }
 
+/// Whether `href` may be written into an **exported artefact's** link destination.
+///
+/// The one gate every serialising sink asks, so the answer cannot differ between
+/// them. Two ways to pass: an allowed external scheme, or a genuinely relative
+/// reference carrying a fragment (`TECH.md#map`, `#section`) — the cross-document
+/// and same-document links the artefact can still resolve for itself.
+///
+/// # Why this is not `is_allowed_url(h) || doc_link_fragment(h).is_some()`
+///
+/// That is what it used to be, and the second limb was not a gate. [`doc_link_fragment`]
+/// documents a *schemeless* precondition and enforces nothing — it returns `Some` for
+/// any href containing a non-empty `#`. `[click](javascript:alert(1)//#x)` satisfies
+/// it: the `#x` that matched is commented out by the `//` in the payload itself. The
+/// destination then reached `<a href>` intact, because the attribute escaper rewrites
+/// `& < > " '` and that payload contains none of them — script execution in the
+/// artefact's origin, which for a locally-opened export is `file://`.
+///
+/// The precondition is therefore enforced here, against [`has_uri_scheme`] rather than
+/// [`scheme_of`]. See that function for why the stricter grammar is the right one on
+/// this side of the boundary.
+pub(crate) fn is_exportable_href(href: &str) -> bool {
+    is_allowed_url(href) || (!has_uri_scheme(href) && doc_link_fragment(href).is_some())
+}
+
+/// Does `href` open with something a **browser** will read as a URL scheme?
+///
+/// Deliberately stricter than [`scheme_of`], and the two must never be merged into
+/// one predicate — they answer questions for two different consumers.
+///
+/// [`scheme_of`] answers *this app's* resolution question, and accepts only a
+/// hierarchical `scheme://…` or the bare-colon `mailto:` it launches, so that a
+/// Windows drive path (`C:\dir\img.png`), a path segment with a colon
+/// (`assets/notes:v2.png`) or a file called `report:draft.md` still resolve as the
+/// local files they are. A bare-colon `javascript:` is left inert there by
+/// *fall-through*: it resolves as a local path, finds nothing, and renders dead.
+///
+/// **Fall-through does not survive serialisation.** An exported artefact is read by
+/// an engine that applies RFC 3986 §3.1 — a colon alone makes a scheme — and runs
+/// what it finds. So anything bound for an `href` is judged by that grammar, not
+/// ours. The asymmetry is deliberate: erring here costs a link its destination and
+/// leaves the text; erring the other way emits attacker-authored script.
+///
+/// **Do not merge this with [`scheme_of`].** The two are not duplicates, and a reviewer
+/// collapsing them believes they are deleting one — which is the most likely way this
+/// fix regresses. See [`scheme_of`]'s own note for the other half of the warning.
+pub(crate) fn has_uri_scheme(href: &str) -> bool {
+    let Some((scheme, _)) = href.split_once(':') else {
+        return false;
+    };
+    let mut chars = scheme.chars();
+    chars.next().is_some_and(|c| c.is_ascii_alphabetic())
+        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+}
+
 /// The URL scheme of `url` when it is a genuine URL reference, or `None` when `url`
 /// is really a **local filesystem path** (which must never be scheme-sniffed). Shared
 /// by [`is_allowed_url`], [`resolve_image`], and the doc-link gate so "does this
@@ -220,8 +274,25 @@ pub(crate) fn is_allowed_url(url: &str) -> bool {
 ///    as the local file it is — the bug this fixes;
 ///  • an unhandled dangerous bare-colon scheme (`javascript:`, `data:`) is *still* never
 ///    launched — with no `//` it is not a hierarchical URL, is not `mailto`, and so
-///    falls through to local resolution where it fails to resolve and is rendered inert.
-///    Security is preserved by fall-through, not by naming each dangerous scheme.
+///    falls through to local resolution where it fails to resolve and is rendered inert
+///    **in this process**. Security is preserved by fall-through, not by naming each
+///    dangerous scheme.
+///
+/// # That qualifier is load-bearing, and it was missing
+///
+/// "Rendered inert" is a property of **this** consumer, not of the value. The moment the
+/// same href is written into an artefact — an exported HTML file — it is read by an
+/// engine applying RFC 3986 §3.1, where a colon alone makes a scheme, and `javascript:`
+/// executes. This comment previously closed on the unqualified claim, and it is the
+/// comment a maintainer reads before touching the parser; the register entry that had
+/// the lesson right (ScrAP-247, *"no handler is registered for this scheme" is not a
+/// safety property*) is not what gets read at the moment of the edit.
+///
+/// So anything bound for serialisation asks [`is_exportable_href`], which judges the
+/// scheme with [`has_uri_scheme`] instead. **Do not merge the two parsers.** They look
+/// like duplicates and are not: this one is deliberately permissive so a local path with
+/// a colon still resolves, and that one is deliberately strict because its reader is not
+/// us. Deleting either as a duplicate restores the vulnerability (GEP-82, GEP-53).
 pub(crate) fn scheme_of(url: &str) -> Option<&str> {
     let (scheme, rest) = url.split_once(':')?;
     // RFC 3986 scheme token: non-empty, first char ALPHA, remainder ALPHA/DIGIT/+/-/.
@@ -661,9 +732,10 @@ pub(crate) fn relativize_for_insert(target: &Path, base: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        anchor_target, doc_link_fragment, is_allowed_url, percent_decode, percent_encode_path,
-        relativize_for_insert, resolve_contained_image, resolve_doc_link, resolve_image, scheme_of,
-        slugify, unique_slug, ImageResolution, LinkResolution,
+        anchor_target, doc_link_fragment, has_uri_scheme, is_allowed_url, is_exportable_href,
+        percent_decode, percent_encode_path, relativize_for_insert, resolve_contained_image,
+        resolve_doc_link, resolve_image, scheme_of, slugify, unique_slug, ImageResolution,
+        LinkResolution,
     };
     use std::collections::HashMap;
 
@@ -1475,6 +1547,75 @@ mod tests {
         assert_eq!(doc_link_fragment("TECH.md").as_deref(), None);
         // Trailing bare `#` (no text after it) — nothing to look up.
         assert_eq!(doc_link_fragment("TECH.md#").as_deref(), None);
+    }
+
+    /// `doc_link_fragment` documents a schemeless precondition and does not enforce
+    /// one — this pins that, so a future reader does not mistake it for a gate and
+    /// rebuild the hole `is_exportable_href` closes.
+    #[test]
+    fn doc_link_fragment_does_not_enforce_its_own_schemeless_precondition() {
+        assert_eq!(
+            doc_link_fragment("javascript:alert(1)//#x").as_deref(),
+            Some("x")
+        );
+    }
+
+    // ── export href gate ────────────────────────────────────────────────────────
+
+    /// `has_uri_scheme` is the browser's grammar, not `scheme_of`'s. The two
+    /// disagree deliberately on every bare-colon form, and this pins the
+    /// disagreement so a later "simplification" onto one predicate fails here.
+    #[test]
+    fn has_uri_scheme_is_stricter_than_scheme_of() {
+        for href in [
+            "javascript:alert(1)",
+            "data:text/html,x",
+            "vbscript:msgbox(1)",
+            "report:draft.md",
+        ] {
+            assert!(
+                has_uri_scheme(href),
+                "browser grammar sees a scheme: {href}"
+            );
+            assert_eq!(scheme_of(href), None, "ours deliberately does not: {href}");
+        }
+        // Agreement on the hierarchical forms and on genuine local references.
+        assert!(has_uri_scheme("https://example.com"));
+        assert!(!has_uri_scheme("TECH.md#map"));
+        assert!(!has_uri_scheme("#section"));
+        assert!(!has_uri_scheme("./sub/PLAN.md"));
+        // A colon that is not a scheme token: the first char must be ALPHA.
+        assert!(!has_uri_scheme("1time:x"));
+        assert!(!has_uri_scheme("a b:x"));
+    }
+
+    #[test]
+    fn is_exportable_href_refuses_a_hostile_scheme_that_carries_a_fragment() {
+        // The vulnerability, at the unit that decides it: the `//` comments out the
+        // `#x` for the engine, but the fragment limb matched on it.
+        assert!(!is_exportable_href("javascript:alert(1)//#x"));
+        assert!(!is_exportable_href("javascript:alert(1)#x"));
+        assert!(!is_exportable_href("JaVaScRiPt:alert(1)#x"));
+        assert!(!is_exportable_href(
+            "data:text/html,<script>alert(1)</script>#x"
+        ));
+        assert!(!is_exportable_href("file:///etc/passwd#x"));
+        assert!(!is_exportable_href("smb://host/share#x"));
+    }
+
+    #[test]
+    fn is_exportable_href_keeps_the_links_an_artefact_can_still_resolve() {
+        assert!(is_exportable_href("https://example.com"));
+        assert!(is_exportable_href("https://example.com/page#frag"));
+        assert!(is_exportable_href("HTTPS://example.com"));
+        assert!(is_exportable_href("mailto:user@example.com"));
+        assert!(is_exportable_href("TECH.md#module-map"));
+        assert!(is_exportable_href("./sub/PLAN.md#caf%C3%A9"));
+        assert!(is_exportable_href("#section"));
+        // Unchanged from before the gate: a relative link with no fragment has never
+        // been emitted with a destination.
+        assert!(!is_exportable_href("TECH.md"));
+        assert!(!is_exportable_href("TECH.md#"));
     }
 
     #[test]

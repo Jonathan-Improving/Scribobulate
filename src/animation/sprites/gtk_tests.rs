@@ -71,6 +71,7 @@ fn animated_sprite() -> SpriteRef {
 /// `sprite::texture`/`sprite::scaled` produce, and no driver entry is ever created.
 #[gtktest::test]
 fn a_still_sprite_is_returned_unchanged_and_creates_no_driver_state() {
+    let _enable = crate::animation::policy::EnableAnimationsGuard::set(true);
     crate::sprite::clear_cache();
     let app = test_app("still");
     let (host, _window) = mapped_host(&app);
@@ -108,6 +109,7 @@ fn a_still_sprite_is_returned_unchanged_and_creates_no_driver_state() {
 /// change under the real frame clock.
 #[gtktest::test]
 fn a_resampled_animated_sprite_plays_at_the_requested_size() {
+    let _enable = crate::animation::policy::EnableAnimationsGuard::set(true);
     crate::sprite::clear_cache();
     let app = test_app("scaled");
     let (host, window) = mapped_host(&app);
@@ -150,6 +152,7 @@ fn a_resampled_animated_sprite_plays_at_the_requested_size() {
 /// no tick — which is what a decoration scrolled out of its paint's viewport gate is.
 #[gtktest::test]
 fn a_pass_that_does_not_draw_the_sprite_drops_its_driver() {
+    let _enable = crate::animation::policy::EnableAnimationsGuard::set(true);
     crate::sprite::clear_cache();
     let app = test_app("pass");
     let (host, window) = mapped_host(&app);
@@ -179,6 +182,7 @@ fn a_pass_that_does_not_draw_the_sprite_drops_its_driver() {
 /// the still frame, and no driver.
 #[gtktest::test]
 fn an_unmapped_host_plays_nothing_and_paints_the_still_frame() {
+    let _enable = crate::animation::policy::EnableAnimationsGuard::set(true);
     crate::sprite::clear_cache();
     let r = animated_sprite();
     let host = gtk::Label::new(Some("never shown"));

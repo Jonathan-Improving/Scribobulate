@@ -43,6 +43,7 @@ described from a different vantage point.
 | M | Windows | Production | On a machine with no Visual C++ runtime the app installs and then fails to start; the installer's bootstrapper for it has landed but has never been verified against that condition | Medium |
 | U | Any | Production | The preview is drawn horizontally scrolled (~20px, its left padding gone, a horizontal scrollbar showing) after a mode switch or an explicit Reload rebuilds it — intermittent, pre-existing, seen on Linux and Windows | Low |
 | X | Mac | Test | The macOS integration suite hangs part-way through a run, at a varying site, in roughly two to four runs in five. Independent of any one feature — it survives removing the surface it was first blamed on | High |
+| Y | Any | Test | A PDF blockquote-panel tiling assertion fails in the display-free suite about one run in four under pipeline load, and passes every time it is run directly. Observed once in four pipeline runs and never in eight direct runs of the same suite; **no root cause is recorded, deliberately** — the fixture's sprite path is a unique temp directory, so a key collision is ruled out, but the sprite cache it clears three times is process-global and at least ten test files mutate it from parallel libtest threads. Reproduce before theorising | Medium |
 
 ## Closed issues
 

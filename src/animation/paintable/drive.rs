@@ -1,6 +1,6 @@
 //! The seam this paintable actually drives: bootstrap, the play/pause/visibility
 //! reconciliation, the tick callback, and the decode round trip. Split out of
-//! `mod.rs` at POLICY's 500-line soft limit — the struct/`GdkPaintable` vfuncs and
+//! `mod.rs` at POLICY's file-size soft limit — the struct/`GdkPaintable` vfuncs and
 //! the public `AnimatedPaintable` API stay there; every method below is
 //! `impl imp::AnimatedPaintable` (the same type, a different file, exactly like
 //! `gtk_tests` splits the tests for the same reason).
@@ -411,6 +411,9 @@ impl imp::AnimatedPaintable {
         result: Result<richimg::Frame, richimg::Error>,
     ) {
         if generation != self.decoder_generation.get() {
+            #[cfg(test)]
+            self.stale_decodes_dropped
+                .set(self.stale_decodes_dropped.get().saturating_add(1));
             // This frame belongs to a decoder incarnation that has since been torn
             // down. Let `animation` — the STALE decoder — drop here. Nothing is
             // abandoned on the schedule: the schedule was restarted by

@@ -4,6 +4,10 @@ use super::{fail, header, pass};
 use crate::lint::patterns as rx;
 use crate::lint::{Tree, CORPUS_FILE};
 
+/// Self-exclusion: this check's own pattern file spells hex runs out as test-visible
+/// literals, so it would report itself. The same carve-out `CORPUS_FILE` already has.
+const PATTERNS_FILE: &str = "xtask/src/lint/patterns.rs";
+
 /// The register check 1 defends, and the plans it exempts. Named constants rather than
 /// literals at the call site because a literal there reads to the gate's own check 1 as a
 /// citation of the register by title — the gate is inside its own scan set now, which is
@@ -380,6 +384,46 @@ pub fn bare_ap_citations(tree: &Tree) -> bool {
             "registers, prefer ScrAP-N: this one is always resolvable, the skill may be",
             "absent. NEVER bulk-rewrite the prefix; that is the mechanism that produced",
             "the one confirmed defect.",
+        ],
+    )
+}
+
+/// Check 20 — no tracked file cites a git commit hash.
+///
+/// POLICY § SDD register writes: this project squashes each batch, so a hash names a
+/// commit designed to stop existing. The failure is not loud — an orphaned hash still
+/// resolves in the clone that wrote it, which is the clone anyone verifying it is
+/// standing in, so the citation looks sound exactly where it is checked and is a dead
+/// end everywhere else. Eight such citations were found by review, all already orphaned,
+/// two of them in the permanent register.
+///
+/// **The carve-outs are in the predicate, and the order was the point.** POLICY exempts
+/// the generated crash-report build stamp; a lint written before that exemption was
+/// restored to POLICY would flag it, and an agent enforcing the surviving flat rule
+/// deletes the crash reporter's only link back to its own source revision. See
+/// `rx::commit_hash_citations`.
+///
+/// `sdd/PLAN.*.md` is NOT excluded: a plan is read at the start of the work it describes,
+/// so a dead hash there is read by the one person least able to resolve it.
+pub fn commit_hashes_cited(tree: &Tree) -> bool {
+    header(
+        "20",
+        "git commit hashes cited (POLICY: cite the subject and date)",
+    );
+    let findings = grep(
+        tree,
+        |path| path != CORPUS_FILE && path != PATTERNS_FILE,
+        |line| !rx::commit_hash_citations(line).is_empty(),
+    );
+    if findings.is_empty() {
+        return pass();
+    }
+    fail(
+        "a squashed hash resolves only in the clone that wrote it:",
+        &findings,
+        &[
+            "cite the fact, a register entry (ScrAP-N / GTK4Rs/AP-N / GEP-N / TDD SS N),",
+            "or the commit SUBJECT plus its date.",
         ],
     )
 }
