@@ -196,6 +196,40 @@ self_test() {
         for port in $SCAN_PORTS; do printf 'AGENTS.md\nREADME.md\n' > "$dir/scan.$port.txt"; done
     }
 
+    # Rewrite FILE through the filter named by the remaining arguments, and FAIL LOUDLY
+    # if the filter errors OR leaves the file byte-identical.
+    #
+    # ⚠️ **The shape this replaces was `filter … > tmp && mv tmp …`, and its failure mode
+    # is silent.** The `&&` means a filter that errors skips the `mv`, so the artefact is
+    # left UNMODIFIED and the case goes on to ask the comparator to find drift that was
+    # never injected. MEASURED on macOS, where `tac` does not exist (it is GNU coreutils;
+    # the BSD spelling is `tail -r`): the reorder case seeded three identical artefacts,
+    # failed to reverse one, and reported the comparator blind to reordering — a gate
+    # accused of exactly the defect it was written to catch.
+    #
+    # That one went red only because it is a case that EXPECTS a failure. Invert it — any
+    # case expecting exit 0, such as the CRLF one below — and a broken injection is
+    # indistinguishable from a passing gate, which is the vacuous pass this whole file
+    # exists to refuse. So the check is on the INJECTION, not on the case's verdict.
+    inject() {
+        local file="$1"; shift
+        if ! "$@" < "$file" > "$file.inject" 2>"$work/inject.err"; then
+            echo "   FAIL  harness could not inject with: $*" >&2
+            sed 's/^/         /' "$work/inject.err" >&2
+            rm -f "$file.inject"
+            errs=$((errs + 1))
+            return 1
+        fi
+        if cmp -s "$file" "$file.inject"; then
+            echo "   FAIL  harness injection changed nothing: $*" >&2
+            echo "         the case below would have tested an unmodified artefact" >&2
+            rm -f "$file.inject"
+            errs=$((errs + 1))
+            return 1
+        fi
+        mv "$file.inject" "$file"
+    }
+
     expect() {
         local want="$1" label="$2" dir="$3" got=0
         compare_all "$dir" > "$work/out" 2>&1 || got=$?
@@ -217,19 +251,20 @@ self_test() {
 
     # A CRLF-only difference is the platform's line terminator, not drift.
     seed "$work/crlf"
-    sed 's/$/\r/' "$work/crlf/steps.windows.txt" > "$work/crlf/steps.windows.crlf" \
-        && mv "$work/crlf/steps.windows.crlf" "$work/crlf/steps.windows.txt"
+    inject "$work/crlf/steps.windows.txt" sed 's/$/\r/' 
     expect 0 "CRLF-only difference still passes" "$work/crlf"
 
     # THE injection: one port's list drifts.
     seed "$work/reordered"
-    tac "$work/reordered/steps.macos.txt" > "$work/reordered/steps.macos.tac" \
-        && mv "$work/reordered/steps.macos.tac" "$work/reordered/steps.macos.txt"
+    # `awk`, not `tac`: `tac` is GNU coreutils and absent on macOS, where the BSD
+    # spelling is `tail -r`. One-true-awk is on all three platforms and needs no
+    # per-platform branch.
+    inject "$work/reordered/steps.macos.txt" \
+        awk '{ l[NR] = $0 } END { for (i = NR; i > 0; i--) print l[i] }' 
     expect 1 "a reordered step list fails" "$work/reordered"
 
     seed "$work/classchange"
-    sed 's/required/informational/' "$work/classchange/steps.windows.txt" > "$work/classchange/steps.windows.new" \
-        && mv "$work/classchange/steps.windows.new" "$work/classchange/steps.windows.txt"
+    inject "$work/classchange/steps.windows.txt" sed 's/required/informational/' 
     expect 1 "a changed step class fails" "$work/classchange"
 
     # The vacuous pass this comparator exists to refuse: a port that never reported.

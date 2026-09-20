@@ -252,12 +252,31 @@ fn write_snapshot(tab: &Rc<TabState>) {
     );
 }
 
-/// Close the temp, then **promote it only if the write succeeded**.
+/// Close the temp and promote it, or discard it — the file half, with **no tab state
+/// touched**, so it is correct whether or not the tab still exists and a test can assert
+/// what it *decided* rather than infer the decision from the destination's bytes.
 ///
-/// This is the load-bearing half. On success: close (flushing to the temp), then
-/// `rename` — one syscall, atomic within the filesystem, and it carries the temp's `0600`
-/// to the destination. On failure: close and **unlink the temp**, leaving the destination
-/// exactly as it was.
+/// Those are not the same claim on Windows. `std::fs::rename` is
+/// `MoveFileExW(MOVEFILE_REPLACE_EXISTING)`, which can be refused `ERROR_ACCESS_DENIED`
+/// while another process holds the destination open — a scanner opening a just-written
+/// file is enough — leaving the destination's previous bytes exactly in place. Read from
+/// the filesystem alone, that is indistinguishable from a promote that never ran, which is
+/// the reason this function exists separately at all (GEP-83). Using Rust's rename rather
+/// than GLib's does not escape it; both end in the same Win32 call.
+///
+/// **The refusal depends on WHICH file the other handle is on, and the error code is the
+/// tell.** Measured across all eight share masks, both positions, on local NTFS
+/// (Windows 10 19045, `GENERIC_READ`): a handle on the **destination** refuses every mask,
+/// `FILE_SHARE_DELETE` included, always `ERROR_ACCESS_DENIED` (5) — this case, and no share
+/// mode a well-behaved scanner could have chosen would have let it through. A handle on the
+/// **source** succeeds iff the mask carries `FILE_SHARE_DELETE`, and otherwise fails
+/// `ERROR_SHARING_VIOLATION` (32) — GEP-62's case, where granting delete-sharing genuinely
+/// is the workaround. Reading a 5 as a 32 is what makes that workaround look broken here.
+/// Nothing below depends on the distinction; it treats the refusal as possible, full stop.
+///
+/// On success: close (flushing to the temp), then `rename` — one syscall, atomic within
+/// the filesystem, and it carries the temp's `0600` to the destination. On failure: close
+/// and **unlink the temp**, leaving the destination exactly as it was.
 ///
 /// Note what is deliberately *not* done: no `fsync` of the temp or its parent. Power-loss
 /// durability is explicitly out of scope for a debounced periodic snapshot (a crash, OOM
@@ -265,13 +284,12 @@ fn write_snapshot(tab: &Rc<TabState>) {
 /// blocking `fsync` here would be main-thread I/O every few seconds — the cost this whole
 /// path exists to avoid. If power-loss durability ever becomes a requirement, this is the
 /// one function that changes.
-fn finish_snapshot(
-    tab_id: winstate::TabId,
+fn promote_snapshot(
     stream: &gio::FileOutputStream,
     temp: &std::path::Path,
     destination: &std::path::Path,
     failure: Option<String>,
-) {
+) -> Result<(), String> {
     let closed = stream.close(gio::Cancellable::NONE);
     let outcome = match (&failure, &closed) {
         (Some(why), _) => Err(why.clone()),
@@ -284,6 +302,19 @@ fn finish_snapshot(
         // must not be left behind for the startup sweep to find.
         let _ = std::fs::remove_file(temp);
     }
+    outcome
+}
+
+/// Do the file work, then settle the tab that asked for it — **in that order**, because a
+/// snapshot whose tab closed mid-write must still not promote.
+fn finish_snapshot(
+    tab_id: winstate::TabId,
+    stream: &gio::FileOutputStream,
+    temp: &std::path::Path,
+    destination: &std::path::Path,
+    failure: Option<String>,
+) {
+    let outcome = promote_snapshot(stream, temp, destination, failure);
 
     let Some(tab) = winstate::tab_by_id(tab_id) else {
         return;
@@ -653,51 +684,72 @@ mod close_semantics_tests {
     /// rename rather than left beside it.
     ///
     /// Pairs with the test above so the two bracket the real behaviour. Without it, the
-    /// failure test would still pass if `finish_snapshot` had been broken into never
-    /// promoting anything at all — an assertion about an absence is satisfied by a
-    /// mechanism that does nothing.
+    /// failure test would still pass if the promote had been broken into never promoting
+    /// anything at all — an assertion about an absence is satisfied by a mechanism that
+    /// does nothing.
+    ///
+    /// It asserts on `promote_snapshot`'s **returned outcome**, and only then on the
+    /// bytes. That ordering is the whole design: on Windows the rename is refused
+    /// `ERROR_ACCESS_DENIED` whenever another process holds the destination open (see
+    /// that function), so reading the destination alone conflates "the promote is broken"
+    /// with "the OS refused this instant" — which is what made this test flake there,
+    /// once in ten whole-workspace runs and never in isolation.
+    ///
+    /// A refusal is therefore retried, and **nothing here is skipped**: an attempt that
+    /// reports success is held to every assertion immediately, and exhausting the
+    /// attempts fails the test with what each refusal said. A promote that returns `Ok`
+    /// without renaming is caught on the first attempt and never reaches the retry.
     #[test]
     fn a_successful_write_is_promoted_over_the_previous_snapshot() {
+        /// Enough to outlast a scanner's handle on a just-written file, short enough that
+        /// a genuinely broken promote fails the run promptly.
+        const ATTEMPTS: u32 = 5;
+
         let dir = tempfile::tempdir().unwrap();
         let destination = dir.path().join("snapshot.swap");
         let temp = dir.path().join("snapshot.swap.tmp");
-        std::fs::write(&destination, b"PREVIOUS").unwrap();
 
-        let stream = gio::File::for_path(&temp)
-            .replace(
-                None,
-                false,
-                gio::FileCreateFlags::REPLACE_DESTINATION | gio::FileCreateFlags::PRIVATE,
-                gio::Cancellable::NONE,
-            )
-            .expect("opens the temp");
-        stream
-            .write_all(b"NEW SNAPSHOT", gio::Cancellable::NONE)
-            .expect("writes");
+        let mut refusals = Vec::new();
+        for attempt in 1..=ATTEMPTS {
+            std::fs::write(&destination, b"PREVIOUS").unwrap();
 
-        super::finish_snapshot(
-            crate::winstate::alloc_tab_id(),
-            &stream,
-            &temp,
-            &destination,
-            None,
-        );
+            let stream = gio::File::for_path(&temp)
+                .replace(
+                    None,
+                    false,
+                    gio::FileCreateFlags::REPLACE_DESTINATION | gio::FileCreateFlags::PRIVATE,
+                    gio::Cancellable::NONE,
+                )
+                .expect("opens the temp");
+            stream
+                .write_all(b"NEW SNAPSHOT", gio::Cancellable::NONE)
+                .expect("writes");
 
-        assert_eq!(std::fs::read(&destination).unwrap(), b"NEW SNAPSHOT");
-        assert!(!temp.exists(), "the rename consumes the temp");
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mode = std::fs::metadata(&destination)
-                .unwrap()
-                .permissions()
-                .mode();
-            assert_eq!(
-                mode & 0o077,
-                0,
-                "rename carries the temp's 0600 to the destination (mode {mode:o})"
-            );
+            if let Err(why) = super::promote_snapshot(&stream, &temp, &destination, None) {
+                refusals.push(format!("attempt {attempt}: {why}"));
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                continue;
+            }
+
+            assert_eq!(std::fs::read(&destination).unwrap(), b"NEW SNAPSHOT");
+            assert!(!temp.exists(), "the rename consumes the temp");
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let mode = std::fs::metadata(&destination)
+                    .unwrap()
+                    .permissions()
+                    .mode();
+                assert_eq!(
+                    mode & 0o077,
+                    0,
+                    "rename carries the temp's 0600 to the destination (mode {mode:o})"
+                );
+            }
+            return;
         }
+
+        panic!("the promote never succeeded in {ATTEMPTS} attempts: {refusals:#?}");
     }
 
     /// The contrast that makes the test above meaningful: a **plain** close finalises
@@ -715,18 +767,30 @@ mod close_semantics_tests {
     /// open on a live file — and on Windows GLib's close finishes that with
     /// `MoveFileEx(MOVEFILE_REPLACE_EXISTING)`, which fails `ERROR_ACCESS_DENIED`
     /// (surfacing as `G_IO_ERROR_PERMISSION_DENIED`, "Error renaming temporary file")
-    /// whenever **any** other process holds the destination open. MEASURED on
-    /// GTK 4.22.4/gvsbuild: every share mask fails, `FILE_SHARE_READ|WRITE|DELETE`
-    /// included, so there is no share mode a well-behaved file scanner could have used
-    /// that would have let this pass. A scanner opening a just-created file is enough,
-    /// which is what made it flake on CI and nowhere else.
+    /// while another process holds the destination open. A scanner opening a just-created
+    /// file is enough, which is what made it flake on CI and nowhere else.
+    ///
+    /// Every share mask fails, `FILE_SHARE_READ|WRITE|DELETE` included — **but only because
+    /// the handle here is on the DESTINATION**, and that qualifier is load-bearing rather
+    /// than pedantic. Without it the claim reads as contradicting GEP-62, which measured
+    /// delete-sharing as a working workaround; with it, the two are one fact seen from two
+    /// positions. See [`promote_snapshot`] for the matrix and the two error codes that tell
+    /// the cases apart.
     ///
     /// What the removal costs is nothing this test was for: GLib still promotes its own
     /// `.goutputstream-` temp into place, so a close that stopped flushing still fails
     /// here, and the stray check proves the promotion happened rather than the bytes
-    /// arriving some other way. Promotion over *previous contents* is covered — through
-    /// the production path, whose rename is ours and not GLib's — by
-    /// `a_successful_write_is_promoted_over_the_previous_snapshot`.
+    /// arriving some other way. Promotion over *previous contents* is covered, through
+    /// the production path, by `a_successful_write_is_promoted_over_the_previous_snapshot`.
+    ///
+    /// **Not** because that path's rename is ours rather than GLib's — this comment used
+    /// to say so and it was wrong. `std::fs::rename` compiles to the same
+    /// `MoveFileExW(MOVEFILE_REPLACE_EXISTING)`, MEASURED by probe, so switching to it
+    /// moved the coin flip rather than removing it — and the green run that followed was
+    /// the expected outcome of changing nothing, which is why it survived review (GEP-83).
+    /// That test survives by asserting on the outcome
+    /// the promote *reports* and retrying a refusal; this one survives by not needing a
+    /// pre-existing destination at all. Two different escapes from one constraint.
     #[test]
     fn a_plain_close_finalises_and_promotes_the_temp() {
         let dir = tempfile::tempdir().unwrap();

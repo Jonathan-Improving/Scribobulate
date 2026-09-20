@@ -7,15 +7,72 @@
 #
 # The app keeps running; lldb pauses it for a second or two and lets it go.
 #
-#   ./capture-weld.sh [output-file]
+#   ./capture-weld.sh [--pid N] [output-file]
+#
+# THIS SCRIPT REPORTS FAILURE. Earlier it ran under `set -u` alone, ignored
+# lldb's exit status and ignored the Python block's, so an attach that was
+# refused and a parse that threw both ended with "written to <file>" and exit 0.
+# A probe used to decide whether a fault is present must never answer "captured"
+# when it captured nothing: every exit below is 0 only if a table was written.
 
 set -u
-OUT="${1:-weld-capture-$(date +%Y%m%d-%H%M%S).txt}"
 DIR="$(cd "$(dirname "$0")" && pwd)"
-PID=$(pgrep -f "Scribobulate.app/Contents/MacOS" | head -1)
 
+PID=""
+OUT=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --pid)
+      [ $# -ge 2 ] || { echo "capture-weld: --pid needs a value" >&2; exit 2; }
+      PID="$2"
+      shift 2
+      ;;
+    --pid=*) PID="${1#--pid=}"; shift ;;
+    -h|--help)
+      echo "usage: $0 [--pid N] [output-file]"
+      exit 0
+      ;;
+    -*) echo "capture-weld: unknown option '$1'" >&2; exit 2 ;;
+    *)
+      [ -z "$OUT" ] || { echo "capture-weld: more than one output file given" >&2; exit 2; }
+      OUT="$1"
+      shift
+      ;;
+  esac
+done
+OUT="${OUT:-weld-capture-$(date +%Y%m%d-%H%M%S).txt}"
+
+# AMBIGUITY IS REFUSED, NOT RESOLVED. This used to be `pgrep ... | head -1`,
+# which picks whichever process pgrep listed first. The fault being investigated
+# is two WINDOWS in one process — the app is one process, many windows — so a
+# second matching process is not a detail to silently discard, it is either a
+# stale copy left from an earlier attempt or a single-instance failure, and
+# either way attaching to the wrong one produces a clean window graph that
+# reads as "the fault is absent". Name the one you mean with --pid.
 if [ -z "$PID" ]; then
-  echo "Scribobulate is not running (looked for the .app bundle binary)." >&2
+  ALL_PIDS=$(pgrep -f "Scribobulate.app/Contents/MacOS" || true)
+
+  if [ -z "$ALL_PIDS" ]; then
+    echo "Scribobulate is not running (looked for the .app bundle binary)." >&2
+    exit 2
+  fi
+
+  COUNT=$(printf '%s\n' "$ALL_PIDS" | wc -l | tr -d ' ')
+  if [ "$COUNT" -gt 1 ]; then
+    echo "capture-weld: $COUNT processes match the .app bundle binary:" >&2
+    while read -r p; do
+      echo "    pid $p    $(ps -o lstart= -p "$p" 2>/dev/null | tr -s ' ')" >&2
+    done <<< "$ALL_PIDS"
+    echo "  Refusing to guess. One process is expected — more than one is itself a" >&2
+    echo "  finding (a stale copy, or single-instance forwarding not taking effect)." >&2
+    echo "  Re-run naming the one showing the fault: $0 --pid <N> [output-file]" >&2
+    exit 2
+  fi
+  PID="$ALL_PIDS"
+fi
+
+if ! kill -0 "$PID" 2>/dev/null; then
+  echo "capture-weld: no process $PID, or it is not ours to attach to." >&2
   exit 2
 fi
 
@@ -35,7 +92,24 @@ EOF
 
 echo "attaching to pid $PID ..."
 lldb -p "$PID" -b -s "$SCRIPT" > "$RAW" 2>&1
+LLDB_RC=$?
 rm -f "$SCRIPT"
+
+# lldb's status is checked, and it is NOT sufficient on its own: a refused
+# attach exits non-zero, but an attach that succeeded while every `expr` threw
+# exits 0 with an error transcript. So the status gates here and the parse below
+# gates the rest — the raw transcript is kept in both cases, because the reason
+# an attach failed (a missing task port, a Developer Tools prompt, a debugger
+# already attached) is only visible there.
+if [ "$LLDB_RC" -ne 0 ]; then
+  cp "$RAW" "$OUT"
+  rm -f "$RAW"
+  echo "capture-weld: lldb exited $LLDB_RC; NO window graph was captured." >&2
+  echo "  Its transcript is in $OUT — read it rather than this message." >&2
+  echo "  Common causes: the process is not debuggable by this user, another" >&2
+  echo "  debugger holds it, or macOS has not been told to allow attaching." >&2
+  exit 1
+fi
 
 python3 - "$RAW" "$OUT" <<'PY'
 import re, sys
@@ -140,6 +214,20 @@ for s in suspect:
 open(sys.argv[2], 'w').write("\n".join(lines) + "\n")
 print("\n".join(lines))
 PY
+PY_RC=$?
+
+# "written to" IS THE CLAIM, so it is made only where the claim is true. The
+# Python block already exited 1 on a parse failure and already said so; what was
+# missing was anything here listening. Without this, a run that wrote
+# "PARSE FAILED" into the output file went on to print "written to <file>" and
+# exit 0, and a caller — or a person skimming the last line — read success.
+if [ "$PY_RC" -ne 0 ]; then
+  rm -f "$RAW"
+  echo >&2
+  echo "capture-weld: the window graph could NOT be parsed; $OUT holds the raw" >&2
+  echo "  lldb transcript instead of a table. This is not a capture." >&2
+  exit 1
+fi
 
 rm -f "$RAW"
 echo

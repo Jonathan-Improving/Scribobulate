@@ -632,7 +632,11 @@ impl Frames<'static> {
     /// its `Frames` from [`SpriteTable::frames`], because handing one out is what
     /// registers a sprite as visible this pass (TDD 27.9), and a hand-built one would
     /// silently opt a real paint out of that bookkeeping.
-    #[cfg(test)]
+    ///
+    /// The gate names the feature as well as `test` because its only caller is a
+    /// feature-gated test: under a plain `cargo test` — which is what pipeline step 4
+    /// runs — `test` alone leaves this with no caller and the build warns it is dead.
+    #[cfg(all(test, feature = "gtk-integration-tests"))]
     pub(crate) fn still() -> Frames<'static> {
         Frames { live: None }
     }

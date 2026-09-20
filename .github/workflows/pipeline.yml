@@ -480,6 +480,27 @@ jobs:
           # The digest is in the key so that moving the pin cannot be answered by an
           # archive cached under the old one: a cache entry is content this job will
           # unpack without re-verifying, so what it is keyed on IS its integrity claim.
+          #
+          # ⚠️ KNOWN GAP, deliberately open: a key is a CLAIM, not a CHECK. The verify
+          # step below runs only on a cache MISS, so on a HIT this job restores an
+          # already-unpacked prefix and nothing re-hashes it. Whoever can write the cache
+          # decides what is in it, and the digest's presence in the key asserts a match
+          # without testing one.
+          #
+          # The fix, if it is taken: cache the ARCHIVE rather than the unpacked prefix and
+          # drop the `if: cache-hit != true` below, so the digest runs on every run and the
+          # prefix only ever comes from an unpack of bytes that just passed. The expensive
+          # part — the download — stays cached. Two conditions before doing it: measure
+          # `Expand-Archive` on a hosted runner first (3,240 files / 143.8 MiB measured on
+          # a seat's box, which is its worst case; `tar -xf` is on windows-latest if the
+          # number is bad), and do NOT soften the fetch step's failure message — all three
+          # causes it names stay correct once it also fires on restores.
+          #
+          # REJECTED: hashing the restored tree against a manifest cached beside it. That
+          # catches corruption, not authenticity — whoever writes the cache writes the
+          # manifest — and costs a full-tree hash to buy the weaker half.
+          # NOT a defect: version+digest in the key makes every pin bump a cold cache by
+          # construction. That is the design working.
           key: gvsbuild-gtk4-${{ env.GVSBUILD_VERSION }}-${{ env.GVSBUILD_SHA256 }}-x64
 
       - name: Fetch the pinned prebuilt GTK4 stack and verify it against its digest
@@ -583,8 +604,18 @@ jobs:
               exit 0
           }
           Write-Host 'ISCC not on PATH; installing Inno Setup 6.'
-          winget install --id JRSoftware.InnoSetup --silent --accept-package-agreements `
-                --accept-source-agreements --disable-interactivity
+          # PINNED, and the pin is worth less than it looks -- say so here rather than let
+          # the next reader infer that the installer's compiler is fixed. This branch only
+          # runs when the image has no ISCC, and today it always has one; the compiler that
+          # actually builds the shipped installer is the image's, which floats with the
+          # image and cannot be pinned from this file. What does cover every run is
+          # packaging/windows/package.ps1, which reads the engine version out of the
+          # compile itself and fails if it cannot. The pin is still here because an
+          # unpinned fallback would mean two different runs of THIS workflow could build
+          # with different compilers for no recorded reason.
+          winget install --id JRSoftware.InnoSetup --version 6.7.3 --silent `
+                --accept-package-agreements --accept-source-agreements `
+                --disable-interactivity
           $dirs = @("$env:LOCALAPPDATA\Programs\Inno Setup 6",
                     "${env:ProgramFiles(x86)}\Inno Setup 6",
                     "$env:ProgramFiles\Inno Setup 6")

@@ -131,6 +131,12 @@ impl BufSpan {
 
     /// The range as `usize`s, for slicing. `None` if it is inverted or negative,
     /// which a caller must treat as "no text" rather than panicking.
+    ///
+    /// Gated to match its only caller, `debug_verify`, which is `debug_assertions`-only —
+    /// otherwise a release build warns it is dead. `test` is in the condition so the
+    /// function and its unit tests survive `cargo test --release`, where
+    /// `debug_assertions` is off.
+    #[cfg(any(debug_assertions, test))]
     pub(crate) fn as_usize(self) -> Option<std::ops::Range<usize>> {
         let start = usize::try_from(self.start).ok()?;
         let end = usize::try_from(self.end).ok()?;

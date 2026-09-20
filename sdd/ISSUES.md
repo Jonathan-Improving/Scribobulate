@@ -714,6 +714,21 @@ between runs — `copy_full_path_for_tab` twice in the most recent set, elsewher
 that. Measured rates across one day of arms, five runs each: **3 in 5**, **4 in 5** and
 **2 in 5** under three different tree configurations.
 
+A later set, 2026-09-19 on the `mitigations` branch: **eleven runs across three
+successive tips — 6 clean, 5 failed (3 hangs, 2 aborts)**. Per tip, back to back on an
+otherwise idle machine: 1 in 5 on one tip and **3 in 5** on the very next. **That spread
+IS the finding.** Eleven runs establish that it is common and erratic and nothing more
+precise; five cannot separate 20% from 60%, which is this entry's own small-sample lesson
+turned on the entry itself. Treat any single-digit run count as unable to distinguish two
+builds here — that is what the first mitigation below is for, and it is still unmet.
+
+Two observations from that set, offered without investigation: the two hangs in one round
+were **sibling tests in the same module**, differing only in which tab command they drive,
+while an earlier hang was in an unrelated module — so "varying site" holds across rounds
+while two failures within a round may be adjacent. And the abort text differed between
+rounds (`autorelease pool page … corrupted` versus `Invalid or prematurely-freed
+autorelease pool`) — same family, different detection point.
+
 **It is NOT caused by the status bar, and the effort to prove otherwise is the useful part
 of this entry.** The hang first appeared alongside the status bar's arrival, so the surface
 was the obvious suspect. Four separate hypotheses were each armed and measured — destroy-time
@@ -721,6 +736,29 @@ timers, the pooled counter's latch, the mark-set handler's attachment, and final
 status bar's mere *presence in the widget tree*, via a diagnostic environment flag that
 builds the window without it. **With the whole strip absent from the tree, 2 of 5 runs still
 hung.** No configuration tested has ever been hang-free.
+
+**The hang is NOT quiet, and that is new evidence: it has a SIGNATURE.** MEASURED
+2026-09-19 on the `mitigations` branch — three `poll(2) failed due to: Resource
+temporarily unavailable` warnings, then `g_main_context_prepare() called recursively from
+within a source's check() or prepare() member` paired with the same for
+`g_main_context_check()`, repeating at full speed until the per-case wall-clock cap killed
+it: **14,877,756 of each, a 4.0 GB log**. So the main context is re-entering
+prepare/check, spinning rather than blocking. **The site may vary while the mechanism does
+not** — which is the first thing said here that could distinguish one defect from several,
+and it means a run that dies at a new site is not automatically a new problem. A seat
+reproducing this must collapse the log, because 4 GB of one repeated pair is not evidence,
+it is the same evidence 15 million times — but ⚠️ **collapse a repeating CYCLE, not
+consecutive duplicates.** The spin alternates `prepare`/`check`, so no two adjacent lines
+match and a same-as-previous-line suppressor suppresses NOTHING while appearing to work
+(measured: 4.0 GB down to 1.4 GB, which reads as success). An alternation is the one thing
+a main LOOP is guaranteed to produce. Collapse a cycle of up to a few distinct lines,
+print the first occurrence of each verbatim, and print totals when the burst ends.
+
+⚠ **`poll(2)` returning EAGAIN immediately before it is a lead, not a cause** — nothing
+has tested whether it is on the path or beside it, and the register's own header warns
+what a recorded root cause is worth. It is noted because it is the same subsystem the
+autorelease-pool abort elsewhere in this register sits next to, which is the strongest
+version yet of the "possibly the same defect" note below.
 
 ⚠ **The original attribution was a small-sample artefact, and this is the trap to avoid on
 the next one.** It rested on a parent commit going 3-for-3 green against a child going
@@ -790,4 +828,3 @@ constant. Returning to a fullscreen Space from another application is also clean
 **Linux and Windows have not been checked**, so the `Mac` narrowing is provisional — the
 register's rule is that behaviour seen on one platform is not platform-specific until a
 peer seat looks.
-
