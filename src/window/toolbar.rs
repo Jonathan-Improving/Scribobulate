@@ -2,8 +2,8 @@
 //! buttons. Every button is action-driven (`set_action_name`), so sensitivity is
 //! managed by the GAction machinery — no manual click handlers here.
 //!
-//! The toolbar is organized into **six sections** (invariants I1–I7, see
-//! [`super::viewactions`]), one per visually-delimited group, in the canonical
+//! The toolbar is organized into **six sections** (invariants I1–I8, see
+//! [`super::toolbarchrome`]), one per visually-delimited group, in the canonical
 //! [`crate::app::TBTN_SECTION_IDS`] order (`file, edit, format, view, split,
 //! zoom`). A section is no longer one GTK container widget, though: each
 //! section is a *list* of individually-wrappable pack items — its own leading
@@ -13,7 +13,7 @@
 //! directly to the shared [`crate::widgets::wrapbox::ToolbarWrapBox`]. This is
 //! what lets the toolbar wrap **per button** (packing as many items onto the
 //! top row as fit, moving only the overflow down) rather than per whole
-//! section, while still letting `win.show-tbtn-<id>` hide/show a section as
+//! section, while still letting `app.show-tbtn-<id>` hide/show a section as
 //! one atomic unit (I2) by toggling every widget in its item list together.
 //! The Format section is the one exception: `build_format_bar`'s output is
 //! kept as a single opaque box (see its own comment below) and so is, in
@@ -39,7 +39,7 @@ use crate::icons::Icon;
 
 /// One section's flattened, individually-wrappable pack items (leading
 /// separator, then buttons/clusters in order) — every entry is also a direct
-/// child of the toolbar's `ToolbarWrapBox`. `win.show-tbtn-<id>` toggles a
+/// child of the toolbar's `ToolbarWrapBox`. `app.show-tbtn-<id>` toggles a
 /// whole section by setting `visible` on every widget in its list together
 /// (invariant I2's generalisation from "one box" to "one list").
 type SectionItems = Vec<gtk::Widget>;

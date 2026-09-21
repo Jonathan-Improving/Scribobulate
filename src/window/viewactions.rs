@@ -1,66 +1,23 @@
 //! Registration of the view / layout `win.*` actions: the view-mode swap, the
-//! outline toggle, toolbar/statusbar visibility, show-unsafe-images, split
+//! outline toggle, status-bar visibility, show-unsafe-images, split
 //! swap/orientation, and zoom in/out/reset.
 //!
-//! ## Toolbar-section invariants (`I1`–`I7`)
-//!
-//! The per-section toolbar show/hide feature keeps seven invariants, referenced
-//! by number (`// I3`, `// I5`, …) at their enforcement sites in this file and in
-//! [`super::toolbar`]. The only in-session authority is the GAction *state*:
-//! `T` = `win.show-toolbar` (whole bar), `S_i` = `win.show-tbtn-<id>` for
-//! `i ∈ TBTN_SECTION_IDS`. Never keep a second in-memory copy — two copies drift,
-//! and that drift is the bug class this design forecloses.
-//!
-//! | # | Invariant | Owner |
-//! |---|-----------|-------|
-//! | I1 | `toolbar.visible == T` | `show-toolbar` handler |
-//! | I2 | every widget in `section_boxes[i]`'s item list has `visible == S_i` | each `show-tbtn-<i>` handler |
-//! | I3 | `show-tbtn-<i>.enabled == T` (all six, derived) | [`reconcile_toolbar_chrome`] |
-//! | I4 | `show-tbtn-<i>.state == S_i`; never written by reconcile | the item's own toggle |
-//! | I5 | window min-width reflects `T` and `{S_i}` | [`reconcile_toolbar_chrome`] (derived) |
-//! | I6 | every *command* action's `enabled` is a function of mode/focus/zoom-ladder ONLY, never of `T`/`S_i` | the command-action machinery; chrome never touches it |
-//! | I7 | section left-to-right order is always canonical (`file,edit,format,view,split,zoom`) | static construction: append once, `set_visible`-toggle, never remove/re-append |
-//!
-//! Three orthogonal axes — conflating any two is a bug: (1) visibility (`T`,
-//! `{S_i}`); (2) section menu-item *enabled* (`= T`, derived); (3) individual
-//! command-button sensitivity (owned by mode/focus/zoom). "Disable" is never
-//! "uncheck": hiding the bar sets each item `enabled=false` (I3) but leaves its
-//! `state` (I4), so re-showing restores the exact prior config.
+//! The TOOLBAR's own visibility — the whole bar and its six sections — is not here:
+//! it is app-wide, and lives in [`super::toolbarchrome`] along with the invariants
+//! that govern it.
 use super::*;
 
 /// Register a boolean stateful `win.<name>` action seeded from `initial`. On
 /// `change_state`, commits the new state FIRST (so a re-entrant read of this
 /// same action's state — e.g. split-swap re-entering view-mode — sees the new
 /// value), then runs `on_change(&window, new_value)` for the toggle's side
-/// effect. Collapses the create/seed/wire skeleton that was copy-pasted 6x
-/// across this file. Returns the action so callers can do any extra
-/// one-off setup (e.g. `set_enabled(false)`).
+/// effect. Collapses the create/seed/wire skeleton that was copy-pasted across
+/// this file. Returns the action so callers can do any extra one-off setup
+/// (e.g. `set_enabled(false)`).
 fn register_bool_action(
     window: &ApplicationWindow,
     name: &str,
     initial: bool,
-    on_change: impl Fn(&ApplicationWindow, bool) + 'static,
-) -> SimpleAction {
-    register_bool_action_vetoable(window, name, initial, |_, _| false, on_change)
-}
-
-/// Like [`register_bool_action`], but consults `veto` *before* committing a
-/// requested state change. `veto(&window, requested)` returning `true`
-/// **declines** the request: because a `GSimpleAction`'s `change-state` is only
-/// a *request* (with a user handler connected, GLib takes no default action — the
-/// handler alone decides whether to `set_state`), simply **not** calling
-/// `set_state` leaves the state — and therefore the menu checkbox tick — exactly
-/// where it was, with no `notify::state` churn and no visible flicker. `on_change`
-/// is skipped too; `veto` is responsible for whatever alternative effect it wants
-/// (e.g. redirecting to a different action). Returning `false` takes the normal
-/// path (commit state, then run `on_change`). Used by the toolbar-section toggles
-/// so that hiding the *last* visible section reinterprets as "hide the whole bar"
-/// while preserving that section's tick (the last-section veto; see module doc).
-fn register_bool_action_vetoable(
-    window: &ApplicationWindow,
-    name: &str,
-    initial: bool,
-    veto: impl Fn(&ApplicationWindow, bool) -> bool + 'static,
     on_change: impl Fn(&ApplicationWindow, bool) + 'static,
 ) -> SimpleAction {
     let action = SimpleAction::new_stateful(name, None, &initial.to_variant());
@@ -71,9 +28,6 @@ fn register_bool_action_vetoable(
             let Some(on) = value.and_then(|v| v.get::<bool>()) else {
                 return;
             };
-            if veto(&window, on) {
-                return; // request declined — state (and tick) left untouched
-            }
             action.set_state(&on.to_variant());
             on_change(&window, on);
         }
@@ -84,21 +38,16 @@ fn register_bool_action_vetoable(
 
 /// The chrome-visibility values `register_view_actions` seeds its toggles from,
 /// bundled into one param (keeps the arity in check and mirrors the `WindowInit`
-/// "initial numbers" pattern). `show_toolbar`/`show_statusbar`/`section_states`/
-/// `outline_visible` are THIS window's own (from its `WindowInit`'s
+/// "initial numbers" pattern). `show_statusbar`/`outline_visible`/
+/// `annotations_visible` are THIS window's own (from its `WindowInit`'s
 /// `session::ChromeSession`, itself inherited from the source window or restored
 /// from this window's own `WindowSession`); `show_unsafe_images` is this tab's
-/// own restored value.
+/// own restored value. The toolbar is app-wide and is not here
+/// (`window::toolbarchrome`).
 pub(super) struct ChromeVisibility {
-    pub show_toolbar: bool,
     pub show_statusbar: bool,
     pub show_unsafe_images: bool,
-    /// Per-section toolbar visibility in canonical `TBTN_SECTION_IDS` order,
-    /// matching the `section_boxes` argument's item lists (invariant I7).
-    pub section_states: [bool; 6],
-    /// Whether the outline sidebar starts shown. Per window, on the same
-    /// `WindowInit`-threaded mechanism as `show_toolbar`, which its spec says to
-    /// mirror.
+    /// Whether the outline sidebar starts shown.
     pub outline_visible: bool,
     /// Whether the annotations viewer starts shown. Per window, same mechanism as
     /// `outline_visible`; defaults hidden (`ChromeSession::annotations_visible`).
@@ -106,17 +55,15 @@ pub(super) struct ChromeVisibility {
 }
 
 /// Register the view / layout actions on `window`, seeding the chrome-visibility
-/// toggles' initial state from `vis` — this window's own `show_toolbar`/
-/// `show_statusbar`/`outline_visible`, its six per-section `section_states`, and
-/// the unsafe-images toggle (this tab's own restored value — tab-scoped). The split
-/// arrangement is app-wide and read from the application
-/// (`window::arrangement`). View mode is NOT seeded here — every tab starts at
-/// Preview; a restored non-default mode is replayed afterward through
+/// toggles' initial state from `vis` — this window's own `show_statusbar`/
+/// `outline_visible`/`annotations_visible`, and the unsafe-images toggle (this
+/// tab's own restored value — tab-scoped). The split arrangement
+/// (`window::arrangement`) and the toolbar layout (`window::toolbarchrome`) are
+/// app-wide and read from the application. View mode is NOT seeded here — every
+/// tab starts at Preview; a restored non-default mode is replayed afterward through
 /// `win.view-mode`'s `change_state` (see `window::restore`).
 pub(super) fn register_view_actions(
     window: &ApplicationWindow,
-    toolbar: &crate::widgets::wrapbox::ToolbarWrapBox,
-    section_boxes: &[Vec<gtk::Widget>; 6],
     status_bar: &gtk::Box,
     sidebar: &SidebarSections,
     vis: &ChromeVisibility,
@@ -128,13 +75,13 @@ pub(super) fn register_view_actions(
         vis.outline_visible,
         vis.annotations_visible,
     );
-    register_chrome_visibility_actions(window, toolbar, section_boxes, status_bar, vis);
+    register_chrome_visibility_actions(window, status_bar, vis);
     register_split_actions(window);
     register_zoom_actions(window);
 }
 
 /// The three sidebar widgets `register_sidebar_actions` seeds visibility on, before
-/// the typed per-window state exists (so they are passed directly, like `toolbar` /
+/// the typed per-window state exists (so they are passed directly, like
 /// `status_bar`, rather than resolved via `winstate::state`).
 pub(super) struct SidebarSections<'a> {
     pub outline_section: &'a gtk::Box,
@@ -367,124 +314,29 @@ fn register_sidebar_actions(
     window.add_action(&outline_collapse_all_action);
 }
 
-/// View-chrome visibility toggles seeded from `vis`: `win.show-toolbar`, the six
-/// per-section `win.show-tbtn-<id>` toggles, `win.show-statusbar`, and
-/// `win.show-unsafe-images`. All are boolean stateful actions surfaced as View-menu
-/// check items; toolbar/statusbar/section states are this window's own, unsafe-images
-/// is this tab's own restored value.
+/// View-chrome visibility toggles seeded from `vis`: `win.show-statusbar` and
+/// `win.show-unsafe-images`. Both are boolean stateful actions surfaced as View-menu
+/// check items; the status bar's state is this window's own, unsafe-images is this
+/// tab's own restored value. There is no status-bar toolbar button — there is no
+/// good freedesktop icon for it, and the always-visible menu bar is the reliable
+/// way back once the bar is hidden.
 fn register_chrome_visibility_actions(
     window: &ApplicationWindow,
-    toolbar: &crate::widgets::wrapbox::ToolbarWrapBox,
-    section_boxes: &[Vec<gtk::Widget>; 6],
     status_bar: &gtk::Box,
     vis: &ChromeVisibility,
 ) {
     let ChromeVisibility {
-        show_toolbar,
         show_statusbar,
         show_unsafe_images,
-        section_states,
         outline_visible: _,     // handled by register_sidebar_actions, not here
         annotations_visible: _, // handled by register_sidebar_actions, not here
     } = *vis;
 
-    // View-chrome visibility toggles — boolean stateful actions
-    // like win.outline, surfaced as View-menu check items and persisted in the
-    // session. No toolbar buttons: there are no good freedesktop icons for these, and
-    // a "hide toolbar" button living in the toolbar would vanish with it; the
-    // always-visible menu bar is the reliable way back. Initial state comes from the
-    // session — setting an action's initial state does NOT fire change-state, so we
-    // also apply the widget visibility explicitly. Closures capture the widget weakly.
-    register_bool_action(window, "show-toolbar", show_toolbar, {
-        let tb = toolbar.downgrade();
-        move |window, on| {
-            if let Some(tb) = tb.upgrade() {
-                tb.set_visible(on); // I1
-            }
-            // "Show" is dominant: reconcile derives each section item's enabled
-            // (I3 — greyed when the whole bar is off, ticks untouched) and the
-            // window min width (I5). It never writes any section *state* (I4) or
-            // any command action's sensitivity (I6).
-            reconcile_toolbar_chrome(window);
-        }
-    });
-    toolbar.set_visible(show_toolbar);
-
-    // ── win.show-tbtn-<id> — per-section toolbar visibility ────────────────────
-    // Six boolean stateful actions (the `S_i` section toggles), one per toolbar
-    // section box, seeded and registered in canonical `TBTN_SECTION_IDS` order.
-    // Each drives ONLY its own section box's visibility (I2); the item's
-    // *enabled* attribute is derived from show-toolbar by `reconcile` (I3), never
-    // set here. Initial state is the persisted S_i — creating an action with an
-    // initial state does NOT fire change_state, so the box visibility is applied
-    // explicitly too (mirroring show-toolbar's seed). Boxes captured weakly.
-    for (id, (section_box, &initial)) in crate::app::TBTN_SECTION_IDS
-        .iter()
-        .zip(section_boxes.iter().zip(section_states.iter()))
-    {
-        register_bool_action_vetoable(
-            window,
-            &format!("show-tbtn-{id}"),
-            initial,
-            // Veto: hiding the LAST visible section reinterprets as "hide the
-            // whole bar" instead of leaving an empty ~2px strip. We decline the
-            // section's own state change (so S_i stays true and its tick is
-            // preserved) and drive win.show-toolbar off; flipping "Show" back on
-            // then restores exactly this section — a lossless round-trip. Only the
-            // *hide* of the last section is intercepted; showing a section, or
-            // hiding one while others remain, always takes the normal path.
-            // (This handler only ever runs with T on: a section action is disabled
-            // — I3 — while the bar is hidden, so change-state can't fire then.)
-            {
-                let id = *id; // &'static str — this section's id, for the "am I last?" test
-                move |window, requested| {
-                    if requested {
-                        return false; // showing a section is never intercepted
-                    }
-                    let last_visible = crate::app::TBTN_SECTION_IDS.iter().all(|other| {
-                        *other == id
-                            || !bool_action_state(window, &format!("show-tbtn-{other}"), false)
-                    });
-                    if !last_visible {
-                        return false; // other sections remain — ordinary hide
-                    }
-                    // Hide the whole bar (which reconciles I3/I5) rather than this
-                    // one section; leave S_i = true untouched so Show restores it.
-                    change_action_state(window, "show-toolbar", &false.to_variant());
-                    true
-                }
-            },
-            {
-                // Weak per-widget, not a Vec<Box> — a section is now a list of
-                // individually-wrappable pack items (see `window::toolbar`), so
-                // "hide this section" means every widget in the list together,
-                // not one container's visibility.
-                let sb: Vec<gtk::glib::WeakRef<gtk::Widget>> =
-                    section_box.iter().map(|w| w.downgrade()).collect();
-                move |window, on| {
-                    for w in &sb {
-                        if let Some(w) = w.upgrade() {
-                            w.set_visible(on); // I2 — this section only; separator hides with it
-                        }
-                    }
-                    // Reconcile keeps I5 (min width) current; I3 is a no-op here since
-                    // T (show-toolbar) is unchanged by a section toggle.
-                    reconcile_toolbar_chrome(window);
-                }
-            },
-        );
-        for w in section_box {
-            w.set_visible(initial);
-        }
-    }
-    // Seed the DERIVED attributes once, now that all seven chrome actions exist
-    // and their states/visibilities are set: I3 (each section item enabled == T)
-    // and I5 (window min width). Must run AFTER the section actions are added —
-    // `reconcile` looks them up — and the section states are seeded at creation
-    // only, never replayed through a possibly-disabled action's change_state (the
-    // disabled-can't-change trap, PLAN §Seeding).
-    reconcile_toolbar_chrome(window);
-
+    // View-chrome visibility toggles — boolean stateful actions like win.outline,
+    // surfaced as View-menu check items and persisted in the session. Initial state
+    // comes from the session — setting an action's initial state does NOT fire
+    // change-state, so we also apply the widget visibility explicitly. Closures
+    // capture the widget weakly.
     register_bool_action(
         window,
         "show-statusbar",
@@ -585,72 +437,4 @@ fn register_zoom_actions(window: &ApplicationWindow) {
         }
     ));
     window.add_action(&zoom_reset_action);
-}
-
-/// Recompute the toolbar chrome's DERIVED attributes from the source-of-truth
-/// action states (invariants I3/I5). **Idempotent**:
-/// reads only `win.show-toolbar` (T) and applies only
-/// - **I3** — each of the six `win.show-tbtn-<id>` section items' `enabled == T`
-///   (greyed when the whole bar is off), and
-/// - **I5** — the window's minimum-width geometry.
-///
-/// It deliberately does NOT write any section action's *state* (that is owned
-/// solely by the item's own toggle — **I4**; "disable" is not "uncheck"), and it
-/// NEVER reads or writes any *command* action's sensitivity (**I6** — zoom/split/
-/// save/format/… stay exactly where mode/focus/zoom-ladder put them). Because it
-/// recomputes wholesale from source of truth, a missed or duplicated call cannot
-/// leave a permanent gap — the next reconcile heals it (state-based
-/// reconciliation, not event-delta patching).
-pub(super) fn reconcile_toolbar_chrome(window: &ApplicationWindow) {
-    let t = bool_action_state(window, "show-toolbar", true);
-    for id in crate::app::TBTN_SECTION_IDS {
-        if let Some(action) = window.lookup_action(&format!("show-tbtn-{id}")) {
-            if let Ok(section_action) = action.downcast::<SimpleAction>() {
-                section_action.set_enabled(t); // I3 — derived; never sets state (I4)
-            }
-        }
-    }
-    update_toolbar_min_width(window); // I5
-}
-
-/// Update the window's minimum-width geometry to reflect the currently-visible
-/// toolbar (invariant I5).
-///
-/// GTK4 takes the toplevel's minimum width as `MAX(content_derived_minimum,
-/// size_request)`. `build_window` sets a `size_request` of `MIN_WINDOW_WIDTH`, a
-/// deliberate sanity backstop; the toolbar supplies the other term as the width of
-/// its widest SINGLE visible item, never the sum of the visible ones, because a
-/// [`crate::widgets::wrapbox::ToolbarWrapBox`] moves what does not fit onto another
-/// row instead of demanding a wider window (TDD 9.38).
-///
-/// **Which term wins is the whole design, and today it is the backstop.** Every
-/// section is decomposed into individually-wrappable items and the two labels sized
-/// by content are character-capped, so the toolbar's minimum stays well under
-/// `MIN_WINDOW_WIDTH` however many sections are shown — meaning the toolbar no
-/// longer sets the floor at all, and a narrow display fits the window whatever the
-/// reader has ticked. `no_chrome_sets_the_windows_width_floor_above_the_backstop`
-/// is the guard, and it is the inequality to preserve: the moment the toolbar's own
-/// minimum climbs back above the backstop, this seam starts constraining the window
-/// again and a narrow screen stops fitting.
-///
-/// Hiding a section therefore still lowers the content-derived term, but the reader
-/// sees no change in how narrow the window can be dragged — the backstop was already
-/// the binding constraint. That is the intended end state, not a regression.
-///
-/// We `queue_resize` so that re-measure is not deferred arbitrarily; that is all
-/// this seam needs to do. **It is not a request to GROW the frame.** On X11 a
-/// mapped window is resized up when its minimum rises above its current width; on
-/// macOS it is not, and whatever caused the rise is drawn outside the surface
-/// instead — which is why nothing in this toolbar is allowed an unbounded width.
-///
-/// **Active-shrink** (auto-contracting the already-open window when a section is
-/// hidden) is deliberately NOT done — operator decision: a frame lurching narrower
-/// under the user is jarring UX, and the user may have widened the window on
-/// purpose. Note: a synchronous `toolbar.measure(Horizontal, -1)` right after
-/// `set_visible(false)` would in fact be *fresh*, not stale — `gtk_widget_hide`
-/// completes the `queue_resize` cache-clear before returning, so it is NOT the
-/// GTK4Rs/AP-13/GTK4Rs/AP-15 lazy-validation family (see ScrAP-68). We simply don't need
-/// the measure.
-fn update_toolbar_min_width(window: &ApplicationWindow) {
-    window.queue_resize();
 }

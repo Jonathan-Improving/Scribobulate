@@ -226,8 +226,8 @@ pub(crate) const VIEW_CMDS: [ViewCmd; 3] = [
 ];
 
 /// The six per-section toolbar groups, in canonical left-to-right order. The
-/// single source of these stable strings for: the `win.show-tbtn-<id>` action
-/// names (`window/viewactions.rs`), the `View ▸ Toolbar` submenu build
+/// single source of these stable strings for: the `app.show-tbtn-<id>` action
+/// names (`window/toolbarchrome.rs`), the `View ▸ Toolbar` submenu build
 /// (`build_menubar` below), the section-box array order (`window/toolbar.rs`),
 /// and the persisted `session::ToolbarSections` flags — kept in one place so
 /// those four sites can never drift (the `FORMAT_CMDS`/`build_format_menu` typo

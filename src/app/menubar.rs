@@ -324,18 +324,23 @@ fn build_view_menu(themes: &crate::theme::Themes) -> (Menu, Menu) {
     // checkbox items; their own section keeps them apart from the panel toggle.
     let chrome_section = Menu::new();
     // Toolbar is a SUBMENU (the per-section `show-tbtn-<id>` toggles):
-    //   View ▸ Toolbar ▸ ┌ Show            (win.show-toolbar — the whole bar)
+    //   View ▸ Toolbar ▸ ┌ Show            (app.show-toolbar — the whole bar)
     //                    ├──────────────
     //                    │ File / Edit / Format / View / Split / Zoom
-    //                    └ (win.show-tbtn-<id>, canonical order)
-    // The first section is the whole-bar "Show" toggle (the pre-existing
-    // behaviour); the second holds the six per-section checkbox items. GTK
-    // greys the six whenever "Show" is off — their actions are disabled by
-    // `reconcile_toolbar_chrome` (I3), which leaves their ticks intact (I4),
-    // so re-showing the bar restores the exact per-section configuration.
+    //                    └ (app.show-tbtn-<id>, canonical order)
+    // The first section is the whole-bar "Show" toggle; the second holds the six
+    // per-section checkbox items. GTK greys the six whenever "Show" is off — their
+    // actions are disabled by `window::toolbarchrome` (I3), which leaves their
+    // ticks intact (I4), so re-showing the bar restores the exact per-section
+    // configuration.
+    //
+    // `app.`, not `win.`: the toolbar layout is one app-wide preference (a window
+    // is ephemeral, so a layout scoped to one never feels saved), and nothing about
+    // it is per-window — not even sensitivity, which is the only reason the split
+    // arrangement below still keeps `win.` forwarders.
     let toolbar_menu = Menu::new();
     let show_section = Menu::new();
-    show_section.append_item(&item("Show", "win.show-toolbar"));
+    show_section.append_item(&item("Show", "app.show-toolbar"));
     toolbar_menu.append_section(None, &show_section);
     let sections_section = Menu::new();
     for id in TBTN_SECTION_IDS {
@@ -345,7 +350,7 @@ fn build_view_menu(themes: &crate::theme::Themes) -> (Menu, Menu) {
         if let Some(head) = label.get_mut(0..1) {
             head.make_ascii_uppercase();
         }
-        sections_section.append_item(&item(&label, &format!("win.show-tbtn-{id}")));
+        sections_section.append_item(&item(&label, &format!("app.show-tbtn-{id}")));
     }
     toolbar_menu.append_section(None, &sections_section);
     chrome_section.append_submenu(Some(&mnem("Toolbar")), &toolbar_menu);

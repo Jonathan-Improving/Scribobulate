@@ -317,7 +317,7 @@ pub(crate) struct TabState {
     /// "let me follow this one link, on this one document, right now" is not
     /// "let every document I ever open navigate anywhere, forever." This is a
     /// deliberate exception to this app's usual chrome-toggle convention
-    /// (`show_toolbar`, `allow_unsafe_images`, etc. all persist); do not "fix"
+    /// (`show_statusbar`, `allow_unsafe_images`, etc. all persist); do not "fix"
     /// the inconsistency by wiring it into `session.rs`.
     ///
     /// **Deliberately NOT copied forward to a tab this navigates to** — unlike

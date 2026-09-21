@@ -1300,6 +1300,7 @@
 - **And given** the user has hidden the toolbar (or status bar), then closes and relaunches the application
 - **When** the window reopens
 - **Then** the toolbar (or status bar) is still hidden — the visibility is persisted in the session (TDD 7.2) and restored
+- **And** the two differ in SCOPE, deliberately: the **toolbar** is one app-wide preference — hiding it in any window hides it in every open window at once, a new window opens without it, and one value is persisted — while the **status bar** stays per window, each window keeping and persisting its own answer. A window is ephemeral, so a toolbar layout scoped to one never feels saved; the status bar is a per-workspace choice that a second window may reasonably disagree with
 
 ### 9.19 Copy Document copies the whole document, not the selection
 - **Given** a document is open, in any view mode
@@ -1348,6 +1349,8 @@
 - **Then** it lists **Show** (the whole-toolbar toggle) first, a separator, then six section checkboxes — **File, Edit, Format, View, Split, Zoom** — each ticked to reflect that section's current visibility
 - **And when** the user unticks one section (e.g. Zoom)
 - **Then** exactly that section's buttons **and its leading separator** disappear together, the remaining sections keep their canonical left-to-right order, and no doubled or orphaned separator ever appears — a re-shown section returns to its original slot, never the end
+- **And when** the user makes any of these changes with more than one window open
+- **Then** every other open window's toolbar changes with it, immediately — the layout is one app-wide preference, not a per-window one, so a new window opens with exactly the bar the reader last configured
 - **And when** the user unticks the **last still-visible** section (so hiding it would leave the bar empty)
 - **Then** the whole bar hides instead (as if **Show** were unticked) — that section's tick is **left checked**, not cleared — so the app never shows a confusing empty ~2px strip, and re-ticking **Show** brings the bar back showing exactly that one section (a lossless round-trip); no empty-bar state is reachable interactively
 - **And when** the user unticks **Show** (hides the whole bar)
@@ -1358,7 +1361,10 @@
 - **Then** the window can be dragged narrower than before (its content-derived minimum width drops to hug the reduced toolbar)
 - **And given** the user hides some sections (and/or the whole bar), then closes and relaunches the application
 - **When** the window reopens
-- **Then** the same sections are hidden and the same checkboxes ticked — per-section visibility is app-wide and persisted in the session (TDD 7.2), exactly like the whole-bar toggle
+- **Then** the same sections are hidden and the same checkboxes ticked — per-section visibility is app-wide and persisted in the session (TDD 7.2), exactly like the whole-bar toggle, which moves with it: the two cannot be scoped apart, because the last-section rule above reinterprets a section hide as a whole-bar hide, and a per-window whole-bar toggle would apply that reinterpretation in one window while leaving the rest showing the empty strip it exists to prevent
+- **And given** a session saved by an earlier version, which recorded the toolbar per window
+- **When** the application reopens
+- **Then** the toolbar the reader was last looking at is restored — the most recently focused window's — rather than an arbitrary window's or a default
 - **And given** a fresh profile with no saved session (or a session file predating the per-section feature)
 - **When** a window opens
 - **Then** the toolbar shows **File, Edit, and View** and hides **Format, Split, and Zoom** (those three `View ▸ Toolbar` checkboxes start unticked) — a deliberately short default toolbar the user extends by ticking the sections their workflow needs; formatting stays fully available meanwhile via the Format menu and its accelerators even with the Format section hidden

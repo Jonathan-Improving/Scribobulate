@@ -216,6 +216,7 @@ write_session() {  # statedir theme path mode unsafe outline annot
   mkdir -p "$statedir/scribobulate"
   cat >"$statedir/scribobulate/session.toml" <<EOF
 preview_theme = "$theme"
+show_toolbar = true
 
 [[windows]]
 width = $WIN_W
@@ -224,7 +225,6 @@ zoom_level = 1.0
 active_tab = 0
 
 [windows.chrome]
-show_toolbar = true
 show_statusbar = true
 outline_visible = $outline_b
 annotations_visible = $annot_b

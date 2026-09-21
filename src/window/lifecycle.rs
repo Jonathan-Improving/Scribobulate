@@ -153,9 +153,17 @@ fn persist_all_windows_session(closing: &ApplicationWindow) {
     // window's?" question (TDD 7.3).
     let crate::window::arrangement::SplitArrangement { swapped, vertical } =
         crate::window::arrangement::current(&app);
+    // App-wide for the same reason and on the same mechanism — off the
+    // `app.show-toolbar` / `app.show-tbtn-<id>` states (TDD 9.22).
+    let crate::window::toolbarchrome::ToolbarLayout {
+        shown: toolbar_shown,
+        sections: toolbar_sections,
+    } = crate::window::toolbarchrome::current(&app);
     crate::session::save(&crate::session::Session {
         split_swap: swapped,
         split_vertical: vertical,
+        show_toolbar: toolbar_shown,
+        toolbar_sections,
         // Genuinely app-wide, and read straight off the live active theme rather
         // than off any window's action state: the theme is one app-wide CSS
         // provider, so there is exactly one value and no "which window's?"

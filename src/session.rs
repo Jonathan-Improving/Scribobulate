@@ -11,16 +11,17 @@
 //! sequence and per-close writes would otherwise leave only the last window
 //! (GTK4Rs/AP-113, TDD 15.10).
 //!
-//! ## Schema (v5)
+//! ## Schema (v6)
 //!
 //! One [`Session`] holds the app-wide values — `preview_theme` (one CSS provider),
-//! `play_animations`, and since v5 the split-pane ARRANGEMENT (`split_swap`,
-//! `split_vertical`: one app-wide preference, TDD 7.3) — plus a
+//! `play_animations`, the split-pane ARRANGEMENT (`split_swap`, `split_vertical`:
+//! one app-wide preference since v5, TDD 7.3) and, since v6, the TOOLBAR LAYOUT
+//! (`show_toolbar`, `toolbar_sections`: TDD 9.22) — plus a
 //! `Vec<WindowSession>`, one per open window:
 //! its geometry, its **one shared zoom level** (zoom is a window-level
 //! accessibility setting, not a per-tab one — operator
-//! decision), its own [`ChromeSession`] (toolbar / status bar / outline
-//! visibility — per window, not app-wide), and a `Vec<TabSession>` (path,
+//! decision), its own [`ChromeSession`] (status bar / sidebar visibility — per
+//! window, not app-wide), and a `Vec<TabSession>` (path,
 //! view mode, unsafe-images toggle) plus which tab was active. No tab content is persisted
 //! (only its `path`, if any) — an unsaved untitled tab restores blank, matching
 //! `create_tab_in_window`'s own blank-tab convention (`window::restore`).
@@ -42,11 +43,14 @@
 //! ## Migrating app-wide-chrome (v2) files
 //!
 //! v2 kept `show_toolbar` / `show_statusbar` / `toolbar_sections` /
-//! `outline_visible` at the TOP level, app-wide. They are now per window
-//! ([`ChromeSession`] inside each [`WindowSession`]), so a v2 file's top-level
-//! values are read once by [`migrate_v2_app_wide_chrome`] and applied to EVERY
-//! restored window — the only migration that preserves what the user actually
-//! saw, since a v2 session had exactly one chrome answer for all of its windows.
+//! `outline_visible` at the TOP level, app-wide. The status bar and outline are
+//! now per window ([`ChromeSession`] inside each [`WindowSession`]), so a v2 file's
+//! top-level values for those two are read once by [`migrate_v2_app_wide_chrome`]
+//! and applied to EVERY restored window — the only migration that preserves what
+//! the user actually saw, since a v2 session had exactly one chrome answer for all
+//! of its windows. The other two keys need no migration at all: v6 put the toolbar
+//! back at the top level under the same names, so they parse straight into
+//! [`Session`].
 //!
 //! This migration is a strict ADD, never a parse gate: serde ignores unknown
 //! fields, so a v2 file already deserializes into the current [`Session`] cleanly
@@ -70,6 +74,17 @@
 //! Same shape as the v2 migration: a strict ADD applied after normal parsing,
 //! driven by a separate all-`Option` reparse ([`PreV5Session`]) so it is a
 //! no-op on a v5 file (no per-window or per-tab key survives to be read).
+//!
+//! ## Migrating a per-window toolbar layout (v3, v4, v5) files
+//!
+//! v3–v5 kept `show_toolbar` and `toolbar_sections` in each window's `chrome`
+//! table. Both are now one app-wide value, for the reason that moved the split
+//! arrangement in v5: a window is short-lived, and a preference that dies with one
+//! never feels saved. [`migrate_pre_v6_toolbar`] recovers them from **the first
+//! window** — the one the user was last in, `app.windows()` being ordered
+//! most-recently-focused first. Same shape as the two migrations above: a strict
+//! ADD after normal parsing, driven by an all-`Option` reparse
+//! ([`PreV6Session`]) that is inert on a v6 file.
 
 use crate::config::config;
 use crate::winstate::ViewMode;
@@ -228,6 +243,13 @@ impl From<LegacySession> for Session {
             // app's — no "which window's?" question to answer.
             split_swap: l.split_swap,
             split_vertical: l.split_vertical,
+            // v1 described one window, so its flat `show_toolbar` IS the app's — the
+            // same no-question-to-answer reasoning as the arrangement above. A
+            // pre-toolbar-sections file predates per-section visibility, so its
+            // sections fall to the current default (file/edit/view shown;
+            // format/split/zoom hidden).
+            show_toolbar: l.show_toolbar,
+            toolbar_sections: ToolbarSections::default(),
             windows: vec![WindowSession {
                 width: l.width,
                 height: l.height,
@@ -237,12 +259,7 @@ impl From<LegacySession> for Session {
                 // that window's own chrome — no app-wide-to-per-window question
                 // to answer here (unlike the v2 migration below).
                 chrome: ChromeSession {
-                    show_toolbar: l.show_toolbar,
                     show_statusbar: l.show_statusbar,
-                    // A pre-toolbar-sections file predates per-section
-                    // visibility, so its sections fall to the current default
-                    // (file/edit/view shown; format/split/zoom hidden).
-                    toolbar_sections: ToolbarSections::default(),
                     // A legacy file predates the outline sidebar's persistence
                     // entirely, so it restores shown — the behavior every
                     // pre-fix session already had (the toggle was never
@@ -271,12 +288,11 @@ impl From<LegacySession> for Session {
 }
 
 /// Per-section toolbar visibility (the `S_i` states; see the
-/// `window::viewactions` invariants I1–I7). Scoped to
-/// one window, exactly like the `show_toolbar` it lives beside in
-/// [`ChromeSession`]. Each flag is the persisted *state* `S_i` of that window's
-/// matching `win.show-tbtn-<id>` action; the *enabled* attribute is always
-/// derived from `show_toolbar` at runtime (invariant I3) and never stored.
-/// Field names are the canonical
+/// `window::toolbarchrome` invariants I1–I7). **App-wide**, exactly like the
+/// `show_toolbar` it lives beside on [`Session`]. Each flag is the persisted
+/// *state* `S_i` of the matching `app.show-tbtn-<id>` action; the *enabled*
+/// attribute is always derived from `show_toolbar` at runtime (invariant I3) and
+/// never stored. Field names are the canonical
 /// section IDs (`crate::app::TBTN_SECTION_IDS`) — keep the two in sync.
 ///
 /// Default (operator decision, 2026-07-21): **`file`, `edit`, `view` shown;
@@ -341,29 +357,60 @@ impl ToolbarSections {
             _ => {}
         }
     }
+
+    /// Whether `id` is the ONLY section currently shown — the predicate behind the
+    /// last-section rule (TDD 9.22): hiding this one would leave an empty ~2px strip,
+    /// so the request is reinterpreted as "hide the whole bar" instead.
+    ///
+    /// **Lives here, beside the flags, rather than in `window::toolbarchrome` where it
+    /// is used.** It is the one genuine DECISION in that module — everything else there
+    /// is widget and action plumbing — and `src/window/<name>.rs` is outside the
+    /// coverage gate's measured set, so a decision left there is a decision nothing
+    /// measures (POLICY build pipeline step 6).
+    ///
+    /// An id that names no section answers `false`, including when every section is
+    /// hidden. That is the safe direction in both cases: `false` takes the ORDINARY
+    /// hide path, which is what the caller wants for a section that is not the last
+    /// one, and an all-hidden bar is unreachable anyway (invariant I8 is what keeps it
+    /// so).
+    pub fn is_only_visible(self, id: &str) -> bool {
+        let mut shown = crate::app::TBTN_SECTION_IDS
+            .iter()
+            .zip(self.to_array())
+            .filter(|(_, on)| *on)
+            .map(|(candidate, _)| *candidate);
+        shown.next() == Some(id) && shown.next().is_none()
+    }
 }
 
-/// One window's chrome visibility: its toolbar, its per-section toolbar flags,
-/// its status bar and its outline sidebar.
+/// One window's chrome visibility: its status bar and its two sidebar sections.
 ///
 /// **Scope (operator decision): PER WINDOW.** Each field is the persisted state
-/// of the matching `win.*` toggle action on ONE window — `win.show-toolbar`,
-/// `win.show-tbtn-<id>`, `win.show-statusbar`, `win.outline`. Those actions
-/// always were per-window (each handler only ever touched its own window's
-/// widgets); this type is where that runtime truth is now stored and persisted,
-/// so all three of storage, behaviour and persistence finally give one answer.
+/// of the matching `win.*` toggle action on ONE window — `win.show-statusbar`,
+/// `win.outline`, `win.annotations`. Those actions always were per-window (each
+/// handler only ever touched its own window's widgets); this type is where that
+/// runtime truth is stored and persisted, so all three of storage, behaviour and
+/// persistence give one answer.
+///
+/// **The TOOLBAR is no longer here.** `show_toolbar` and `toolbar_sections` moved
+/// to [`Session`] in v6 (operator decision, 2026-09-21): a window is ephemeral, so
+/// a toolbar layout scoped to one never feels saved — the same reasoning that moved
+/// the split arrangement app-wide in v5. Both halves moved together because the
+/// last-section rule couples them: unticking the final visible section reinterprets
+/// as "hide the whole bar", and a per-window `show_toolbar` would apply that
+/// reinterpretation in one window while leaving every other showing the empty strip
+/// the rule exists to forbid.
 ///
 /// Scope note (see the state-scope rule in the `winstate` module doc): this type is
-/// for WINDOW-scoped state. App-wide state (`preview_theme` — one CSS provider,
-/// so one value) and tab-scoped state (`show_unsafe_images`) do NOT belong here;
-/// they have different owners and different inheritance rules.
+/// for WINDOW-scoped state. App-wide state (`preview_theme` — one CSS provider, so
+/// one value; the toolbar layout) and tab-scoped state (`show_unsafe_images`) do NOT
+/// belong here; they have different owners and different inheritance rules.
 ///
-/// FIELD ORDER IS LOAD-BEARING for TOML — see [`WindowSession`]'s note.
-/// `toolbar_sections` is a sub-table and must stay last.
+/// FIELD ORDER IS LOAD-BEARING for TOML — see [`WindowSession`]'s note. Every field
+/// here is now a scalar, so nothing may be added below that is not.
 #[derive(serde::Serialize, serde::Deserialize, PartialEq, Clone, Copy, Debug)]
 #[serde(default)]
 pub(crate) struct ChromeSession {
-    pub show_toolbar: bool,
     pub show_statusbar: bool,
     /// Whether the outline sidebar (`win.outline` — F9, the View menu, the
     /// toolbar button, and the in-pane × all share it) was shown.
@@ -390,7 +437,6 @@ pub(crate) struct ChromeSession {
     /// break layout, on the same principle that a malformed config never prevents
     /// startup). A session file predating this key restores to the even split.
     pub sidebar_split: f64,
-    pub toolbar_sections: ToolbarSections,
 }
 
 /// The divider position in px for `fraction` of a sidebar `height` px tall, or
@@ -436,7 +482,7 @@ pub(crate) fn sidebar_split_fraction(position: i32, height: i32) -> Option<f64> 
 
 impl Default for ChromeSession {
     /// A fresh window (and a session file with no `chrome` table) shows the
-    /// toolbar, statusbar, and outline; the annotations viewer starts hidden
+    /// statusbar and outline; the annotations viewer starts hidden
     /// (see `annotations_visible`) and the two sections split the sidebar evenly.
     ///
     /// `0.5` is also what `GtkPaned` derives on its own from the two sections'
@@ -444,36 +490,39 @@ impl Default for ChromeSession {
     /// and a never-persisted one look identical rather than merely similar.
     fn default() -> Self {
         Self {
-            show_toolbar: true,
             show_statusbar: true,
             outline_visible: true,
             annotations_visible: false,
             sidebar_split: 0.5,
-            toolbar_sections: ToolbarSections::default(),
         }
     }
 }
 
-/// Deserialize-only view of a v2 file's TOP-LEVEL, app-wide chrome keys, kept
-/// solely as a [`parse`] migration source — no version of this crate writes
-/// these keys any more (they live per window now, in [`ChromeSession`]).
+/// Deserialize-only view of the v2 TOP-LEVEL chrome keys that are **still**
+/// per-window today, kept solely as a [`parse`] migration source — no version of
+/// this crate writes these two keys at the top level any more (they live per
+/// window, in [`ChromeSession`]).
+///
+/// v2's other two top-level chrome keys — `show_toolbar` and `toolbar_sections` —
+/// are deliberately **absent here**, and that is not an omission. v6 put both back
+/// at the top level under the same names, so a v2 file's values deserialize
+/// straight into [`Session`] with no migration step at all; reading them here too
+/// would be a second path writing the same fields from the same bytes. The round
+/// trip is exact because v2's app-wide answer is precisely what v6 wants.
 ///
 /// **Every field must stay `Option`.** That is the whole safety property, and it
 /// is doing all of the work: `Option` makes ABSENT distinguishable from `false`,
-/// which (a) lets a v2 file that predates `outline_visible`/`toolbar_sections`
-/// migrate only the keys it actually has, and (b) makes
-/// [`migrate_v2_app_wide_chrome`] inherently a NO-OP on a v3 file, which carries
-/// none of these keys — so no "is this a v2 file?" test is needed, or even
-/// meaningful. Give any field a derived `bool` default instead and a v3 file
-/// reads as "a v2 file with everything switched off", hiding every window's
-/// chrome on the next launch.
+/// which (a) lets a v2 file that predates `outline_visible` migrate only the keys
+/// it actually has, and (b) makes [`migrate_v2_app_wide_chrome`] inherently a
+/// NO-OP on a v3 file, which carries neither key — so no "is this a v2 file?" test
+/// is needed, or even meaningful. Give any field a derived `bool` default instead
+/// and a v3 file reads as "a v2 file with everything switched off", hiding every
+/// window's chrome on the next launch.
 #[derive(serde::Deserialize, Default)]
 #[serde(default)]
 struct V2AppWideChrome {
-    show_toolbar: Option<bool>,
     show_statusbar: Option<bool>,
     outline_visible: Option<bool>,
-    toolbar_sections: Option<ToolbarSections>,
 }
 
 /// Apply a v2 file's app-wide chrome to EVERY window in the already-parsed
@@ -490,23 +539,16 @@ struct V2AppWideChrome {
 /// only ever OVERWRITES chrome, so a v2 file whose old chrome keys are somehow
 /// unreadable degrades to the default chrome and keeps every window — never the
 /// reverse. Each key is applied independently (a v2 file predating
-/// `toolbar_sections` or `outline_visible` has only some of them), which is also
-/// why this needs no v2-detection test to guard it: on a v3 file every field is
-/// `None` and every arm below is skipped, so calling this unconditionally is
-/// already a no-op there.
+/// `outline_visible` has only one of them), which is also why this needs no
+/// v2-detection test to guard it: on a v3 file every field is `None` and every arm
+/// below is skipped, so calling this unconditionally is already a no-op there.
 fn migrate_v2_app_wide_chrome(session: &mut Session, v2: &V2AppWideChrome) {
     for w in &mut session.windows {
-        if let Some(on) = v2.show_toolbar {
-            w.chrome.show_toolbar = on;
-        }
         if let Some(on) = v2.show_statusbar {
             w.chrome.show_statusbar = on;
         }
         if let Some(on) = v2.outline_visible {
             w.chrome.outline_visible = on;
-        }
-        if let Some(sections) = v2.toolbar_sections {
-            w.chrome.toolbar_sections = sections;
         }
     }
 }
@@ -579,6 +621,61 @@ fn migrate_pre_v5_split_arrangement(session: &mut Session, old: &PreV5Session) {
     }
 }
 
+/// Deserialize-only view of a v3/v4/v5 file's PER-WINDOW toolbar keys, kept solely
+/// as a [`parse`] migration source — the toolbar is app-wide now, on [`Session`].
+///
+/// A separate reader from [`PreV5Session`] rather than two more fields on it,
+/// because the two describe different historical shapes and are read for different
+/// fields. Sharing one struct would make each migration's "is this key absent?"
+/// no-op property depend on the other's, which is the coupling that makes a
+/// migration chain hard to reason about later.
+///
+/// Every leaf is an `Option`, for the same reason as [`V2AppWideChrome`]'s fields:
+/// a file predating a key migrates without inventing a value, and reading this off
+/// a v6 file (no per-window toolbar key) is a harmless all-`None` no-op.
+#[derive(serde::Deserialize, Default)]
+#[serde(default)]
+struct PreV6Session {
+    windows: Vec<PreV6Window>,
+}
+
+#[derive(serde::Deserialize, Default)]
+#[serde(default)]
+struct PreV6Window {
+    chrome: PreV6Chrome,
+}
+
+#[derive(serde::Deserialize, Default)]
+#[serde(default)]
+struct PreV6Chrome {
+    show_toolbar: Option<bool>,
+    toolbar_sections: Option<ToolbarSections>,
+}
+
+/// Recover the app-wide toolbar layout from a v3/v4/v5 file, in the shape of
+/// [`migrate_pre_v5_split_arrangement`] above.
+///
+/// **The source is the FIRST window** — the one the user was last in, since the
+/// writer iterates `app.windows()` and GTK orders that most-recently-focused
+/// first. Never a majority vote across windows: that would sometimes restore a
+/// toolbar the user was not looking at. The two halves are taken independently, so
+/// a file predating per-section visibility still migrates its whole-bar toggle.
+///
+/// Not a parse gate: it runs after normal parsing and only ever OVERWRITES the two
+/// app-wide fields, and on a v6 file neither source key exists, so nothing is
+/// written — no version-detection test needed to guard it.
+fn migrate_pre_v6_toolbar(session: &mut Session, old: &PreV6Session) {
+    let Some(window) = old.windows.first() else {
+        return;
+    };
+    if let Some(on) = window.chrome.show_toolbar {
+        session.show_toolbar = on;
+    }
+    if let Some(sections) = window.chrome.toolbar_sections {
+        session.toolbar_sections = sections;
+    }
+}
+
 /// FIELD ORDER IS LOAD-BEARING for TOML — see [`WindowSession`]'s note. Every
 /// scalar must stay above the `windows` array-of-tables.
 #[derive(serde::Serialize, serde::Deserialize, PartialEq, Debug)]
@@ -611,6 +708,16 @@ pub(crate) struct Session {
     /// tab instead; [`migrate_pre_v5_split_arrangement`] recovers them.
     pub split_swap: bool,
     pub split_vertical: bool,
+    /// Whether the whole toolbar is shown (`app.show-toolbar`). App-wide since v6,
+    /// with [`toolbar_sections`](Self::toolbar_sections) below — see
+    /// [`ChromeSession`] for why the two could not be split across scopes. A v3/v4/v5
+    /// file carries it per window instead; [`migrate_pre_v6_toolbar`] recovers it.
+    pub show_toolbar: bool,
+    /// Which toolbar sections are shown (`app.show-tbtn-<id>`), app-wide since v6.
+    ///
+    /// A SUB-TABLE, so it must stay below every scalar above and above `windows`
+    /// below — see [`WindowSession`]'s field-order note for what a misplacement costs.
+    pub toolbar_sections: ToolbarSections,
     /// One entry per window open when the session was last saved. Empty means
     /// "no saved session yet" (fresh install) — `window::restore::restore_session`
     /// treats that as "fall back to the default single blank window".
@@ -624,6 +731,8 @@ impl Default for Session {
             play_animations: crate::animation::policy::DEFAULT_CHOICE,
             split_swap: false,
             split_vertical: false,
+            show_toolbar: true,
+            toolbar_sections: ToolbarSections::default(),
             windows: Vec::new(),
         }
     }
@@ -835,6 +944,12 @@ fn parse(text: &str) -> Session {
     // `migrate_pre_v5_split_arrangement` writes nothing.
     let pre_v5 = toml::from_str::<PreV5Session>(text).unwrap_or_default();
     migrate_pre_v5_split_arrangement(&mut session, &pre_v5);
+    // Same reasoning again: a v6 file has no per-window toolbar key, so
+    // `migrate_pre_v6_toolbar` writes nothing. A v2 file has none either — its
+    // top-level keys were already read by the `Session` parse above, which is
+    // exactly where v6 wants them (see `V2AppWideChrome`).
+    let pre_v6 = toml::from_str::<PreV6Session>(text).unwrap_or_default();
+    migrate_pre_v6_toolbar(&mut session, &pre_v6);
     session
 }
 
@@ -1125,6 +1240,16 @@ mod tests {
             // Both non-default, so a writer that drops either fails the round trip.
             split_swap: true,
             split_vertical: true,
+            // App-wide too, and both non-default for the same reason.
+            show_toolbar: false,
+            toolbar_sections: ToolbarSections {
+                file: true,
+                edit: false,
+                format: true,
+                view: true,
+                split: false,
+                zoom: true,
+            },
             windows: vec![
                 WindowSession {
                     width: 1111,
@@ -1132,19 +1257,10 @@ mod tests {
                     zoom_level: 1.5,
                     active_tab: 1,
                     chrome: ChromeSession {
-                        show_toolbar: false,
                         show_statusbar: true,
                         outline_visible: false,
                         annotations_visible: true,
                         sidebar_split: 0.25,
-                        toolbar_sections: ToolbarSections {
-                            file: true,
-                            edit: false,
-                            format: true,
-                            view: true,
-                            split: false,
-                            zoom: true,
-                        },
                     },
                     tabs: vec![
                         TabSession {
@@ -1170,19 +1286,10 @@ mod tests {
                     // field, so any code that collapses the two windows onto one
                     // shared answer fails here instead of coincidentally passing.
                     chrome: ChromeSession {
-                        show_toolbar: true,
                         show_statusbar: false,
                         outline_visible: true,
                         annotations_visible: false,
                         sidebar_split: 0.75,
-                        toolbar_sections: ToolbarSections {
-                            file: false,
-                            edit: true,
-                            format: false,
-                            view: false,
-                            split: true,
-                            zoom: false,
-                        },
                     },
                     tabs: vec![TabSession::default()],
                 },
@@ -1249,6 +1356,8 @@ mod tests {
                 play_animations: full.play_animations,
                 split_swap: full.split_swap,
                 split_vertical: full.split_vertical,
+                show_toolbar: full.show_toolbar,
+                toolbar_sections: full.toolbar_sections,
                 windows: vec![full.windows[0].clone()],
             };
             save(&shrunk);
@@ -1314,22 +1423,19 @@ mod tests {
             [true, true, false, true, false, false]
         );
 
-        // A window with no `toolbar_sections` table inherits that default (a file
+        // A file with no `toolbar_sections` table inherits that default (a file
         // predating the feature, or a fresh profile, opens with the short toolbar).
         let s = parse("[[windows]]\nwidth = 900\n");
-        assert_eq!(
-            s.windows[0].chrome.toolbar_sections,
-            ToolbarSections::default()
-        );
+        assert_eq!(s.toolbar_sections, ToolbarSections::default());
+        assert!(s.show_toolbar, "an absent whole-bar toggle restores shown");
 
         // A partial table fills every omitted field from Default: an explicit
         // `edit = false` overrides, the omitted `file` inherits default-shown, and
         // the omitted `format` inherits default-hidden.
-        let s =
-            parse("[[windows]]\nwidth = 900\n[windows.chrome.toolbar_sections]\nedit = false\n");
-        assert!(s.windows[0].chrome.toolbar_sections.file); // omitted → default true
-        assert!(!s.windows[0].chrome.toolbar_sections.edit); // explicit false
-        assert!(!s.windows[0].chrome.toolbar_sections.format); // omitted → default false
+        let s = parse("[[windows]]\nwidth = 900\n[toolbar_sections]\nedit = false\n");
+        assert!(s.toolbar_sections.file); // omitted → default true
+        assert!(!s.toolbar_sections.edit); // explicit false
+        assert!(!s.toolbar_sections.format); // omitted → default false
 
         // `set` by canonical ID mirrors the field (both a true→false and a
         // false→true flip), and the whole struct survives a TOML round-trip.
@@ -1338,17 +1444,15 @@ mod tests {
         ts.set("format", true); // was default-hidden
         assert_eq!(ts.to_array(), [true, false, true, true, false, false]);
         let text = toml::to_string(&Session {
-            windows: vec![WindowSession {
-                chrome: ChromeSession {
-                    toolbar_sections: ts,
-                    ..ChromeSession::default()
-                },
-                ..WindowSession::default()
-            }],
+            show_toolbar: false,
+            toolbar_sections: ts,
+            windows: vec![WindowSession::default()],
             ..Session::default()
         })
         .unwrap();
-        assert_eq!(parse(&text).windows[0].chrome.toolbar_sections, ts);
+        let back = parse(&text);
+        assert_eq!(back.toolbar_sections, ts);
+        assert!(!back.show_toolbar);
     }
 
     #[test]
@@ -1500,10 +1604,7 @@ mod tests {
         // A pre-feature flat file predates per-section visibility → its sections
         // fall to the current default (file/edit/view shown, format/split/zoom hidden).
         let s = parse("view_mode = \"edit\"\n");
-        assert_eq!(
-            s.windows[0].chrome.toolbar_sections,
-            ToolbarSections::default()
-        );
+        assert_eq!(s.toolbar_sections, ToolbarSections::default());
     }
 
     #[test]
@@ -1524,9 +1625,10 @@ split_vertical = false
         // v1 described one window with one tab, so its flat arrangement IS the app's.
         assert!(s.split_swap);
         assert!(!s.split_vertical);
+        // ...its flat `show_toolbar` IS the app's, for the same reason.
+        assert!(s.show_toolbar);
         let w = &s.windows[0];
-        // ...and its flat chrome IS that window's chrome.
-        assert!(w.chrome.show_toolbar);
+        // ...and its flat per-window chrome IS that window's chrome.
         assert!(!w.chrome.show_statusbar);
         assert_eq!(
             (w.width, w.height, w.zoom_level, w.active_tab),
@@ -1608,20 +1710,23 @@ view_mode = \"preview\"
 
     #[test]
     fn v2_app_wide_chrome_is_applied_to_every_window() {
-        // The migration decision: a v2 session had ONE chrome answer that every
-        // window rendered, so copying it onto each window reproduces exactly
-        // what the user saw. Every field is asserted on BOTH windows — a
-        // migration that only reached windows[0] would leave the second window
-        // wrongly all-shown.
+        // The migration decision for the two keys that are still per-window: a v2
+        // session had ONE chrome answer that every window rendered, so copying it
+        // onto each window reproduces exactly what the user saw. Asserted on BOTH
+        // windows — a migration that only reached windows[0] would leave the second
+        // window wrongly all-shown.
         let s = parse(V2_FILE);
         for (i, w) in s.windows.iter().enumerate() {
-            assert!(!w.chrome.show_toolbar, "window {i}");
             assert!(!w.chrome.show_statusbar, "window {i}");
             assert!(!w.chrome.outline_visible, "window {i}");
-            assert!(!w.chrome.toolbar_sections.zoom, "window {i}");
-            // A key the v2 table omitted stays at its default (file is default-shown).
-            assert!(w.chrome.toolbar_sections.file, "window {i}");
         }
+        // The toolbar needs no migration at all: v6 put it back at the top level
+        // under the same names, so v2's app-wide answer parses straight into
+        // `Session`. That is the whole reason `V2AppWideChrome` does not carry it.
+        assert!(!s.show_toolbar);
+        assert!(!s.toolbar_sections.zoom);
+        // A key the v2 table omitted stays at its default (file is default-shown).
+        assert!(s.toolbar_sections.file);
     }
 
     #[test]
@@ -1642,18 +1747,18 @@ view_mode = \"preview\"
     #[test]
     fn v2_migration_applies_only_the_keys_actually_present() {
         // An older v2 file predating `toolbar_sections`/`outline_visible` has
-        // only some top-level keys. The present ones migrate; the absent ones
-        // leave the per-window default alone rather than forcing `false`.
+        // only some top-level keys. The present ones are read; the absent ones
+        // leave the default alone rather than forcing `false`.
         let s = parse("show_toolbar = false\n[[windows]]\nwidth = 900\n");
         assert_eq!(s.windows.len(), 1);
-        assert!(!s.windows[0].chrome.show_toolbar, "present key migrates");
+        assert!(!s.show_toolbar, "present key is read");
         assert!(
             s.windows[0].chrome.show_statusbar,
             "absent key must not be forced off"
         );
         assert!(s.windows[0].chrome.outline_visible, "absent key");
         assert_eq!(
-            s.windows[0].chrome.toolbar_sections,
+            s.toolbar_sections,
             ToolbarSections::default(),
             "absent table"
         );
@@ -1669,12 +1774,12 @@ view_mode = \"preview\"
     }
 
     #[test]
-    fn v2_file_round_trips_to_v3_on_disk() {
-        // End to end: a v2 file on disk loads, and re-saving it writes the v3
-        // per-window shape that then reloads identically. Pins that
-        // `toml::to_string` can actually serialize the nested
-        // `[windows.chrome.toolbar_sections]` sub-table — a `ValueAfterTable`
-        // error there would make `save` log-and-drop the whole session.
+    fn v2_file_round_trips_to_the_current_shape_on_disk() {
+        // End to end: a v2 file on disk loads, and re-saving it writes the current
+        // shape — per-window `[windows.chrome]`, app-wide `[toolbar_sections]` —
+        // which then reloads identically. Pins that `toml::to_string` can actually
+        // serialize both sub-tables in the order the structs declare them; a
+        // `ValueAfterTable` error would make `save` log-and-drop the whole session.
         let dir = tempfile::tempdir().unwrap();
         with_state_home(dir.path(), || {
             std::fs::create_dir_all(session_path().unwrap().parent().unwrap()).unwrap();
@@ -1682,19 +1787,19 @@ view_mode = \"preview\"
 
             let migrated = load();
             assert_eq!(migrated.windows.len(), 2);
-            assert!(!migrated.windows[1].chrome.show_toolbar);
+            assert!(!migrated.show_toolbar);
 
             save(&migrated);
             let text = std::fs::read_to_string(session_path().unwrap()).unwrap();
             assert!(
                 text.contains("[windows.chrome]"),
-                "chrome must be written per window: {text}"
+                "per-window chrome must be written per window: {text}"
             );
-            assert_eq!(
-                load(),
-                migrated,
-                "the rewritten v3 file reloads identically"
+            assert!(
+                text.contains("[toolbar_sections]"),
+                "the app-wide toolbar must be written at the top level: {text}"
             );
+            assert_eq!(load(), migrated, "the rewritten file reloads identically");
         });
     }
 
@@ -1784,6 +1889,111 @@ split_vertical = true
     }
 
     #[test]
+    fn is_only_visible_answers_the_last_section_question() {
+        // The predicate behind the last-section rule (TDD 9.22), unit-tested here
+        // because its caller (`window::toolbarchrome`) is outside the coverage gate.
+        let none = ToolbarSections {
+            file: false,
+            edit: false,
+            format: false,
+            view: false,
+            split: false,
+            zoom: false,
+        };
+
+        // Exactly one shown, and it is the one asked about.
+        let mut one = none;
+        one.set("format", true);
+        assert!(one.is_only_visible("format"));
+        // ...and it is NOT any other section, including one that is hidden.
+        assert!(!one.is_only_visible("file"));
+
+        // Two shown: neither is "the last", so both take the ordinary hide path.
+        let mut two = one;
+        two.set("zoom", true);
+        assert!(!two.is_only_visible("format"));
+        assert!(!two.is_only_visible("zoom"));
+
+        // The shipped default has three shown, so none of them is last.
+        for id in crate::app::TBTN_SECTION_IDS {
+            assert!(
+                !ToolbarSections::default().is_only_visible(id),
+                "{id} must not read as the last section under the default layout"
+            );
+        }
+
+        // Neither an unknown id nor an all-hidden bar may answer true — an unknown
+        // id must take the ordinary path, and an all-hidden bar is unreachable.
+        assert!(!one.is_only_visible("nosuchsection"));
+        assert!(!none.is_only_visible("file"));
+        assert!(!none.is_only_visible("nosuchsection"));
+    }
+
+    #[test]
+    fn pre_v6_per_window_toolbar_migrates_from_the_first_window() {
+        // v3/v4/v5 kept the toolbar in each window's `chrome` table. The FIRST
+        // window is the source — `app.windows()` is ordered most-recently-focused
+        // first, so it is the bar the user was actually looking at. The second
+        // window here disagrees on every flag, so a migration reading the wrong one
+        // (or averaging them) cannot pass.
+        let s = parse(
+            "\
+[[windows]]
+width = 900
+
+[windows.chrome]
+show_toolbar = false
+
+[windows.chrome.toolbar_sections]
+zoom = true
+file = false
+
+[[windows]]
+width = 800
+
+[windows.chrome]
+show_toolbar = true
+
+[windows.chrome.toolbar_sections]
+zoom = false
+file = true
+",
+        );
+        assert_eq!(s.windows.len(), 2, "migration must not cost a window");
+        assert!(!s.show_toolbar, "the first window's whole-bar toggle wins");
+        assert!(s.toolbar_sections.zoom, "...and its sections with it");
+        assert!(!s.toolbar_sections.file);
+        // A key the old table omitted still falls to the current default rather
+        // than being invented (edit is default-shown, format default-hidden).
+        assert!(s.toolbar_sections.edit);
+        assert!(!s.toolbar_sections.format);
+    }
+
+    #[test]
+    fn a_pre_v6_file_with_only_the_whole_bar_toggle_keeps_the_default_sections() {
+        // The two halves migrate independently, so a file predating per-section
+        // visibility still recovers its whole-bar toggle instead of losing both.
+        let s = parse("[[windows]]\nwidth = 900\n[windows.chrome]\nshow_toolbar = false\n");
+        assert!(!s.show_toolbar);
+        assert_eq!(s.toolbar_sections, ToolbarSections::default());
+    }
+
+    #[test]
+    fn v6_file_is_not_re_migrated_from_its_own_per_window_chrome() {
+        // The migration must be inert on a file this crate wrote itself: the v6
+        // writer emits no per-window toolbar key, so there is nothing to read back
+        // and the app-wide value survives a write/read round trip unchanged.
+        let text = toml::to_string(&sample_session()).unwrap();
+        assert!(
+            !text.contains("[windows.chrome.toolbar_sections]"),
+            "the v6 writer must not emit a per-window toolbar table: {text}"
+        );
+        let back = parse(&text);
+        assert_eq!(back.show_toolbar, sample_session().show_toolbar);
+        assert_eq!(back.toolbar_sections, sample_session().toolbar_sections);
+    }
+
+    #[test]
     fn v5_file_round_trips_its_app_wide_arrangement() {
         // The migration must not fire on a file this crate wrote itself.
         let text = toml::to_string(&sample_session()).unwrap();
@@ -1800,16 +2010,10 @@ split_vertical = true
             let s = sample_session();
             save(&s);
             let back = load();
-            assert!(!back.windows[0].chrome.show_toolbar);
-            assert!(back.windows[1].chrome.show_toolbar);
             assert!(back.windows[0].chrome.show_statusbar);
             assert!(!back.windows[1].chrome.show_statusbar);
             assert!(!back.windows[0].chrome.outline_visible);
             assert!(back.windows[1].chrome.outline_visible);
-            assert_ne!(
-                back.windows[0].chrome.toolbar_sections,
-                back.windows[1].chrome.toolbar_sections
-            );
         });
     }
 }

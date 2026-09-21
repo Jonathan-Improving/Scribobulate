@@ -11,6 +11,20 @@ use std::time::Duration;
 /// every view-mode change. See the module doc for why [`TabState`](super::TabState)
 /// holds a back-reference to this instead of every call site doing a second lookup.
 pub(crate) struct WindowChrome {
+    /// This window's toolbar row. Held because the toolbar layout is APP-WIDE
+    /// (`window::toolbarchrome`): a change made in any window has to reach every
+    /// other window's bar, and this is how the app action finds them. Nothing else
+    /// reads it — the whole-bar `:visible` is the app action's to set (invariant
+    /// I1), never a per-window decision.
+    pub(crate) toolbar: crate::widgets::wrapbox::ToolbarWrapBox,
+    /// The six toolbar sections' item lists, in canonical
+    /// [`crate::app::TBTN_SECTION_IDS`] order (invariant I7). A section is a LIST of
+    /// individually-wrappable pack items rather than one container — that is what
+    /// lets the toolbar wrap per button (`window::toolbar`) — so hiding a section
+    /// means hiding every widget in its list, its leading separator included
+    /// (invariant I2). Held for the same app-wide reason as
+    /// [`toolbar`](Self::toolbar).
+    pub(crate) toolbar_sections: [Vec<gtk::Widget>; 6],
     /// The outline sidebar's scroller (the first section of the sidebar `GtkPaned`).
     /// Its inner
     /// child (the heading tree / "No headings" placeholder) is rebuilt whenever

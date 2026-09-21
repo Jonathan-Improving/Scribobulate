@@ -39,6 +39,8 @@ member. For a stateful action the work is driven by `change-state`, not
 | `app.pick-preview-theme` | `s` | — | Select the reading theme named by the target; delegates to `app.preview-theme`'s state. |
 | `app.split-swap` | — | `b` | Whether the split panes are swapped, for every tab of every window. |
 | `app.split-orientation` | — | `b` | Whether the split is stacked vertically, for every tab of every window. |
+| `app.show-toolbar` | — | `b` | Whether the toolbar is shown, in every window. |
+| `app.show-tbtn-<id>` | — | `b` | Whether one toolbar section is shown, in every window. Six actions, `<id>` ∈ `file`, `edit`, `format`, `view`, `split`, `zoom`. Each is *enabled* only while `app.show-toolbar` is on, and unticking the last still-shown section turns `app.show-toolbar` off rather than changing its own state, so no empty bar is reachable. |
 
 ### Window-scoped actions (`win.`)
 
@@ -77,7 +79,6 @@ member. For a stateful action the work is driven by `change-state`, not
 | `win.annotations` | — | `b` | Whether the annotations sidebar section is shown. |
 | `win.outline-expand-all` | — | — | Expand every outline node. |
 | `win.outline-collapse-all` | — | — | Collapse the outline to its root headings. |
-| `win.show-toolbar` | — | `b` | Whether the toolbar is shown. |
 | `win.show-statusbar` | — | `b` | Whether the status bar is shown. |
 | `win.show-unsafe-images` | — | `b` | Whether images outside the document's directory are rendered. Per tab. |
 | `win.allow-outside-links` | — | `b` | Whether links outside the document's directory may be opened. |

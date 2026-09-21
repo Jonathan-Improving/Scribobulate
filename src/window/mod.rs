@@ -149,6 +149,7 @@ mod swaprecovery;
 mod tabs;
 mod toast;
 mod toolbar;
+pub(crate) mod toolbarchrome;
 pub(crate) mod undo;
 mod viewactions;
 mod wheelcoalesce;
@@ -235,19 +236,11 @@ impl Default for WindowInit {
 ///
 /// The actions are the live source of truth: each toggle's change-state handler
 /// only ever touches its own window, so its action state IS that window's
-/// current chrome, with no cache to fall out of step with it. Only the section
-/// *state* `S_i` is read — the derived *enabled* attribute is recomputed from
-/// `show_toolbar` by `reconcile_toolbar_chrome` (invariant I3) and never stored.
+/// current chrome, with no cache to fall out of step with it. The TOOLBAR is not
+/// read here — it is app-wide (`toolbarchrome::current`), so there is no "which
+/// window's?" question for it to answer.
 pub(crate) fn read_window_chrome(window: &ApplicationWindow) -> crate::session::ChromeSession {
-    let mut toolbar_sections = crate::session::ToolbarSections::default();
-    for id in crate::app::TBTN_SECTION_IDS {
-        toolbar_sections.set(
-            id,
-            bool_action_state(window, &format!("show-tbtn-{id}"), true),
-        );
-    }
     crate::session::ChromeSession {
-        show_toolbar: bool_action_state(window, "show-toolbar", true),
         show_statusbar: bool_action_state(window, "show-statusbar", true),
         outline_visible: bool_action_state(window, "outline", true),
         annotations_visible: bool_action_state(window, "annotations", false),
@@ -258,7 +251,6 @@ pub(crate) fn read_window_chrome(window: &ApplicationWindow) -> crate::session::
             crate::session::ChromeSession::default().sidebar_split,
             |ch| ch.sidebar_split.get(),
         ),
-        toolbar_sections,
     }
 }
 
@@ -434,7 +426,7 @@ pub(crate) fn new_window_from_source(
 /// The REAL floor above this is whatever the widget tree's own content-derived
 /// minimum is — the toolbar's widest single item (wrapping handles the rest),
 /// the tab strip, and the outline sidebar — which GTK enforces on its own. See
-/// `viewactions::update_toolbar_min_width` (invariant I5).
+/// `toolbarchrome::apply_to` (invariant I5).
 ///
 /// **Raising this re-breaks the wrap**, and silently: the floor wins the `MAX`
 /// above long before a reader can drag narrow enough to see a second row.
@@ -575,14 +567,16 @@ fn build_window(
     // `refresh_documents_menu` rebuild updates both popups and neither can drift.
     documents_btn.set_menu_model(Some(&chrome.documents_menu));
 
-    // Toolbar/statusbar/outline visibility are PER-WINDOW state (the operator's
+    // Status-bar and sidebar visibility are PER-WINDOW state (the operator's
     // decision), so — exactly like `zoom_level` — they arrive threaded through
     // this window's own `WindowInit` and are never read from an app-wide place.
     // Whoever built this window already decided which window's chrome it starts
     // with: `inherit_from` (the source/active window's own live values, for
     // every new-window path), `restore::restore_window` (THIS window's own
     // persisted `WindowSession::chrome`), or `WindowInit::default()` (all shown
-    // — only the genuine no-source startup fallbacks).
+    // — only the genuine no-source startup fallbacks). The TOOLBAR is not among
+    // them: it is app-wide, so it is read from the application below rather than
+    // threaded through here (`toolbarchrome`).
     let chrome_init = init.chrome;
 
     // ── action registration ──────────────────────────────────────────────────
@@ -594,10 +588,12 @@ fn build_window(
     register_annotation_step_actions(&window);
     // Before the view actions: the split forwarders seed their ticks from it.
     arrangement::ensure_registered(app);
+    // The app-wide toolbar layout, registered (and seeded from the session) by
+    // whichever window is built first; this window then takes the LIVE value.
+    toolbarchrome::ensure_registered(app);
+    toolbarchrome::seed_window(&window, &toolbar, &section_boxes);
     register_view_actions(
         &window,
-        &toolbar,
-        &section_boxes,
         &chrome.status_bar,
         &SidebarSections {
             outline_section: &chrome.outline_section,
@@ -605,14 +601,10 @@ fn build_window(
             sidebar_paned: &chrome.sidebar_paned,
         },
         &ChromeVisibility {
-            show_toolbar: chrome_init.show_toolbar,
             show_statusbar: chrome_init.show_statusbar,
             // Per-TAB, unlike the window-scoped chrome around it — this tab's
             // own restored value.
             show_unsafe_images: init.show_unsafe_images,
-            // `to_array` is in canonical `TBTN_SECTION_IDS` order, matching
-            // `section_boxes`.
-            section_states: chrome_init.toolbar_sections.to_array(),
             outline_visible: chrome_init.outline_visible,
             annotations_visible: chrome_init.annotations_visible,
         },
@@ -660,6 +652,8 @@ fn build_window(
     // module doc).
     let chrome_state = build_window_chrome_state(
         &chrome,
+        toolbar,
+        section_boxes,
         tb_edit_btns,
         documents_btn,
         theme_btn,
@@ -760,6 +754,8 @@ fn build_window(
 #[allow(clippy::too_many_arguments)]
 fn build_window_chrome_state(
     chrome: &Chrome,
+    toolbar: crate::widgets::wrapbox::ToolbarWrapBox,
+    toolbar_sections: [Vec<gtk::Widget>; 6],
     tb_edit_btns: Vec<(FmtInsertKind, gtk::Button)>,
     documents_btn: gtk::MenuButton,
     theme_btn: gtk::MenuButton,
@@ -770,6 +766,8 @@ fn build_window_chrome_state(
     zoom_css_provider: gtk::CssProvider,
 ) -> Rc<winstate::WindowChrome> {
     Rc::new(winstate::WindowChrome {
+        toolbar,
+        toolbar_sections,
         outline_scroller: chrome.outline_scroller.clone(),
         annotations_scroller: chrome.annotations_scroller.clone(),
         conflict_toast: chrome.conflict_toast.clone(),
@@ -921,39 +919,50 @@ pub(crate) mod gtk_integration_tests {
     // they wired themselves — `clipboard`'s middle-click pair is exactly that distinction.
     pub(crate) use crate::window::testkit::test_app;
 
-    /// The four chrome toggles a window owns, as `win.*` action names.
-    const CHROME_ACTIONS: [&str; 4] = [
-        "show-toolbar",
-        "show-statusbar",
-        "outline",
-        "show-tbtn-edit",
-    ];
+    /// The chrome toggles a WINDOW owns, as `win.*` action names. The toolbar is
+    /// deliberately absent: it is app-wide (`toolbarchrome`), so there is nothing
+    /// per-window about it to inherit or to keep independent, and asserting on it
+    /// here would assert the opposite of its contract.
+    ///
+    /// These do NOT share one default — the status bar and outline start shown, the
+    /// annotations viewer starts hidden — so a test over this list asserts a FLIP
+    /// from whatever each one currently is, never a literal `true`. Anchoring on a
+    /// literal is what made the list silently wrong to extend.
+    const CHROME_ACTIONS: [&str; 3] = ["show-statusbar", "outline", "annotations"];
 
     /// A window spawned from a source window inherits that window's chrome —
     /// the per-window counterpart of zoom's inheritance, and for the same
     /// reason: a brand-new window has nothing else to constrain its
     /// window-scoped state, so the source window is the only evidence of what
-    /// the user wants. Covers all four toggles (whole-bar, status bar, outline,
-    /// and one section) through the real `new_window_from_source` funnel every
-    /// new-window path uses.
+    /// the user wants. Covers every per-window toggle through the real
+    /// `new_window_from_source` funnel every new-window path uses.
     #[gtktest::test]
     fn a_new_window_inherits_every_chrome_toggle_from_its_source_window() {
         let app = test_app("com.extollit.scribobulate.integrationtest.chromeinherit");
 
         let win_a = new_window(&app, "IT-A", "alpha", None);
-        for name in CHROME_ACTIONS {
-            assert!(
-                bool_action_state(&win_a, name, false),
-                "{name} starts shown"
-            );
-            change_action_state(&win_a, name, &false.to_variant());
-            assert!(!bool_action_state(&win_a, name, true), "{name} toggled off");
-        }
+        // Flip each toggle away from its own default, whatever that is — see
+        // CHROME_ACTIONS on why a literal would not do. The flipped value is then
+        // what B must show: matching a default would prove nothing.
+        let flipped: Vec<(&str, bool)> = CHROME_ACTIONS
+            .iter()
+            .map(|&name| {
+                let want = !bool_action_state(&win_a, name, false);
+                change_action_state(&win_a, name, &want.to_variant());
+                assert_eq!(
+                    bool_action_state(&win_a, name, !want),
+                    want,
+                    "{name} flipped in the source window"
+                );
+                (name, want)
+            })
+            .collect();
 
         let win_b = new_window_from_source(&app, "IT-B", "beta", None, Some(&win_a));
-        for name in CHROME_ACTIONS {
-            assert!(
-                !bool_action_state(&win_b, name, true),
+        for &(name, want) in &flipped {
+            assert_eq!(
+                bool_action_state(&win_b, name, !want),
+                want,
                 "a window spawned from a source window must inherit its {name}"
             );
         }
@@ -967,7 +976,7 @@ pub(crate) mod gtk_integration_tests {
         let app = test_app("com.extollit.scribobulate.integrationtest.chromeinherit2");
 
         let win_a = new_window(&app, "IT-A", "alpha", None);
-        change_action_state(&win_a, "show-toolbar", &false.to_variant());
+        change_action_state(&win_a, "show-statusbar", &false.to_variant());
 
         let before: std::collections::HashSet<_> =
             app.windows().iter().map(|w| w.as_ptr() as usize).collect();
@@ -980,23 +989,33 @@ pub(crate) mod gtk_integration_tests {
             .expect("win.new-window must open a new window");
 
         assert!(
-            !bool_action_state(&win_b, "show-toolbar", true),
+            !bool_action_state(&win_b, "show-statusbar", true),
             "win.new-window must inherit the active window's chrome"
         );
     }
 
-    /// A window with NO source window (the app-startup fallbacks) starts with
-    /// all chrome shown. The fresh default is only correct when there is
-    /// genuinely nothing to inherit from — which is exactly what `new_window`
-    /// means.
+    /// A window with NO source window (the app-startup fallbacks) starts at each
+    /// toggle's own documented default. The fresh default is only correct when
+    /// there is genuinely nothing to inherit from — which is exactly what
+    /// `new_window` means.
+    ///
+    /// The defaults are named here rather than derived from `ChromeSession::default()`,
+    /// because deriving would make this test agree with the code by construction and
+    /// stop noticing a default that silently changed.
     #[gtktest::test]
-    fn a_window_with_no_source_starts_with_all_chrome_shown() {
+    fn a_window_with_no_source_starts_at_the_documented_chrome_defaults() {
         let app = test_app("com.extollit.scribobulate.integrationtest.nosourcechrome");
         let win = new_window(&app, "IT", "alpha", None);
-        for name in CHROME_ACTIONS {
-            assert!(
-                bool_action_state(&win, name, false),
-                "{name} shown by default"
+        for (name, want) in [
+            ("show-statusbar", true),
+            ("outline", true),
+            // Hidden by default — most documents carry no annotations (TDD 20.13).
+            ("annotations", false),
+        ] {
+            assert_eq!(
+                bool_action_state(&win, name, !want),
+                want,
+                "{name} must start at its documented default"
             );
         }
     }
@@ -1015,7 +1034,9 @@ pub(crate) mod gtk_integration_tests {
         let app = test_app("com.extollit.scribobulate.integrationtest.toolbarwrap");
         let win = new_window(&app, "IT-wrap", "# H\n\ntext", None);
         for id in crate::app::TBTN_SECTION_IDS {
-            change_action_state(&win, &format!("show-tbtn-{id}"), &true.to_variant());
+            // App-scoped: the toolbar layout is one app-wide preference
+            // (`toolbarchrome`), so this reaches every window, this one included.
+            app.change_action_state(&toolbarchrome::section_action(id), &true.to_variant());
         }
         win.present();
         crate::testpump::drain_for(
@@ -1114,7 +1135,9 @@ pub(crate) mod gtk_integration_tests {
                    ## Another Extremely Long Heading For The Outline To Chew On\n\ntext\n";
         let win = new_window(&app, "IT-widthfloor", doc, None);
         for id in crate::app::TBTN_SECTION_IDS {
-            change_action_state(&win, &format!("show-tbtn-{id}"), &true.to_variant());
+            // App-scoped: the toolbar layout is one app-wide preference
+            // (`toolbarchrome`), so this reaches every window, this one included.
+            app.change_action_state(&toolbarchrome::section_action(id), &true.to_variant());
         }
         change_action_state(&win, "outline", &true.to_variant());
         change_action_state(&win, "annotations", &true.to_variant());
@@ -1153,7 +1176,7 @@ pub(crate) mod gtk_integration_tests {
     fn focus_on_a_format_button_does_not_close_the_editor_gate() {
         let app = test_app("com.extollit.scribobulate.integrationtest.fmtgate");
         let win = new_window(&app, "IT-fmtgate", "# H\n\nsome text", None);
-        change_action_state(&win, "show-tbtn-format", &true.to_variant());
+        app.change_action_state(&toolbarchrome::section_action("format"), &true.to_variant());
         change_action_state(&win, "view-mode", &"edit".to_variant());
         win.present();
         crate::testpump::drain_for(
@@ -1235,8 +1258,8 @@ pub(crate) mod gtk_integration_tests {
             let win_a = new_window(&app, "IT-A", "alpha", None);
             let win_b = new_window(&app, "IT-B", "beta", None);
 
-            // Hide A's toolbar and outline; B is left entirely untouched.
-            change_action_state(&win_a, "show-toolbar", &false.to_variant());
+            // Hide A's status bar and outline; B is left entirely untouched.
+            change_action_state(&win_a, "show-statusbar", &false.to_variant());
             change_action_state(&win_a, "outline", &false.to_variant());
 
             // Closing B is what writes the session — and B is the window whose
@@ -1250,7 +1273,7 @@ pub(crate) mod gtk_integration_tests {
                 persisted
                     .windows
                     .iter()
-                    .any(|w| !w.chrome.show_toolbar && !w.chrome.outline_visible),
+                    .any(|w| !w.chrome.show_statusbar && !w.chrome.outline_visible),
                 "the window whose chrome was toggled must persist its OWN values, \
                  even though a different window is the one closing: {:?}",
                 persisted
@@ -1263,7 +1286,7 @@ pub(crate) mod gtk_integration_tests {
                 persisted
                     .windows
                     .iter()
-                    .any(|w| w.chrome.show_toolbar && w.chrome.outline_visible),
+                    .any(|w| w.chrome.show_statusbar && w.chrome.outline_visible),
                 "the untouched window must persist ITS own values, not the other's"
             );
         });
@@ -1283,14 +1306,23 @@ pub(crate) mod gtk_integration_tests {
             let win_a = new_window(&app, "IT-A", "alpha", None);
             let win_b = new_window(&app, "IT-B", "beta", None);
 
+            // B's state BEFORE anything is touched, so the assertion below is
+            // "unchanged" rather than a literal that only half the list satisfies.
+            let b_before: Vec<(&str, bool)> = CHROME_ACTIONS
+                .iter()
+                .map(|&name| (name, bool_action_state(&win_b, name, false)))
+                .collect();
+
             for name in CHROME_ACTIONS {
-                change_action_state(&win_a, name, &false.to_variant());
+                let want = !bool_action_state(&win_a, name, false);
+                change_action_state(&win_a, name, &want.to_variant());
             }
 
             // Runtime: B's own toggles are untouched.
-            for name in CHROME_ACTIONS {
-                assert!(
-                    bool_action_state(&win_b, name, false),
+            for &(name, before) in &b_before {
+                assert_eq!(
+                    bool_action_state(&win_b, name, !before),
+                    before,
                     "toggling {name} in window A must not change window B's state"
                 );
             }
@@ -1302,12 +1334,12 @@ pub(crate) mod gtk_integration_tests {
             let hidden = persisted
                 .windows
                 .iter()
-                .filter(|w| !w.chrome.show_toolbar)
+                .filter(|w| !w.chrome.show_statusbar)
                 .count();
             assert_eq!(
                 hidden,
                 1,
-                "exactly one of the two windows has its toolbar hidden: {:?}",
+                "exactly one of the two windows has its status bar hidden: {:?}",
                 persisted
                     .windows
                     .iter()
@@ -1327,12 +1359,10 @@ pub(crate) mod gtk_integration_tests {
         let dir = tempfile::tempdir().unwrap();
         crate::session::with_state_home_for_test(dir.path(), || {
             let hidden = crate::session::ChromeSession {
-                show_toolbar: false,
                 show_statusbar: false,
                 outline_visible: false,
                 annotations_visible: false,
                 sidebar_split: crate::session::ChromeSession::default().sidebar_split,
-                toolbar_sections: crate::session::ToolbarSections::default(),
             };
             crate::session::save(&crate::session::Session {
                 windows: vec![
@@ -1362,22 +1392,22 @@ pub(crate) mod gtk_integration_tests {
                 .collect();
             assert_eq!(windows.len(), 2);
 
-            let toolbars: Vec<bool> = windows
+            let outlines: Vec<bool> = windows
                 .iter()
-                .map(|w| bool_action_state(w, "show-toolbar", true))
+                .map(|w| bool_action_state(w, "outline", true))
                 .collect();
             assert!(
-                toolbars.contains(&true) && toolbars.contains(&false),
+                outlines.contains(&true) && outlines.contains(&false),
                 "each restored window must get its OWN persisted chrome, not one \
-                 shared answer: {toolbars:?}"
+                 shared answer: {outlines:?}"
             );
 
             // The window restored hidden must also have its sidebar widget
             // actually hidden — not merely the action state set.
             let hidden_win = windows
                 .iter()
-                .find(|w| !bool_action_state(w, "show-toolbar", true))
-                .expect("one window restored with its toolbar hidden");
+                .find(|w| !bool_action_state(w, "outline", true))
+                .expect("one window restored with its outline hidden");
             let chrome = winstate::chrome(hidden_win).expect("chrome registered");
             assert!(
                 !chrome.outline_scroller.parent().unwrap().is_visible(),
