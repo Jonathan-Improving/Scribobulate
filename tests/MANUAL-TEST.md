@@ -1595,7 +1595,7 @@ and this file is just the run-sheet.
 
 ### 4.7 Session file corruption / migration
 - [ ] Session file: `sed -i 's/windows/xxindows/' ~/.local/state/scribobulate/session.toml`
-  (breaks the v1/v2 migration marker per `session.rs`'s doc comment) → app
+  (breaks the v1/v2 migration marker per `session/migrate.rs`'s doc comment) → app
   starts with sane defaults rather than crashing on a malformed key
 - [ ] Truncate `session.toml` to a syntactically invalid TOML fragment → falls
   back to defaults per `parse()`'s `unwrap_or_default()`, doesn't crash
@@ -2260,9 +2260,22 @@ Then two countermeasures, which are **continuous, not one-time setup**:
     value is a mask where `0` means Command alone, `1` Shift, `2` Option, `4`
     Control, and `8` "no Command"; so Save reading `0|S` is Cmd+S. This is the
     macOS substitute for §1's `org.gtk.Actions` accel inspection.
-  - `value of attribute "AXEnabled"` of a menu item — an action's **sensitivity**,
-    which otherwise has no pixel signal at all (GTK4Rs/AP-67). Grey/live can now be
-    asserted rather than squinted at.
+  - ⚠ `value of attribute "AXEnabled"` of a menu item — an action's **sensitivity**,
+    which otherwise has no pixel signal at all (GTK4Rs/AP-67) — but **it is not
+    trustworthy for every item, and it fails FAVOURABLY**, so it needs the same
+    positive control as the check-mark caution below. MEASURED by the macOS seat
+    (GTK 4.22.4/Quartz, 2026-09-21): with the toolbar hidden, the six
+    `app.show-tbtn-<id>` items are visibly greyed in a screenshot **and functionally
+    inert** — clicking one does nothing — while `AXEnabled` reads `true` for all six.
+    In the same menu, `win.nav-forward`, `win.move-tab-new-window` and
+    `win.go-to-line` report `false` correctly. It is **not** staleness: launching
+    with the bar already hidden from the session, so those items are disabled from
+    construction and never flipped at runtime, reads `true` just the same. No cause
+    is established — there is only one app-scoped sample, so scope, toggle-vs-plain
+    and "these particular six" cannot be separated, and the correlation is recorded
+    here as an observation rather than a mechanism. **Assert grey/live with a
+    screenshot or a functional probe (click it and show nothing happened); use
+    `AXEnabled` only alongside one of those, never on its own.**
   - ⚠ **A menu item's CHECK MARK is NOT readable this way — read it from a screenshot of
     the open menu.** `value of menu item …` and `AXMenuItemMarkChar` both return
     `missing value` for every GTK menu item, ticked or not, so a query for "is Vertical

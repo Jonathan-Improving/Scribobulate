@@ -173,7 +173,10 @@ src/saferizer/popover_anchor.rs
 src/saferizer/qdata_key.rs
 src/saferizer/scrollpos.rs
 src/saferizer/viewport.rs
-src/session.rs
+src/session/migrate.rs
+src/session/mod.rs
+src/session/schema.rs
+src/session/statedir.rs
 src/span.rs
 src/sprite.rs
 src/swapfile/codec.rs

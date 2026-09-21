@@ -212,9 +212,9 @@ mod gtk_tests {
     }
 
     /// TDD 27.7's persistence half: `reader_choice` must answer ONLY off the
-    /// action's own state, so a caller that persists it (session.rs) never bakes
+    /// action's own state, so a caller that persists it (`session/`) never bakes
     /// in the system setting's current say. Pinned as its own test rather than
-    /// only inferred from `current`'s: this IS the exact guard `session.rs`
+    /// only inferred from `current`'s: this IS the exact guard `session/`
     /// depends on to keep the two independent.
     #[gtktest::test]
     fn reader_choice_ignores_the_system_setting() {

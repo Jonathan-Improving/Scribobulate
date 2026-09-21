@@ -1091,7 +1091,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 
 ## 167. An `Option`-returning lookup whose `None` is also a legitimate answer will fail silently forever
 **Routed**: GEP-42 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `src/config.rs` (`config_home_fallback`), `src/session.rs` (`state_home_fallback`, `state_directory_resolves_without_any_xdg_override`); `sdd/TECH.md` § platform notes.
+**Scribobulate**: `src/config.rs` (`config_home_fallback`), `src/session/statedir.rs` (`state_home_fallback`, `state_directory_resolves_without_any_xdg_override`); `sdd/TECH.md` § platform notes.
 
 ## 168. A popover's layout pass resizes the TOPLEVEL — from GTK's stale remembered size — collapsing a natively-maximized window
 **Scribobulate**: `platform::win32::track_maximized_size` — while the window is maximized, and only then, keep GTK's remembered size equal to the size the OS actually gave it (`surface`'s `layout` signal → `set_default_size`).

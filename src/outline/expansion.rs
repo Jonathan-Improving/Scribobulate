@@ -98,7 +98,7 @@ fn walk(nodes: &[HeadingNode], prefix: &mut HeadingPath, out: &mut Vec<HeadingPa
 ///
 /// Per-document state, held on `TabState` beside `outline_selected` for the same reason that
 /// field exists: the widget is rebuilt from scratch and would otherwise drop it. Deliberately
-/// **not** round-tripped through `session.rs`, matching `TabState::folds` — a document may
+/// **not** round-tripped through `session/`, matching `TabState::folds` — a document may
 /// have changed entirely between runs, and a key that means nothing then should not be
 /// resurrected to collapse an unrelated section.
 #[derive(Clone, Debug, Default)]

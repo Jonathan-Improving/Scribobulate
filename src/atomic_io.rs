@@ -552,7 +552,7 @@ mod tests {
     // `umask(2)` is process-global, so any test that reads/sets it must be
     // serialized against every other such test (parallel test threads would
     // otherwise race on the same process-wide value) — the same discipline
-    // `session.rs` already uses for its `XDG_STATE_HOME` env-var tests.
+    // `session/statedir.rs` already uses for its `XDG_STATE_HOME` env-var tests.
     #[cfg(unix)]
     static UMASK_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 

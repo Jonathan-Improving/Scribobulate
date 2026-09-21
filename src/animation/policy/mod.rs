@@ -85,7 +85,7 @@ fn action(app: &gtk::Application) -> Option<gtk::gio::Action> {
 
 /// The reader's raw Play Animations choice, straight off `app.play-animations`'s own
 /// state — **never** the effective (reduce-animations-adjusted) value. This is what
-/// `session.rs` persists: the override is never saved as though the reader had chosen
+/// `session/` persists: the override is never saved as though the reader had chosen
 /// it (TDD 27.7), so a system setting changed between runs takes effect on the next
 /// launch rather than being baked into the saved choice.
 pub(crate) fn reader_choice(app: &gtk::Application) -> bool {

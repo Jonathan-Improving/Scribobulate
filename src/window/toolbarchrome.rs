@@ -360,6 +360,15 @@ mod tests {
                      just the one the change was made in"
                 );
             }
+
+            // Every window this test opened, closed before it returns. A test that
+            // leaves a mapped window alive leaves a live frame clock and surface
+            // behind for every later case in the shared suite run, which is exactly
+            // the process-global state POLICY asks a test to restore — and this
+            // module's own header claims the application is where the layout lives
+            // so that no test leaks into the next.
+            win_b.destroy();
+            win_a.destroy();
         });
     }
 
@@ -391,6 +400,8 @@ mod tests {
                 for_window(&win).sections.file,
                 "re-showing the bar brings back exactly the section that was ticked"
             );
+
+            win.destroy();
         });
     }
 
@@ -420,6 +431,8 @@ mod tests {
                 before,
                 "greying a section item must never clear its tick (I4)"
             );
+
+            win.destroy();
         });
     }
 }

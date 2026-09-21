@@ -104,14 +104,14 @@ pub(crate) struct TabState {
     /// `heading_index` is and for the same reason: it is derived from the same parse,
     /// and the capture site would otherwise have to re-parse the document to name a row.
     ///
-    /// NOT round-tripped through `session.rs`, matching `folds` below — see
+    /// NOT round-tripped through `session/`, matching `folds` below — see
     /// `outline::expansion` for why a key that outlives the document it names is worse than
     /// no key at all.
     pub(crate) outline_collapsed: RefCell<crate::outline::expansion::OutlineExpansion>,
     pub(crate) outline_paths: RefCell<Vec<crate::outline::expansion::HeadingPath>>,
     /// Which disclosure blocks this document's reader has collapsed.
     ///
-    /// Per-tab and NOT round-tripped through `session.rs`: the keys are source byte
+    /// Per-tab and NOT round-tripped through `session/`: the keys are source byte
     /// offsets, so they mean nothing against a document that has changed underneath
     /// them, and HTML's own model treats a disclosure's state as a property of the
     /// document (the `open` attribute) rather than of the session. Survives every
@@ -318,7 +318,7 @@ pub(crate) struct TabState {
     /// "let every document I ever open navigate anywhere, forever." This is a
     /// deliberate exception to this app's usual chrome-toggle convention
     /// (`show_statusbar`, `allow_unsafe_images`, etc. all persist); do not "fix"
-    /// the inconsistency by wiring it into `session.rs`.
+    /// the inconsistency by wiring it into `session/`.
     ///
     /// **Deliberately NOT copied forward to a tab this navigates to** — unlike
     /// `allow_unsafe_images`, which glob-open's `app/setup.rs` DOES copy from

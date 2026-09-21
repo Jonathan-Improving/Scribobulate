@@ -835,7 +835,7 @@ The identity events (matrix columns):
 | 5 | The relative-resource base `TabState::doc_dir()` — images, local link navigation, Insert Link/Image relativisation | ✓ | ✓ | — | `links::resolve_contained_image`; `links::relativize_for_insert` |
 | 6 | Same-file identity: the open-tab dedup lookup and the per-path write gate | ✓ | ✓ | ✓ | `app::find_open_tab_for_path`; `winstate::WriteGate` |
 | 7 | Operations already in flight over the old path | ✓ | ✓ | ✓ | *reference row* → [Deferred-operation CAM column E](#deferred-operation-cam--work-whose-completion-lands-later) |
-| 8 | The persisted session record and the last-visited dialog directory | ✓ | ✓ | ✓ | `session.rs`; `app::remember_dialog_dir` |
+| 8 | The persisted session record and the last-visited dialog directory | ✓ | ✓ | ✓ | `session/`; `app::remember_dialog_dir` |
 
 Rules that give the matrix its teeth:
 
