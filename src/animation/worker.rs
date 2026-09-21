@@ -379,7 +379,7 @@ mod gtk_tests {
     use std::path::PathBuf;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     fn poll_once<F: Future>(fut: &mut Pin<Box<F>>) -> Poll<F::Output> {
         fut.as_mut().poll(&mut Context::from_waker(Waker::noop()))
@@ -473,9 +473,19 @@ mod gtk_tests {
 
         drop(fut);
 
-        // Give the detached pool thread time to finish and attempt (and fail
+        // Wait for the detached pool thread to finish and attempt (and fail
         // silently, since nothing is left to receive it) to deliver its result.
-        std::thread::sleep(Duration::from_millis(400));
+        //
+        // A generous FAILURE bound polled to convergence, never a fixed sleep
+        // (GTK4Rs/AP-122): the claim is that the task runs to COMPLETION, not
+        // that it completes within any particular span, and how long a loaded
+        // host takes to give a pool thread its turn is not this test's subject.
+        // A fixed 400 ms wait against a task that sleeps 150 ms failed on the
+        // GitHub Linux runner while passing on every development host.
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !finished.load(Ordering::SeqCst) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(20));
+        }
 
         assert!(
             finished.load(Ordering::SeqCst),

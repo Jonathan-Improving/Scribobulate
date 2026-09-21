@@ -2,40 +2,66 @@
 //!
 //! The returned number is **not RSS**. Linux reads `VmRSS`, macOS reads
 //! `ri_phys_footprint`, Windows reads `WorkingSetSize`. A shared name invites
-//! a shared threshold; tolerances live next to this module as per-platform
-//! constants.
+//! a shared threshold; the bounds a series is judged against live next to this
+//! module in [`GROWTH_BOUNDS`], and [`assert_bounded`] is the only thing that
+//! reads them.
 
-/// Per-platform tolerance for [`super::slope::assert_flat`], in bytes.
+/// Per-platform bounds for [`super::growth::assert_no_growth`], in bytes.
 ///
-/// Chosen as a *shape* bound after a measured clean baseline, never as one
-/// shared number. Freed pages stay with the allocator, so a few hundred KiB of
-/// second-half noise is not a leak; a climb of megabytes per render is.
-pub(crate) const TOLERANCE_BYTES: u64 = {
-    #[cfg(target_os = "linux")]
-    {
-        2 * 1024 * 1024
-    }
-    #[cfg(target_os = "macos")]
-    {
-        4 * 1024 * 1024
-    }
-    #[cfg(windows)]
-    {
-        4 * 1024 * 1024
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
-    {
-        4 * 1024 * 1024
-    }
+/// The one owner of both numbers, and [`assert_bounded`] the only reader.
+///
+/// **Both are derived from clean traces, and the run log carries the numbers
+/// they were derived from.** `residual_bytes` sits above the growth a clean run
+/// leaves unexplained by its single largest allocation, and far below what a
+/// per-render climb leaves: ScrAP-351's fixture-scale leak is ~1.05 MB per
+/// render, which over a ten-sample window leaves ~9.4 MB of residual — two
+/// orders of magnitude above the bound rather than beside it, so no host's churn
+/// sits near the decision. `total_bytes` sits above the largest one-time
+/// allocation measured anywhere (~12.6 MB, on the CI runner's software GL path)
+/// and far below what any climb totals.
+///
+/// Measured clean traces, worst of the six gates in each run — the playback gate
+/// on every host, being the only one with a live frame clock:
+///
+/// | host | total growth | largest rise | residual |
+/// |------|--------------|--------------|----------|
+/// | Linux development host, 4 runs | 1.04 MB | 0.70-0.77 MB | 0.27 MB |
+/// | Linux CI runner | 12.98 MB | 12.08 MB | **0.86 MB** |
+/// | macOS CI runner | 0.31 MB | 0.31 MB | 0 |
+/// | Windows CI runner | 0.26 MB | 0.53 MB | −0.28 MB |
+///
+/// **The CI runner's row is the one that decides the bound**, and it is the
+/// trace this predicate exists for: a ~12 MB allocation nobody has attributed —
+/// it appears on no development host, at a different sample each run, and that
+/// runner is the only one of the four on a software GL path — which the
+/// half-mean this replaced reported as an 8.65 MB climb. Its 0.86 MB of residual is the worst
+/// clean reading anywhere, and it sits 2.3x under the bound while the smallest
+/// leak the gate must catch — ScrAP-351's ~1.05 MB per render over a ten-sample
+/// window — sits 4.5x over it. Windows shows the bound must tolerate a NEGATIVE
+/// residual: its footprint falls across the window, which is not growth.
+/// A leak arriving in two chunks rather than one is the shape this cannot see;
+/// the ceiling below is what bounds it.
+pub(crate) const GROWTH_BOUNDS: super::growth::Bounds = super::growth::Bounds {
+    residual_bytes: 2 * 1024 * 1024,
+    total_bytes: 24 * 1024 * 1024,
 };
 
-/// Warm-up renders discarded before the slope is taken. Windows measured its
+/// The bounds must keep bracketing the magnitudes they were derived from: the
+/// residual bound far below what ScrAP-351's fixture-scale leak leaves over a
+/// ten-sample window, the ceiling above the largest one-time allocation
+/// measured. A compile-time assertion rather than a test, because an edit that
+/// inverts either one has made the gate decorative and should not build.
+const _: () = assert!(GROWTH_BOUNDS.residual_bytes < 9 * 1024 * 1024);
+const _: () = assert!(GROWTH_BOUNDS.total_bytes > 12_600_000);
+
+/// Warm-up renders discarded before the series is judged. Windows measured its
 /// entire 1.09 MB of warm-up arriving at iteration 2; three covers that and
 /// the GTK icon-cache / font first-paint on the other seats.
 pub(crate) const WARMUP: usize = 3;
 
 /// Samples collected *including* warm-up. After discarding [`WARMUP`] this
-/// leaves ten readings, five per half.
+/// leaves ten readings — nine rises, so a climb of `x` per render shows up as
+/// `8x` of residual growth while one allocation of any size shows up as none.
 pub(crate) const SAMPLE_COUNT: usize = WARMUP + 10;
 
 /// Serialises every footprint measurement in the process.
@@ -43,7 +69,7 @@ pub(crate) const SAMPLE_COUNT: usize = WARMUP + 10;
 /// **The instrument is process-wide and the failure direction is the reassuring one.**
 /// `current()` reads the whole process's footprint, so a foreign allocation made while
 /// a series is being collected lands in that series. If it arrives in the first half it
-/// raises the baseline and FLATTENS the slope — the gate then passes on a real leak,
+/// raises the baseline and HIDES the growth — the gate then passes on a real leak,
 /// which is the reading nobody investigates.
 ///
 /// That is reachable because these bodies register with both harnesses: the
@@ -78,6 +104,22 @@ pub(crate) fn measuring() -> MeasurementGuard {
 #[cfg(all(test, feature = "memory-gates"))]
 pub(crate) struct MeasurementGuard {
     _lock: std::sync::MutexGuard<'static, ()>,
+}
+
+/// Judge a sampled series against this platform's [`GROWTH_BOUNDS`], naming
+/// `rubric` in both the log line and the panic.
+///
+/// Every gate goes through here rather than reading the bounds itself: six call
+/// sites each passing their own constants is six places one can be mis-edited,
+/// and the log line is what a later failure gets compared against.
+#[cfg(all(test, feature = "memory-gates"))]
+pub(crate) fn assert_bounded(rubric: &str, samples: &[u64]) {
+    println!(
+        "[memgate {rubric}] {}",
+        super::growth::describe(samples, WARMUP, GROWTH_BOUNDS)
+    );
+    super::growth::assert_no_growth(samples, WARMUP, GROWTH_BOUNDS)
+        .unwrap_or_else(|err| panic!("TDD {rubric}: {err}"));
 }
 
 /// Current process footprint in bytes, or `None` if this platform's sampler
@@ -176,11 +218,9 @@ mod tests {
     }
 
     #[test]
-    fn sample_shape_and_tolerance_are_the_stated_constants() {
+    fn sample_shape_and_bounds_are_the_stated_constants() {
         assert_eq!(super::SAMPLE_COUNT, super::WARMUP + 10);
-        #[cfg(target_os = "linux")]
-        assert_eq!(super::TOLERANCE_BYTES, 2 * 1024 * 1024);
-        #[cfg(not(target_os = "linux"))]
-        assert_eq!(super::TOLERANCE_BYTES, 4 * 1024 * 1024);
+        assert_eq!(super::GROWTH_BOUNDS.residual_bytes, 2 * 1024 * 1024);
+        assert_eq!(super::GROWTH_BOUNDS.total_bytes, 24 * 1024 * 1024);
     }
 }

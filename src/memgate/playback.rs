@@ -16,8 +16,7 @@ use std::time::Duration;
 
 use crate::animation::paintable::AnimatedPaintable;
 use crate::animation::policy::EnableAnimationsGuard;
-use crate::memgate::footprint::{current, SAMPLE_COUNT, TOLERANCE_BYTES, WARMUP};
-use crate::memgate::slope::assert_flat;
+use crate::memgate::footprint::{assert_bounded, current, SAMPLE_COUNT};
 use crate::testpump::{self, Clock};
 use crate::window::testkit::test_app_suffixed;
 
@@ -70,12 +69,12 @@ fn build_playing(
 /// developing this test — not read from any header this module trusts
 /// blindly): 24 frames, each a constant 125 ms delay, `LoopCount::Infinite`.
 /// If the fixture ever changes shape, that only changes how many of these
-/// samples land in one loop — `assert_flat`'s slope shape does not depend on
-/// the exact cycle length.
+/// samples land in one loop — the growth predicate's shape test does not depend
+/// on the exact cycle length.
 const FIXTURE_FRAMES_PER_LOOP: usize = 24;
 
 /// Three full cycles: "many loops" (TDD 6.10) without an unbounded wall-clock
-/// cost. See [`playback_slope_across_many_loops_ttd_6_10`]'s own doc comment
+/// cost. See [`playback_growth_across_many_loops_ttd_6_10`]'s own doc comment
 /// for the measured total runtime this adds to step 5b.
 const PLAYBACK_LOOPS: usize = 3;
 const PLAYBACK_SAMPLES: usize = FIXTURE_FRAMES_PER_LOOP * PLAYBACK_LOOPS;
@@ -106,7 +105,7 @@ const PER_FRAME_DEADLINE: Duration = Duration::from_secs(2);
 /// pump/compare overhead) — modest, and the only honest way to observe many
 /// real loops of a real tick-driven animation.
 #[gtktest::test]
-fn playback_slope_across_many_loops_ttd_6_10() {
+fn playback_growth_across_many_loops_ttd_6_10() {
     // The footprint instrument is process-wide; hold it for the whole body.
     let _measuring = crate::memgate::footprint::measuring();
     let _enable = EnableAnimationsGuard::set(true);
@@ -127,8 +126,7 @@ fn playback_slope_across_many_loops_ttd_6_10() {
         last = painted_bytes(pic.paintable().as_ref().unwrap());
         samples.push(current().expect("footprint"));
     }
-    assert_flat(&samples, WARMUP, TOLERANCE_BYTES)
-        .unwrap_or_else(|err| panic!("TDD 6.10 playback slope: {err}"));
+    assert_bounded("6.10 playback across many loops", &samples);
 }
 
 /// TDD 6.10, second half: repeatedly making the animation not-visible and
@@ -186,8 +184,7 @@ fn scroll_away_and_back_cycles_do_not_grow_footprint_ttd_6_10() {
         );
         samples.push(current().expect("footprint"));
     }
-    assert_flat(&samples, WARMUP, TOLERANCE_BYTES)
-        .unwrap_or_else(|err| panic!("TDD 6.10 scroll-away/back cycles: {err}"));
+    assert_bounded("6.10 scroll-away/back cycles", &samples);
 }
 
 /// TDD 6.7, extended to the whole animation state: once the picture

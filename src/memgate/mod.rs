@@ -1,12 +1,13 @@
-//! Per-render memory-growth gating (TDD 6.6–6.10).
+//! Per-render memory-growth gating (TDD 6.6–6.12).
 //!
 //! Two halves of one class, catching disjoint failures:
 //!
-//! * [`slope`] — after discarding warm-up, the second half of a sample series
-//!   must not sit more than a per-platform tolerance above the first. That is
-//!   the only honest shape: a single-shot "render, free, assert the number
-//!   came back" cannot pass on a correct implementation, because freed pages
-//!   stay with the allocator on every platform this project ships.
+//! * [`growth`] — after discarding warm-up, a sample series may step up at most
+//!   once and must retain no more than a per-platform ceiling. Growth over many
+//!   repetitions is the only honest shape: a single-shot "render, free, assert
+//!   the number came back" cannot pass on a correct implementation, because
+//!   freed pages stay with the allocator on every platform this project
+//!   delivers to.
 //! * [`footprint`] — one sampler, three `cfg` bodies. The field is named
 //!   **footprint**, never RSS: `/proc` VmRSS, macOS `ri_phys_footprint` and
 //!   Windows `WorkingSetSize` are not the same quantity.
@@ -19,7 +20,7 @@
 //! the coverage ratchet.
 
 pub(crate) mod footprint;
-pub(crate) mod slope;
+pub(crate) mod growth;
 
 #[cfg(all(test, feature = "memory-gates"))]
 mod gtk;

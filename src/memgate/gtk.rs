@@ -1,12 +1,11 @@
-//! GTK driver for the per-render growth-slope and finalization halves.
+//! GTK driver for the per-render growth and finalization halves.
 //!
 //! Compiled only under `--features memory-gates`, so the integration step never
 //! runs it. Bodies go through `#[gtktest::test]` so they register with both
 //! harnesses; the pipeline step invokes `--test gtk_suite memgate`.
 
 use crate::links::ImageResolution;
-use crate::memgate::footprint::{current, SAMPLE_COUNT, TOLERANCE_BYTES, WARMUP};
-use crate::memgate::slope::assert_flat;
+use crate::memgate::footprint::{assert_bounded, current, SAMPLE_COUNT};
 use crate::renderer::start::{load_texture, LoadedImage};
 use gtk::gdk::prelude::TextureExt;
 use gtk::glib::object::ObjectExt;
@@ -81,8 +80,8 @@ fn sample_loads(path: &Path, n: usize, cache: CachePath) -> Option<Vec<u64>> {
     for _ in 0..n {
         // `Warm` is deliberately the cached path: 6.6 is about re-renders of an open
         // document, which must reuse the decode (6.8). Mutation-tested: inserting
-        // `imagecache::reset_for_test()` here reddens 6.6 on the slope assertion
-        // (~5 MB second-half delta), not on an earlier precondition. `Cold` is
+        // `imagecache::reset_for_test()` here reddens 6.6 on the growth assertion
+        // (a step on nearly every sample), not on an earlier precondition. `Cold` is
         // that mutation made the subject: 6.9.
         if let CachePath::Cold = cache {
             crate::imagecache::reset_for_test();
@@ -96,51 +95,47 @@ fn sample_loads(path: &Path, n: usize, cache: CachePath) -> Option<Vec<u64>> {
 }
 
 #[gtktest::test]
-fn growth_slope_animated_webp_ttd_6_6() {
+fn growth_animated_webp_ttd_6_6() {
     // Every host decodes this now — `richimg` is pure Rust, not a host gdk-pixbuf
     // loader, so there is no longer a decoder-absent skip arm here; a skip
     // would now be dead code hiding a failure.
     let path = fixture("anim.webp");
     let samples = sample_loads(&path, SAMPLE_COUNT, CachePath::Warm)
         .expect("richimg decodes anim.webp on every host; a None here is a broken fixture");
-    assert_flat(&samples, WARMUP, TOLERANCE_BYTES)
-        .unwrap_or_else(|err| panic!("TDD 6.6 animated WebP: {err}"));
+    assert_bounded("6.6 animated WebP", &samples);
 }
 
 #[gtktest::test]
-fn uncached_decode_slope_animated_webp_ttd_6_9() {
+fn uncached_decode_animated_webp_ttd_6_9() {
     // Every load is a fresh decode — the path an evicted or changed file takes,
     // which 6.6 cannot see because it measures cache hits. Every host decodes this
     // now (see 6.6's comment above) — no decoder-absent skip arm.
     let path = fixture("anim.webp");
     let samples = sample_loads(&path, SAMPLE_COUNT, CachePath::Cold)
         .expect("richimg decodes anim.webp on every host; a None here is a broken fixture");
-    assert_flat(&samples, WARMUP, TOLERANCE_BYTES)
-        .unwrap_or_else(|err| panic!("TDD 6.9 uncached animated WebP: {err}"));
+    assert_bounded("6.9 uncached animated WebP", &samples);
 }
 
 #[gtktest::test]
-fn uncached_decode_slope_png_is_flat_ttd_6_9() {
+fn uncached_decode_png_is_flat_ttd_6_9() {
     // Negative control for 6.9: a fresh PNG decode every iteration must not climb.
     // Without it, a red 6.9 could be the cache reset's own churn rather than the
     // WebP decode.
     let path = fixture("wide.png");
     let samples = sample_loads(&path, SAMPLE_COUNT, CachePath::Cold)
         .expect("PNG decode is native; a None here is a broken fixture, not a skip");
-    assert_flat(&samples, WARMUP, TOLERANCE_BYTES)
-        .unwrap_or_else(|err| panic!("TDD 6.9 PNG control: {err}"));
+    assert_bounded("6.9 PNG control", &samples);
 }
 
 #[gtktest::test]
-fn growth_slope_png_is_flat_ttd_6_6() {
+fn growth_png_is_flat_ttd_6_6() {
     // Negative control: a static PNG must not climb. If this fails, the
     // instrument is measuring warm-up or some other render-path leak, not the
     // animated-WebP loader branch.
     let path = fixture("wide.png");
     let samples = sample_loads(&path, SAMPLE_COUNT, CachePath::Warm)
         .expect("PNG decode is native; a None here is a broken fixture, not a skip");
-    assert_flat(&samples, WARMUP, TOLERANCE_BYTES)
-        .unwrap_or_else(|err| panic!("TDD 6.6 PNG control: {err}"));
+    assert_bounded("6.6 PNG control", &samples);
 }
 
 #[gtktest::test]
@@ -171,11 +166,11 @@ fn local_cache_reuses_decode_ttd_6_8() {
     // Every host decodes this now (see 6.6's comment) — no decoder-absent skip arm.
     //
     // **Finding 2: asserts the cache HIT directly, by counting decodes, not by
-    // measuring footprint growth against `TOLERANCE_BYTES`.** `anim.webp` decodes to
-    // ~0.49 MiB — comfortably under the 2 MiB Linux tolerance — so the old
-    // byte-growth assertion passed identically whether the second load was a real
-    // cache hit or a fresh decode: deleting the cache outright still "grew" the
-    // footprint by less than the tolerance. `imagedecode::decode_probe` counts real
+    // measuring footprint growth.** `anim.webp` decodes to ~0.49 MiB — under any
+    // growth bound this gate could carry — so the old byte-growth assertion passed
+    // identically whether the second load was a real cache hit or a fresh decode:
+    // deleting the cache outright still "grew" the footprint by too little to
+    // register. `imagedecode::decode_probe` counts real
     // calls into the crate's one decode choke point, so "no new decode happened" is
     // now the literal claim, not an inference from bytes.
     let path = fixture("anim.webp");
@@ -323,8 +318,8 @@ fn local_cache_makes_svg_rerender_free_ttd_6_8() {
     // **Driven at a NON-IDENTITY zoom, and counted rather than weighed.** At zoom 1.0
     // this never reaches the vector path at all — it is an ordinary raster decode — so
     // the test asserted the wrong thing twice over. And the footprint assertion it used
-    // had the same shape the raster gate was just rescued from: a re-render that fits
-    // inside `TOLERANCE_BYTES` satisfies it whether or not the cache exists. The
+    // had the same shape the raster gate was just rescued from: a re-render too small
+    // to register as growth satisfies it whether or not the cache exists. The
     // re-rasterisation counter answers the question the rubric actually asks.
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("sdd/system-overview.svg");
     crate::imagecache::reset_for_test();
