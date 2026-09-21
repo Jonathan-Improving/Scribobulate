@@ -85,6 +85,60 @@ impl DocEpoch {
     }
 }
 
+/// How many times **this application** has written the document to disk.
+///
+/// A second, deliberately independent counter from [`DocEpoch`], and the difference
+/// is the whole point. `DocEpoch` is bumped by every mutation *and claimed by every
+/// reader*, including the live-reload watcher's — which fires per filesystem event,
+/// and on a filesystem GIO polls rather than watches, faster than a slow read
+/// completes. A guard that re-issues itself whenever `DocEpoch` has moved therefore
+/// never observes a quiet moment and the user's Save silently never happens; that was
+/// measured, and `window/save.rs` carries the note. This counter moves **only when a
+/// save of ours lands**, which no external event source can drive.
+///
+/// # What it is for
+///
+/// The save guard reads the file, then compares what it read against
+/// `saved_baseline` — but it reads the baseline at *decision* time, which is after
+/// its own read came back. If one of our own saves completed while that read was out,
+/// the two describe different moments: the bytes are pre-write and the baseline is
+/// post-write. They differ, nothing external touched the file, and the user is asked
+/// whether to overwrite changes that are their own.
+///
+/// Observing this counter before the read and re-checking it after is what tells the
+/// guard its answer predates its own baseline. The remedy is to read again, never to
+/// assume safety: an external writer could have moved in the same window.
+#[derive(Default)]
+pub(crate) struct WriteEpoch {
+    current: Cell<u64>,
+}
+
+/// Which generation of *our own writes* an observation was taken against.
+///
+/// Opaque and `Copy` for the same reason [`DocTicket`] is. Note the asymmetry with
+/// that type: taking one of these does **not** bump. An observer here is not claiming
+/// to supersede anybody — the save guard must never supersede a reader, only notice
+/// that it has been overtaken.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct WriteMark(u64);
+
+impl WriteEpoch {
+    /// Note the document's current write generation, superseding nothing.
+    pub(crate) fn observe(&self) -> WriteMark {
+        WriteMark(self.current.get())
+    }
+
+    /// Announce that a save of ours reached disk and updated the baseline.
+    pub(crate) fn bump(&self) {
+        self.current.set(self.current.get().wrapping_add(1));
+    }
+
+    /// Whether no save of ours has landed since `mark` was taken.
+    pub(crate) fn is_current(&self, mark: WriteMark) -> bool {
+        self.current.get() == mark.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -152,5 +206,49 @@ mod tests {
         assert!(epoch.is_current(ticket));
         epoch.bump();
         assert!(!epoch.is_current(ticket));
+    }
+
+    /// **The save guard's own write is what moves under it.**
+    ///
+    /// The semantics behind `window/save.rs`'s re-read, proved as data: a mark taken
+    /// before a guard read stops being current the moment one of our own saves lands,
+    /// which is exactly the case where the bytes that came back are older than the
+    /// baseline they are about to be compared against. Believe them and the user is
+    /// asked to overwrite their own save.
+    #[test]
+    fn our_own_completed_save_invalidates_a_mark_taken_before_it() {
+        let writes = WriteEpoch::default();
+        let before = writes.observe(); // the guard read goes out
+        assert!(writes.is_current(before));
+        writes.bump(); // …and a save of ours lands while it is out
+        assert!(
+            !writes.is_current(before),
+            "the guard must be able to tell that the disk it read predates the              baseline it is comparing against"
+        );
+    }
+
+    /// Observing does not supersede — unlike [`DocEpoch::claim`], and deliberately.
+    ///
+    /// The save guard is not a reader that may win; it is a reader that must notice
+    /// it has been overtaken. If observing bumped, two guards in flight would each
+    /// invalidate the other and both would re-read forever.
+    #[test]
+    fn observing_the_write_epoch_supersedes_nobody() {
+        let writes = WriteEpoch::default();
+        let first = writes.observe();
+        let second = writes.observe();
+        assert!(writes.is_current(first));
+        assert!(writes.is_current(second));
+    }
+
+    /// The write counter wraps too, for [`DocEpoch`]'s reason.
+    #[test]
+    fn the_write_counter_wraps_instead_of_overflowing() {
+        let writes = WriteEpoch {
+            current: Cell::new(u64::MAX),
+        };
+        let mark = writes.observe();
+        writes.bump();
+        assert!(!writes.is_current(mark));
     }
 }

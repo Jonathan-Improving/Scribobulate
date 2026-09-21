@@ -631,7 +631,7 @@ The interference classes (matrix columns):
 |---|---|:-:|:-:|:-:|:-:|:-:|---|
 | 1 | Read for **open / link-nav / session restore** (builds a tab) | ✗ | n/a | n/a | ✓ | n/a | `app.hold()` + weak window re-resolve; gather-then-build keeps each batch atomic |
 | 2 | Read for **reload** (explicit, and the watcher's) | ✓ | ✓ | ✓ | ✓ | ✓ | `DocEpoch` ticket; `tab_by_id` re-resolve; active-vs-background split |
-| 3 | **Save's guard read** | ✓ | ✓ | ✓ | ✓ | ✓ | `DocEpoch` ticket **plus a path re-check**, re-issuing rather than acting |
+| 3 | **Save's guard read** | ✓ | ◑ | ✓ | ✓ | ✓ | `WriteEpoch` mark **plus a path re-check**, re-reading rather than acting. Deliberately NOT a `DocEpoch` ticket — that counter is claimed by the watcher too, and a guard re-issuing on it never lands on a polled filesystem (the measured livelock in `window/save.rs`) |
 | 4 | **Save's write** | ✓ | ◑ | ✓ | ✓ | ✓ | `WriteGate` (drop, not queue); explicit `Rc<TabState>`; tab-scoped completion |
 | 5 | **Crash-recovery snapshot write** | ✓ | ◑ | ✓ | ✓ | ✓ | `swap.in_flight` + latest-wins coalescing; `tab_by_id` |
 | 6 | **Startup recovery pass** | ✓ | ✓ | ✓ | ✓ | ✓ | runs once; bumps `DocEpoch` on apply; re-resolves windows/tabs after each await |
@@ -688,6 +688,14 @@ Rules that give the matrix its teeth:
   "already open?" before its reads and neither has built anything yet, so both miss.
   New with the async open; costs a duplicate tab, no data risk. Closing it means moving
   the check inside the build pass or reserving the path up front.
+- **3/B — a baseline moved by an applied RELOAD while the guard read is out.** The
+  guard then compares pre-reload bytes against a post-reload baseline and asks. Left
+  open on purpose: unlike the same cell's self-write half — a save of ours landing
+  inside the read, closed by the `WriteEpoch` mark (TDD 5.7) — the file there really
+  did change on disk, so a question is a defensible answer, and
+  re-reading on it would re-open the livelock against an external writer that rewrites
+  the file continuously. Staleness degrades to a question; starvation degrades to
+  silence.
 - **4/B and 5/B — a save's snapshot deletion versus an in-flight snapshot write.** The
   save retires the document's snapshot through the dirty↔swap choke point, which
   cancels the pending debounce — but a snapshot write already dispatched to the pool

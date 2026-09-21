@@ -124,7 +124,7 @@ pub(crate) use decisions::{
     BackingLoss, DiskObservation, DiskRead, ExternalChange, TabBadgeState, APP_NAME,
     BACKING_SETTLE,
 };
-pub(crate) use docepoch::DocEpoch;
+pub(crate) use docepoch::{DocEpoch, WriteEpoch};
 pub(crate) use fmtinsert::FmtInsertKind;
 pub(crate) use ids::{TabId, WindowId};
 pub(crate) use infotoast::InfoToast;

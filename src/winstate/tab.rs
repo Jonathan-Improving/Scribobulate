@@ -262,6 +262,14 @@ pub(crate) struct TabState {
     /// buffer differs from its file. See [`DocEpoch`](crate::winstate::DocEpoch), which
     /// carries the contract: **mutations bump, deferred readers check.**
     pub(crate) doc_epoch: crate::winstate::DocEpoch,
+    /// How many saves of OURS have reached this document's file — the guard against
+    /// the save guard comparing a disk read against a baseline its own write moved.
+    ///
+    /// Separate from [`doc_epoch`](Self::doc_epoch) on purpose: that counter is
+    /// claimed by the live-reload watcher too, and a save guard that re-issues
+    /// whenever it has moved never lands at all on a polled filesystem. See
+    /// [`WriteEpoch`](crate::winstate::WriteEpoch).
+    pub(crate) write_epoch: crate::winstate::WriteEpoch,
     /// Set on a tab that was added in the BACKGROUND without rendering its
     /// preview (a multi-file `open` batch adds every file after the first this
     /// way — startup perf, so opening `docs/*.md sdd/*.md` does not build every
@@ -540,6 +548,7 @@ impl TabState {
             loading: Cell::new(false),
             write_gate: crate::winstate::WriteGate::default(),
             doc_epoch: crate::winstate::DocEpoch::default(),
+            write_epoch: crate::winstate::WriteEpoch::default(),
             // A tab starts fully rendered; only `create_tab_in_window`'s
             // deferred (background-add) path flips this true after construction.
             needs_render: Cell::new(false),

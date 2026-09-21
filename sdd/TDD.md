@@ -772,6 +772,12 @@
 - **When** those reads complete in an order other than the one they were started in
 - **Then** only the newest read's content is applied; an older one is discarded rather than replacing the buffer with stale text and recording it as the saved baseline
 
+### 5.7 A save's own write is never presented to the user as someone else's change
+- **Given** a save's check of the file on disk is still out on the I/O pool when a save of this application's own lands and moves the clean baseline
+- **When** that check comes back carrying the bytes from *before* that write
+- **Then** the file is read again rather than judged against a baseline the read predates — the user is never asked whether to overwrite changes that are their own
+- **And** the re-read is bounded, and a genuine external change found by it still raises the 5.2 warning: nothing is ever written on the assumption that a mismatch must have been self-inflicted
+
 ## 6. Resource footprint (viability gate)
 
 > Scribobulate exists because another popular Markdown viewer holds ~594 MiB of

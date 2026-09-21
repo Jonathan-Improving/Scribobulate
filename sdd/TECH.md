@@ -426,7 +426,13 @@ Two consequences are load-bearing rather than incidental:
   are serialised by `winstate::WriteGate` (a second Save is dropped, not raced,
   because GIO orders neither the renames nor the completions and explicitly
   re-sorts its queue), and a superseded read is discarded by a per-tab generation
-  counter (ScrAP-244).
+  counter (ScrAP-244). A **second** counter, `winstate::WriteEpoch`, records only the
+  saves this application itself completed: the save guard's comparison reads the
+  baseline at decision time, so a write of ours landing inside its read would
+  otherwise have it judge pre-write bytes against a post-write baseline and accuse
+  the user of a conflict they caused themselves (TDD 5.7). It is separate from the
+  generation counter above because that one is claimed by the live-reload watcher,
+  and a guard that re-issues on it never lands at all on a filesystem GIO polls.
 
 **What deliberately stays synchronous**: the application's own small state files —
 `session.toml`, the config file, and the crash-recovery swap-directory scan. They

@@ -175,6 +175,11 @@ async fn save_window(
     // against THIS baseline, not a recorded mtime (QA round-1 H3-H5).
     st.set_source(&text);
     *st.saved_baseline.borrow_mut() = text;
+    // Announce the baseline move to any save guard whose read is already out. Its
+    // read left before this write and is about to be compared against the baseline
+    // this line just installed — two different moments, which differ with nothing
+    // external having touched the file (TDD 5.7).
+    st.write_epoch.bump();
     // A reload's read may have gone out BEFORE this write and be about to come back
     // with pre-save content. Bumping here is what stops it applying: without it, that
     // reload replaces the buffer with the older text and records it as clean, so the
@@ -258,6 +263,12 @@ pub(super) fn save_with_guard(window: &ApplicationWindow) {
     save_with_guard_tab(window, st, None);
 }
 
+/// How many times the save guard will re-read a document whose baseline moved under
+/// it before deciding on what it has. Three rather than one because the retry is only
+/// reached by a save of ours completing inside the read, and a user holding the Save
+/// key on a slow filesystem can do that more than once.
+const GUARD_READ_ATTEMPTS: u8 = 3;
+
 /// Content-gated save of a **named** tab (not necessarily the active one).
 /// `after` runs when this tab's save attempt finishes — write settled, overwrite
 /// cancelled, or abandoned (identity re-pointed) — so Save All can advance.
@@ -287,7 +298,41 @@ fn save_with_guard_tab(window: &ApplicationWindow, st: Rc<TabState>, after: Opti
         // authorises — is about ONE document, and re-asking "which tab is active?"
         // after the read is how a guard checked against one file ends up permitting
         // a write to another.
-        let disk = crate::docio::read_document_text(path).await;
+        //
+        // One thing the read CAN be overtaken by is a save of our own. The comparison
+        // below reads `saved_baseline` at decision time, so a write of ours that
+        // landed while this read was out leaves the two describing different moments:
+        // pre-write bytes against a post-write baseline. They differ, nothing outside
+        // this application touched the file, and the user is asked whether to
+        // overwrite changes that are their own (TDD 5.7). Read again instead —
+        // never assume safety, since an external writer could have moved in the same
+        // window.
+        //
+        // Bounded, and safe to bound: each retry costs one of OUR OWN completed
+        // saves, which are user-driven and one-at-a-time (`WriteGate`), so this
+        // cannot become the watcher livelock the note above describes. On the
+        // exhausted path the guard decides on what it has, which is the old
+        // behaviour — a question, never a silent write.
+        let mut attempt = 1;
+        let disk = loop {
+            let before = st.write_epoch.observe();
+            let disk = crate::docio::read_document_text(path.clone()).await;
+            if st.write_epoch.is_current(before) {
+                break disk;
+            }
+            if attempt == GUARD_READ_ATTEMPTS {
+                log::warn!(
+                    "tab {}: the save guard read was overtaken by our own write                      {GUARD_READ_ATTEMPTS} times; deciding on the last read",
+                    st.id
+                );
+                break disk;
+            }
+            attempt += 1;
+            log::info!(
+                "tab {}: a save of ours landed while the guard read was out;                  re-reading (attempt {attempt})",
+                st.id
+            );
+        };
         let Some(window) = win_weak.upgrade() else {
             return;
         };
@@ -1103,6 +1148,86 @@ mod gtk_integration_tests {
         });
     }
 
+    /// **A guard read overtaken by our OWN save re-reads instead of accusing the user
+    /// (TDD 5.7).**
+    ///
+    /// The guard compares the bytes it read against `saved_baseline` — and reads that
+    /// baseline at *decision* time, which is after its read came back. A save of ours
+    /// completing inside that window leaves the two describing different moments:
+    /// pre-write bytes against a post-write baseline. They differ, so the user is told
+    /// another program modified their file and asked whether to overwrite it. Nothing
+    /// else wrote to it; they are being asked about their own save.
+    ///
+    /// Deliberately **not** an interleaving drive, for the reason
+    /// `a_completed_save_supersedes_a_read_that_was_already_in_flight` states: the
+    /// real window is the gap between a read's syscall and its completion callback,
+    /// which no test can win on purpose. What it drives instead is the *state* that
+    /// race produces, installed while the guard's read is genuinely out on the pool —
+    /// the baseline and source a landed save leaves, with the file itself still
+    /// holding the bytes the read is about to return. Every input to the decision is
+    /// then exactly what the race delivers.
+    ///
+    /// Mutation: removing `st.write_epoch.bump()` from `save_window`, or the re-read
+    /// loop from `save_with_guard_tab`, puts the overwrite prompt on screen and leaves
+    /// the document unwritten.
+    #[gtktest::test]
+    fn a_guard_read_our_own_save_overtook_is_re_read_not_challenged() {
+        let dir = tempfile::tempdir().unwrap();
+        crate::session::with_state_home_for_test(dir.path(), || {
+            let doc = dir.path().join("overtaken.md");
+            std::fs::write(&doc, "start\n").unwrap();
+            let app = test_app("saveovertaken");
+            let window = crate::window::new_window(&app, "IT", "start\n", Some(&doc));
+            let st = state(&window).expect("state");
+
+            let _slow = crate::docio::slow_io(std::time::Duration::from_millis(300));
+            st.editor_buf.set_text("mine\n");
+            save_with_guard(&window);
+
+            // While that read is out on the pool: a save of ours lands. This is what
+            // one leaves behind — baseline and source moved to the text it wrote, and
+            // the write announced (`save_window`).
+            gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(60), {
+                let st = Rc::clone(&st);
+                move || {
+                    st.set_source("ours\n");
+                    *st.saved_baseline.borrow_mut() = "ours\n".to_owned();
+                    st.write_epoch.bump();
+                }
+            });
+            // …and the file catches up only AFTER the guard's read has taken its
+            // answer, so that answer is the pre-write text the race hands back.
+            let catch_up = doc.clone();
+            gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(360), move || {
+                std::fs::write(&catch_up, "ours\n").unwrap();
+            });
+
+            let before = modal_transients_of(&window);
+            // Settling on EITHER outcome so the failing arm reports in a second
+            // rather than after the full deadline.
+            let settled = crate::docio::settle(|| {
+                !st.is_dirty() || modal_transients_of(&window).len() > before.len()
+            });
+
+            assert_eq!(
+                modal_transients_of(&window).len(),
+                before.len(),
+                "no overwrite prompt may appear: the only thing that changed the file \
+                 was this application's own save, and a guard that accuses the user of \
+                 a conflict they did not cause teaches them to answer Overwrite without \
+                 reading it"
+            );
+            assert!(settled && !st.is_dirty(), "the save must land");
+            assert_eq!(
+                std::fs::read_to_string(&doc).unwrap(),
+                "mine\n",
+                "the guard's second read agreed with the baseline, so the text the user \
+                 pressed Save on is what reached disk"
+            );
+            window.destroy();
+        });
+    }
+
     /// **A save must not starve while the file watcher is churning.**
     ///
     /// Regression guard for a defect this project's own slow-filesystem rig caught an
@@ -1319,6 +1444,12 @@ mod gtk_integration_tests {
             // invoking it on the untitled tab would open a Save As chooser instead.
             let chrome = crate::winstate::chrome(&window).expect("chrome registered");
             chrome.tabs.focus_page(&st.content_box);
+            // Pins the WIRING the re-read guard's own test cannot see, since that one
+            // installs a landed save's state by hand: that the real write path
+            // announces itself. Mutation: removing `st.write_epoch.bump()` from
+            // `save_window` fails the assertion below, and with it every guard read a
+            // later save issues starts believing a baseline it may not be about.
+            let before_save = st.write_epoch.observe();
             save_with_guard(&window);
             chrome.tabs.focus_page(&other.content_box);
             assert_ne!(
@@ -1336,6 +1467,12 @@ mod gtk_integration_tests {
                 std::fs::read_to_string(&doc).unwrap(),
                 "edited on the way past\n",
                 "the edited buffer must actually reach the file"
+            );
+            assert!(
+                !st.write_epoch.is_current(before_save),
+                "a landed save must announce that it moved the baseline, or a guard \
+                 read already out compares pre-write bytes against it and accuses the \
+                 user of a conflict they caused themselves (TDD 5.7)"
             );
             // A test ASSERTING on the gate, not branching on it to write — the
             // distinction clippy.toml's ban draws.
