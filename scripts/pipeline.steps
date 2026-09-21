@@ -324,14 +324,14 @@ disarm.macos integration  permanent  G_DEBUG=fatal-criticals is absent from the 
 #
 # A third class beside unit and integration, outside the coverage ratchet, no
 # opt-in. Insertion without renumbering follows the 4b precedent. Two halves:
-# growth-slope after warm-up (catches leaks nobody predicted) and texture
+# growth after warm-up (catches leaks nobody predicted) and texture
 # finalization (catches app-side retention). The WebP fixture skips at runtime
 # where the host has no WebP loader (gvsbuild ships SVG only); the PNG control
 # still runs. Do NOT fold this into step 5 — a separate step can be disabled
 # independently later.
 # ---------------------------------------------------------------------------
 step   5b  memory
-intent memory  Per-render memory growth after warm-up stays under the per-platform slope bound, and a decoded picture finalizes once every application reference is dropped
+intent memory  Per-render memory growth after warm-up stays under the per-platform bounds — growth one allocation does not explain, and total growth — and a decoded picture finalizes once every application reference is dropped
 verdict memory  exit
 class  memory  required
 cmd.linux   memory  scripts/run-memory-gates.sh

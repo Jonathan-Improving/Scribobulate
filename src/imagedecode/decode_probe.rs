@@ -1,10 +1,10 @@
 //! Test-only decode counter (Finding 2 / TDD 6.8).
 //!
 //! `local_cache_reuses_decode_ttd_6_8` used to assert a cache HIT by measuring
-//! footprint growth against `TOLERANCE_BYTES` — but `anim.webp` decodes to ~0.49 MiB,
-//! comfortably under the 2 MiB Linux tolerance, so a fresh decode on the "cached" load
-//! satisfied the assertion just as well as an actual hit: deleting the cache entirely
-//! still passed. On a commit that exists because a leak went ungated, a gate that
+//! footprint growth against the memory gate's bound — but `anim.webp` decodes to
+//! ~0.49 MiB, too little for any such bound to see, so a fresh decode on the "cached"
+//! load satisfied the assertion just as well as an actual hit: deleting the cache
+//! entirely still passed. On a commit that exists because a leak went ungated, a gate that
 //! cannot fail is the defect it was written against.
 //!
 //! The fix is to assert the cache HIT directly rather than inferring it from bytes:

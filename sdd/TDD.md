@@ -825,9 +825,11 @@
 ### 6.6 A re-render does not grow memory without bound
 - **Given** a document with a local image open in a release build (an animated WebP)
 - **When** the preview is re-rendered many times — theme switch, zoom, or live reload — after a few warm-up renders are discarded
-- **Then** process memory does not climb from the first half of the remaining renders to the second half, beyond a per-platform tolerance taken from a measured clean baseline
+- **Then** process memory does not grow repeatedly across the remaining renders: growth beyond what one single allocation accounts for stays under a per-platform bound taken from measured clean traces
+- **And** one allocation made once and retained, flat before and after it, is not reported as growth wherever in the run it lands
+- **And** total growth across the window stays under an absolute ceiling, so "only one allocation" can never excuse an unbounded one
 - **And** a document with no images stays similarly flat
-- **And** this is a slope, not a ceiling: a large document may sit high; it must not keep growing
+- **And** this is growth, not a ceiling: a large document may sit high; it must not keep growing
 
 ### 6.7 The previous render’s decoded picture is gone
 - **Given** a document whose preview has decoded an image
@@ -852,7 +854,22 @@
 ### 6.10 A playing animation does not grow memory
 - **Given** an animation playing through many loops
 - **When** its memory is sampled across those loops, after warm-up
-- **Then** it does not climb from the first half of the loops to the second, by the same measure as 6.6
+- **Then** memory does not grow repeatedly across the samples, by the same measure as 6.6
+- **And** a single one-time allocation, flat before and after it, is not reported as growth wherever in the run it lands
+
+### 6.11 The growth gate distinguishes a step from a climb
+- **Given** a planted series that steps once and is flat either side
+- **When** the growth assertion is applied to it
+- **Then** it passes, for every position the step can occupy in the series — including a step far larger than the bound on growth
+- **And given** a planted series that climbs on every sample
+- **When** the same assertion is applied
+- **Then** it fails, and its message names the growth it measured and the part one allocation explains
+- **Evidence, recorded here for the same reason as 6.9's**: the predicate was mutation-tested against the REAL gates, not only planted series. Retaining every decode (`std::mem::forget` on the loaded image) reddens 6.9 at 3.35 MB of residual growth on the animated WebP and 30.7 MB on the PNG control; retaining every presented frame reddens 6.10's playback half at 34.5 MB. Four consecutive clean runs on the same host sit at 0.27 MB against a 2 MB bound — two orders of magnitude from the failures, so the verdict does not rest on host noise
+
+### 6.12 A single allocation too large to be warm-up still fails
+- **Given** a planted series with exactly one increase, larger than the absolute ceiling on total growth
+- **When** the growth assertion is applied to it
+- **Then** it fails, so that "only one allocation" alone can never pass an arbitrarily large one
 
 ---
 

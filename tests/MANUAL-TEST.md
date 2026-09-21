@@ -376,12 +376,14 @@ Never `pkill` a helper process in the same command that captures output — a
 child core-dump silently discards stdout (POLICY.md).
 
 **Per-render growth (6.6–6.8) is a pipeline step, not this hand procedure.** The
-standing gate drives a re-render loop, discards warm-up, and asserts the second
-half of samples does not climb past the first. Do not substitute a one-shot
-"render, free, check the number came back" — freed pages stay with the allocator
-on every platform this project ships, so that shape cannot pass on a correct
-implementation. The live check that remains here is 6.3's unbounded-climb watch
-across live-reload cycles; 6.6 is the same quantity asked as a slope.
+standing gate drives a re-render loop, discards warm-up, and asserts that the
+growth left over after subtracting the single largest allocation stays under a
+per-platform bound — so one allocation made once is never read as a leak, and a
+climb across renders always is. Do not substitute a one-shot "render, free, check
+the number came back" — freed pages stay with the allocator on every platform
+this project delivers to, so that shape cannot pass on a correct implementation.
+The live check that remains here is 6.3's unbounded-climb watch across
+live-reload cycles; 6.6 is the same quantity asked across many renders.
 
 ### 1.9 Detecting a wedged or crashed run (for unattended / orchestrated runs)
 
@@ -866,7 +868,7 @@ gtk4-rs skill's dev-loop doc on why geometry/rendering bugs leave no warning.
   > **Read `IOSurface` as context, never as the gate.** It is the window-server handoff that every macOS window has, Cairo-rendered or not, and it dominates the GPU-mapped total (tens of MiB against IOAccelerator's hundreds of KiB). It is area-*invariant* — measured constant across a 4x window-area range — but its large backing buffers appear and disappear **in pairs** over a process's life, so its total can halve or double for no application reason. A run that gates on the IOSurface total will read that as a regression. Report it, do not gate on it.
   > **GPU engine utilisation is only available system-wide without `sudo`** (`ioreg -r -d 1 -c IOAccelerator`, field `"Device Utilization %"`). It therefore includes every other window on the desktop. Take a baseline with the app closed and compare against it; a single absolute reading proves nothing on its own.
 - [ ] **6.5** *(Windows only)* Measure dedicated GPU memory and GPU engine utilisation for the PID (`Get-Counter "\GPU Process Memory(*)\Dedicated Usage"` and `"\GPU Engine(*)\Utilization Percentage"`, matched on `pid_<PID>_`). A non-zero reading is **expected and not a failure** — Windows composites every window through the GPU. What must hold: the figure stays far under the ceiling POLICY § Footprint verification states, engine utilisation stays ~0%, and — the actual gate — the figure **does not grow** when the window is maximised (try ~9x the area) or when a much larger document is opened at a fixed window size, while RSS *does* grow with the document. Growth in either dimension means software compositing is not active (TDD 6.5)
-- [ ] **6.6** *(all platforms; the pipeline step is the gate)* Open a document that embeds a local image — an animated WebP — and drive a dozen theme switches (or zoom steps, or live reloads of unchanged content) after a couple of warm-up renders. Process memory must not keep climbing from the first half of those remaining renders to the second. A document with no images is the control and stays flat. This is a slope, not a ceiling (TDD 6.6). **Do not** free an image and assert the number came back — it will not, on a correct build.
+- [ ] **6.6** *(all platforms; the pipeline step is the gate)* Open a document that embeds a local image — an animated WebP — and drive a dozen theme switches (or zoom steps, or live reloads of unchanged content) after a couple of warm-up renders. Process memory must not keep climbing render after render — one step up that then holds flat is not a leak, repeated growth is. A document with no images is the control and stays flat. This is growth, not a ceiling (TDD 6.6). **Do not** free an image and assert the number came back — it will not, on a correct build.
 - [ ] **6.7** Covered by the same pipeline step as 6.6: the previous render's decoded picture is gone once the application has dropped it, including the render node tree, with no extra main-loop pump. Cairo renderer only (TDD 6.7).
 - [ ] **6.8** Open a document with a local image, switch theme (same size, same file) → the picture is unchanged and the second render is not a fresh decode from disk. Then replace the image file on disk and reload → the new picture shows. Zoom a local SVG → it stays sharp (13.11), not a stretched bitmap (TDD 6.8).
 - [ ] **6.9** *(the pipeline step is the gate)* Covered by the same pipeline step as 6.6, decoding the animated WebP repeatedly with the image cache emptied each time. By hand: open a document embedding **many different** animated WebPs — more than the image cache holds — and drive a dozen theme switches → process memory must not keep climbing. On a build from before phase 2 this climbs ~12 MB per image per switch on Linux (TDD 6.9).
