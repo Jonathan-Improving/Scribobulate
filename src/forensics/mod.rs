@@ -177,7 +177,21 @@ pub(crate) fn floor_char_boundary(s: &str, limit: usize) -> usize {
 ///
 /// A `static` rather than something owned by the sink, because the signal handler
 /// must reach it without going through anything that can be locked or dropped.
-static BREADCRUMBS: Ring = Ring::new();
+///
+/// `pub(crate)`, not private, so that a second writer outside this module's own
+/// lifecycle machinery can deposit a breadcrumb of its own: `gtk_suite.rs`'s
+/// `arm_timeout` records "what is currently running" into this exact ring before
+/// arming the per-case wall-clock alarm, so that IF a report is ever produced from
+/// this process (a crash, or a future signal-based capture on the timeout path
+/// itself) the ring already names the case in flight the instant things went
+/// wrong — see that function's doc comment for why this is the timeout
+/// instrumentation's own chosen mechanism (spec `issue-1-macos-integration-hang-
+/// measurement.md` §2.2, "Option 2"). `Ring::record` is exactly as safe to call
+/// from ordinary (non-signal) code as it is from a handler — it never blocks and
+/// never allocates either way — so widening this to a second *writer* changes
+/// nothing about the safety argument above; it only changes who else may call
+/// `record` on the one ring instance the handler also reads.
+pub(crate) static BREADCRUMBS: Ring = Ring::new();
 
 /// The registered sink, kept reachable for the one path that must bypass the level
 /// filter ([`record_demoted_diagnostic`]). `log`'s own `logger()` returns an opaque

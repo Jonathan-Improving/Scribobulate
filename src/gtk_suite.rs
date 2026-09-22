@@ -379,6 +379,60 @@ fn flush() {
 // collapses a run of IDENTICAL records to the first occurrence plus bounded growth
 // milestones, so the same flood that used to cost 4.2 GB now costs a handful of
 // lines regardless of how long the hang lasts, with no pipe and nothing to drain.
+//
+// ── What `on_alarm` captures, and what it deliberately still does not ─────────
+//
+// This is the instrumentation from the macOS integration-hang measurement plan
+// (`.flowdra/specs/issue-1-macos-integration-hang-measurement.md` §2.2, "Line B"):
+// the issue this closes recorded a hang whose only artefact was the case NAME —
+// `on_alarm` wrote that and exited, with nothing about where inside the spin the
+// process actually was. The plan names two async-signal-safe ways to do better,
+// in ascending cost, and asks the change to pick one and say why:
+//
+// 1. **Route through `forensics::signal`'s existing fatal-signal path** by
+//    `raise`ing `SIGABRT` instead of calling `_exit` — if that path is verified
+//    armed and reentrant-safe. VERIFIED, and REJECTED for THIS binary specifically
+//    (not for the mechanism in general): `forensics::signal::FATAL_SIGNALS` does
+//    already include `SIGABRT`, and `on_fatal` is built entirely from atomics,
+//    `write`/`open`/`close`, `clock_gettime` and `libc::backtrace`/
+//    `backtrace_symbols_fd` — nothing on that path allocates or locks, so it would
+//    be safe to invoke reentrantly from inside another signal handler. But
+//    `forensics::signal::install` is never called by anything this binary's
+//    `main` runs: it is reached only through `logging::init()` (via
+//    `forensics::install`), and this runner's `main` explicitly does NOT call
+//    `logging::init()` — see that call site's own comment, a few lines up in this
+//    file — because it reformats GLib's raw output in a way two other things
+//    already grep for verbatim. `raise(SIGABRT)` here would therefore hit the
+//    signal's DEFAULT disposition (an uninformative core-dump-or-nothing abort),
+//    which is a regression from today's clear `TIMED OUT` line, not an
+//    improvement — the "for free" stack capture only exists in a process that has
+//    actually installed the handler, and independently calling
+//    `forensics::signal::install` here would mean this test runner growing its own
+//    report-path/identity-header plumbing, which is new production surface, not
+//    "route through the existing path". So Option 1 is a real mechanism but not a
+//    safe fit for *this* call site as it stands today; a future change that makes
+//    `gtk_suite` install the forensic kit (which would also give it the
+//    persistent log and panic reports every other binary gets) could revisit this.
+// 2. **Proactively deposit a marker into `forensics::ring`'s breadcrumb ring**,
+//    before the alarm is armed rather than inside the handler, so the ring
+//    already names what is running the instant the alarm fires. This is what
+//    ships: `arm_timeout` now calls `forensics::BREADCRUMBS.record(..)` with the
+//    case name, a monotonic timestamp, and an explicit "timeout, not a crash" tag
+//    — using exactly the same `Ring::record` API the fatal-signal handler itself
+//    reads from, so no new storage or reader is introduced. It costs nothing
+//    inside `on_alarm`: that handler is completely unchanged, still nothing but
+//    the two `write`s and `_exit` it always was, because ALL of the new work runs
+//    on the ordinary call path before the alarm exists. It is weaker than Option
+//    1 — no backtrace, no fault context, no module map — but it is
+//    unconditionally signal-safe (nothing new executes in signal context at all)
+//    and it does not depend on this binary ever installing the fatal-signal
+//    handler.
+//
+// A future report or crash-adjacent tool reading `BREADCRUMBS` after a macOS hang
+// (should this process ever gain its own signal-based capture on this path, or
+// should a debugger/`sample`/`lldb`-attached run inspect the ring by hand) sees
+// exactly which case was in flight and for how long, even though `on_alarm` itself
+// still only writes the two lines it always did.
 #[cfg(unix)]
 static TIMED_OUT_CASE: std::sync::atomic::AtomicPtr<u8> =
     std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
@@ -390,6 +444,23 @@ fn arm_timeout(name: &'static str, secs: u32) {
     use std::sync::atomic::Ordering;
     TIMED_OUT_CASE.store(name.as_ptr().cast_mut(), Ordering::SeqCst);
     TIMED_OUT_LEN.store(name.len(), Ordering::SeqCst);
+
+    // The proactive breadcrumb (Option 2 above). Ordinary code, not signal
+    // context: `format!` and the ring's internal atomics are both fine here, and
+    // this runs once per case rather than once per alarm tick, so its cost is
+    // irrelevant next to the bodies it is timing. Monotonic, not wall-clock — a
+    // breadcrumb answers "how long has this been running", which `Instant` gives
+    // directly with no clock-adjustment hazard, and every existing breadcrumb in
+    // this ring already carries its own wall-clock stamp from `logging::forward`
+    // for correlation against those, if the ring is ever read from a process that
+    // also installed the fatal-signal handler.
+    let started = std::time::Instant::now();
+    forensics::BREADCRUMBS.record(&format!(
+        "gtk_suite: arming {secs}s wall-clock timeout for case {name} at t={:?} \
+         (breadcrumb only — this is a TIMEOUT budget being armed, not a crash)",
+        started
+    ));
+
     // SAFETY: installing a signal handler and arming the process alarm. The handler
     // below touches only atomics and the two async-signal-safe calls `write`/`_exit`.
     unsafe {
@@ -408,6 +479,10 @@ fn disarm_timeout() {
     }
 }
 
+/// Handler unchanged by the Line-B instrumentation above: still exactly the two
+/// `write`s and the `_exit` it always was. See the doc block above `arm_timeout`
+/// for why the new capture work runs entirely BEFORE the alarm is armed instead of
+/// growing this function.
 #[cfg(unix)]
 extern "C" fn on_alarm(_sig: libc::c_int) {
     use std::sync::atomic::Ordering;
@@ -434,6 +509,144 @@ extern "C" fn on_alarm(_sig: libc::c_int) {
 fn arm_timeout(_name: &'static str, _secs: u32) {}
 #[cfg(not(unix))]
 fn disarm_timeout() {}
+
+/// Proves the Line-B mechanism chosen above actually fires, end to end, rather
+/// than asserting it from prose: `arm_timeout` deposits a breadcrumb naming the
+/// case BEFORE arming the alarm, and — independently — a case that outlives its
+/// budget is still killed by the same `on_alarm`/`_exit(124)` path as before,
+/// with the same `TIMED OUT` line on stderr.
+///
+/// Two separate assertions, deliberately not one, because they exercise two
+/// different halves of the change:
+///
+/// 1. **The breadcrumb.** Checked in THIS process, no fork needed — `arm_timeout`
+///    itself runs on the ordinary call path (never inside a signal handler), so
+///    calling it here and reading `forensics::BREADCRUMBS` immediately afterward
+///    is exactly the code path a real case takes, with `disarm_timeout` called
+///    right away so the real alarm this test just armed can never actually fire
+///    against the test process.
+/// 2. **The kill path.** Cannot be checked in this process — the mechanism under
+///    test **terminates the process that runs it**, which is the entire point of
+///    a wall-clock cap with no worker thread to abandon. A forked child is the
+///    same honest-harness argument `forensics::signal`'s own fatal-signal tests
+///    already make (see that module's `a_child_raises`): mocking the timeout away
+///    would leave the one interesting property — a real `SIGALRM` interrupting a
+///    real sleep and a real `_exit(124)` — unexercised. The child calls
+///    `arm_timeout` with a budget far shorter than its own `sleep`, so the alarm
+///    is guaranteed to interrupt it (this is a synthetic timeout override, not a
+///    body that happens to be slow — the sleep duration is chosen to be many
+///    multiples of the budget so the test is not a race against CI scheduling
+///    noise).
+#[gtktest::test]
+fn arm_timeout_deposits_a_breadcrumb_and_still_kills_a_case_that_outlives_its_budget() {
+    // ── Half 1: the breadcrumb, in-process ──────────────────────────────────
+    //
+    // A budget long enough that THIS process's own alarm cannot plausibly fire
+    // before `disarm_timeout` cancels it a few instructions later, even under
+    // heavy CI scheduling contention — the property under test here is what
+    // `arm_timeout` writes, not the alarm's delivery, which half 2 covers on its
+    // own terms in a disposable child.
+    const CASE_NAME: &str = "arm_timeout_breadcrumb_probe::synthetic_case";
+    arm_timeout(CASE_NAME, 3600);
+    disarm_timeout();
+
+    let mut found = false;
+    forensics::BREADCRUMBS.for_each(|bytes| {
+        if String::from_utf8_lossy(bytes).contains(CASE_NAME) {
+            found = true;
+        }
+    });
+    assert!(
+        found,
+        "arm_timeout must deposit a breadcrumb naming the case into \
+         forensics::BREADCRUMBS before returning, so the ring already names what \
+         is running the instant a real alarm fires — see the Line-B design note \
+         above `arm_timeout`"
+    );
+
+    // ── Half 2: the kill path, in a disposable child ────────────────────────
+    //
+    // A pipe, created in the PARENT before the fork, is how the child's stderr
+    // is captured: the child inherits the write end onto fd 2, the parent reads
+    // the read end after closing its own write end, so `read` observes EOF once
+    // the child (and its inherited write end) both exit — the standard
+    // fork+pipe idiom, and the only way to assert the exact `TIMED OUT` text
+    // `on_alarm` writes rather than merely trusting the exit code.
+    //
+    // SAFETY: two plain file descriptors from `pipe(2)`; both are closed on
+    // every exit path below.
+    let mut fds = [0i32; 2];
+    assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0, "pipe(2) failed");
+    let [read_fd, write_fd] = fds;
+
+    // SAFETY: the child calls only `arm_timeout` (itself async-signal-safe to the
+    // extent it runs before any signal is delivered — see its own doc — and
+    // otherwise ordinary code), `std::thread::sleep`, `libc::dup2`/`close`, and
+    // `_exit`. No allocation happens between the fork and the child's own
+    // termination other than what `arm_timeout`'s one `format!` already does,
+    // which is fine here: it runs long before the alarm, on a freshly forked
+    // single-threaded child, not inside a signal handler.
+    let child = unsafe { libc::fork() };
+    assert!(child >= 0, "fork failed");
+    if child == 0 {
+        // SAFETY: exactly the child-process discipline `forensics::signal`'s own
+        // fork-based tests use — nothing here runs after the point where a
+        // multi-threaded parent's locks could matter, because this child does
+        // nothing but arm a real budget and sleep.
+        unsafe {
+            libc::close(1); // stdout: only stderr's TIMED OUT line is checked
+            libc::dup2(write_fd, 2); // stderr -> the pipe, for the parent to read
+            libc::close(write_fd);
+            libc::close(read_fd);
+        }
+        arm_timeout("synthetic_timeout_demo_case", 1);
+        std::thread::sleep(std::time::Duration::from_secs(30));
+        // Unreachable if the alarm fired as it must; kept so a platform whose
+        // SIGALRM somehow failed to interrupt the sleep does not silently pass.
+        unsafe { libc::_exit(66) };
+    }
+
+    // Parent: close the write end so EOF is reachable once the child's own copy
+    // closes too (on `_exit`), then drain the read end before waiting — reading
+    // first avoids the classic fork+pipe deadlock where a full pipe buffer
+    // blocks the child's `write` while the parent blocks in `waitpid` instead of
+    // draining it.
+    unsafe { libc::close(write_fd) };
+    let mut captured = Vec::new();
+    let mut chunk = [0u8; 512];
+    loop {
+        // SAFETY: `chunk` is a live buffer; `read_fd` is the pipe's read end,
+        // still open until explicitly closed below.
+        let n = unsafe { libc::read(read_fd, chunk.as_mut_ptr().cast(), chunk.len()) };
+        if n <= 0 {
+            break;
+        }
+        captured.extend_from_slice(&chunk[..n as usize]);
+    }
+    unsafe { libc::close(read_fd) };
+
+    let mut status = 0;
+    // SAFETY: reaping the child forked above.
+    unsafe { libc::waitpid(child, &mut status, 0) };
+    assert!(
+        libc::WIFEXITED(status),
+        "the child must terminate via on_alarm's own _exit, not a signal — \
+         status was {status}"
+    );
+    assert_eq!(
+        libc::WEXITSTATUS(status),
+        124,
+        "on_alarm must still exit 124 on a timeout, unchanged by the Line-B \
+         breadcrumb work in arm_timeout — status was {status}"
+    );
+
+    let stderr_text = String::from_utf8_lossy(&captured);
+    assert!(
+        stderr_text.contains("TIMED OUT (per-case wall-clock cap): synthetic_timeout_demo_case"),
+        "on_alarm's own diagnostic line must still be produced, unchanged, \
+         alongside the new breadcrumb — got: {stderr_text:?}"
+    );
+}
 
 /// The runner's own argument parsing, guarded here because its failure mode is
 /// silent and green: a `--skip <name>` whose value leaked into `filters` inverted

@@ -433,6 +433,50 @@ evidence is machine-local and not transferable:
 `~/Library/Logs/DiagnosticReports/gtk_suite-9047c36e3af692e9-2026-08-07-232935.ips` and
 `…-2026-08-08-015722.ips`.
 
+**Re-measured 2026-09-22, on real macOS hardware, by this session's builder seat, as a
+byproduct of a baseline sample taken FOR entry X (the macOS integration-suite hang) — see
+that entry's own 2026-09-22 round for the full sampling context.** 1 abort in 14 clean-
+signature `gtk_suite` runs (a further 6 runs used different, contaminated-then-instrumented
+configurations not counted in this 14 — see entry X). **Rate: 1/14 ≈ 7% this round — not
+distinguishable from, and not narrower than, this entry's own previously recorded ~25–46%
+band at this sample size**: a single abort in 14 draws is close to what a 7% true rate would
+show, but it is also within ordinary variation for a 30% or 40% true rate at n=14, so this
+round narrows nothing about the rate either way; it is one more data point in an already
+wide-swinging history.
+
+**New site, and it is genuinely new — not one of this entry's previously recorded sites**
+(`select_all_stands_down_for_every_text_entry_and_recovers_for_the_editor`, a find-cursor
+test, and an unnamed-at-the-time annotation-card body from the 2026-08-27 round):
+`window::editor_annotate::gtk_integration_tests::the_prepopulated_comment_opens_unselected_
+with_the_caret_at_the_end`. Same fault class, pthread values matching (in-place corruption
+on the aborting thread, not a cross-thread pop, consistent with every prior round):
+
+```
+objc[45205]: autorelease pool page 0x87145d000 corrupted
+  magic     0x94706085 0x32610bbc 0x00001400 0x00000000
+  should be 0xa1a1a1a1 0x4f545541 0x454c4552 0x21455341
+  pthread   0x1f9b3e180
+  should be 0x1f9b3e180
+```
+
+Verbatim excerpt (full run context, all 292 preceding cases): `scratch/issue-1-hang-
+measurement/raw/abort-run-10-entryF-signature.log`. No `.ips` file was captured for this
+round — this abort was caught via the test harness's own stdout/stderr (a `cargo test`
+process exiting via SIGABRT, signal 6), on real hardware rather than CI, so unlike the
+2026-08-07/08 rounds there is no `~/Library/Logs/DiagnosticReports/*.ips` cited here; stated
+plainly rather than implied.
+
+**Addressed together with entry X, per this register's "check together" rule**: this abort
+occurred *during a baseline sampling run being taken for entry X's own signature*, which did
+not appear anywhere in that run's log. That is weak evidence against the two sharing a
+single failure mode **in this one instance** (no co-occurrence), but a single
+co-occurrence-free run does not rule out a shared upstream mechanism in general — see entry
+X's own 2026-09-22 round for the full hedge. `window::editor_annotate` joins the set of test
+bodies (alongside the find-cursor and rapid-focus-switching bodies already on record here)
+that drive frequent focus crossings and mark-sets on `GtkTextView` widgets — consistent with,
+not a departure from, this entry's own "needs suite depth, triggered by focus/mark-set
+churn, not any one body's defect" framing.
+
 ---
 
 ## I. Every native file chooser invocation grows RSS on macOS
@@ -776,7 +820,8 @@ fraction of runs. One kills the process and one stops it, which is a real differ
 the register's own warning about one defect filed twice applies: check them together before
 treating either as understood.
 
-**Mitigation options**:
+**Mitigation options** *(superseded in part by the 2026-09-22 round below — see there for
+the current list)*:
 
 - **Establish the background rate properly** — a run of ten on an untouched tree, which is
   the measurement every arm so far has been missing.
@@ -784,6 +829,150 @@ treating either as understood.
   site is the one thing that has moved every time and it is being read as a clue.
 - **Accept slower macOS ratification** in the meantime: read a macOS result only from
   several runs, never from one, and never treat a hang as a verdict about the change.
+
+**Re-measured 2026-09-22, on real macOS hardware, by this session's builder seat.**
+Corrects an environmental assumption first: the investigating session (and the plan that
+scoped this round) assumed no macOS access existed at all — wrong for this seat. This
+worktree runs natively on Darwin 25.6.0 arm64, macOS 26.6.2 build 25G83, GTK 4.22.4 via
+Homebrew/pkg-config, on real hardware, not CI. Worth recording for the next investigator
+precisely because the opposite assumption would have wasted the round.
+
+**CI (`execute-macos`) was tried first and is unavailable, for a structural reason worth
+recording once.** `Jonathan-Improving/Scribobulate` is a fork; `gh api repos/.../actions/
+workflows` returns `total_count: 0` even though `gh api repos/.../actions/permissions`
+reports `enabled: true` — GitHub requires the fork owner to click through the Actions tab's
+one-time consent screen before any workflow registers there, and that click is a UI action
+no API/CLI call can perform. Five throwaway branches were pushed to trigger parallel
+`execute-macos` runs on distinct refs (sidestepping the `concurrency.cancel-in-progress`
+collision on a shared ref), confirmed via `gh run list` to register zero runs, then deleted.
+Real hardware was used instead; no `execute-macos` run URL exists to cite for this round.
+
+**Baseline sample (unmodified tree, at the "Merge branch 'pipeline'" commit dated
+2026-09-21): 22
+runs total, with a genuine environmental-contamination class discovered and excluded before
+the rate below is computed.** Run 1 (full target set incl. `icon_resolution`/
+`logrepeat_reproduce`/`macos_dark_mode`/`popover_deferred_focus`): clean, 586/0, 202.97s,
+one benign single (non-repeating) `poll(2)` EAGAIN that did **not** escalate — contrast with
+this entry's own signature, which needs EAGAIN three times followed by the recursive spam.
+Runs 2–7 (6 runs) all failed **identically** on the same two tests
+(`codeview::animsprite_tests::an_animated_heading_band_sprite_plays_while_the_heading_is_in_view`
+and `codeview::markers::a11y_integration_tests::a_card_takes_the_focus_only_when_the_opener_
+asked_for_it`) — diagnosed live via `osascript` that Firefox held OS-level frontmost focus
+throughout, denying these two focus/frame-clock-dependent tests what they need. Never this
+entry's signature, never entry F's. This is a genuine, fully deterministic (6/6)
+environmental-contamination class — the sampling machine was not, in fact, idle, contrary
+to this entry's own "otherwise idle machine" precondition from the 2026-09-19 round — and is
+excluded from the rate below exactly as entry F's history excludes its own contaminated run
+(the concurrent-build outlier in its n=6 round). From run 8 on, both tests were passed to
+`--skip` explicitly. Runs 8–22 (15 runs) with the contaminated tests skipped: **14 clean, 1
+abort matching entry F's signature** (detailed under entry F below), rate 1/14 ≈ 7% for that
+signature. **Zero occurrences anywhere in all 22 runs — contaminated or clean — of this
+entry's own specific signature** (`poll(2)` EAGAIN ×3 then the recursive
+`g_main_context_prepare()`/`check()` spam), and zero per-case `TIMED OUT` wall-clock-cap
+firings.
+
+**Is this consistent with, narrower than, or in tension with the existing 20–60% band? —
+Consistent with, not narrower than.** 14 runs with zero hits on this entry's signature does
+not disprove a 20% true rate (a 20%-true-rate process shows zero hits in 14 draws about 4%
+of the time) but is harder to reconcile with the upper end (a 60%-true-rate process shows
+zero hits in 14 draws about 0.001% of the time) — so this round's zero-hit result sits more
+comfortably against the lower half of the existing band than the upper half, but **14 runs
+cannot pin the true rate down any further than that**, and a single round of 14 clean-on-
+this-signature runs is exactly the sample size this entry's own retraction lesson warns
+against over-reading. Read as: *mildly suggestive of the lower half of the band, not a
+narrowing of the band's width.*
+
+**No stack was captured from a hung run this round, and the reason is itself informative:
+this entry's own signature never fired in 22 runs, so there was nothing to capture** — a
+null result, reported plainly rather than left as a silent gap, per this entry's own
+standard. A second, instrumented sample (6 further runs, breadcrumb mechanism described
+below, applied but uncommitted at sampling time) also produced 6/6 clean with zero hangs
+and zero aborts — again a null result: the instrumentation's own mechanism was
+independently verified to fire correctly against a synthetic timeout (a forked-child test,
+not a real hang), so this null result means no real hang occurred to catch in these 6 runs,
+not that the instrumentation is inert.
+
+**Line A static-analysis findings, cited here as hypothesis, not measurement** (full
+document: `scratch/issue-1-hang-measurement/line-a-static-analysis.md`). The headline
+finding: every reachable call in this codebase to `glib::MainContext::iteration()` /
+`MainContext::block_on()` — every candidate for a nested main-loop pump — was found to be
+issued from the **top level of a `#[gtktest::test]` body's own control flow**, never from
+inside a `connect_*`/idle/timeout signal-handler closure that a live GDK Quartz `prepare`/
+`check` dispatch frame would already have on the stack. No application-owned closure
+matching the shape this entry's signature would need (a Rust callback re-entering the main
+loop while GDK already holds a dispatch frame) was found anywhere in `src/`. The strongest
+re-entrancy *shape* found, still only at top level: `MainContext::default().block_on(future)`
+at `src/window/mod.rs:1354`, `src/window/navhistory/traverse.rs:249`,
+`src/window/swaprecovery.rs:703,747,784,842,898,940,976,1014,1086,1124,1185,1233` (×12), and
+`src/animation/worker.rs:400` — and `window/mod.rs`'s own code comment at that line states
+this same shape also drives the **production** `restore_session` startup path, not just
+tests, which is the one finding in this pass with blast radius beyond the test suite itself.
+`src/testpump.rs:137` (`ctx.iteration(true)` inside the shared `pump()` core nearly every
+test-body wait in this crate routes through) is the highest-traffic single call site found,
+still classified top-level in every caller checked. What would move any of this from
+hypothesis to measurement: a captured stack from an actual hang showing one of these frames
+sitting *underneath* a live GDK dispatch frame (§6 of the Line A document) — not obtained
+this round, per the null result above.
+
+**Entry F, addressed together with this entry per this register's "check together before
+either is treated as understood" rule.** This round's single abort (detailed under entry F
+below) fired during a *baseline sample run for this entry* — a `gtk_suite` invocation being
+sampled for **this entry's** signature, which did not appear in that run at all. That is a
+small, hedged data point: in this one run, entry F's mechanism fired with no trace of this
+entry's mechanism anywhere in the same log, which argues weakly *against* the two being the
+same failure mode **in that specific instance** — if a single shared upstream cause fired
+here, some trace of this entry's own signature accompanying it would be a more expected
+shape than a clean abort with nothing else present. One co-occurrence-free instance is weak
+evidence on its own and does not rule out a shared upstream mechanism in general (the two
+could still share a root cause that manifests as one symptom or the other depending on
+timing, never both at once) — this round narrows nothing about the "possibly the same
+defect family" question beyond adding this one data point, stated with the hedging it
+deserves. Line A's own §5 reaches the same place from the static-reading side: overlap
+between the two entries exists at the level of *triggers* (focus crossings, mark-sets — both
+entries' own test bodies drive these constantly) but whether this entry's pump call sites
+sit ON entry F's `CFRunLoop`/autorelease-pool path, or merely nearby in time within the same
+test body, "cannot be told from static analysis alone."
+
+**Instrumentation added and now live for the next run to use.** `src/gtk_suite.rs`'s
+`arm_timeout` now deposits a breadcrumb (case name, a monotonic timestamp, an explicit
+"timeout, not a crash" marker) into the existing `forensics::BREADCRUMBS` ring **before**
+the alarm is armed, so the ring already names "what is running right now" the instant a
+timeout would fire — `on_alarm` itself is byte-for-byte unchanged (still nothing but the
+async-signal-safe writes and `_exit(124)` it always was). `src/forensics/mod.rs`'s
+`BREADCRUMBS` was widened from module-private to `pub(crate)` to let this second,
+non-signal-context writer reach it. Routing the timeout through `forensics::signal.rs`'s
+richer fatal-signal path (which would yield a full captured stack) was considered and
+rejected for this call site specifically: `SIGABRT` is in `FATAL_SIGNALS` and the handler
+itself is verified async-signal-safe-reentrant, but `gtk_suite.rs`'s `main()` deliberately
+never calls `logging::init()` (the thing that arms that path), for reasons already recorded
+in that file — so invoking it here would mean growing new production surface in a test
+harness, not reusing an existing path for free. Full reasoning: `src/gtk_suite.rs`'s own doc
+comment above the per-case wall-clock cap, and `.flowdra/artifacts/builder-1-task2.md`. Not
+yet exercised by a real hang (the null result above), but live for the next run.
+
+**Updated mitigation options, current list (carries forward what is still unmet, adds what
+this round found):**
+
+- **Establish the background rate properly, still not fully done for this entry's own
+  signature** — 14 (baseline) + 6 (instrumented) clean-on-signature runs this round is a
+  real sample, larger than any single prior round, but it is a single round with zero hits
+  and this entry's own lesson is that a clean streak this size does not itself narrow a
+  20–60% band; the next round should keep sampling rather than treat this one as settled.
+- **Capture a stack from a hung run** — still unmet for this entry's own signature (zero
+  hangs occurred to capture this round), but the mechanism to do so (the breadcrumb above)
+  is now checked in and does not need to be built again.
+- **If operating on real hardware rather than CI, verify the sampling machine is genuinely
+  idle before trusting the sample** — new this round, and it is a methodological lesson as
+  much as a mitigation: 6 of this round's 22 raw runs were contaminated by another
+  application (Firefox) holding OS-level frontmost focus, which silently broke two
+  unrelated, focus-dependent tests and would have corrupted the rate calculation if not
+  caught live via `osascript`. The "otherwise idle machine" precondition this entry's own
+  2026-09-19 round names is not automatically satisfied just because no other work is
+  *intended* — check frontmost-app state per run, not once per session.
+- **Run a properly sized sample specifically targeting `window::editor_annotate` and the
+  other annotation-card tests**, to see whether entry F's new abort site (below) recurs
+  there specifically or was a one-off — new this round, prompted by the new site.
+- **Accept slower macOS ratification** in the meantime — unchanged from the prior round.
 
 ## CLSD-04. In fullscreen on macOS, a click during the transition animation is never delivered
 

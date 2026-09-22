@@ -340,6 +340,98 @@ mod tests {
         );
     }
 
+    /// The exact shape of `sdd/ISSUES.md` entry X's hang signature — the
+    /// macOS integration-hang measurement plan's Line B (`.flowdra/specs/
+    /// issue-1-macos-integration-hang-measurement.md` §2.2) asks this to be
+    /// VERIFIED rather than assumed: two distinct `(domain, message)` keys
+    /// (`g_main_context_prepare() called recursively` and
+    /// `g_main_context_check() called recursively`) firing in strict
+    /// alternation, thousands of times, exactly as GLib emits them during the
+    /// recorded spin.
+    ///
+    /// `RepeatCollapse` holds exactly one `Run` at a time (its own module doc,
+    /// "Holds exactly one run at a time"), so the doc's own claim is that an
+    /// alternating pair can NEVER collapse against each other — every single
+    /// record breaks the run the other one just started, because by
+    /// construction the "current run" is never the key that is about to
+    /// arrive. That predicts each call sees `Action::First` and NO milestone
+    /// ever fires for either key, no matter how many times the pair
+    /// alternates — which is the real gap this test rules out: a naive
+    /// reading of "collapses repeats" might expect the two keys to somehow
+    /// share credit for repetition, when the single-run design guarantees
+    /// they cannot.
+    ///
+    /// This is a genuine (if unsurprising, given the design) property of the
+    /// hang signature: **the collapsing log writer would NOT shrink this
+    /// particular flood at all** — every one of the 14,877,756 recorded
+    /// repetitions-of-a-pair would still be `Action::First` and printed in
+    /// full, because "the same message repeating" and "two messages
+    /// alternating" are different shapes and only the first is what
+    /// `RepeatCollapse` collapses. That is not a defect in this module: its
+    /// own module doc's "Key equality is exact" clause already says a
+    /// differing message starts its own run, and an alternating pair is
+    /// "differing" on every single record. It is, however, the reason Line
+    /// B's design note does not lean on log-volume collapse to make THIS
+    /// specific flood's log survivable — see `gtk_suite.rs`'s `arm_timeout`
+    /// doc for what actually addresses it (a per-case wall-clock cap, not
+    /// this module).
+    #[test]
+    fn an_alternating_pair_never_collapses_against_each_other_only_against_itself() {
+        let c = RepeatCollapse::new();
+        let prepare = || key(1, "GLib", "g_main_context_prepare() called recursively");
+        let check = || key(1, "GLib", "g_main_context_check() called recursively");
+
+        const ALTERNATIONS: usize = 5_000; // 10,000 records total, well past every milestone
+        for i in 0..ALTERNATIONS {
+            let prepare_outcome = c.record(prepare());
+            assert!(
+                matches!(prepare_outcome.action, Action::First),
+                "prepare at alternation {i} must be First — the immediately prior \
+                 record was `check`, a different key, so this cannot be a repeat"
+            );
+            let check_outcome = c.record(check());
+            assert!(
+                matches!(check_outcome.action, Action::First),
+                "check at alternation {i} must be First for the same reason"
+            );
+        }
+
+        // Each `First` that broke a run of exactly 1 (the single prior record of
+        // the OTHER key) owes no closing summary — `reported_through` is 1 the
+        // instant a key's own First is recorded, so `count > reported_through`
+        // is false at the moment the next key breaks it. Confirmed on the next
+        // `prepare` explicitly (the loop's own last record was a `check`, so
+        // this is a genuine key change, not a repeat of what the loop just
+        // did), matching `a_message_that_never_repeated_owes_nothing_when_it_
+        // breaks`'s single-key version of the same property.
+        let final_prepare = c.record(prepare());
+        assert!(matches!(final_prepare.action, Action::First));
+        assert!(
+            final_prepare.closed.is_none(),
+            "the immediately prior `check` record never repeated (this alternating \
+             shape gives every key a run of exactly 1), so breaking it owes nothing"
+        );
+
+        // The negative control that makes the above meaningful: the SAME key
+        // repeated back-to-back, the shape this module exists to collapse, DOES
+        // cross a milestone inside the same number of calls — so the absence of
+        // any milestone above is a property of alternation, not of the count
+        // being too small to matter.
+        let c2 = RepeatCollapse::new();
+        let mut milestones = 0;
+        for _ in 0..ALTERNATIONS {
+            if let Action::Milestone(_) = c2.record(prepare()).action {
+                milestones += 1;
+            }
+        }
+        assert!(
+            milestones > 0,
+            "a genuinely repeating key must still cross at least one milestone in \
+             {ALTERNATIONS} calls, so the alternating case above is shown to differ \
+             from a real repeat rather than from an under-sized sample"
+        );
+    }
+
     #[test]
     fn key_equality_is_exact_on_level_and_domain_too() {
         let c = RepeatCollapse::new();

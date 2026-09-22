@@ -1,0 +1,514 @@
+   Compiling scribobulate v0.1.0 (/Users/neufeljo/.cache/flowdra/Jonathan-Improving-Scribobulate-8d3e73e3/.worktrees/Jonathan-Improving-Scribobulate-8d3e73e3/issue-1-35462)
+    Finished `release` profile [optimized] target(s) in 57.54s
+     Running src/gtk_suite.rs (target/release/deps/gtk_suite-9d3b55e24882665e)
+running 584 of 586 cases on the process main thread (per-case timeout 120s)
+
+test gtk_suite::a11y::gtk_integration_tests::every_control_of_a_known_interactive_type_publishes_a_role_the_guard_recognises ... ok
+test gtk_suite::a11y::gtk_integration_tests::every_icon_only_control_in_a_window_has_an_accessible_name ... ok
+test gtk_suite::accel::gtk_integration_tests::mask_matches_the_respelled_accelerator ... ok
+test gtk_suite::animation::paintable::badge_tests::a_plain_still_texture_never_shows_the_badge ... ok
+test gtk_suite::animation::paintable::badge_tests::paused_paints_the_badge_playing_does_not ... ok
+test gtk_suite::animation::paintable::badge_tests::reduce_animations_holds_frame_zero_and_paints_the_badge ... ok
+test gtk_suite::animation::paintable::badge_tests::the_badge_follows_text_direction ... ok
+test gtk_suite::animation::paintable::badge_tests::the_pause_icon_actually_renders ... ok
+test gtk_suite::animation::paintable::badge_tests::under_48px_suppresses_the_badge_at_or_above_shows_it ... ok
+test gtk_suite::animation::paintable::gtk_tests::a_decode_landing_after_visibility_is_lost_is_discarded_and_restarts_at_frame_zero ... ok
+test gtk_suite::animation::paintable::gtk_tests::a_decode_outlived_by_its_own_decoder_is_dropped_even_though_the_picture_is_visible_again ... ok
+test gtk_suite::animation::paintable::gtk_tests::an_animated_webp_advances_its_frames_under_the_real_frame_clock ... ok
+test gtk_suite::animation::paintable::gtk_tests::dropping_the_picture_releases_the_paintable_and_its_decoder ... ok
+test gtk_suite::animation::paintable::gtk_tests::play_pause_via_the_action_freezes_and_resumes ... ok
+test gtk_suite::animation::paintable::gtk_tests::reduce_animations_holds_frame_zero_with_no_tick_callback ... ok
+test gtk_suite::animation::policy::watch::gtk_tests::current_reflects_choice_and_system_setting_together ... ok
+test gtk_suite::animation::policy::watch::gtk_tests::dropping_policy_watch_disconnects_all_three_handlers ... ok
+test gtk_suite::animation::policy::watch::gtk_tests::reader_choice_ignores_the_system_setting ... ok
+test gtk_suite::animation::policy::watch::gtk_tests::watch_fires_on_platform_reduced_motion_change_too ... ok
+test gtk_suite::animation::policy::watch::gtk_tests::watch_fires_on_system_setting_change_too ... ok
+test gtk_suite::animation::policy::watch::gtk_tests::watch_fires_with_effective_state_on_action_toggle ... ok
+test gtk_suite::animation::sprites::gtk_tests::a_decode_outlived_by_its_own_driver_is_refused_by_the_rebuilt_one ... ok
+test gtk_suite::animation::sprites::gtk_tests::a_pass_that_does_not_draw_the_sprite_drops_its_driver ... ok
+test gtk_suite::animation::sprites::gtk_tests::a_resampled_animated_sprite_plays_at_the_requested_size ... ok
+test gtk_suite::animation::sprites::gtk_tests::a_still_sprite_is_returned_unchanged_and_creates_no_driver_state ... ok
+test gtk_suite::animation::sprites::gtk_tests::an_unmapped_host_plays_nothing_and_paints_the_still_frame ... ok
+test gtk_suite::animation::tick::gtk_tests::dropping_the_handle_removes_the_registration ... ok
+test gtk_suite::animation::tick::gtk_tests::measurement_tick_callbacks_on_a_realized_but_unmapped_widget ... ok
+test gtk_suite::animation::visibility::gtk_tests::claim_1_scrolled_out_stays_mapped_and_geometry_is_the_right_predicate ... ok
+test gtk_suite::animation::visibility::gtk_tests::claim_2_deleting_a_details_bodys_buffer_range_drops_its_anchored_picture_rather_than_parking_it ... ok
+test gtk_suite::animation::visibility::gtk_tests::claim_3_a_background_tab_and_a_hidden_pane_do_unmap ... ok
+test gtk_suite::animation::visibility::gtk_tests::claim_4_and_table_minimized_window ... ok
+test gtk_suite::animation::visibility::gtk_tests::table::a_picture_scrolled_into_view_from_below_by_one_scroll_starts_playing ... ok
+test gtk_suite::animation::visibility::gtk_tests::table::return_to_view_restarts_at_frame_zero ... ok
+test gtk_suite::animation::visibility::gtk_tests::table::table_a_pure_resize_with_no_scroll_value_change_also_re_tests_visibility ... ok
+test gtk_suite::animation::visibility::gtk_tests::table::table_background_tab_stops_playing_and_releases_the_decoder ... ok
+test gtk_suite::animation::visibility::gtk_tests::table::table_hidden_pane_stops_playing_and_releases_the_decoder ... ok
+test gtk_suite::animation::visibility::gtk_tests::table::table_hidden_window_stops_playing_and_releases_the_decoder ... ok
+test gtk_suite::animation::visibility::gtk_tests::table::table_nested_inside_another_widget_is_reached_through_the_nesting ... ok
+test gtk_suite::animation::visibility::gtk_tests::table::table_scrolled_out_of_viewport_stops_playing_and_releases_the_decoder ... ok
+test gtk_suite::animation::worker::gtk_tests::a_second_decode_needs_the_first_animation_back ... ok
+test gtk_suite::animation::worker::gtk_tests::decode_runs_off_the_main_thread_and_returns_on_it ... ok
+test gtk_suite::animation::worker::gtk_tests::dropping_a_pending_decode_neither_panics_nor_calls_back ... ok
+test gtk_suite::annotations_view::gtk_integration_tests::a_freshly_built_list_selects_nothing ... ok
+test gtk_suite::annotations_view::gtk_integration_tests::a_restored_selection_lands_on_the_annotation_it_names ... ok
+test gtk_suite::app::appactions::tests::play_animations_action_has_no_accelerator ... ok
+test gtk_suite::app::appactions::tests::play_animations_action_is_a_stateful_bool_defaulting_on ... ok
+test gtk_suite::app::appactions::tests::play_animations_action_restores_the_saved_choice ... ok
+test gtk_suite::app::appactions::tests::play_animations_action_toggle_updates_state ... ok
+test gtk_suite::app::commands::gtk_integration_tests::accel_hint_none_for_empty_and_platform_labelled_otherwise ... ok
+test gtk_suite::app::commands::gtk_integration_tests::tooltip_with_accel_appends_hint_or_bare_label ... ok
+test gtk_suite::app::menubar::live_menu_tests::a_there_and_back_relabel_in_one_turn_settles_on_what_is_shown ... ok
+test gtk_suite::app::menubar::live_menu_tests::the_format_relabel_lands_on_idle_and_not_in_the_callers_turn ... ok
+test gtk_suite::app::setup::gtk_integration_tests::a_theme_change_re_arms_every_background_tab_rather_than_re_rendering_it ... ok
+test gtk_suite::app::shortcuts::gtk_integration_tests::inline_accel_cmds_are_parseable ... ok
+test gtk_suite::app::shortcuts::gtk_integration_tests::pointer_row_modifier_matches_the_gesture_mask ... ok
+test gtk_suite::app::shortcuts::gtk_integration_tests::registered_accels_match_the_inline_table ... ok
+test gtk_suite::app::shortcuts::gtk_integration_tests::xml_builds_a_shortcuts_window ... ok
+test gtk_suite::clipboard::gtk_integration_tests::a_cut_is_one_undo_step_and_leaves_the_text_on_the_clipboard ... ok
+test gtk_suite::clipboard::gtk_integration_tests::a_foreign_paste_of_lone_crs_is_repaired_without_touching_crlf ... 
+(process:45205): GLib-WARNING **: 21:49:53.611: poll(2) failed due to: Resource temporarily unavailable.
+ok
+test gtk_suite::clipboard::gtk_integration_tests::a_preview_selection_pastes_into_the_editor_as_one_plain_text_emission ... ok
+test gtk_suite::clipboard::gtk_integration_tests::a_preview_selection_still_publishes_gtks_default_rich_content_to_primary ... ok
+test gtk_suite::clipboard::gtk_integration_tests::a_same_application_paste_arrives_as_a_single_emission ... ok
+test gtk_suite::clipboard::gtk_integration_tests::the_production_editor_has_the_middle_click_gesture_wired ... ok
+test gtk_suite::clipboard::gtk_integration_tests::wiring_the_middle_click_paste_installs_a_capture_phase_button_two_gesture ... ok
+test gtk_suite::codeview::animsprite_tests::a_background_tab_releases_the_sprite_driver_and_returning_restores_it ... ok
+test gtk_suite::codeview::animsprite_tests::a_blockquote_bar_sprite_below_the_viewport_is_never_played ... ok
+test gtk_suite::codeview::animsprite_tests::a_hidden_pane_releases_the_sprite_driver_and_returning_restores_it ... ok
+test gtk_suite::codeview::animsprite_tests::an_animated_blockquote_bar_sprite_plays ... ok
+test gtk_suite::codeview::animsprite_tests::an_animated_disclosure_indicator_keeps_playing_anchored_in_the_preview ... ok
+test gtk_suite::codeview::animsprite_tests::an_animated_list_bullet_sprite_plays ... ok
+test gtk_suite::codeview::animsprite_tests::play_animations_off_freezes_the_banded_heading_sprite ... ok
+test gtk_suite::codeview::animsprite_tests::scrolling_the_banded_heading_off_screen_drops_the_sprite_driver_and_stops_ticking ... ok
+test gtk_suite::codeview::card::gtk_integration_tests::a_card_whose_chip_is_on_no_monitor_stays_hidden ... SKIPPED [TDD 17.48a]: this display does not place popovers by screen coordinates, so no chip can be off every monitor in GTK's sense
+ok
+test gtk_suite::codeview::card::gtk_integration_tests::an_anchor_whose_annotation_is_gone_resolves_to_nothing ... ok
+test gtk_suite::codeview::card::gtk_integration_tests::cancel_returns_the_card_to_its_read_state_and_discards_the_draft ... GLib: previous message repeated 2 times: poll(2) failed due to: Resource temporarily unavailable.
+
+(process:45205): Gdk-CRITICAL **: 21:50:02.713: gdk_surface_thaw_updates: assertion 'surface->update_freeze_count > 0' failed
+ok
+test gtk_suite::codeview::card::gtk_integration_tests::outside_dismiss_is_armed_on_the_toplevel_and_removed_at_teardown ... ok
+test gtk_suite::codeview::card::gtk_integration_tests::presenting_recomputes_the_anchor_rather_than_reusing_a_stale_rect ... ok
+test gtk_suite::codeview::card::gtk_integration_tests::the_card_hides_off_viewport_and_returns_with_its_chip ... ok
+test gtk_suite::codeview::card::gtk_integration_tests::the_card_re_anchors_when_the_document_scrolls ... ok
+test gtk_suite::codeview::card::gtk_integration_tests::the_card_re_offers_every_application_accelerator_locally ... ok
+test gtk_suite::codeview::card::gtk_integration_tests::the_corner_close_button_dismisses_without_stealing_focus ... ok
+test gtk_suite::codeview::gate_tests::a_document_with_no_decoration_leaves_the_gate_shut ... ok
+test gtk_suite::codeview::gate_tests::every_drawn_vector_opens_the_gate_by_itself ... ok
+test gtk_suite::codeview::geometry::gtk_integration_tests::a_pending_scroll_idle_does_not_crash_after_the_view_is_destroyed ... ok
+test gtk_suite::codeview::geometry::gtk_integration_tests::a_scroll_on_a_mapped_view_still_reaches_the_far_target ... ok
+test gtk_suite::codeview::geometry::gtk_integration_tests::schedule_scroll_idle_coalesces_to_the_latest ... ok
+test gtk_suite::codeview::gtk_integration_tests::a_bar_sprite_still_tiles_far_down_a_long_document ... ok
+test gtk_suite::codeview::gtk_integration_tests::a_blockquote_bar_sprite_tiles_and_replaces_the_flat_colour ... ok
+test gtk_suite::codeview::gtk_integration_tests::a_blockquote_panel_sprite_tiles_and_replaces_the_flat_fill ... ok
+test gtk_suite::codeview::gtk_integration_tests::a_disclosure_summary_band_is_painted_on_a_document_that_has_nothing_else_drawn ... ok
+test gtk_suite::codeview::gtk_integration_tests::a_heading_band_is_painted_on_a_document_that_has_nothing_else_drawn ... ok
+test gtk_suite::codeview::gtk_integration_tests::a_heading_band_sprite_tiles_and_replaces_the_flat_fill ... ok
+test gtk_suite::codeview::gtk_integration_tests::a_quote_panel_covers_the_whole_quote_and_not_just_each_paragraph ... ok
+test gtk_suite::codeview::gtk_integration_tests::a_quoted_code_cards_panel_survives_on_the_cards_own_rows ... ok
+test gtk_suite::codeview::gtk_integration_tests::a_scroll_mark_orphaned_by_set_buffer_is_never_resolved ... ok
+test gtk_suite::codeview::gtk_integration_tests::an_annotation_chip_sprite_replaces_the_flat_fill ... ok
+test gtk_suite::codeview::gtk_integration_tests::code_block_card_does_not_bleed_onto_the_following_line ... ok
+test gtk_suite::codeview::gtk_integration_tests::line_yrange_survives_a_geometry_read_after_a_buffer_swap ... ok
+test gtk_suite::codeview::gtk_integration_tests::programmatic_scroll_target_becomes_the_reading_anchor ... ok
+test gtk_suite::codeview::gtk_integration_tests::the_system_theme_paints_no_disclosure_band_at_all ... ok
+test gtk_suite::codeview::markers::a11y_integration_tests::a_navigation_leaves_the_document_scrolled_to_the_target ... ok
+test gtk_suite::codeview::markers::a11y_integration_tests::a_presented_preview_paints_marker_hitboxes ... ok
+test gtk_suite::codeview::markers::a11y_integration_tests::an_expired_pending_open_is_discarded_without_opening_a_popover ... ok
+test gtk_suite::codeview::markers::a11y_integration_tests::dispose_popdowns_the_marker_popover_before_unparenting_it ... ok
+test gtk_suite::codeview::markers::a11y_integration_tests::enter_commits_in_the_marker_edit_popover ... ok
+test gtk_suite::codeview::markers::a11y_integration_tests::next_annotation_is_a_clean_no_op_without_annotations ... ok
+test gtk_suite::codeview::markers::a11y_integration_tests::next_annotation_opens_the_popover_for_an_on_screen_marker ... ok
+test gtk_suite::codeview::markers::a11y_integration_tests::next_annotation_scrolls_to_an_off_screen_marker_and_opens_it ... ok
+test gtk_suite::codeview::markers::a11y_integration_tests::open_marker_popover_is_a_no_op_on_an_unrealized_view ... ok
+test gtk_suite::codeview::markers::a11y_integration_tests::opening_an_annotation_moves_the_caret_to_it_so_the_next_step_advances ... ok
+test gtk_suite::codeview::markers::a11y_integration_tests::the_repin_guard_holds_the_post_scroll_position_not_the_pre_scroll_one ... Gdk: previous message repeated 10 times: gdk_surface_thaw_updates: assertion 'surface->update_freeze_count > 0' failed
+ok
+test gtk_suite::codeview::navkeys::gtk_integration_tests::a_key_in_a_popover_parented_to_the_pane_is_left_alone ... ok
+test gtk_suite::codeview::navkeys::gtk_integration_tests::a_navigation_key_with_the_view_focused_is_left_to_gtk ... ok
+test gtk_suite::codeview::navkeys::gtk_integration_tests::a_non_navigation_key_from_a_focused_cell_is_left_alone ... ok
+test gtk_suite::codeview::navkeys::gtk_integration_tests::a_shifted_navigation_key_from_a_focused_cell_stays_with_the_cell ... ok
+test gtk_suite::codeview::navkeys::gtk_integration_tests::ctrl_home_from_a_focused_table_cell_moves_the_document ... ok
+test gtk_suite::codeview::ordertests::a_code_card_inside_a_quote_lands_on_the_quote_panel ... ok
+test gtk_suite::codeview::ordertests::a_copy_button_lands_on_its_own_code_card ... ok
+test gtk_suite::codeview::ordertests::a_disclosure_summary_band_inside_a_quote_lands_on_the_quote_panel ... ok
+test gtk_suite::codeview::ordertests::a_heading_band_inside_a_quote_lands_on_the_quote_panel ... ok
+test gtk_suite::codeview::ordertests::a_list_marker_lands_on_a_code_card_sharing_its_row ... ok
+test gtk_suite::codeview::ordertests::a_list_marker_lands_on_a_heading_band_sharing_its_row ... ok
+test gtk_suite::codeview::ordertests::quoted_list_markers_land_on_the_quote_panel ... ok
+test gtk_suite::codeview::ordertests::the_accent_bar_lands_on_a_quoted_code_card ... ok
+test gtk_suite::codeview::ordertests::the_accent_bar_lands_on_a_quoted_heading_band ... ok
+test gtk_suite::codeview::ordertests::the_accent_bar_lands_on_the_quote_panel ... ok
+test gtk_suite::codeview::revealtests::landing_on_the_button_of_a_revealed_block_schedules_nothing ... ok
+test gtk_suite::codeview::revealtests::revealing_a_block_schedules_the_re_derivation ... ok
+test gtk_suite::farscroll::gtk_integration_tests::a_far_navigation_reaches_its_target_on_a_document_still_being_laid_out ... ok
+test gtk_suite::farscroll::gtk_integration_tests::a_queued_scroll_survives_a_write_into_its_own_view ... ok
+test gtk_suite::farscroll::gtk_integration_tests::a_superseded_buffer_ends_scroll_is_abandoned ... ok
+test gtk_suite::farscroll::gtk_integration_tests::ctrl_end_reaches_the_bottom_of_a_document_still_being_laid_out ... ok
+test gtk_suite::farscroll::gtk_integration_tests::ctrl_end_reaches_the_bottom_of_the_preview_pane_too ... ok
+test gtk_suite::farscroll::gtk_integration_tests::ctrl_home_reaches_the_top_of_a_document_still_being_laid_out ... ok
+test gtk_suite::farscroll::gtk_integration_tests::gtk_own_pending_scroll_is_destroyed_by_a_write_to_its_view ... ok
+test gtk_suite::farscroll::settle::gtk_integration_tests::a_layout_that_never_validates_fires_on_the_tick_cap ... ok
+test gtk_suite::farscroll::settle::gtk_integration_tests::a_view_unrealized_mid_wait_does_not_run_the_deferred_work ... ok
+test gtk_suite::farscroll::settle::gtk_integration_tests::a_zero_range_adjustment_completes_on_a_false_quiet ... ok
+test gtk_suite::farscroll::settle::gtk_integration_tests::the_deferred_work_runs_exactly_once ... ok
+test gtk_suite::farscroll::settle::gtk_integration_tests::the_fixture_has_a_scrollable_range_that_survives_layout ... ok
+test gtk_suite::farscroll::settle::gtk_integration_tests::the_instrument_is_disarmed_before_the_deferred_work_runs ... ok
+test gtk_suite::imagecache::gtk_integration_tests::a_remote_animation_hit_never_re_fetches_and_shares_the_bytes ... ok
+test gtk_suite::imagecache::gtk_integration_tests::a_still_image_carries_no_animation_hint_on_a_hit ... ok
+test gtk_suite::imagecache::gtk_integration_tests::retained_remote_bytes_are_charged_against_the_budget_and_can_evict ... ok
+test gtk_suite::imagecache::gtk_integration_tests::the_shipped_cache_never_re_fetches_a_hit ... ok
+test gtk_suite::imagecache::loader::tests::a_directory_named_svg_is_refused_on_every_platform ... ok
+test gtk_suite::imagecache::loader::tests::a_fifo_named_svg_is_refused_and_does_not_hang ... ok
+test gtk_suite::imagecache::loader::tests::a_live_picture_s_animation_bytes_are_shared_on_a_hit ... ok
+test gtk_suite::imagecache::loader::tests::a_local_animation_survives_a_cache_hit ... ok
+test gtk_suite::imagecache::loader::tests::a_real_svg_still_rerenders_sharply_at_zoom ... ok
+test gtk_suite::imagecache::loader::tests::a_richimg_format_wearing_a_scalable_extension_decodes_through_richimg ... ok
+test gtk_suite::imagecache::loader::tests::a_vector_image_never_carries_animation_bytes ... ok
+test gtk_suite::imagecache::loader::tests::an_oversized_file_named_svg_is_refused_before_the_read_completes ... ok
+test gtk_suite::lineendings::gtk_integration_tests::a_fresh_editor_buffer_is_armed_before_anything_can_populate_it ... ok
+test gtk_suite::lineendings::gtk_integration_tests::an_undo_replay_repairs_a_lone_cr_rather_than_restoring_it ... ok
+test gtk_suite::lineendings::gtk_integration_tests::an_undo_replay_restores_the_exact_bytes_a_delete_removed ... ok
+test gtk_suite::macwordnav::gtk_tests::a_bare_gtk_text_is_its_own_key_target ... ok
+test gtk_suite::macwordnav::gtk_tests::a_wrapper_entrys_key_target_is_the_gtk_text_inside_it ... ok
+test gtk_suite::macwordnav::gtk_tests::move_cursor_by_word_is_emittable_on_the_delegate ... ok
+test gtk_suite::macwordnav::gtk_tests::the_annotation_comment_entry_is_wired_at_construction ... ok
+test gtk_suite::macwordnav::gtk_tests::the_controller_lands_on_the_delegate_in_capture_phase ... ok
+test gtk_suite::macwordnav::gtk_tests::the_find_and_replace_fields_are_wired_in_a_real_window ... ok
+test gtk_suite::macwordnav::gtk_tests::the_shared_prompt_forms_field_is_wired_when_the_form_opens ... ok
+test gtk_suite::palette::tests::probe::probe_named_answers_with_its_floor_when_nothing_names_a_colour ... ok
+test gtk_suite::palette::tests::probe::probe_named_takes_the_first_name_the_theme_defines ... ok
+test gtk_suite::parse_args_excludes_skipped_cases_instead_of_selecting_them ... ok
+test gtk_suite::platform::mac::fullscreen::gtk_integration_tests::the_transient_parent_is_withheld_until_the_window_has_realized ... ok
+test gtk_suite::preview::altsuppression::a_link_in_an_image_alt_records_no_clickable_range ... ok
+test gtk_suite::preview::altsuppression::a_nested_image_in_an_alt_anchors_nothing_and_does_not_end_the_outer_alt ... ok
+test gtk_suite::preview::altsuppression::an_image_alt_in_a_table_cell_contributes_no_text_and_no_offset ... ok
+test gtk_suite::preview::altsuppression::an_inline_code_span_in_an_image_alt_reaches_the_buffer_as_nothing ... ok
+test gtk_suite::preview::altsuppression::an_inline_code_span_outside_an_image_still_reaches_the_buffer ... ok
+test gtk_suite::preview::altsuppression::raw_inline_html_in_an_image_alt_anchors_no_image ... ok
+test gtk_suite::preview::annotate::overlay::jjj_tests::a_preview_selection_change_still_dismisses_the_card ... ok
+test gtk_suite::preview::annotate::overlay::jjj_tests::popup_selection_action_is_a_no_op_on_an_unrealized_view ... ok
+test gtk_suite::preview::annotate::overlay::jjj_tests::scroll_then_select_shows_the_annotate_popover ... ok
+test gtk_suite::preview::annotate::overlay::jjj_tests::selecting_inside_the_card_entry_does_not_dismiss_it ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_closed_details_still_collapses_its_body ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_collapsed_body_claims_no_buffer_positions_in_the_copy_map ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_collapsed_body_neither_anchors_nor_fetches_its_raw_html_images ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_collapsed_disclosure_records_an_empty_body_at_its_write_point ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_collapsed_disclosure_renders_as_a_summary_line ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_collapsed_summary_previews_the_bodys_opening_text ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_collapsed_unspaced_disclosure_hides_its_literal_body ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_details_mentioned_in_prose_is_not_a_disclosure ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_disclosure_below_an_annotation_is_keyed_in_the_cleaned_space ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_disclosure_inside_a_blockquote_or_a_list_item_still_folds ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_disclosure_inside_a_collapsed_one_records_no_extent ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_document_image_that_decodes_past_the_cap_is_refused ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_headings_only_document_still_reaches_the_paint_path ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_link_inside_a_ruled_heading_carries_two_underline_colours_safely ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_nested_blockquote_indents_and_bars_at_its_own_depth ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_quote_panel_inks_the_quote_but_never_the_link_inside_it ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_quote_panel_re_inks_neither_a_heading_nor_a_mark_inside_it ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_quoted_code_blocks_margin_is_the_quotes_plus_the_cards_padding ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_reading_theme_does_not_move_the_layout ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_render_can_be_pointed_at_a_region_instead_of_the_buffer_end ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_render_takes_the_theme_it_is_handed_and_not_the_active_one ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_rule_sprite_swaps_the_separator_for_a_tiling_widget ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_script_inside_an_unspaced_body_reaches_the_page_as_nothing ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_summaryless_block_shows_the_default_label ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_table_in_a_collapsed_body_does_not_shift_the_cell_copy_maps ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_theme_that_states_no_quote_panel_leaves_quoted_text_plain ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_themed_blockquote_metric_moves_the_quote_and_keeps_its_list_inside ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_themed_heading_rule_and_space_above_reach_the_heading_tags ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_themed_heading_scale_reaches_the_tag_and_leaves_font_size_alone ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_themed_list_step_moves_the_resolved_text_position ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_themed_strike_and_link_underline_reach_the_tags ... ok
+test gtk_suite::preview::build::gtk_integration_tests::a_whitespace_only_collapsed_body_adds_no_preview ... ok
+test gtk_suite::preview::build::gtk_integration_tests::an_expanded_disclosure_carries_no_body_preview ... ok
+test gtk_suite::preview::build::gtk_integration_tests::an_expanded_disclosure_records_the_buffer_range_its_body_occupies ... ok
+test gtk_suite::preview::build::gtk_integration_tests::an_inline_code_chip_takes_the_surface_it_sits_on ... ok
+test gtk_suite::preview::build::gtk_integration_tests::an_open_disclosure_hides_no_heading ... ok
+test gtk_suite::preview::build::gtk_integration_tests::an_unclosed_details_does_not_swallow_the_rest_of_the_document ... ok
+test gtk_suite::preview::build::gtk_integration_tests::an_unclosed_disclosure_records_no_extent ... ok
+test gtk_suite::preview::build::gtk_integration_tests::an_unclosed_inner_block_does_not_steal_its_parents_close_tag ... ok
+test gtk_suite::preview::build::gtk_integration_tests::an_unspaced_disclosure_body_shows_as_literal_text ... ok
+test gtk_suite::preview::build::gtk_integration_tests::an_unspaced_disclosure_is_not_spliceable_and_a_spaced_one_is ... ok
+test gtk_suite::preview::build::gtk_integration_tests::annotate_across_inline_constructs_is_wellformed ... ok
+test gtk_suite::preview::build::gtk_integration_tests::annotation_over_inline_code_stays_visible ... ok
+test gtk_suite::preview::build::gtk_integration_tests::annotation_refresh_updates_tags_in_place_without_a_buffer_swap ... ok
+test gtk_suite::preview::build::gtk_integration_tests::bare_img_element_renders_an_anchored_image ... ok
+test gtk_suite::preview::build::gtk_integration_tests::blockquote_and_list_are_char_precise ... ok
+test gtk_suite::preview::build::gtk_integration_tests::code_block_is_char_precise_live ... ok
+test gtk_suite::preview::build::gtk_integration_tests::copy_over_annotated_text_is_clean_prose ... ok
+test gtk_suite::preview::build::gtk_integration_tests::copy_stays_aligned_past_an_anchored_table ... ok
+test gtk_suite::preview::build::gtk_integration_tests::copying_a_collapsed_disclosure_never_leaks_the_preview_text_or_its_ellipsis ... ok
+test gtk_suite::preview::build::gtk_integration_tests::copying_across_a_collapsed_disclosure_yields_its_full_source ... ok
+test gtk_suite::preview::build::gtk_integration_tests::criticmarkup_highlight_is_exact_on_a_marker_stripped_run ... ok
+test gtk_suite::preview::build::gtk_integration_tests::criticmarkup_highlight_tags_the_claim_only ... ok
+test gtk_suite::preview::build::gtk_integration_tests::decodable_source_is_preferred_over_img_fallback ... ok
+test gtk_suite::preview::build::gtk_integration_tests::empty_list_items_record_no_marker_across_kinds ... ok
+test gtk_suite::preview::build::gtk_integration_tests::every_construct_inside_a_body_renders_as_it_does_at_top_level ... ok
+test gtk_suite::preview::build::gtk_integration_tests::every_source_heading_gets_a_site_even_when_a_disclosure_hides_it ... ok
+test gtk_suite::preview::build::gtk_integration_tests::fixture_first_paragraph_word_wraps_only_that_word ... ok
+test gtk_suite::preview::build::gtk_integration_tests::front_matter_copies_as_its_own_source_and_stays_findable_while_collapsed ... ok
+test gtk_suite::preview::build::gtk_integration_tests::front_matter_renders_as_a_collapsed_code_block ... ok
+test gtk_suite::preview::build::gtk_integration_tests::h6_folds_onto_the_h5_tag_and_no_h6_tag_exists ... ok
+test gtk_suite::preview::build::gtk_integration_tests::header_row_cells_are_styled_as_headers ... ok
+test gtk_suite::preview::build::gtk_integration_tests::heading_spans_are_collected_for_every_heading_and_stop_at_its_content ... ok
+test gtk_suite::preview::build::gtk_integration_tests::list_item_break_renders_as_separate_lines_at_uniform_margin ... ok
+test gtk_suite::preview::build::gtk_integration_tests::list_items_insert_no_inline_marker_or_checkbox_anchor ... ok
+test gtk_suite::preview::build::gtk_integration_tests::list_markers_seam_records_kind_and_depth_per_item ... ok
+test gtk_suite::preview::build::gtk_integration_tests::markers_anchor_to_the_correct_line ... ok
+test gtk_suite::preview::build::gtk_integration_tests::multi_line_list_item_lines_all_share_one_left_margin ... ok
+test gtk_suite::preview::build::gtk_integration_tests::multiline_blockquote_tags_each_line_leaving_newlines_untagged ... ok
+test gtk_suite::preview::build::gtk_integration_tests::nested_items_and_escapes_are_char_precise_live ... ok
+test gtk_suite::preview::build::gtk_integration_tests::nested_list_item_carries_exactly_one_depth_tag ... ok
+test gtk_suite::preview::build::gtk_integration_tests::no_preview_tag_ever_carries_an_overline_colour ... ok
+test gtk_suite::preview::build::gtk_integration_tests::non_image_html_is_dropped ... ok
+test gtk_suite::preview::build::gtk_integration_tests::only_a_banded_heading_level_is_inset_from_its_band ... ok
+test gtk_suite::preview::build::gtk_integration_tests::per_level_heading_colour_and_face_reach_the_heading_tags ... ok
+test gtk_suite::preview::build::gtk_integration_tests::picture_block_renders_a_single_anchored_image ... ok
+test gtk_suite::preview::build::gtk_integration_tests::picture_groups_but_ungrouped_source_and_img_are_independent ... ok
+test gtk_suite::preview::build::gtk_integration_tests::picture_with_no_decodable_source_shows_broken_marker ... ok
+test gtk_suite::preview::build::gtk_integration_tests::quoted_list_item_nests_inside_its_blockquote ... ok
+test gtk_suite::preview::build::gtk_integration_tests::select_all_equals_copy_document ... ok
+test gtk_suite::preview::build::gtk_integration_tests::siblings_and_nested_blocks_render_their_own_state ... ok
+test gtk_suite::preview::build::gtk_integration_tests::tab_separated_table_still_renders_as_a_table ... ok
+test gtk_suite::preview::build::gtk_integration_tests::table_cell_copy_preserves_formatting ... ok
+test gtk_suite::preview::build::gtk_integration_tests::the_annotation_highlight_matches_between_body_and_cell_under_every_theme ... ok
+test gtk_suite::preview::build::gtk_integration_tests::the_body_preview_never_reaches_the_html_export_sink ... ok
+test gtk_suite::preview::build::gtk_integration_tests::the_body_preview_takes_its_ink_from_the_active_theme ... ok
+test gtk_suite::preview::build::gtk_integration_tests::the_readme_picture_hero_renders_in_app ... ok
+test gtk_suite::preview::build::gtk_integration_tests::the_shared_byte_probe_and_the_cap_agree_about_an_oversized_image ... ok
+test gtk_suite::preview::build::gtk_integration_tests::the_summary_span_covers_the_line_text_and_not_its_newline ... ok
+test gtk_suite::preview::build::gtk_integration_tests::undecodable_webp_degrades_to_one_anchored_child ... ok
+test gtk_suite::preview::build::gtk_integration_tests::without_a_quote_ink_the_heading_and_mark_tags_set_no_foreground ... ok
+test gtk_suite::preview::build::gtk_integration_tests::without_a_themed_ink_the_body_preview_tag_sets_no_foreground ... ok
+test gtk_suite::preview::build::gtk_integration_tests::wrap_span_single_word_does_not_engulf_the_block ... ok
+test gtk_suite::preview::build::table_alignment_tests::a_delimiter_rows_alignment_reaches_the_preview_cells ... ok
+test gtk_suite::preview::build::table_alignment_tests::the_preview_and_the_export_align_the_same_columns ... ok
+test gtk_suite::preview::css::tests::parses::every_builtin_theme_sheet_parses_without_a_css_error ... ok
+test gtk_suite::preview::interactions::disclosure_click_tests::a_click_anywhere_along_the_summary_line_finds_the_toggle ... ok
+test gtk_suite::preview::interactions::disclosure_click_tests::a_collapsed_body_imposes_no_width_on_the_pane ... ok
+test gtk_suite::preview::interactions::disclosure_click_tests::a_press_on_the_arrow_itself_is_left_to_the_arrow ... ok
+test gtk_suite::preview::interactions::disclosure_click_tests::nothing_but_a_summary_line_is_a_target ... ok
+test gtk_suite::preview::interactions::disclosure_click_tests::the_summary_line_hovers_as_a_pointer_and_ordinary_prose_does_not ... ok
+test gtk_suite::preview::markertests::a_still_heading_marker_stays_a_buffer_paintable ... ok
+test gtk_suite::preview::markertests::an_animated_heading_marker_is_an_anchored_sprite_icon_at_the_markers_size ... ok
+test gtk_suite::preview::render::choke_point_tests::the_annotation_refresh_route_invalidates_like_every_other_route ... ok
+test gtk_suite::preview::render::gtk_integration_tests::a_link_in_a_mixed_table_cell_renders_as_a_link ... ok
+test gtk_suite::preview::render::gtk_integration_tests::a_table_cells_inline_code_wears_its_surfaces_chip ... ok
+test gtk_suite::preview::render::gtk_integration_tests::indented_wide_table_does_not_force_a_horizontal_scrollbar ... ok
+test gtk_suite::preview::render::gtk_integration_tests::indented_wide_table_does_not_force_a_horizontal_scrollbar_at_zoom ... ok
+test gtk_suite::preview::render::gtk_integration_tests::no_text_construct_produces_an_over_wide_line ... ok
+test gtk_suite::preview::render::gtk_integration_tests::preview_view_and_code_tag_avoid_wordchar_the_atspi_abort_trigger ... ok
+test gtk_suite::preview::render::gtk_integration_tests::re_render_rebuilds_the_live_buffer_and_never_swaps_it ... ok
+test gtk_suite::preview::scroll::gtk_integration_tests::a_line_restore_routes_a_code_preview_view_through_its_guarded_path ... ok
+test gtk_suite::preview::scroll::gtk_integration_tests::a_progressive_restore_survives_a_buffer_swap_that_orphans_its_mark ... ok
+test gtk_suite::preview::scroll::gtk_integration_tests::fresh_far_restore_on_a_huge_buffer_targets_the_far_line_without_panicking ... ok
+test gtk_suite::preview::scroll::gtk_integration_tests::fresh_far_restore_scrolls_a_mapped_view_to_the_far_target ... ok
+test gtk_suite::preview::scroll::gtk_integration_tests::fresh_restore_is_a_noop_at_or_above_the_top ... ok
+test gtk_suite::preview::scroll::gtk_integration_tests::the_deferred_restore_idle_declines_to_run_against_a_destroyed_view ... ok
+test gtk_suite::preview::scroll::gtk_integration_tests::the_deferred_restore_idle_does_not_pin_its_view_alive ... ok
+test gtk_suite::preview::splice::excursion::the_splice_avoids_the_excursion_a_full_re_render_causes ... 
+=== expanding a disclosure ABOVE the reading position ===
+  re-render  before    value     12930  upper     22150  page    600
+             immediate value     12930  upper     22150  page    600
+             TROUGH    value         8  upper       681
+             settled   value         8  upper     23920  page    600
+             delta     value    -12922  upper     +1770
+             upper collapsed: true   thrown to the top: true
+             reader anchor survived: false  content drift: n/a (anchor destroyed)
+             top line before: "Tail paragraph 290. Lorem ipsum dolor sit amet"
+             top line after:  "Measurement fixture"
+  splice     before    value     12930  upper     22150  page    600
+             immediate value     12930  upper     22150  page    600
+             TROUGH    value     12930  upper     22150
+             settled   value     14700  upper     23920  page    600
+             delta     value     +1770  upper     +1770
+             upper collapsed: false  thrown to the top: false
+             reader anchor survived: true   content drift: +0px
+             top line before: "Tail paragraph 290. Lorem ipsum dolor sit amet"
+             top line after:  "Tail paragraph 290. Lorem ipsum dolor sit amet"
+
+ok
+test gtk_suite::preview::splice::excursion::the_splice_holds_the_reader_when_the_block_above_them_collapses ... 
+=== collapsing a disclosure ABOVE the reading position ===
+  re-render  before    value     13992  upper     23920  page    600
+             immediate value     13992  upper     23920  page    600
+             TROUGH    value         4  upper       649
+             settled   value         4  upper     22150  page    600
+             delta     value    -13988  upper     -1770
+             upper collapsed: true   thrown to the top: true
+             reader anchor survived: false  content drift: n/a (anchor destroyed)
+             top line before: "Tail paragraph 274. Lorem ipsum dolor sit amet"
+             top line after:  "Measurement fixture"
+  splice     before    value     13992  upper     23920  page    600
+             immediate value     13992  upper     23920  page    600
+             TROUGH    value     12222  upper     22150
+             settled   value     12222  upper     22150  page    600
+             delta     value     -1770  upper     -1770
+             upper collapsed: false  thrown to the top: false
+             reader anchor survived: true   content drift: +0px
+             top line before: "Tail paragraph 274. Lorem ipsum dolor sit amet"
+             top line after:  "Tail paragraph 274. Lorem ipsum dolor sit amet"
+
+ok
+test gtk_suite::preview::splice::excursion::wired::a_control_below_a_spliced_region_still_names_its_own_line ... ok
+test gtk_suite::preview::splice::excursion::wired::a_survivor_of_a_splice_is_not_connected_twice ... ok
+test gtk_suite::preview::splice::excursion::wired::activating_a_disclosure_above_the_reader_keeps_them_on_their_line ... 
+=== WIRED expand, TDD 2.26h/i ===
+  before   value      9776  upper     16747  page    454
+  TROUGH   value      9776  upper     16747
+  settled  value     11795  upper     18766  page    454
+  reader   drift +0px   settle 624.433916ms
+  line     "Tail paragraph 129. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo."
+  writes   1x+9.2px, 19x+9.0px, 1x+50.0px, 1x-80.0px, 21x+89.0px, 1x-0.2px
+
+ok
+test gtk_suite::preview::splice::excursion::wired::collapsing_a_disclosure_above_the_reader_keeps_them_on_their_line ... 
+=== WIRED collapse, TDD 2.26h/i ===
+  before   value     11910  upper     20305  page    454
+  TROUGH   value      9876  upper     18271
+  settled  value      9891  upper     18286  page    454
+  reader   drift +0px
+  line     "Tail paragraph 130. Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo."
+
+ok
+test gtk_suite::preview::splice::excursion::wired::everything_below_a_toggled_block_still_addresses_its_own_text_in_the_live_pane ... ok
+test gtk_suite::preview::splice::excursion::wired::the_restore_does_not_provoke_a_fresh_compensation_burst ... 
+=== restore convergence ===
+  during 44 writes: 1x+9.2px, 19x+9.0px, 1x+50.0px, 1x-80.0px, 21x+89.0px, 1x-0.2px
+  after  0 writes
+
+ok
+test gtk_suite::preview::splice::install::gtk_integration_tests::a_spliced_pane_installs_what_a_full_re_render_would ... ok
+test gtk_suite::preview::splice::install::gtk_integration_tests::an_unconsumed_reader_anchor_deletes_its_own_mark ... ok
+test gtk_suite::preview::splice::install::gtk_integration_tests::claiming_a_restore_supersedes_the_previous_claim ... ok
+test gtk_suite::preview::splice::install::gtk_integration_tests::consuming_a_reader_anchor_releases_its_own_reference ... ok
+test gtk_suite::preview::splice::install::gtk_integration_tests::dropping_an_anchor_whose_mark_was_already_deleted_is_a_no_op ... ok
+test gtk_suite::preview::splice::install::gtk_integration_tests::the_anchor_scan_includes_one_at_the_very_start ... ok
+test gtk_suite::preview::splice::install::gtk_integration_tests::the_anchor_scan_terminates_on_a_buffer_with_none ... ok
+test gtk_suite::preview::splice::tests::a_fold_changes_exactly_one_region_of_the_rendered_text ... ok
+test gtk_suite::preview::splice::tests::a_fold_inside_a_container_still_changes_only_its_own_region ... ok
+test gtk_suite::preview::splice::tests::a_refusal_before_the_delete_leaves_the_buffer_untouched ... ok
+test gtk_suite::preview::splice::tests::everything_below_a_toggled_block_still_addresses_its_own_text ... ok
+test gtk_suite::preview::splice::tests::splicing_closed_matches_a_full_closed_render ... ok
+test gtk_suite::preview::splice::tests::splicing_inside_a_container_matches_a_full_render ... ok
+test gtk_suite::preview::splice::tests::splicing_open_matches_a_full_open_render ... ok
+test gtk_suite::preview::splice::tests::tables_outside_the_region_survive_the_splice_as_the_same_widgets ... ok
+test gtk_suite::preview::splice::tests::tags::a_spliced_collapse_inks_the_summary_line_the_way_a_full_render_does ... ok
+test gtk_suite::preview::splice::tests::tags::a_spliced_expand_leaves_the_ink_over_the_label_alone ... ok
+test gtk_suite::preview::splice::tests::tags::a_spliced_region_carries_the_same_container_tags_a_full_render_does ... ok
+test gtk_suite::preview::splice::tests::tags::strike_inside_a_link_label_carries_both_tags ... ok
+test gtk_suite::preview::splice::tests::tags::strike_wrapping_a_bare_link_carries_both_tags ... ok
+test gtk_suite::preview::splice::tests::the_region_render_normalises_tabs_the_same_way_every_other_parse_site_does ... ok
+test gtk_suite::renderer::emit::code_block_per_line_tests::code_block_tag_toggles_on_at_each_line_start ... ok
+test gtk_suite::renderer::end::gtk_integration_tests::a_bare_labels_default_activate_link_handler_declines_outside_a_window ... ok
+test gtk_suite::renderer::end::gtk_integration_tests::a_mixed_cell_labels_link_never_reaches_gtks_own_show_uri ... ok
+test gtk_suite::renderer::end::gtk_integration_tests::returning_stop_from_activate_link_prevents_gtks_own_show_uri ... ok
+test gtk_suite::renderer::end::gtk_integration_tests::the_default_activate_link_handler_runs_when_emission_is_not_halted ... ok
+test gtk_suite::renderer::end::gtk_integration_tests::the_probe_uri_is_one_gtk_refuses_to_launch ... ok
+test gtk_suite::saferizer::buffer_mark::gtk_integration_tests::resolve_is_none_across_buffers_and_some_within ... ok
+test gtk_suite::saferizer::buffer_text::gtk_integration_tests::buffer_text_counts_anchored_child_like_char_count ... ok
+test gtk_suite::saferizer::click_activation::gtk_integration_tests::a_bounded_activation_rejects_a_swipe_across_one_target ... ok
+test gtk_suite::saferizer::click_activation::gtk_integration_tests::activation_requires_press_and_release_on_the_same_target ... ok
+test gtk_suite::saferizer::persistent_popover::gtk_integration_tests::reparent_moves_and_is_idempotent ... ok
+test gtk_suite::saferizer::persistent_popover::gtk_integration_tests::teardown_popdowns_before_unparenting_and_ends_unparented ... ok
+test gtk_suite::saferizer::popover_anchor::gtk_integration_tests::an_unset_anchor_reads_as_none_and_a_set_one_round_trips ... ok
+test gtk_suite::saferizer::scrollpos::gtk_integration_tests::a_plain_write_truncates_a_scroll_animation ... 
+(process:45205): Gtk-WARNING **: 21:50:41.827: Failed to launch handler: scribobulate-probe/deliberately-not-a-uri is not a valid uri: URI ‘scribobulate-probe/deliberately-not-a-uri’ is not an absolute URI
+ok
+test gtk_suite::saferizer::scrollpos::gtk_integration_tests::gtk_clamps_the_written_value_into_the_scrollable_range ... ok
+test gtk_suite::saferizer::viewport::tests::the_top_of_an_unallocated_view_is_the_start_of_the_buffer_not_its_end ... ok
+test gtk_suite::saferizer::viewport::tests::viewport_top_iter_matches_manual_read_on_a_scrolled_view ... ok
+test gtk_suite::sprite::gtk_integration_tests::a_buffer_paintable_releases_its_texture_when_the_run_is_deleted ... ok
+test gtk_suite::sprite::gtk_integration_tests::a_sprite_rule_releases_its_tile_when_the_widget_is_dropped ... ok
+test gtk_suite::theme::tests::disclosure::a_theme_stating_no_disclosure_band_or_ink_leaves_every_surface_untouched ... ok
+test gtk_suite::theme::tests::sinks::every_declared_key_reaches_every_surface_it_claims ... ok
+test gtk_suite::widgets::comment_entry::tests::an_initial_comment_is_prefilled_and_round_trips ... ok
+test gtk_suite::widgets::comment_entry::tests::enter_and_save_are_the_same_commit ... ok
+test gtk_suite::widgets::comment_entry::tests::enter_commits ... ok
+test gtk_suite::widgets::comment_entry::tests::save_commits ... ok
+test gtk_suite::widgets::disclosure::tests::a_collapsed_toggle_shows_the_collapsed_indicator ... ok
+test gtk_suite::widgets::disclosure::tests::a_glyph_indicator_keeps_its_themed_ink_in_the_backdrop_state ... ok
+test gtk_suite::widgets::disclosure::tests::a_new_toggle_publishes_an_interactive_role ... ok
+test gtk_suite::widgets::disclosure::tests::a_theme_may_state_the_indicators_glyph_and_it_outranks_the_stock_icon ... ok
+test gtk_suite::widgets::disclosure::tests::a_theme_that_states_nothing_leaves_the_control_exactly_as_it_was ... ok
+test gtk_suite::widgets::disclosure::tests::a_toggle_built_expanded_starts_expanded ... ok
+test gtk_suite::widgets::disclosure::tests::pixel_quests_indicator_reaches_the_control_as_a_plate ... ok
+test gtk_suite::widgets::disclosure::tests::refreshing_a_live_toggle_moves_its_indicator_and_its_accessible_state ... ok
+test gtk_suite::widgets::disclosure::tests::refreshing_a_toggle_does_not_re_emit_its_activation ... ok
+test gtk_suite::widgets::disclosure::tests::stating_one_states_glyph_leaves_the_other_on_its_stock_icon ... ok
+test gtk_suite::widgets::disclosure::tests::the_indicator_scales_with_zoom ... ok
+test gtk_suite::widgets::disclosure::tests::the_indicator_size_is_themed_and_follows_zoom ... ok
+test gtk_suite::widgets::rule::gtk_integration_tests::a_sprite_rule_measures_the_tiles_height_and_asks_for_no_width ... ok
+test gtk_suite::widgets::rule::gtk_integration_tests::a_sprite_rule_tiles_across_its_whole_width ... ok
+test gtk_suite::widgets::rule::gtk_integration_tests::an_animated_rule_tile_plays ... ok
+test gtk_suite::widgets::sprite_icon::gtk_tests::a_still_sprite_icon_paints_the_still_resample ... ok
+test gtk_suite::widgets::sprite_icon::gtk_tests::an_animated_sprite_icon_plays ... ok
+test gtk_suite::widgets::sprite_icon::gtk_tests::an_icon_first_painted_out_of_view_plays_once_scrolled_into_view ... ok
+test gtk_suite::widgets::tab::bar::gtk_integration_tests::a_handle_that_grows_moves_the_tabs_after_it ... ok
+test gtk_suite::widgets::tab::bar::gtk_integration_tests::a_tab_added_after_a_restyle_lands_clear_of_its_neighbours ... ok
+test gtk_suite::widgets::tab::bar::gtk_integration_tests::a_tab_added_after_its_neighbours_changed_width_lands_clear_of_them ... ok
+test gtk_suite::widgets::tab::bar::gtk_integration_tests::a_width_change_asks_for_a_resize_not_just_an_allocation ... ok
+test gtk_suite::widgets::tab::bar::gtk_integration_tests::an_unchanged_relabel_does_not_lay_the_strip_out ... ok
+test gtk_suite::widgets::tab::bar::gtk_integration_tests::close_button_class_is_found_on_the_picked_widget_or_an_ancestor ... ok
+test gtk_suite::widgets::tab::bar::gtk_integration_tests::drag_icon_freeze_must_be_taken_before_the_handle_is_dimmed ... ok
+test gtk_suite::widgets::tab::bar::gtk_integration_tests::switching_to_a_just_added_tab_scrolls_it_fully_into_view ... ok
+test gtk_suite::widgets::table::gtk_integration_tests::a_cell_keeps_the_themes_ink_in_the_backdrop_state ... ok
+test gtk_suite::widgets::table::gtk_integration_tests::a_link_cells_border_box_fills_its_column ... ok
+test gtk_suite::widgets::table::gtk_integration_tests::a_link_only_cells_button_wears_the_themes_link_colour ... ok
+test gtk_suite::widgets::table::gtk_integration_tests::an_animated_header_scene_plays ... ok
+test gtk_suite::widgets::table::gtk_integration_tests::set_bound_inset_shrinks_the_fit_target ... ok
+test gtk_suite::widgets::table::gtk_integration_tests::the_header_band_is_painted_once_per_header_cell ... ok
+test gtk_suite::widgets::table::linkcell::gtk_integration_tests::a_caption_with_markup_metacharacters_renders_literally ... ok
+test gtk_suite::widgets::table::linkcell::gtk_integration_tests::a_link_cells_alignment_moves_the_caption_not_the_button ... ok
+test gtk_suite::widgets::table::linkcell::gtk_integration_tests::a_link_cells_caption_is_readable_back_as_plain_text ... ok
+test gtk_suite::widgets::table::linkcell::gtk_integration_tests::a_mixed_cells_markup_is_parsed_as_a_link_not_as_text ... ok
+test gtk_suite::widgets::table::linkcell::gtk_integration_tests::a_plain_cell_is_not_read_as_a_link_cell ... ok
+test gtk_suite::widgets::textfield::tests::a_constructed_field_carries_its_accessible_name ... ok
+test gtk_suite::widgets::tile_tests::a_scene_takes_the_corner_its_anchor_names_and_none_without_one ... ok
+test gtk_suite::widgets::tile_tests::a_zero_dimension_produces_no_node_at_all ... ok
+test gtk_suite::widgets::tile_tests::the_tile_grid_is_anchored_at_the_rects_x_and_a_document_grid_line ... ok
+test gtk_suite::widgets::wrapbox::gtk_integration_tests::a_child_that_does_not_fit_wraps_to_a_new_row_at_x_zero ... ok
+test gtk_suite::widgets::wrapbox::gtk_integration_tests::a_hidden_child_takes_no_space ... ok
+test gtk_suite::window::actions::gtk_integration_tests::a_freshly_loaded_document_leaves_the_caret_at_its_start ... ok
+test gtk_suite::window::actions::gtk_integration_tests::a_lone_cr_document_loads_as_line_feeds_and_stays_off_the_undo_stack ... ok
+test gtk_suite::window::actions::gtk_integration_tests::nested_submenu_action_runs_handler_and_dismisses ... ok
+test gtk_suite::window::actions::gtk_integration_tests::nested_submenu_app_stateful_action_sets_state_and_runs_handler ... ok
+test gtk_suite::window::actions::gtk_integration_tests::nested_submenu_stateful_action_sets_state_and_runs_handler ... ok
+test gtk_suite::window::actions::gtk_integration_tests::placing_the_caret_at_load_leaves_nothing_to_undo ... ok
+test gtk_suite::window::actions::gtk_integration_tests::preview_selection_enables_copy_on_startup ... ok
+test gtk_suite::window::annotate::gtk_integration_tests::an_annotation_edit_is_a_single_undoable_step ... ok
+test gtk_suite::window::annotate::gtk_integration_tests::annotating_in_preview_only_mode_refreshes_the_sidebar_viewer ... ok
+test gtk_suite::window::annotate::gtk_integration_tests::create_highlight_wraps_the_selected_source_range ... ok
+test gtk_suite::window::annotate::gtk_integration_tests::edit_after_an_edit_elsewhere_still_targets_the_right_comment ... ok
+test gtk_suite::window::annotate::gtk_integration_tests::redo_then_new_annotation_are_two_independent_undo_steps ... ok
+test gtk_suite::window::annotate::gtk_integration_tests::remove_after_an_edit_elsewhere_still_removes_the_right_construct ... ok
+test gtk_suite::window::annotate::gtk_integration_tests::remove_then_edit_round_trip_via_the_buffer ... ok
+test gtk_suite::window::annotate::gtk_integration_tests::remove_whose_construct_is_gone_is_a_no_op_not_a_panic ... ok
+test gtk_suite::window::annotate::gtk_integration_tests::splice_minimal_is_char_exact_across_multibyte_runs ... ok
+test gtk_suite::window::annotate::gtk_integration_tests::undo_redo_are_enabled_in_preview_mode_after_annotating ... ok
+test gtk_suite::window::annotations_nav::shown_source_tests::shown_source_reads_the_buffer_in_editor_modes_and_the_stored_source_in_preview ... ok
+test gtk_suite::window::annotations_nav::shown_source_tests::the_outline_and_the_annotations_viewer_read_one_document ... ok
+test gtk_suite::window::arrangement::tests::a_toggle_in_one_window_rearranges_every_tab_of_every_window ... ok
+test gtk_suite::window::arrangement::tests::new_tabs_and_new_windows_start_with_the_arrangement ... ok
+test gtk_suite::window::arrangement::tests::the_first_window_takes_the_saved_arrangement ... ok
+test gtk_suite::window::copylink::gtk_integration_tests::a_right_clicked_link_enables_the_command_even_with_no_editor_caret ... ok
+test gtk_suite::window::copylink::gtk_integration_tests::copy_link_location_follows_the_caret_and_the_view_mode ... ok
+test gtk_suite::window::editbar::dialog::tests::every_prompt_field_carries_an_accessible_name ... ok
+test gtk_suite::window::editbar::edit::gtk_integration_tests::redo_then_format_edit_are_two_independent_undo_steps ... ok
+test gtk_suite::window::editbar::newline::gtk_integration_tests::enter_continues_a_list_item_and_an_empty_item_exits_the_list ... ok
+test gtk_suite::window::editbar::newline::gtk_integration_tests::enter_on_a_lone_fence_closes_or_not_per_the_real_document_above ... ok
+test gtk_suite::window::editbar::newline::gtk_integration_tests::pasting_highlighted_list_lines_keeps_every_line ... ok
+test gtk_suite::window::editor_annotate::gtk_integration_tests::the_card_bar_carries_the_shared_styling_and_test_discovery_class ... ok
+test gtk_suite::window::editor_annotate::gtk_integration_tests::the_card_opens_empty_when_nothing_would_be_destroyed ... ok
+test gtk_suite::window::editor_annotate::gtk_integration_tests::the_card_opens_prepopulated_with_the_comment_it_would_destroy ... ok
+test gtk_suite::window::editor_annotate::gtk_integration_tests::the_card_shows_every_comment_a_multi_overlap_would_destroy ... ok
+test gtk_suite::window::editor_annotate::gtk_integration_tests::the_prepopulated_comment_opens_unselected_with_the_caret_at_the_end ... objc[45205]: autorelease pool page 0x87145d000 corrupted
+  magic     0x94706085 0x32610bbc 0x00001400 0x00000000
+  should be 0xa1a1a1a1 0x4f545541 0x454c4552 0x21455341
+  pthread   0x1f9b3e180
+  should be 0x1f9b3e180
+
+error: test failed, to rerun pass `-p scribobulate --test gtk_suite`
+
+Caused by:
+  process didn't exit successfully: `/Users/neufeljo/.cache/flowdra/Jonathan-Improving-Scribobulate-8d3e73e3/.worktrees/Jonathan-Improving-Scribobulate-8d3e73e3/issue-1-35462/target/release/deps/gtk_suite-9d3b55e24882665e --skip an_animated_heading_band_sprite_plays_while_the_heading_is_in_view --skip a_card_takes_the_focus_only_when_the_opener_asked_for_it` (signal: 6, SIGABRT: process abort signal)
