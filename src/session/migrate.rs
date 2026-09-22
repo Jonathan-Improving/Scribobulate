@@ -163,6 +163,10 @@ impl From<LegacySession> for Session {
                     doc_id: None,
                     view_mode: l.view_mode,
                     show_unsafe_images: l.show_unsafe_images,
+                    // A legacy file predates the find match options too, so the
+                    // restored tab reads as the case-insensitive literal the bar was
+                    // fixed at when that file was written.
+                    find_options: crate::window::FindOptions::default(),
                 }],
             }],
         }

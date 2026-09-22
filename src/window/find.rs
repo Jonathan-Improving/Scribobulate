@@ -1,12 +1,40 @@
 //! Find & replace: the editor `GtkSourceSearchContext` path and the separate
-//! pure-preview `TextIter` search path.
+//! pure-preview path, which searches three texts the editor's engine cannot see.
+//!
+//! The two paths share one thing and it is the important one: the reader's **match
+//! options** ([`FindOptions`]). The editor's engine implements them natively; the
+//! preview's [`matcher::Matcher`] implements them by hand. `parity` measures the two
+//! against each other over the same fixtures, because "the same query means the same
+//! thing in both panes" (TDD 11.13, 11.14) is a claim about their agreement and neither
+//! implementation can evidence it alone.
 
 use super::*;
 
+/// The find bar driven as a reader drives it — the same claim as [`parity`], but through
+/// the action, the tab state, both engines and the readout.
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+mod bartests;
+/// The preview buffer's searchable text and the map from a match back to buffer
+/// offsets. Pure for the same reason as [`plan`], and for a second one: its whole
+/// subject is offset arithmetic across two coordinate systems, which is exactly the
+/// kind of decision that is cheap to unit-test and expensive to debug on screen.
+mod bodytext;
+/// The one matcher every preview text is searched with. GTK-free, and measured against
+/// the editor's engine by [`parity`].
+mod matcher;
+/// The three match options, and the table naming the `win.` action that carries each.
+mod options;
+/// The two engines, compared against each other over the same fixtures. Test-only: it
+/// asserts nothing about either engine alone, so it has nothing to say outside a run.
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+mod parity;
 /// The pure decision behind the preview's find highlight, in its own module so the
 /// coverage gate can see it — `src/window/*.rs` is excluded from scope and this file's
 /// decision core is not GTK (`sdd/POLICY.md` § coverage gate, the extraction rule).
 mod plan;
+
+use matcher::Matcher;
+pub(crate) use options::FindOptions;
 /// The find bar searches whichever text the user is actually looking at: the
 /// editor's `GtkSourceSearchContext` in edit/split (the editor is visible there),
 /// or the **preview**'s plain `GtkTextBuffer` in pure-preview mode (where the
@@ -153,12 +181,6 @@ impl FindCursor {
 /// highlights" rather than as a mistake.
 pub(super) const PREVIEW_HL_TAG: &str = "scrib-search-hl";
 
-/// The case-insensitive, anchor-skipping search flags used for the preview buffer
-/// (case-insensitive matches the editor's default `GtkSourceSearchSettings`;
-/// `TEXT_ONLY` skips the `U+FFFC` child-anchor characters that embed tables).
-fn preview_flags() -> gtk::TextSearchFlags {
-    gtk::TextSearchFlags::CASE_INSENSITIVE | gtk::TextSearchFlags::TEXT_ONLY
-}
 /// The reusable "highlight every match" tag on a preview buffer — the active
 /// theme's `find_hl_all`, distinct from the selection that marks the *current*
 /// match. Created once per buffer, then looked up.
@@ -233,59 +255,17 @@ enum PreviewHit {
     },
 }
 
-/// All non-overlapping, case-insensitive byte ranges of `needle` in `hay`. This is
-/// the cell-`GtkLabel` counterpart of the buffer's `forward_search` with
-/// `CASE_INSENSITIVE | TEXT_ONLY`. Byte offsets index `hay` directly (so they feed
-/// straight into a Pango attribute). Case folding is per-character simple lowercase
-/// (1:1, byte-exact); exotic multi-char foldings like ß→ss are not matched, matching
-/// the realistic needs of a Markdown find. GTK-free and unit-tested.
-fn ci_match_ranges(hay: &str, needle: &str) -> Vec<(usize, usize)> {
-    let mut out = Vec::new();
-    if needle.is_empty() {
-        return out;
-    }
-    // Named fields, not a `(usize, char)` read through `.0`/`.1`. This file's entire
-    // subject is byte-versus-char offset arithmetic, and the positional form had the
-    // same variable read as a BYTE on one line and as a CHAR on the next with nothing
-    // in the syntax distinguishing them (QA round 4 §1.4). The project convention
-    // against positional tuple access exists for exactly this, and it is worth more
-    // here than the convention alone implies.
-    struct HayChar {
-        byte: usize,
-        ch: char,
-    }
-    let fold = |c: char| c.to_lowercase().next().unwrap_or(c);
-    let needle_l: Vec<char> = needle.chars().map(fold).collect();
-    let hay_chars: Vec<HayChar> = hay
-        .char_indices()
-        .map(|(byte, ch)| HayChar { byte, ch })
-        .collect();
-    let n = needle_l.len();
-    let mut i = 0;
-    while i + n <= hay_chars.len() {
-        let matched = (0..n).all(|k| fold(hay_chars[i + k].ch) == needle_l[k]);
-        if matched {
-            let start = hay_chars[i].byte;
-            let end = if i + n < hay_chars.len() {
-                hay_chars[i + n].byte
-            } else {
-                hay.len()
-            };
-            out.push((start, end));
-            i += n; // non-overlapping
-        } else {
-            i += 1;
-        }
-    }
-    out
-}
-
-/// Build the unified, document-ordered list of body + table-cell matches of `text`
-/// in the preview. Body matches sort by their buffer offset; cell matches sort by
+/// Build the unified, document-ordered list of body + table-cell matches in the
+/// preview. Body matches sort by their buffer offset; cell matches sort by
 /// their table's anchor offset (all of a table's cells share it), then by a stable
 /// per-cell sequence — so a table's cell matches land between the body text before
 /// and after the table (the anchor's U+FFFC char can never collide with a text
-/// match offset). Empty `text` ⇒ empty list.
+/// match offset). An empty query compiles to `Matcher::Never`, so it yields an empty
+/// list here without this function needing to know what an empty query is.
+///
+/// **One matcher, three texts.** The buffer, the table-cell labels and the collapsed
+/// disclosures' source are searched by the same compiled query, which is what makes
+/// the count a single number rather than three numbers added up under three rules.
 /// `targets` is passed in, never re-resolved. `cell_search_targets` is a widget-tree
 /// walk (`first_child()`/`next_sibling()`), and this function and
 /// `apply_preview_highlights` each used to resolve it independently — so every
@@ -296,20 +276,26 @@ fn ci_match_ranges(hay: &str, needle: &str) -> Vec<(usize, usize)> {
 /// were being re-discovered (QA round 4 §1.6).
 fn build_preview_hits(
     view: &CodePreviewView,
-    text: &str,
+    matcher: &Matcher,
     targets: &[(i32, gtk::Label)],
 ) -> Vec<PreviewHit> {
-    if text.is_empty() {
-        return Vec::new();
-    }
     // (primary offset, stable sequence, hit) for the merge sort.
     let mut keyed: Vec<(i32, usize, PreviewHit)> = Vec::new();
 
     // Body-text matches (buffer).
+    //
+    // Read through `slice()` and searched by the shared matcher, NOT by
+    // `TextIter::forward_search`. The old reader was a whole second matcher living
+    // inside GTK — its case folding and its notion of a word were not this
+    // application's, and it has no regular-expression mode at all, so the reader's
+    // options could never have reached it. `bodytext` is what makes the buffer a
+    // `&str` the one matcher can run over and maps the result back (ScrAP-74 is the
+    // offset trap it exists to close).
     let buf = view.buffer();
-    let flags = preview_flags();
+    let body =
+        bodytext::BodyText::extract(buf.slice(&buf.start_iter(), &buf.end_iter(), true).as_str());
     // A collapsed disclosure's body-opening PREVIEW (TDD 2.26) is real buffer text,
-    // so an ordinary `forward_search` sees it too — but the SAME occurrence is also
+    // so an ordinary body sweep sees it too — but the SAME occurrence is also
     // found below, from the SOURCE, by the collapsed-block scan, which is not bounded
     // by the preview's own truncation length and so already covers it whether or not
     // the match happens to fall inside the shown fragment. Counting both would double
@@ -318,28 +304,20 @@ fn build_preview_hits(
     let preview_tag = buf
         .tag_table()
         .lookup(crate::tags::TagName::DisclosurePreview.name());
-    let mut it = buf.start_iter();
-    while let Some((ms, me)) = it.forward_search(text, flags, None) {
-        let start = ms.offset();
-        let in_preview = preview_tag.as_ref().is_some_and(|t| ms.has_tag(t));
+    for (start, end) in body.to_buffer_ranges(&matcher.ranges(body.text())) {
+        let in_preview = preview_tag
+            .as_ref()
+            .is_some_and(|t| buf.iter_at_offset(start).has_tag(t));
         if !in_preview {
-            keyed.push((
-                start,
-                0,
-                PreviewHit::Body {
-                    start,
-                    end: me.offset(),
-                },
-            ));
+            keyed.push((start, 0, PreviewHit::Body { start, end }));
         }
-        it = me;
     }
 
     // Table-cell matches (GtkLabel children, document order).
     let mut seq = 1usize;
     for (anchor_off, label) in targets.iter().cloned() {
         let cell_text = label.text().to_string();
-        for (bs, be) in ci_match_ranges(&cell_text, text) {
+        for matcher::Range { start: bs, end: be } in matcher.ranges(&cell_text) {
             keyed.push((
                 anchor_off,
                 seq,
@@ -378,7 +356,7 @@ fn build_preview_hits(
                 );
                 continue;
             };
-            for _ in 0..plan::hidden_match_count(hidden, text) {
+            for _ in 0..plan::hidden_match_count(hidden, matcher) {
                 keyed.push((
                     block.summary_offset,
                     seq,
@@ -459,19 +437,27 @@ pub(crate) struct PreviewFindCache {
 /// so it adds exactly the discrimination the generation number is missing, without
 /// weakening the existing generation/query invalidation `re_render` already relies
 /// on. See that field's own doc for why it counts rather than reading an address.
+///
+/// **The options are part of the query.** Ticking *match case* changes which
+/// occurrences exist without changing a character of what the reader typed, so a key
+/// on the text alone serves the previous option set's hits back — a list that looks
+/// right, counts wrong, and is invalidated by nothing, because nothing else in the key
+/// moved either.
 #[derive(PartialEq, Eq, Debug, Clone)]
 struct HitsKey {
     view_serial: u64,
     generation: u64,
     query: String,
+    options: FindOptions,
 }
 
 impl HitsKey {
-    fn new(view_serial: u64, generation: u64, query: &str) -> Self {
+    fn new(view_serial: u64, generation: u64, query: &str, options: FindOptions) -> Self {
         Self {
             view_serial,
             generation,
             query: query.to_string(),
+            options,
         }
     }
 }
@@ -487,13 +473,24 @@ impl PreviewFindCache {
     /// Hand `f` the hit list for `query` on `view`, rebuilding it first if the cache is
     /// empty or stale. This is the **only** way to obtain a preview hit list, so no
     /// caller can build one that skips the invalidation rule above.
+    /// **A query that does not compile is an `Err`, never an empty list.** A malformed
+    /// regular expression has no matches in the same sense that an unfinished sentence
+    /// has no meaning, and "No matches" is the confidently wrong answer TDD 11.8 names
+    /// as worse than a missing one. Returning it as a value rather than logging it is
+    /// what lets the readout say so.
     fn with_hits<R>(
         &self,
         view: &CodePreviewView,
         query: &str,
+        options: FindOptions,
         f: impl FnOnce(&[(i32, Label)], &[PreviewHit]) -> R,
-    ) -> R {
-        let key = HitsKey::new(view.instance_serial(), view.render_generation(), query);
+    ) -> Result<R, matcher::PatternError> {
+        let key = HitsKey::new(
+            view.instance_serial(),
+            view.render_generation(),
+            query,
+            options,
+        );
         // TAKEN, not borrowed, for the duration of `f`: `f` applies highlights, which
         // calls back into GTK (`set_attributes`/`set_markup` on anchored children, plus a
         // scroll), and holding a `RefCell` borrow across a GTK call that can re-enter is a
@@ -502,18 +499,22 @@ impl PreviewFindCache {
         // that does not currently arise, but never a panic.
         let mut built = self.slot.take();
         if !built.as_ref().is_some_and(|b| b.key == key) {
+            // Compiled BEFORE the slot is refilled, so a pattern the reader is still
+            // typing leaves the cache empty rather than holding a list built for the
+            // last pattern that happened to compile.
+            let m = matcher::Matcher::compile(query, options)?;
             #[cfg(test)]
             self.builds.set(self.builds.get() + 1);
             // Resolved ONCE and reused by every consumer of this entry — see
             // `build_preview_hits` on why the tree walk is not repeated per consumer.
             let targets = cell_search_targets(view);
-            let hits = build_preview_hits(view, query, &targets);
+            let hits = build_preview_hits(view, &m, &targets);
             built = Some(BuiltHits { key, targets, hits });
         }
         let built = built.expect("the slot is Some: either it was current, or just built");
         let out = f(&built.targets, &built.hits);
         self.slot.replace(Some(built));
-        out
+        Ok(out)
     }
 
     /// Drop the cached list. Not needed for correctness — a stale entry is detected on
@@ -680,11 +681,54 @@ pub(super) fn highlight_preview_matches(
     cache: &PreviewFindCache,
     view: &CodePreviewView,
     text: &str,
-) -> i32 {
-    cache.with_hits(view, text, |targets, hits| {
+    options: FindOptions,
+) -> Result<i32, matcher::PatternError> {
+    cache.with_hits(view, text, options, |targets, hits| {
         apply_preview_highlights(view, targets, hits, 0);
         hits.len() as i32
     })
+}
+
+/// Highlight every match of a plain, case-insensitive literal `text` — the shape every
+/// GTK test that is not ABOUT the options wants.
+///
+/// Test-only, and deliberately so: production code must pass the reader's own options
+/// and must handle a pattern that does not compile. Neither obligation is interesting
+/// to a test whose subject is a re-render boundary or a cell highlight, and making
+/// forty such call sites spell both out would have buried what each is actually
+/// asserting.
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+pub(super) fn highlight_preview_literal(
+    cache: &PreviewFindCache,
+    view: &CodePreviewView,
+    text: &str,
+) -> i32 {
+    highlight_preview_matches(cache, view, text, FindOptions::default())
+        .expect("a literal query always compiles")
+}
+
+/// Re-run the active tab's preview search from scratch: highlight every match, drop the
+/// step cursor, and put the outcome in the readout.
+///
+/// **Four call sites used to each write these three lines out**, and they are three
+/// lines that have to agree: the bar opening on an unchanged query, a `search-changed`,
+/// a tab switch, and the re-highlight after a boundary that rebuilt the preview buffer.
+/// They agreed until the query could fail to compile, at which point each of them owed
+/// a fourth branch — which is the shape where one of four gets it wrong and reports
+/// "No matches" for a pattern the reader is still halfway through typing.
+pub(super) fn resync_preview_find(st: &Rc<TabState>, view: &CodePreviewView, query: &str) {
+    let label = &st.chrome().match_count_label;
+    st.find_cursor.set(FindCursor::None);
+    match highlight_preview_matches(&st.preview_find, view, query, st.find_options.get()) {
+        Ok(total) => set_match_label(label, 0, total),
+        Err(e) => {
+            // Nothing is highlighted, because nothing is known to match — the previous
+            // pattern's highlights would otherwise stand against a query that no longer
+            // produced them.
+            clear_preview_view_highlights(view);
+            set_invalid_pattern_label(label, &e);
+        }
+    }
 }
 
 /// Clear the preview's highlight on find-bar close. No-op outside preview mode.
@@ -782,35 +826,47 @@ fn preview_find_step(
         return;
     }
     let Some(st) = state(window) else { return };
-    let reveal = st.preview_find.with_hits(view, text, |targets, hits| {
-        let total = hits.len() as i32;
-        if total == 0 {
-            apply_preview_highlights(view, targets, hits, 0);
-            st.find_cursor.set(FindCursor::None);
-            set_match_label(&st.chrome().match_count_label, 0, 0);
-            return None;
-        }
-        // Where the cursor sits in THIS list, re-found by the position it landed on.
-        // A cursor left pointing into the editor's occurrence list reads as 0 and steps
-        // to the first preview hit, rather than being taken as a position in a list it
-        // was never an index into.
-        let cur = match st.find_cursor.get() {
-            FindCursor::Preview { ordinal, at } => resume_ordinal(hits, ordinal, at),
-            FindCursor::None | FindCursor::Editor(_) => 0,
-        }
-        .clamp(0, total);
-        let next = if dir == SearchDir::Backward {
-            if cur <= 1 {
-                total
-            } else {
-                cur - 1
+    let stepped = st
+        .preview_find
+        .with_hits(view, text, st.find_options.get(), |targets, hits| {
+            let total = hits.len() as i32;
+            if total == 0 {
+                apply_preview_highlights(view, targets, hits, 0);
+                st.find_cursor.set(FindCursor::None);
+                set_match_label(&st.chrome().match_count_label, 0, 0);
+                return None;
             }
-        } else {
-            cur % total + 1 // cur==0 ⇒ 1; cur==total ⇒ wrap to 1
-        };
-        land_on_hit(view, &st, targets, hits, (next - 1) as usize)
-    });
+            // Where the cursor sits in THIS list, re-found by the position it landed on.
+            // A cursor left pointing into the editor's occurrence list reads as 0 and steps
+            // to the first preview hit, rather than being taken as a position in a list it
+            // was never an index into.
+            let cur = match st.find_cursor.get() {
+                FindCursor::Preview { ordinal, at } => resume_ordinal(hits, ordinal, at),
+                FindCursor::None | FindCursor::Editor(_) => 0,
+            }
+            .clamp(0, total);
+            let next = if dir == SearchDir::Backward {
+                if cur <= 1 {
+                    total
+                } else {
+                    cur - 1
+                }
+            } else {
+                cur % total + 1 // cur==0 ⇒ 1; cur==total ⇒ wrap to 1
+            };
+            land_on_hit(view, &st, targets, hits, (next - 1) as usize)
+        });
 
+    // Next/Prev do NOTHING for a pattern that does not compile (rubric 11.15). There is
+    // no list to step through, and stepping a stale one would move the reader through
+    // the last pattern's matches under this pattern's readout.
+    let reveal = match stepped {
+        Ok(reveal) => reveal,
+        Err(e) => {
+            set_invalid_pattern_label(&st.chrome().match_count_label, &e);
+            return;
+        }
+    };
     let Some((summary_off, resume_off, key)) = reveal else {
         return;
     };
@@ -838,26 +894,31 @@ fn select_preview_hit_at_or_after(window: &ApplicationWindow, min_off: i32, text
         return;
     };
     let Some(st) = state(window) else { return };
-    let reveal = st.preview_find.with_hits(&view, text, |targets, hits| {
-        let total = hits.len() as i32;
-        if total == 0 {
-            return None;
-        }
-        // No hit at or after the block we just expanded. `unwrap_or(0)` sent the reader
-        // to the document's FIRST match instead — a jump backwards past everything they
-        // had already stepped through, arriving as though it were the next result. The
-        // block IS open now, so the reader can see what is in it; leave the current hit
-        // and the count where they are rather than redirecting.
-        let Some(idx) = hits.iter().position(|h| preview_hit_position(h) >= min_off) else {
-            log::debug!(
-                "preview find: the expanded block at offset {min_off} produced no match at \
+    let reveal = st
+        .preview_find
+        .with_hits(&view, text, st.find_options.get(), |targets, hits| {
+            let total = hits.len() as i32;
+            if total == 0 {
+                return None;
+            }
+            // No hit at or after the block we just expanded. `unwrap_or(0)` sent the reader
+            // to the document's FIRST match instead — a jump backwards past everything they
+            // had already stepped through, arriving as though it were the next result. The
+            // block IS open now, so the reader can see what is in it; leave the current hit
+            // and the count where they are rather than redirecting.
+            let Some(idx) = hits.iter().position(|h| preview_hit_position(h) >= min_off) else {
+                log::debug!(
+                    "preview find: the expanded block at offset {min_off} produced no match at \
                  or after it; leaving the current hit where it is"
-            );
-            return None;
-        };
-        land_on_hit(&view, &st, targets, hits, idx)
-    });
-    let Some((summary_off, resume_off, key)) = reveal else {
+                );
+                return None;
+            };
+            land_on_hit(&view, &st, targets, hits, idx)
+        });
+    // This is reached only by resuming inside a block the same pattern already matched
+    // into, so a compile failure here means the options changed mid-reveal. Nothing to
+    // resume onto; the readout was set by whoever changed them.
+    let Some((summary_off, resume_off, key)) = reveal.ok().flatten() else {
         return;
     };
     reveal_and_resume(window, &view, summary_off, resume_off, key, text);
@@ -1007,6 +1068,16 @@ const NOT_AN_OCCURRENCE: i32 = 0;
 /// "No matches" — both of those would be a confidently wrong answer in place of a
 /// missing one.
 const SCANNING_LABEL: &str = "…";
+
+/// What the counter shows for a regular expression that does not compile.
+///
+/// **A fourth state, not a zero count.** "No matches" for a malformed pattern is the
+/// same confidently-wrong answer TDD 11.8 refuses for the scanning case: it tells the
+/// reader the document does not contain what they asked for, when what actually
+/// happened is that nobody was able to ask. It is also the state a reader is in for
+/// most of the time they spend typing a pattern — `^\s*#{1,3` is not a mistake, it is
+/// an unfinished `^\s*#{1,3}\s` — so it has to read as "keep going", not as an answer.
+const INVALID_PATTERN_LABEL: &str = "Invalid pattern";
 
 /// Decode a raw `occurrences-count`. Pure, so the whole rule is decidable — and
 /// testable — from data with no display.
@@ -1160,6 +1231,9 @@ pub(super) fn set_match_label(label: &gtk::Label, current: i32, total: i32) {
         "set_match_label takes a real count; the scanning state is decoded in \
          update_match_count_label"
     );
+    // A readout arriving here is answering with a real count, so any description left by
+    // a previous malformed pattern is explaining a question nobody is asking any more.
+    crate::a11y::describe(label, None);
     if total == 0 {
         label.set_text("No matches");
     } else if current > 0 {
@@ -1168,12 +1242,36 @@ pub(super) fn set_match_label(label: &gtk::Label, current: i32, total: i32) {
         label.set_text(&format!("{total} matches"));
     }
 }
+/// Put the readout into its malformed-pattern state, and say why in the tooltip.
+///
+/// The message is GRegex's own — it names the offending construct and its position,
+/// which is more use than anything this module could phrase — but it is not put in the
+/// label: the label sits in a row whose width must not be decided by a string the
+/// application does not control (TDD 9.38), and a compiler diagnostic is exactly such a
+/// string.
+fn set_invalid_pattern_label(label: &gtk::Label, error: &impl std::fmt::Display) {
+    label.set_text(INVALID_PATTERN_LABEL);
+    // A DESCRIPTION, not a bare tooltip: the diagnostic has to reach a screen reader
+    // too, and "Invalid pattern" alone is the same missing answer on that surface as
+    // "No matches" is on this one.
+    crate::a11y::describe(label, Some(&error.to_string()));
+}
+
 /// Refresh the "N of M" match count label from the editor search context.
 pub(super) fn update_match_count_label(
     sc: &sourceview::SearchContext,
     label: &gtk::Label,
     current: i32,
 ) {
+    // The editor's own compile failure, read from the engine that compiled it —
+    // `GtkSourceSearchContext` reports the GRegex error rather than counting zero, and
+    // surfacing it is what makes the two panes say the same thing about one bad
+    // pattern (rubric 11.15).
+    if let Some(e) = sc.regex_error() {
+        set_invalid_pattern_label(label, &e.message());
+        return;
+    }
+    crate::a11y::describe(label, None);
     // `occurrence_total` has already turned the scanning sentinel into a state, so
     // nothing negative can reach `set_match_label` from here.
     match occurrence_total(sc) {
@@ -1185,8 +1283,8 @@ pub(super) fn update_match_count_label(
 #[cfg(test)]
 mod tests {
     use super::{
-        ci_match_ranges, decode_occurrence_index, decode_occurrence_total, editor_cursor_for,
-        resume_ordinal, FindCursor, HitsKey, PreviewHit,
+        decode_occurrence_index, decode_occurrence_total, editor_cursor_for, resume_ordinal,
+        FindCursor, FindOptions, HitsKey, PreviewHit,
     };
 
     /// The preview hit list's entire invalidation rule: a cached list answers only for
@@ -1207,29 +1305,43 @@ mod tests {
     /// (same view object, bumped generation).
     #[test]
     fn a_cached_hit_list_answers_only_for_its_own_view_render_and_query() {
-        let key = HitsKey::new(1, 4, "cell");
+        let plain = FindOptions::default();
+        let key = HitsKey::new(1, 4, "cell", plain);
         assert_eq!(
             key,
-            HitsKey::new(1, 4, "cell"),
-            "same view, same render, same query: current"
+            HitsKey::new(1, 4, "cell", plain),
+            "same view, same render, same query, same options: current"
         );
         assert_ne!(
             key,
-            HitsKey::new(1, 5, "cell"),
+            HitsKey::new(1, 5, "cell", plain),
             "a re-render bumps the generation, so the same query must rebuild"
         );
         assert_ne!(
             key,
-            HitsKey::new(1, 4, "feature"),
+            HitsKey::new(1, 4, "feature", plain),
             "a new query must rebuild even within one render"
         );
         assert_ne!(
             key,
-            HitsKey::new(2, 4, "cell"),
+            HitsKey::new(2, 4, "cell", plain),
             "a different buffer (a widget swap, not a re-render) must rebuild even when \
              the generation number happens to coincide"
         );
-        assert_ne!(key, HitsKey::new(2, 5, "feature"));
+        assert_ne!(key, HitsKey::new(2, 5, "feature", plain));
+        // The OPTIONS are part of the query: ticking one changes which occurrences
+        // exist without changing a character of what the reader typed, so a key that
+        // ignored them would serve the previous option set's hits with nothing else in
+        // the key having moved either.
+        for (_, accessor) in FindOptions::ACTIONS {
+            let mut changed = plain;
+            accessor.set(&mut changed, true);
+            assert_ne!(
+                key,
+                HitsKey::new(1, 4, "cell", changed),
+                "a match option changes what matches, so it must rebuild"
+            );
+        }
     }
 
     /// A find cursor never reports the OTHER list's index. The editor's occurrence list
@@ -1356,47 +1468,6 @@ mod tests {
         assert_eq!(editor_cursor_for(Some(2)), FindCursor::Editor(2));
         assert_eq!(editor_cursor_for(Some(2)).editor_index(), 2);
     }
-
-    #[test]
-    fn empty_needle_yields_no_matches() {
-        assert!(ci_match_ranges("anything", "").is_empty());
-    }
-
-    #[test]
-    fn case_insensitive_byte_ranges() {
-        // "Alpha" appears at byte 0 and (lowercase) at byte 10.
-        let hits = ci_match_ranges("Alpha and alpha", "ALPHA");
-        assert_eq!(hits, vec![(0, 5), (10, 15)]);
-        // Each range slices back to the term, case preserved from the haystack.
-        assert_eq!(&"Alpha and alpha"[0..5], "Alpha");
-        assert_eq!(&"Alpha and alpha"[10..15], "alpha");
-    }
-
-    #[test]
-    fn matches_are_non_overlapping() {
-        // "aa" in "aaaa" → (0,2),(2,4), not (0,2),(1,3),(2,4).
-        assert_eq!(ci_match_ranges("aaaa", "aa"), vec![(0, 2), (2, 4)]);
-    }
-
-    #[test]
-    fn no_match_returns_empty() {
-        assert!(ci_match_ranges("hello world", "xyz").is_empty());
-    }
-
-    #[test]
-    fn multibyte_haystack_byte_offsets_are_exact() {
-        // "café" is 5 bytes (é = 2 bytes); a match after it must use byte offsets.
-        let hay = "café table";
-        let hits = ci_match_ranges(hay, "table");
-        assert_eq!(hits, vec![(6, 11)]);
-        assert_eq!(&hay[6..11], "table");
-    }
-
-    #[test]
-    fn match_at_end_of_string() {
-        let hits = ci_match_ranges("the end", "end");
-        assert_eq!(hits, vec![(4, 7)]);
-    }
 }
 
 /// GTK-object tests: construct a real preview + table and exercise the in-place find
@@ -1516,7 +1587,7 @@ mod gtk_integration_tests {
         ));
         let cache = super::PreviewFindCache::default();
         assert_eq!(
-            super::highlight_preview_matches(&cache, &view, "Handbook"),
+            super::highlight_preview_literal(&cache, &view, "Handbook"),
             2,
             "both the pure-link cell's caption and the mixed cell's inline link caption \
              are on-screen text, so both must be findable"
@@ -1556,7 +1627,7 @@ mod gtk_integration_tests {
         ));
         let cache = super::PreviewFindCache::default();
         assert_eq!(
-            super::highlight_preview_matches(&cache, &view, "handbook"),
+            super::highlight_preview_literal(&cache, &view, "handbook"),
             4,
             "heading, paragraph, list item and blockquote link captions are buffer text"
         );
@@ -1608,7 +1679,7 @@ mod gtk_integration_tests {
 
         let buf_before = view.buffer();
         let cache = super::PreviewFindCache::default();
-        let total = super::highlight_preview_matches(&cache, &view, "cell");
+        let total = super::highlight_preview_literal(&cache, &view, "cell");
         assert!(
             total >= 2,
             "matches both the body and the cell (got {total})"
@@ -1700,7 +1771,7 @@ mod gtk_integration_tests {
         let cache = super::PreviewFindCache::default();
         assert_eq!(cache.builds(), 0, "nothing is built until something asks");
 
-        let total = super::highlight_preview_matches(&cache, &view, "cell");
+        let total = super::highlight_preview_literal(&cache, &view, "cell");
         assert!(
             total >= 2,
             "the fixture matches body AND cell (got {total})"
@@ -1709,7 +1780,7 @@ mod gtk_integration_tests {
 
         // Same query, same buffer — the Next/Prev case. Served from the cache.
         assert_eq!(
-            super::highlight_preview_matches(&cache, &view, "cell"),
+            super::highlight_preview_literal(&cache, &view, "cell"),
             total,
             "the cached list yields the same count"
         );
@@ -1720,11 +1791,11 @@ mod gtk_integration_tests {
         );
 
         // A different query is a different list — built, then itself cached.
-        let feature_total = super::highlight_preview_matches(&cache, &view, "feature");
+        let feature_total = super::highlight_preview_literal(&cache, &view, "feature");
         assert!(feature_total >= 1, "the fixture's header cell says Feature");
         assert_eq!(cache.builds(), 2, "a query change invalidates");
         assert_eq!(
-            super::highlight_preview_matches(&cache, &view, "feature"),
+            super::highlight_preview_literal(&cache, &view, "feature"),
             feature_total
         );
         assert_eq!(cache.builds(), 2, "…and the new list is itself cached");
@@ -1755,7 +1826,7 @@ mod gtk_integration_tests {
             "sanity: re_render bumps the render generation"
         );
         assert_eq!(
-            super::highlight_preview_matches(&cache, &view_after, "feature"),
+            super::highlight_preview_literal(&cache, &view_after, "feature"),
             feature_total,
             "the rebuilt list finds the same matches in the new buffer"
         );
@@ -1816,7 +1887,7 @@ mod gtk_integration_tests {
             false,
             &crate::fold::FoldState::default(),
         ));
-        let total1 = super::highlight_preview_matches(&cache, &view1, "alpha");
+        let total1 = super::highlight_preview_literal(&cache, &view1, "alpha");
         assert_eq!(total1, 2, "sanity: one body match, one cell match in MD1");
         let old_targets = cell_search_targets(&view1);
         assert_eq!(
@@ -1847,7 +1918,7 @@ mod gtk_integration_tests {
              same bare generation number"
         );
 
-        let total2 = super::highlight_preview_matches(&cache, &view2, "alpha");
+        let total2 = super::highlight_preview_literal(&cache, &view2, "alpha");
         let new_targets = cell_search_targets(&view2);
         assert_eq!(
             total2, 0,
@@ -2033,7 +2104,7 @@ mod gtk_integration_tests {
 
         let st = crate::winstate::state(&window).expect("the window has an active tab");
         let view = super::find_target(&window).expect_preview();
-        let total = super::highlight_preview_matches(&st.preview_find, &view, "cell");
+        let total = super::highlight_preview_literal(&st.preview_find, &view, "cell");
         assert!(total >= 1, "the fixture has preview matches (got {total})");
         let buf_before = view.buffer();
         assert!(
@@ -2080,7 +2151,7 @@ mod gtk_integration_tests {
         chrome.find_entry.set_text("cell");
         let st = crate::winstate::state(&window).expect("the window has an active tab");
         let view = super::find_target(&window).expect_preview();
-        assert!(super::highlight_preview_matches(&st.preview_find, &view, "cell") >= 1);
+        assert!(super::highlight_preview_literal(&st.preview_find, &view, "cell") >= 1);
 
         // Leave preview for edit (frees the preview), then return to preview (rebuilds it).
         window.change_action_state("view-mode", &"edit".to_variant());
@@ -2131,7 +2202,7 @@ mod gtk_integration_tests {
         );
 
         assert_eq!(
-            super::highlight_preview_matches(&st.preview_find, &view, "needle"),
+            super::highlight_preview_literal(&st.preview_find, &view, "needle"),
             1,
             "a match the reader cannot see is still a match in the document"
         );
@@ -2172,7 +2243,7 @@ mod gtk_integration_tests {
         );
 
         assert_eq!(
-            super::highlight_preview_matches(&st.preview_find, &view, "needle"),
+            super::highlight_preview_literal(&st.preview_find, &view, "needle"),
             1,
             "one real occurrence must count once, whether or not it happens to sit \
              inside the shown preview fragment"
@@ -2194,7 +2265,7 @@ mod gtk_integration_tests {
         chrome.find_entry.set_text("needle");
 
         let view = super::find_target(&window).expect_preview();
-        super::highlight_preview_matches(&st.preview_find, &view, "needle");
+        super::highlight_preview_literal(&st.preview_find, &view, "needle");
         super::preview_find_step(&window, &view, "needle", super::SearchDir::Forward);
 
         crate::testpump::until(
@@ -2257,7 +2328,7 @@ mod gtk_integration_tests {
         chrome.find_entry.set_text("needle");
 
         let view = super::find_target(&window).expect_preview();
-        super::highlight_preview_matches(&st.preview_find, &view, "needle");
+        super::highlight_preview_literal(&st.preview_find, &view, "needle");
         // Two steps: the first lands on the summary's own match, the second on the
         // hidden one — which is the step that expands and resumes.
         super::preview_find_step(&window, &view, "needle", super::SearchDir::Forward);
@@ -2313,7 +2384,7 @@ mod gtk_integration_tests {
 
         let view = super::find_target(&window).expect_preview();
         assert_eq!(
-            super::highlight_preview_matches(&st.preview_find, &view, "needle"),
+            super::highlight_preview_literal(&st.preview_find, &view, "needle"),
             1,
             "the outer block's body range covers the inner block's text too"
         );
@@ -2371,7 +2442,7 @@ mod gtk_integration_tests {
         chrome.find_bar_revealer.set_reveal_child(true);
         chrome.find_entry.set_text("needle");
         let view = super::find_target(&window).expect_preview();
-        super::highlight_preview_matches(&st.preview_find, &view, "needle");
+        super::highlight_preview_literal(&st.preview_find, &view, "needle");
 
         // 3. A theme switch while the find bar is open.
         crate::app::re_render_all_windows(&app);
@@ -2449,7 +2520,7 @@ mod gtk_integration_tests {
         chrome.find_bar_revealer.set_reveal_child(true);
         chrome.find_entry.set_text("needle");
         let view = super::find_target(&window).expect_preview();
-        super::highlight_preview_matches(&st.preview_find, &view, "needle");
+        super::highlight_preview_literal(&st.preview_find, &view, "needle");
 
         crate::app::re_render_all_windows(&app);
 
@@ -2530,7 +2601,7 @@ mod gtk_integration_tests {
         chrome.find_bar_revealer.set_reveal_child(true);
         chrome.find_entry.set_text("needle");
         let view = super::find_target(&window).expect_preview();
-        super::highlight_preview_matches(&st.preview_find, &view, "needle");
+        super::highlight_preview_literal(&st.preview_find, &view, "needle");
         crate::app::re_render_all_windows(&app);
         let view = super::find_target(&window).expect_preview();
         super::preview_find_step(&window, &view, "needle", super::SearchDir::Forward);

@@ -181,6 +181,7 @@ Current members:
 |---|---|
 | `win.export` (PDF/HTML) | peripheral to this app's primary audience (developers reviewing agent-written prose); `File ▸ Export` submenu only |
 | `win.save-all` | **operator, 2026-09-02** — its toolbar button sat confusingly adjacent to Save/Save As; demoted to a menu item + its existing accelerator |
+| `win.find-match-case`, `win.find-whole-word`, `win.find-regex` | the find bar's match options. They qualify a query that only exists while the bar is open, so a permanent toolbar seat would advertise them where they mean nothing; their find-bar toggle IS their primary surface. `Edit ▸` check item each, no accelerator |
 
 A command reclassified here keeps its accelerator and menu item; it loses only
 the toolbar-section obligation the Action CAM would otherwise impose.

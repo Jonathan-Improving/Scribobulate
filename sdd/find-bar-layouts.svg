@@ -1,0 +1,178 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 1050" width="1000" height="1050" role="img" aria-label="Find bar layouts before and after the fidelity work: today's bar with a search field, previous and next buttons, a match count and a close button over a replace row; the new bar adding a history drop-down to each field and four option toggles for match case, whole word, regular expression and search in selection; the same bar wrapped onto extra rows at the window's minimum width; and the history drop-down open beneath the search field.">
+  <title>Scribobulate find bar — layouts that change</title>
+  <style>
+    .panel  { fill: #f4f6f8; stroke: #c9d1db; }
+    .bar    { fill: #ffffff; stroke: #9aa4b2; }
+    .field  { fill: #ffffff; stroke: #7d97c4; }
+    .btn    { fill: #e7effc; stroke: #7d97c4; }
+    .btn-on { fill: #cfe0fb; stroke: #4c72ad; stroke-width: 2; }
+    .new    { fill: #fdf3e3; stroke: #cfa95f; }
+    .win    { fill: #eef1f5; stroke: #8f9aa9; }
+    .t      { fill: #1c2230; font-family: "DejaVu Sans", "Segoe UI", system-ui, sans-serif; font-size: 13px; }
+    .lbl    { fill: #5a6472; font-family: "DejaVu Sans", "Segoe UI", system-ui, sans-serif; font-size: 12px; }
+    .dim    { fill: #8b95a3; font-family: "DejaVu Sans", "Segoe UI", system-ui, sans-serif; font-size: 13px; }
+    .mono   { font-family: "DejaVu Sans Mono", "SFMono-Regular", Consolas, monospace; font-size: 12px; }
+    .head   { fill: #3b4657; font-family: "DejaVu Sans", "Segoe UI", system-ui, sans-serif; font-size: 15px; font-weight: bold; }
+    .rule   { stroke: #b9c2cd; fill: none; }
+
+    @media (prefers-color-scheme: dark) {
+      .panel  { fill: #171a20; stroke: #333b47; }
+      .bar    { fill: #1f242c; stroke: #4a5563; }
+      .field  { fill: #262c36; stroke: #5b7bb0; }
+      .btn    { fill: #26364f; stroke: #5b7bb0; }
+      .btn-on { fill: #37527d; stroke: #8fb0e6; stroke-width: 2; }
+      .new    { fill: #33291a; stroke: #b08b45; }
+      .win    { fill: #20242b; stroke: #56616f; }
+      .t      { fill: #e6eaf1; }
+      .lbl    { fill: #9aa4b2; }
+      .dim    { fill: #6f7a89; }
+      .head   { fill: #c6d0de; }
+      .rule   { stroke: #3d4653; }
+    }
+  </style>
+
+  <text class="head" x="30" y="30">Find bar — the surfaces this plan changes</text>
+  <text class="lbl" x="30" y="48">Amber fill marks what is new. Everything else keeps its present position and behaviour.</text>
+
+  <!-- ══ 1. Today ═══════════════════════════════════════════════════════════ -->
+  <rect class="panel" x="30" y="64" width="940" height="170" rx="6"/>
+  <text class="head" x="46" y="88">1 · Today</text>
+  <text class="lbl" x="46" y="106">One case-insensitive literal query. Replace acts on the next match after the caret, not on the one highlighted.</text>
+
+  <rect class="bar" x="46" y="116" width="908" height="102" rx="4"/>
+
+  <rect class="field" x="62" y="128" width="250" height="30" rx="4"/>
+  <text class="dim" x="74" y="148">Find…</text>
+  <rect class="btn" x="322" y="128" width="30" height="30" rx="4"/>
+  <text class="t" x="333" y="148">▲</text>
+  <rect class="btn" x="358" y="128" width="30" height="30" rx="4"/>
+  <text class="t" x="369" y="148">▼</text>
+  <text class="t" x="400" y="148">3 of 12</text>
+  <rect class="btn" x="470" y="128" width="30" height="30" rx="4"/>
+  <text class="t" x="481" y="148">✕</text>
+
+  <rect class="field" x="62" y="170" width="250" height="30" rx="4"/>
+  <text class="dim" x="74" y="190">Replace with…</text>
+  <rect class="btn" x="322" y="170" width="84" height="30" rx="4"/>
+  <text class="t" x="337" y="190">Replace</text>
+  <rect class="btn" x="414" y="170" width="104" height="30" rx="4"/>
+  <text class="t" x="429" y="190">Replace All</text>
+
+  <!-- ══ 2. After, wide window ══════════════════════════════════════════════ -->
+  <rect class="panel" x="30" y="254" width="940" height="240" rx="6"/>
+  <text class="head" x="46" y="278">2 · After — wide window</text>
+  <text class="lbl" x="46" y="296">Four option toggles, and a history drop-down on each field.</text>
+
+  <rect class="bar" x="46" y="306" width="908" height="102" rx="4"/>
+
+  <rect class="field" x="62" y="318" width="226" height="30" rx="4"/>
+  <text class="dim" x="74" y="338">Find…</text>
+  <rect class="new" x="288" y="318" width="24" height="30" rx="4"/>
+  <text class="t" x="295" y="338">▾</text>
+
+  <rect class="new" x="324" y="318" width="34" height="30" rx="4"/>
+  <text class="t" x="332" y="338">Aa</text>
+  <rect class="new" x="362" y="318" width="34" height="30" rx="4"/>
+  <text class="t" x="372" y="338">W</text>
+  <rect class="new" x="400" y="318" width="34" height="30" rx="4"/>
+  <text class="t" x="408" y="338">.*</text>
+  <rect class="new" x="438" y="318" width="40" height="30" rx="4"/>
+  <text class="t" x="446" y="338">Sel</text>
+
+  <rect class="btn" x="492" y="318" width="30" height="30" rx="4"/>
+  <text class="t" x="503" y="338">▲</text>
+  <rect class="btn" x="528" y="318" width="30" height="30" rx="4"/>
+  <text class="t" x="539" y="338">▼</text>
+  <text class="t" x="570" y="338">3 of 12</text>
+  <rect class="btn" x="640" y="318" width="30" height="30" rx="4"/>
+  <text class="t" x="651" y="338">✕</text>
+
+  <rect class="field" x="62" y="360" width="226" height="30" rx="4"/>
+  <text class="dim" x="74" y="380">Replace with…</text>
+  <rect class="new" x="288" y="360" width="24" height="30" rx="4"/>
+  <text class="t" x="295" y="380">▾</text>
+  <rect class="btn" x="324" y="360" width="84" height="30" rx="4"/>
+  <text class="t" x="339" y="380">Replace</text>
+  <rect class="btn" x="416" y="360" width="104" height="30" rx="4"/>
+  <text class="t" x="431" y="380">Replace All</text>
+
+  <text class="lbl" x="62" y="428"><tspan class="mono">Aa</tspan>  match case</text>
+  <text class="lbl" x="62" y="446"><tspan class="mono">W</tspan>   whole word only</text>
+  <text class="lbl" x="62" y="464"><tspan class="mono">.*</tspan>  regular expression — GRegex, the engine the editor's search already compiles with</text>
+  <text class="lbl" x="62" y="482"><tspan class="mono">Sel</tspan> confine the search to the selected passage; insensitive when there is no selection to confine it to</text>
+
+  <!-- ══ 3. After, narrow window ════════════════════════════════════════════ -->
+  <rect class="panel" x="30" y="514" width="460" height="296" rx="6"/>
+  <text class="head" x="46" y="538">3 · After — at MIN_WINDOW_WIDTH</text>
+  <text class="lbl" x="46" y="556">Both rows become wrap boxes and both fields are width-capped, so</text>
+  <text class="lbl" x="46" y="572">the bar wraps rather than raising the window's minimum width (TDD 9.38).</text>
+
+  <rect class="win" x="46" y="582" width="310" height="212" rx="4"/>
+  <rect class="bar" x="54" y="590" width="294" height="196" rx="4"/>
+
+  <rect class="field" x="62" y="600" width="226" height="28" rx="4"/>
+  <text class="dim" x="74" y="619">Find…</text>
+  <rect class="new" x="292" y="600" width="24" height="28" rx="4"/>
+  <text class="t" x="299" y="619">▾</text>
+
+  <rect class="new" x="62" y="636" width="32" height="28" rx="4"/>
+  <text class="t" x="69" y="655">Aa</text>
+  <rect class="new" x="98" y="636" width="32" height="28" rx="4"/>
+  <text class="t" x="108" y="655">W</text>
+  <rect class="new" x="134" y="636" width="32" height="28" rx="4"/>
+  <text class="t" x="141" y="655">.*</text>
+  <rect class="new" x="170" y="636" width="38" height="28" rx="4"/>
+  <text class="t" x="177" y="655">Sel</text>
+  <rect class="btn" x="212" y="636" width="28" height="28" rx="4"/>
+  <text class="t" x="221" y="655">▲</text>
+  <rect class="btn" x="244" y="636" width="28" height="28" rx="4"/>
+  <text class="t" x="253" y="655">▼</text>
+
+  <text class="t" x="62" y="691">3 of 12</text>
+  <rect class="btn" x="292" y="672" width="28" height="28" rx="4"/>
+  <text class="t" x="301" y="691">✕</text>
+
+  <path class="rule" d="M 62 710 L 340 710"/>
+
+  <rect class="field" x="62" y="722" width="226" height="28" rx="4"/>
+  <text class="dim" x="74" y="741">Replace with…</text>
+  <rect class="new" x="292" y="722" width="24" height="28" rx="4"/>
+  <text class="t" x="299" y="741">▾</text>
+  <rect class="btn" x="62" y="758" width="80" height="28" rx="4"/>
+  <text class="t" x="75" y="777">Replace</text>
+  <rect class="btn" x="146" y="758" width="100" height="28" rx="4"/>
+  <text class="t" x="159" y="777">Replace All</text>
+
+  <!-- ══ 4. History drop-down ═══════════════════════════════════════════════ -->
+  <rect class="panel" x="510" y="514" width="460" height="296" rx="6"/>
+  <text class="head" x="526" y="538">4 · History drop-down</text>
+  <text class="lbl" x="526" y="556">Per tab, persisted with the tab. A term enters the list when it is</text>
+  <text class="lbl" x="526" y="572">committed — Enter, Next/Prev, Replace — never on a keystroke.</text>
+
+  <rect class="bar" x="526" y="582" width="428" height="212" rx="4"/>
+
+  <rect class="field" x="542" y="594" width="226" height="30" rx="4"/>
+  <text class="t" x="554" y="614">heading</text>
+  <rect class="btn-on" x="768" y="594" width="24" height="30" rx="4"/>
+  <text class="t" x="775" y="614">▴</text>
+
+  <rect class="new" x="542" y="632" width="250" height="140" rx="5"/>
+  <text class="t mono" x="556" y="656">heading</text>
+  <path class="rule" d="M 542 670 L 792 670"/>
+  <text class="t mono" x="556" y="686">^\s*#{1,3}\s</text>
+  <text class="t mono" x="556" y="712">TODO</text>
+  <text class="t mono" x="556" y="738">agent</text>
+  <text class="lbl" x="556" y="762">most recent first · de-duplicated</text>
+
+  <!-- ══ footer note ════════════════════════════════════════════════════════ -->
+  <rect class="panel" x="30" y="830" width="940" height="128" rx="6"/>
+  <text class="head" x="46" y="854">What does not change</text>
+  <text class="lbl" x="46" y="878">The bar still lives in its revealer outside the content area, so it survives a view-mode switch. The search field stays a</text>
+  <text class="lbl" x="46" y="898">GtkSearchEntry — its own Escape binding is what closes the bar (ScrAP-48) — so the history control is a button beside it</text>
+  <text class="lbl" x="46" y="918">rather than a combo box, which would also be a deprecated widget. The replace row stays hidden until Ctrl+H, and</text>
+  <text class="lbl" x="46" y="938">insensitive wherever the editor is not visible, because the preview is read-only.</text>
+
+  <text class="lbl" x="30" y="986">Each option toggle is one stateful win. action, so the find-bar button and the Edit menu item are two surfaces of one command,</text>
+  <text class="lbl" x="30" y="1006">never two pieces of state. The options and both histories are per tab and persist with the tab; the captured selection bound</text>
+  <text class="lbl" x="30" y="1026">and the live query do not, because neither survives the buffer it indexes.</text>
+</svg>

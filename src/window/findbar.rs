@@ -79,9 +79,7 @@ pub(super) fn wire_find_bar(window: &ApplicationWindow, chrome: &Chrome) {
                 if text.is_empty() {
                     return;
                 }
-                let total = highlight_preview_matches(&st.preview_find, &view, text.as_str());
-                st.find_cursor.set(FindCursor::None);
-                set_match_label(&mc, 0, total);
+                resync_preview_find(&st, &view, text.as_str());
             }
         });
 
@@ -205,45 +203,38 @@ pub(super) fn wire_find_bar(window: &ApplicationWindow, chrome: &Chrome) {
     }
 
     // ── Search-changed: update search settings and match count ────────────────
-    let ml = match_count_label.clone();
     find_entry.connect_search_changed(glib::clone!(
         #[weak(rename_to = w)]
         window,
         move |entry| {
-            let text = entry.text();
             let Some(st) = state(&w) else { return };
             // Remember this tab's own query (operator decision Q13) so switching
             // away and back repopulates it rather than showing another tab's term.
-            *st.find_query.borrow_mut() = text.to_string();
-            // Always keep the editor search settings current (so a later switch to
-            // edit/split picks up the term); also drives the editor highlight.
-            st.search_settings.set_search_text(if text.is_empty() {
-                None
-            } else {
-                Some(text.as_str())
-            });
-            ml.set_visible(!text.is_empty());
-            // Pure-preview mode: highlight the preview buffer (the editor engine
-            // can't, and the editor isn't visible). Otherwise the source context's
-            // occurrences-count notification refreshes the label.
-            match find_target(&w) {
-                FindTarget::Preview(view) => {
-                    let total = highlight_preview_matches(&st.preview_find, &view, text.as_str());
-                    // Reset the step cursor so the next Next/Prev starts from the top
-                    // (the unified index spans body + cell matches — find.rs).
-                    st.find_cursor.set(FindCursor::None);
-                    set_match_label(&ml, 0, total);
-                }
-                FindTarget::Editor => {
-                    update_match_count_label(&st.search_context, &ml, 0);
-                }
-                // Deliberately NOT the editor arm: in pure-preview mode the editor's
-                // occurrence count describes a buffer the user cannot see, so showing
-                // it would be a confidently wrong number rather than a missing one.
-                FindTarget::PreviewUnresolved => set_match_label(&ml, 0, 0),
-            }
+            *st.find_query.borrow_mut() = entry.text().to_string();
+            refresh_find(&w, &st);
         }
     ));
+
+    // ── win.find-match-case / win.find-whole-word / win.find-regex ────────────
+    // The three match options, one stateful boolean action each. **Uncommon commands**
+    // (CAM § Uncommon commands): an Edit-menu item and a find-bar toggle, no toolbar
+    // section and no context-menu entry — they qualify a query that only exists while
+    // the bar is open.
+    //
+    // One action per option is what makes the find-bar toggle and the menu item the
+    // same control rather than two that have to be kept in step (POLICY "One action per
+    // command"). The option itself lives on the TAB, not on the action: the action's
+    // state is a mirror of it, resynced on a tab switch exactly as `show-unsafe-images`
+    // is.
+    for (name, accessor) in FindOptions::ACTIONS {
+        super::viewactions::register_bool_action(window, name, false, move |window, on| {
+            let Some(st) = state(window) else { return };
+            let mut options = st.find_options.get();
+            accessor.set(&mut options, on);
+            st.find_options.set(options);
+            refresh_find(window, &st);
+        });
+    }
 
     // ── Replace button ────────────────────────────────────────────────────────
     let re = replace_entry.clone();
@@ -286,6 +277,83 @@ pub(super) fn wire_find_bar(window: &ApplicationWindow, chrome: &Chrome) {
             update_match_count_label(&st.search_context, &ml, 0);
         }
     ));
+}
+
+/// Re-run the active tab's search under its current query AND options, and put the
+/// outcome in the readout.
+///
+/// **One function for two triggers that are the same event.** Typing in the field and
+/// ticking *match case* both change what the reader is asking for; nothing downstream
+/// can tell them apart, and the moment they were two code paths one of them was going to
+/// forget to push the options onto the editor's engine — which shows up as the editor
+/// pane ignoring a toggle the preview pane honours.
+///
+/// Pushes the query and the options onto `SearchSettings` unconditionally, even in
+/// pure-preview mode, so a later switch to edit or split finds the editor's engine
+/// already asking the same question rather than the last one it was told.
+pub(super) fn refresh_find(window: &ApplicationWindow, st: &Rc<TabState>) {
+    let chrome = st.chrome();
+    let label = &chrome.match_count_label;
+    let text = chrome.find_entry.text();
+    push_options_to_engine(st);
+    st.search_settings.set_search_text(if text.is_empty() {
+        None
+    } else {
+        Some(text.as_str())
+    });
+    label.set_visible(!text.is_empty());
+    // The step cursor indexes a list that has just been replaced, whichever pane owns
+    // it, so the next Next/Prev starts from the top.
+    st.find_cursor.set(FindCursor::None);
+    // Pure-preview mode: highlight the preview buffer (the editor engine can't, and the
+    // editor isn't visible). Otherwise the source context's occurrences-count
+    // notification refreshes the label.
+    match find_target(window) {
+        FindTarget::Preview(view) => resync_preview_find(st, &view, text.as_str()),
+        FindTarget::Editor => update_match_count_label(&st.search_context, label, 0),
+        // Deliberately NOT the editor arm: in pure-preview mode the editor's
+        // occurrence count describes a buffer the user cannot see, so showing
+        // it would be a confidently wrong number rather than a missing one.
+        FindTarget::PreviewUnresolved => set_match_label(label, 0, 0),
+    }
+}
+
+/// Point the three option GActions at `st`'s own options, without re-entering their
+/// handlers.
+///
+/// The options are the TAB's; the actions are the WINDOW's. Every path that makes a
+/// different tab the active one therefore owes this — a tab switch, and a session
+/// restore, which is a tab becoming active having never been switched to. Without it
+/// the toggles and the Edit-menu ticks describe whichever tab set them last, which is
+/// the `show-unsafe-images` lying-mirror defect (`window::tabs::switch`) in a second
+/// place.
+///
+/// `set_state`, never `change_state`: this is a resync onto state that is already
+/// correct, and running the handlers would re-run the search for a tab that may not
+/// even have its preview built yet.
+pub(super) fn adopt_find_options(window: &ApplicationWindow, st: &Rc<TabState>) {
+    let options = st.find_options.get();
+    for (name, accessor) in FindOptions::ACTIONS {
+        set_action_state(window, name, &accessor.get(&options).to_variant());
+    }
+    push_options_to_engine(st);
+}
+
+/// Push this tab's options onto its own `GtkSourceSearchSettings`.
+///
+/// The editor's engine implements all three natively, so this is the whole editor half
+/// of the feature. It is a separate function from [`refresh_find`] because a tab can
+/// become active with the find bar CLOSED — there is nothing to recount then, but the
+/// engine still has to be holding this tab's options before the bar next opens.
+fn push_options_to_engine(st: &Rc<TabState>) {
+    let FindOptions {
+        case_sensitive,
+        whole_word,
+        regex,
+    } = st.find_options.get();
+    st.search_settings.set_case_sensitive(case_sensitive);
+    st.search_settings.set_at_word_boundaries(whole_word);
+    st.search_settings.set_regex_enabled(regex);
 }
 
 /// Wire `search_context`'s `occurrences-count` notification to keep its
@@ -383,8 +451,6 @@ pub(crate) fn refresh_preview_find_highlight(window: &ApplicationWindow) {
         return;
     }
     if let FindTarget::Preview(view) = find_target(window) {
-        let total = highlight_preview_matches(&st.preview_find, &view, query.as_str());
-        st.find_cursor.set(FindCursor::None);
-        set_match_label(&chrome.match_count_label, 0, total);
+        resync_preview_find(&st, &view, query.as_str());
     }
 }

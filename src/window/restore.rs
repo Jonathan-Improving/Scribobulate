@@ -67,6 +67,22 @@ pub(crate) fn apply_tab_layout(window: &ApplicationWindow, view_mode: ViewMode) 
 /// tab. Thin adapter over [`apply_tab_layout`] from a `TabSession`.
 fn apply_restored_tab_state(window: &ApplicationWindow, tab: &TabSession) {
     apply_tab_layout(window, tab.view_mode);
+    if let Some(st) = state(window) {
+        adopt_restored_find_options(window, &st, tab);
+    }
+}
+
+/// Put `tab`'s persisted find match options onto `st` AND onto the window's three
+/// option GActions.
+///
+/// Both halves, always: the field is what the search reads and the action state is what
+/// the toggles and the Edit-menu ticks show, and a restore that moves only one of them
+/// is the lying-mirror defect — the search behaves one way while every control says the
+/// other. This tab has never been switched to, so the tab-switch resync that would
+/// otherwise cover it has not run and never will for the window's first tab.
+fn adopt_restored_find_options(window: &ApplicationWindow, st: &Rc<TabState>, tab: &TabSession) {
+    st.find_options.set(tab.find_options);
+    findbar::adopt_find_options(window, st);
 }
 
 /// Give a freshly restored tab the crash-recovery identity it had before the restart, so
@@ -171,6 +187,11 @@ fn restore_window(
                 }
                 adopt_persisted_doc_id(&t, tab);
                 t.view_mode.set(tab.view_mode);
+                // The FIELD only — this tab is not the active one, so the window's
+                // option GActions describe the active tab and must not be moved. The
+                // tab-switch resync (`tabs::switch`) points them here on first
+                // activation, which is the same deal its `view_mode` above has.
+                t.find_options.set(tab.find_options);
                 // No split arrangement here: it is app-wide, and
                 // `create_tab_in_window` (just above) already seeded this tab's own
                 // `SplitView` from it at construction time.

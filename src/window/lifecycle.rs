@@ -143,6 +143,7 @@ fn persist_all_windows_session(closing: &ApplicationWindow) {
                         doc_id: Some(t.doc_id().as_str().to_string()),
                         view_mode: t.view_mode.get(),
                         show_unsafe_images: t.allow_unsafe_images.get(),
+                        find_options: t.find_options.get(),
                     })
                     .collect(),
             })

@@ -1415,6 +1415,7 @@
 - **And, the claim all of the above exists to support:** with **every** section shown, both sidebars open and headings long enough to stretch anything that stretches, the **window's own minimum width is exactly `MIN_WINDOW_WIDTH`** — no piece of chrome sets the floor. The toolbar is merely the largest contributor; the sidebars, the find bar and the status bar must stay under it too, or a narrow display stops fitting for a reason the toolbar tests would never catch
 - **And** the toolbar takes its extra rows' height from the panes below it, which is the accepted trade: on a narrow window the reader gets a reachable toolbar and a shorter document view, rather than an unreachable toolbar and no way back
 - **And** every button on a wrapped row is still reachable by **keyboard** and still reports itself to assistive technology (16.7) — wrapping changes where a control is drawn, never whether it can be reached
+- **And** the **find bar** is held to the same rule as the toolbar: both its rows wrap, and both its text fields are width-capped where they are built — an uncapped field's natural width would become its row's minimum and therefore the window's, which on macOS is not merely ugly (a window is not grown to meet a risen minimum there, so the controls past the edge are silently not drawn)
 - *(`MIN_WINDOW_WIDTH` is a sanity backstop only. Raising it back toward a chrome-fitting width re-breaks every clause above and does so invisibly, because the explicit floor wins the `MAX` before a second row can ever appear.)*
 
 ### 9.23 The menus are keyboard-navigable via mnemonics and access keys
@@ -1798,6 +1799,33 @@
 - **Then** the count and the highlights describe the **new** content: a term the new content no longer has counts zero, and every highlight sits on text that actually matches, with the user needing no close-and-reopen of the find bar to get an honest answer
 - **And** this holds identically for a match **inside a table cell** and one in body text — the two are carried by different mechanisms (a buffer offset against the preview buffer, a reference to the cell's own label widget), and stale state fails them in opposite directions, the body highlight landing on the wrong text while the cell highlight lands on a destroyed widget and shows nothing at all, so a fix proven on one proves nothing about the other
 - **And** the cached hit list keys on the **view instance** as well as the render generation and the query: a preview-mode reload swaps in a brand-new preview view whose generation restarts, so a generation alone collides with the outgoing view's and serves its hits
+
+### 11.13 Match options apply to whichever pane is being searched
+- **Given** a document containing `note`, `Note` and `notebook`, in edit mode and again in pure-preview mode
+- **When** the reader enables **match case** and searches `Note`
+- **Then** only the capitalised occurrences are counted and navigated, in both panes, with the same count
+- **And when** the reader enables **whole word** and searches `note`
+- **Then** `notebook` is not a match, in both panes
+- **And** the options survive switching view mode, and are restored per tab on a tab switch alongside the query (§15.12)
+- **And** each option is one `GAction`, so the find-bar toggle and the Edit-menu item are the same control rather than two that agree
+- **Coverage** `window::find::parity::a_literal_query_counts_the_same_in_both_panes`, `…::whole_word_draws_the_word_boundary_at_the_same_characters`; `window::find::matcher::tests`; `tests/MANUAL-TEST.md` §11.13
+
+### 11.14 A regular expression means the same thing in both panes
+- **Given** the regular-expression option enabled
+- **When** the reader searches a pattern using a character class, an anchor and a quantifier
+- **Then** the editor and the preview report matches under the **same** engine — GRegex — so a pattern accepted in one pane is accepted in the other, and neither pane silently reinterprets it
+- **And** a match is still found inside a table cell and inside a collapsed disclosure, which are searched by their own paths rather than by the buffer
+- **And** the agreement is *measured* rather than argued: both engines are run over one fixture and their counts compared, because neither implementation can evidence a claim about the pair
+- **Rationale** four properties of GtkSourceView's own regular-expression handling decide the preview matcher's design and none is stated in its documentation — how whole word wraps a pattern (`\b(?:…)\b`, not a bare `\b…\b`, or `cat|dog` would differ), which characters bound a word, whether `^` is per line, and what a zero-width pattern does. The last one diverged and the editor decided it: a zero-length match is not a match, because it has nothing to highlight and nowhere to scroll to, so counting one promises a position the reader can never be taken to
+- **Coverage** `window::find::parity::whole_word_wraps_an_alternation_as_one_group`, `…::an_anchor_means_the_same_thing_on_a_multi_line_document`, `…::a_compound_pattern_counts_the_same_in_both_panes`, `…::a_zero_width_pattern_does_not_diverge`; `tests/MANUAL-TEST.md` §11.14
+
+### 11.15 A malformed regular expression says so
+- **Given** the regular-expression option enabled
+- **When** the reader types a pattern that does not compile
+- **Then** the readout says the pattern is invalid rather than "No matches", nothing is highlighted, and Next/Prev do nothing
+- **And** completing the pattern into a valid one recovers without closing and reopening the bar
+- **Rationale** "No matches" for a malformed pattern is the confidently-wrong answer §11.8 already refuses for the scanning case: it reports on the document when what actually happened is that nobody was able to ask. It is also the state a reader occupies for most of the time they spend typing a pattern, so it has to read as "keep going" rather than as an answer
+- **Coverage** `window::find::parity::a_malformed_pattern_is_rejected_by_both_engines`; `tests/MANUAL-TEST.md` §11.15
 
 ## 12. Document outline
 
@@ -2187,6 +2215,9 @@
 - **When** they switch to a different tab and back
 - **Then** the find bar shows the same query and match state it had when they left that tab, not the other tab's query
 - **And** switching tabs while a find query is active in the tab being left — to a tab with a different (including empty) query of its own — never crashes or aborts the process, regardless of how many times it's repeated (a `RefCell` double-borrow that produced a non-catchable process abort — ScrAP-53)
+- **And** the tab's **match options** (§11.13) come back with its query — both the search's own behaviour and every control that shows it, the find-bar toggles and the Edit-menu ticks alike, because a mirror that lags is the `show-unsafe-images` defect in a second place
+- **And given** the session is saved and the application restarted
+- **Then** each restored tab has its own options back, while the find bar restores **closed** and no search is in force — a committed query survives as history, but restoring a search the reader did not just ask for is a different thing from restoring how they read
 
 ### 15.13 A background tab's own file changes are tracked correctly
 - **Given** a window with two tabs, each backed by a different file on disk, with the second tab inactive (in the background)

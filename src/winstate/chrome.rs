@@ -103,7 +103,7 @@ pub(crate) struct WindowChrome {
     /// per-tab state — `TabState.find_replace_mode` — restored here on tab
     /// switch by `window/tabs/`'s `on_active_tab_changed`, since it isn't
     /// itself part of any `win.*` action's state).
-    pub(crate) replace_row: gtk::Box,
+    pub(crate) replace_row: crate::widgets::wrapbox::ToolbarWrapBox,
     /// The Insert Link / Insert Image format buttons (toolbar + caret overlay) whose
     /// tooltip flips to "Edit …" when the editor selection is exactly that markup.
     pub(crate) fmt_edit_btns: Vec<(FmtInsertKind, gtk::Button)>,

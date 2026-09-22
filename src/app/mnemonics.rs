@@ -42,6 +42,12 @@ const MENU_MNEMONICS: &[(&str, &str)] = &[
     // View's Ne_xt Tab / Pre_vious Tab, and N/P are taken here (Annotate, Replace).
     ("Next Annotation", "Ne_xt Annotation"),
     ("Previous Annotation", "Pre_vious Annotation"),
+    // The find bar's match options. Every obvious letter is already spoken for in the
+    // Edit popover — M/A/C/S/E by Copy Document, Select All, Copy, Paste and Insert
+    // Emoji; R/G/U/L/X/P by Redo, Change Case, Undo, Copy Link Location, Next
+    // Annotation and Find & Replace — so these take the free ones that remain.
+    ("Match Case", "Matc_h Case"), ("Whole Word", "_Whole Word"),
+    ("Regular Expression", "Regular Express_ion"),
     ("UPPER CASE", "_UPPER CASE"), ("lower case", "_lower case"),
     ("Title Case", "_Title Case"), ("tOGGLE cASE", "tOGGLE _cASE"),
     // Format

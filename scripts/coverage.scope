@@ -207,6 +207,9 @@ src/widgets/table/layout.rs
 src/widgets/table/linkcell.rs
 src/widgets/textfield.rs
 src/widgets/wrapbox.rs
+src/window/find/bodytext.rs
+src/window/find/matcher.rs
+src/window/find/options.rs
 src/window/find/plan.rs
 src/winstate/busynotice.rs
 src/winstate/chrome.rs

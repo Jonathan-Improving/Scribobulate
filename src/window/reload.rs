@@ -1096,7 +1096,7 @@ mod gtk_integration_tests {
             .and_then(|c| c.downcast::<crate::codeview::CodePreviewView>().ok())
             .expect("preview view in Preview mode");
         let st = crate::winstate::state(&window).expect("the window has an active tab");
-        assert!(highlight_preview_matches(&st.preview_find, &view, "cell") >= 1);
+        assert!(highlight_preview_literal(&st.preview_find, &view, "cell") >= 1);
 
         apply_external_reload(&window, "A cell after reload.\n\nSecond cell here.\n");
 

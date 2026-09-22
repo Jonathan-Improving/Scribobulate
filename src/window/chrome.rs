@@ -53,7 +53,7 @@ pub(super) struct Chrome {
     pub replace_entry: gtk::Entry,
     pub replace_btn: gtk::Button,
     pub replace_all_btn: gtk::Button,
-    pub replace_row: gtk::Box,
+    pub replace_row: crate::widgets::wrapbox::ToolbarWrapBox,
     pub find_bar: gtk::Box,
     pub find_bar_revealer: gtk::Revealer,
     /// This window's OWN `View ▸ Documents` submenu model (GTK4Rs/AP-76) —
@@ -85,6 +85,31 @@ pub(super) struct Chrome {
 /// first moment the question has an answer. One-shot: it disconnects itself, so the
 /// reader's later drags are never overwritten by a re-allocation (a window resize emits
 /// it again).
+/// How wide, in characters, a find-bar text field is — minimum and maximum both.
+///
+/// **A single fixed width, not a floor.** The find bar's rows are wrap boxes, which
+/// give every child its NATURAL width, so an uncapped field's natural width becomes the
+/// row's minimum and therefore the window's (TDD 9.38). Capping only the maximum would
+/// leave the natural width free to grow; capping only the minimum would leave it free
+/// to be the whole row. Pinning both is what makes the bar's contribution to the
+/// window's floor a number chosen here rather than one emerging from a layout.
+///
+/// 24 characters holds an ordinary search term and a short regular expression, and sits
+/// comfortably under `MIN_WINDOW_WIDTH`.
+const FIND_FIELD_WIDTH_CHARS: i32 = 24;
+
+/// Pin a find-bar field's width so it cannot decide the window's minimum.
+///
+/// Applies to BOTH fields from one place: they sit in two different rows built a
+/// hundred lines apart, and a cap applied to one of them is a floor raised by the other
+/// — which on macOS is not merely ugly, because a window is not grown to meet a risen
+/// minimum there and the controls past the edge are silently not drawn.
+fn cap_field_width(field: &impl IsA<gtk::Editable>) {
+    let field = field.as_ref();
+    field.set_width_chars(FIND_FIELD_WIDTH_CHARS);
+    field.set_max_width_chars(FIND_FIELD_WIDTH_CHARS);
+}
+
 fn restore_sidebar_split(paned: &gtk::Paned, fraction: f64) {
     // The handler disconnects itself, so it needs its own id — which `connect` only
     // returns after the closure has been built. The shared cell is the handover. It
@@ -374,6 +399,7 @@ pub(super) fn build_chrome(
     // soon as the user types. The constructor takes the name for that reason.
     let find_entry = crate::widgets::textfield::named_search_entry("Find");
     find_entry.set_placeholder_text(Some("Find…"));
+    cap_field_width(&find_entry);
 
     let find_prev_btn = gtk::Button::from_icon_name(Icon::GoUp.name());
     crate::a11y::name_with_tooltip(
@@ -395,12 +421,53 @@ pub(super) fn build_chrome(
     crate::a11y::name_with_tooltip(&close_find_btn, "Close find bar", "Close (Escape)");
     close_find_btn.add_css_class("flat");
 
-    let find_row = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+    // ── the match-option toggles ─────────────────────────────────────────────
+    // After the field and before the navigation buttons, because that is what they
+    // qualify: everything to their left is WHAT the reader is looking for, everything
+    // to their right is how they move through what was found.
+    //
+    // Each is a `GtkToggleButton` bound to its `win.` action by name — the same action
+    // the Edit menu's check item drives — so neither surface holds state of its own
+    // (POLICY "One action per command"). The glyphs are the find-bar convention, short
+    // enough that four of them together are narrower than one word each would be.
+    let find_option_btns: Vec<gtk::ToggleButton> = [
+        ("find-match-case", "Aa", "Match case", "Match case"),
+        (
+            "find-whole-word",
+            "W",
+            "Whole word",
+            "Match whole words only",
+        ),
+        (
+            "find-regex",
+            ".*",
+            "Regular expression",
+            "Interpret the query as a regular expression",
+        ),
+    ]
+    .into_iter()
+    .map(|(action, glyph, name, tooltip)| {
+        let btn = gtk::ToggleButton::with_label(glyph);
+        btn.set_action_name(Some(&format!("win.{action}")));
+        btn.add_css_class("flat");
+        crate::a11y::name_with_tooltip(&btn, name, tooltip);
+        btn
+    })
+    .collect();
+
+    // A WRAP box, not a `GtkBox`: with everything shown this row is wider than a narrow
+    // window, and a `GtkBox` would answer the sum of its children as its minimum width
+    // and so raise the WINDOW's (TDD 9.38). Wrapping lets the row's contribution be its
+    // widest single control instead.
+    let find_row = crate::widgets::wrapbox::ToolbarWrapBox::new(4, 4);
     find_row.set_margin_top(4);
     find_row.set_margin_bottom(4);
     find_row.set_margin_start(6);
     find_row.set_margin_end(6);
     find_row.append(&find_entry);
+    for btn in &find_option_btns {
+        find_row.append(btn);
+    }
     find_row.append(&find_prev_btn);
     find_row.append(&find_next_btn);
     find_row.append(&match_count_label);
@@ -408,6 +475,7 @@ pub(super) fn build_chrome(
 
     let replace_entry = crate::widgets::textfield::named_entry("Replace with", "");
     replace_entry.set_placeholder_text(Some("Replace with…"));
+    cap_field_width(&replace_entry);
 
     let replace_btn = gtk::Button::with_label("Replace");
     replace_btn.add_css_class("flat");
@@ -415,7 +483,7 @@ pub(super) fn build_chrome(
     let replace_all_btn = gtk::Button::with_label("Replace All");
     replace_all_btn.add_css_class("flat");
 
-    let replace_row = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+    let replace_row = crate::widgets::wrapbox::ToolbarWrapBox::new(4, 4);
     replace_row.set_margin_bottom(4);
     replace_row.set_margin_start(6);
     replace_row.set_margin_end(6);
