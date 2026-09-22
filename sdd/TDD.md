@@ -1815,6 +1815,7 @@
 - **When** the reader searches a pattern using a character class, an anchor and a quantifier
 - **Then** the editor and the preview report matches under the **same** engine — GRegex — so a pattern accepted in one pane is accepted in the other, and neither pane silently reinterprets it
 - **And** a match is still found inside a table cell and inside a collapsed disclosure, which are searched by their own paths rather than by the buffer
+- **And** an ANCHORED pattern is expected to count differently in the two panes, because `^`/`$` anchor per source line in the editor and per rendered element in the preview — a table cell is its own anchoring context there. That is a difference of what is being searched, not of how, and it is the one case where §11.13's cross-pane agreement does not apply
 - **And** the agreement is *measured* rather than argued: both engines are run over one fixture and their counts compared, because neither implementation can evidence a claim about the pair
 - **Rationale** four properties of GtkSourceView's own regular-expression handling decide the preview matcher's design and none is stated in its documentation — how whole word wraps a pattern (`\b(?:…)\b`, not a bare `\b…\b`, or `cat|dog` would differ), which characters bound a word, whether `^` is per line, and what a zero-width pattern does. The last one diverged and the editor decided it: a zero-length match is not a match, because it has nothing to highlight and nowhere to scroll to, so counting one promises a position the reader can never be taken to
 - **Coverage** `window::find::parity::whole_word_wraps_an_alternation_as_one_group`, `…::an_anchor_means_the_same_thing_on_a_multi_line_document`, `…::a_compound_pattern_counts_the_same_in_both_panes`, `…::a_zero_width_pattern_does_not_diverge`; `tests/MANUAL-TEST.md` §11.14
@@ -1838,6 +1839,8 @@
 - **Then** the same confinement holds there: body matches, table-cell matches and matches inside a collapsed disclosure are each counted only when they fall inside the selected passage
 - **And when** the preview is re-rendered beneath the scope — a live-preview re-render, a fold splice, a theme switch or an external reload
 - **Then** the scope is not silently reinterpreted against the new render: the toggle turns itself off and the search covers the whole pane, because a reference that cannot be resolved obliges a re-derivation rather than a confident wrong answer
+- **And when** the search moves to the other pane — a view-mode switch making the editor the target while a preview passage is held, or the reverse
+- **Then** the passage is released and the toggle unticks, because a range in a rendering of the document is not a position in its source and neither means anything in the other pane. The count in that case was always truthful; it is the CONTROL that must not go on claiming a confinement nothing applies
 - **And given** no selection, and none already captured
 - **When** the reader looks at the in-selection control
 - **Then** it is insensitive with an explanatory description — and a captured scope keeps it sensitive after the selection that made it is gone, or the reader is stuck inside it
@@ -1852,7 +1855,7 @@
 - **When** the reader invokes Replace
 - **Then** nothing is replaced and the search steps to a match instead, so the reader is shown what will change before it changes
 - **And** with the regular-expression option enabled, a backreference in the replacement expands against the match it replaced
-- **And** Replace All reports the number of replacements it made, rather than the number of matches left — which after a Replace All is normally zero and would read as nothing having happened
+- **And** Replace All reports the number of replacements it made **in the footer**, rather than the number of matches left — which after a Replace All is normally zero and would read as nothing having happened. It is the footer rather than the find bar's readout because the replacements fire the buffer's own change signal, the search engine re-scans, and its notification repaints that readout within about 60 ms: a message there survives one frame, and an in-process assertion taken before the re-search cannot tell that from a message that stays
 - **Rationale** a replacement naming a group the pattern does not have is accepted by GRegex and expands to NOTHING, deleting the match rather than erroring, so "no error" cannot be read as "the reader got what they asked for". A genuinely malformed replacement — a trailing lone backslash — is rejected, and that is the case the error path exists for
 - **Coverage** `window::find::parity::a_replacement_expands_a_backreference_against_its_match`; `window::find::bartests::replace_acts_on_the_current_match_and_then_advances`; `tests/MANUAL-TEST.md` §11.18
 

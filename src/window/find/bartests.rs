@@ -398,10 +398,17 @@ fn search_in_selection_confines_the_editor_search_and_its_replacements() {
         "Replace All must reach only the occurrences the SEARCH covered — not because \
          Replace All is scoped, but because the search it acts on is"
     );
-    assert_eq!(
-        st.chrome().match_count_label.text().as_str(),
-        "2 replaced",
-        "Replace All reports how many it made, not how many are left"
+    // Reported in the FOOTER, not in the find bar's readout — and asserted through the
+    // status stack's own composed line rather than through a widget read taken the
+    // instant this returns. The readout version of this assertion was green on a
+    // message no reader could see: the replacement fires the buffer's `changed`, the
+    // engine re-scans, and ~60 ms later its notify repaints the readout (MEASURED by
+    // the Windows seat). An in-process assertion made before that re-search cannot tell
+    // a message that survives from one that is clobbered a frame later.
+    let shown = st.chrome().status.borrow().label_text();
+    assert!(
+        shown.contains("2 replacements made"),
+        "Replace All reports how many it made, not how many are left — got {shown:?}"
     );
 
     // The passage still covers the same text even though the replacements changed its
@@ -632,6 +639,49 @@ fn whole_word_bounds_an_alternation_the_same_way_in_both_panes() {
         set_option(&win, "find-whole-word", false);
         set_option(&win, "find-regex", false);
     }
+    win.destroy();
+}
+
+/// **A passage captured in one pane is released when the search moves to the other**
+/// (TDD 11.16).
+///
+/// The count was always truthful here — a preview scope confines nothing once the
+/// editor is the target — so the defect was purely that the toggle went on claiming a
+/// confinement that was not applied. That is the shape nobody notices until they have
+/// trusted it once, which is why it is asserted on the CONTROL and not only on the
+/// count. Found by the macOS seat, Preview → Side by Side.
+#[gtktest::test]
+fn a_scope_is_released_when_the_search_moves_to_the_other_pane() {
+    let name = super::super::findbar::FIND_IN_SELECTION;
+    let app = test_app("com.extollit.scribobulate.integrationtest.findscopepane");
+    let win = crate::window::new_window(&app, "IT-findscopepane", MD, None);
+    set_mode(&win, "preview");
+    search(&win, "note");
+    select_range(&win, 0, 23);
+    set_option(&win, name, true);
+    let confined = count(&win).expect("a confined count");
+    assert!(
+        confined < ALL,
+        "precondition: the passage confines the search"
+    );
+
+    // Split makes the EDITOR the find target, and a preview range is not a position in
+    // the source buffer.
+    set_mode(&win, "split");
+    assert_eq!(
+        count(&win),
+        Some(ALL),
+        "the search must cover the whole pane it has moved to"
+    );
+    assert!(
+        !option_state(&win, name),
+        "…and the toggle must say so. A truthful count under a ticked toggle is worse \
+         than a wrong one: nothing on screen contradicts it"
+    );
+    assert!(
+        state(&win).expect("a tab").find_scope.borrow().is_none(),
+        "the bound itself must be released, not merely unused"
+    );
     win.destroy();
 }
 

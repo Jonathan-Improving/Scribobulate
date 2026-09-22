@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use crate::animation::paintable::AnimatedPaintable;
 use crate::animation::policy::EnableAnimationsGuard;
-use crate::memgate::footprint::{assert_bounded, current, SAMPLE_COUNT};
+use crate::memgate::footprint::{assert_bounded, current, SAMPLE_COUNT, WARMUP};
 use crate::testpump::{self, Clock};
 use crate::window::testkit::test_app_suffixed;
 
@@ -76,8 +76,32 @@ const FIXTURE_FRAMES_PER_LOOP: usize = 24;
 /// Three full cycles: "many loops" (TDD 6.10) without an unbounded wall-clock
 /// cost. See [`playback_growth_across_many_loops_ttd_6_10`]'s own doc comment
 /// for the measured total runtime this adds to step 5b.
-const PLAYBACK_LOOPS: usize = 3;
+/// Loops sampled, INCLUDING the one discarded as warm-up — so the judged window is
+/// still the three full cycles "many loops" (TDD 6.10) asks for.
+const PLAYBACK_LOOPS: usize = 4;
 const PLAYBACK_SAMPLES: usize = FIXTURE_FRAMES_PER_LOOP * PLAYBACK_LOOPS;
+
+/// **One whole cycle of warm-up**, because that is the unit a tick-driven animation
+/// settles in: the decoder, the canvas and the frame clock each reach steady state at
+/// their own pace, and the first pass through the frames is where all three are still
+/// doing it. `footprint::WARMUP`'s three is a figure for a one-shot RENDER and does not
+/// describe this at all.
+///
+/// Measured: the macOS seat ran ten passes of one unchanged build and four failed,
+/// residuals spanning 1.59–4.33 MB against a 2.10 MB bound — with every failing series
+/// rising and then going BYTE-IDENTICAL for its last 20–28 samples. A leak is still
+/// climbing at the last sample; a series that stops and never moves again has finished
+/// warming up. Discarding a whole cycle is what puts the rises that produced those
+/// residuals outside the judged window, rather than loosening the bound they broke.
+const PLAYBACK_WARMUP: usize = FIXTURE_FRAMES_PER_LOOP;
+
+/// The warm-up must not eat the claim. TDD 6.10 says "many loops", and what is JUDGED
+/// is what is left after the discard — so a future edit that raises the warm-up without
+/// paying for it in loops has quietly reduced this gate to one cycle while the rubric
+/// still says many. A compile-time assertion rather than a test, for the reason
+/// `footprint`'s bounds assertions give: an edit that makes the gate decorative should
+/// not build.
+const _: () = assert!(PLAYBACK_SAMPLES - PLAYBACK_WARMUP >= 3 * FIXTURE_FRAMES_PER_LOOP);
 
 /// A generous per-frame wait: `anim.webp`'s own delay is 125 ms; this only
 /// needs to be a FAILURE bound (GTK4Rs/AP-122), not a tight one.
@@ -100,10 +124,12 @@ const PER_FRAME_DEADLINE: Duration = Duration::from_secs(2);
 /// (`testpump::until_or_for`), which converges as soon as the real change
 /// happens rather than waiting out a fixed span.
 ///
-/// Measured total wall-clock runtime this adds to step 5b: **~9–11 s**
-/// ([`PLAYBACK_SAMPLES`] = 72 flips × `anim.webp`'s 125 ms cadence, plus
+/// Measured total wall-clock runtime this adds to step 5b: **~12–15 s**
+/// ([`PLAYBACK_SAMPLES`] = 96 flips × `anim.webp`'s 125 ms cadence, plus
 /// pump/compare overhead) — modest, and the only honest way to observe many
-/// real loops of a real tick-driven animation.
+/// real loops of a real tick-driven animation. It was ~9–11 s over three loops
+/// before a fourth was added to pay for [`PLAYBACK_WARMUP`], so the JUDGED window is
+/// unchanged at three cycles and only the warm-up is new.
 #[gtktest::test]
 fn playback_growth_across_many_loops_ttd_6_10() {
     // The footprint instrument is process-wide; hold it for the whole body.
@@ -126,7 +152,7 @@ fn playback_growth_across_many_loops_ttd_6_10() {
         last = painted_bytes(pic.paintable().as_ref().unwrap());
         samples.push(current().expect("footprint"));
     }
-    assert_bounded("6.10 playback across many loops", &samples);
+    assert_bounded("6.10 playback across many loops", PLAYBACK_WARMUP, &samples);
 }
 
 /// TDD 6.10, second half: repeatedly making the animation not-visible and
@@ -184,7 +210,7 @@ fn scroll_away_and_back_cycles_do_not_grow_footprint_ttd_6_10() {
         );
         samples.push(current().expect("footprint"));
     }
-    assert_bounded("6.10 scroll-away/back cycles", &samples);
+    assert_bounded("6.10 scroll-away/back cycles", WARMUP, &samples);
 }
 
 /// TDD 6.7, extended to the whole animation state: once the picture

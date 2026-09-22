@@ -541,6 +541,7 @@ pub(crate) fn update_find_scope_sensitivity(window: &ApplicationWindow) {
 /// pure-preview mode, so a later switch to edit or split finds the editor's engine
 /// already asking the same question rather than the last one it was told.
 pub(super) fn refresh_find(window: &ApplicationWindow, st: &Rc<TabState>) {
+    reconcile_find_scope(window, st);
     let chrome = st.chrome();
     let label = &chrome.match_count_label;
     let text = chrome.find_entry.text();
@@ -567,6 +568,41 @@ pub(super) fn refresh_find(window: &ApplicationWindow, st: &Rc<TabState>) {
         // occurrence count describes a buffer the user cannot see, so showing
         // it would be a confidently wrong number rather than a missing one.
         FindTarget::PreviewUnresolved => set_match_label(label, 0, 0),
+    }
+}
+
+/// Release a captured passage the pane now being searched cannot use.
+///
+/// **A scope belongs to the pane it was taken in.** The editor's is a pair of marks in
+/// the source buffer and the preview's is a range in a rendering of it; neither means
+/// anything in the other pane. Switching view mode changes which pane the search acts
+/// on, and a held scope of the wrong kind then confines nothing — while the toggle goes
+/// on saying it does.
+///
+/// Reported by the macOS seat: capture a passage in Preview, switch to Side by Side,
+/// and `Sel` stayed ticked against a whole-document count. The count was truthful,
+/// which is what made it a mirror defect rather than a wrong answer — and mirror
+/// defects are the ones nobody notices until they have trusted one.
+///
+/// Released rather than remembered-and-restored: keeping it would mean a control that
+/// is ticked but inert for as long as the reader is in the other pane, which says
+/// something false for longer. Re-deriving is the same answer the unresolvable-preview
+/// case already gives (CAM § Document-Reference row 16).
+fn reconcile_find_scope(window: &ApplicationWindow, st: &Rc<TabState>) {
+    // Decided under the borrow, acted on outside it: `release_find_scope` writes the
+    // same cell and moves an action's state (ScrAP-53).
+    let usable = matches!(
+        (find_target(window), st.find_scope.borrow().as_ref()),
+        (_, None)
+            | (FindTarget::Editor, Some(FindScope::Editor { .. }))
+            | (FindTarget::Preview(_), Some(FindScope::Preview(_)))
+    );
+    if !usable {
+        log::info!(
+            "find: the captured passage belongs to the other pane; the search now \
+             covers the whole of this one"
+        );
+        release_find_scope(window, st);
     }
 }
 

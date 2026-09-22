@@ -1276,8 +1276,12 @@ const SCANNING_LABEL: &str = "…";
 /// same confidently-wrong answer TDD 11.8 refuses for the scanning case: it tells the
 /// reader the document does not contain what they asked for, when what actually
 /// happened is that nobody was able to ask. It is also the state a reader is in for
-/// most of the time they spend typing a pattern — `^\s*#{1,3` is not a mistake, it is
-/// an unfinished `^\s*#{1,3}\s` — so it has to read as "keep going", not as an answer.
+/// most of the time they spend typing a pattern — `(note` is not a mistake, it is an
+/// unfinished `(note|book)` — so it has to read as "keep going", not as an answer.
+///
+/// Note that fewer patterns reach this state than look like they should: PCRE reads a
+/// `{` it cannot parse as a quantifier as a LITERAL brace, so `#{1,3` compiles fine and
+/// honestly has no matches. Half-finished is not the same as invalid.
 const INVALID_PATTERN_LABEL: &str = "Invalid pattern";
 
 /// Decode a raw `occurrences-count`. Pure, so the whole rule is decidable — and
@@ -1570,28 +1574,34 @@ pub(super) fn replace_all_matches(
                      when asked how many, so no count is reported"
                 );
                 st.find_cursor.set(FindCursor::None);
-                crate::a11y::describe(label, None);
-                label.set_visible(true);
-                label.set_text("Replaced");
+                st.chrome()
+                    .push_timed_notice("Replacements made", super::toast::INFO_STATUS_TIME);
                 return;
             };
             before
         }
     };
     st.find_cursor.set(FindCursor::None);
-    // The count REPLACED, not the count remaining — which after a Replace All is
-    // usually zero and would read as "nothing happened" for the one action guaranteed
-    // to have changed the most.
+    // **A timed status notice, NOT the find bar's readout.**
     //
-    // Not a status notice: it needs no retraction, because it occupies the find bar's
-    // own report surface and the next thing that reports there overwrites it, exactly
-    // as every other readout state does.
-    crate::a11y::describe(label, None);
-    label.set_visible(true);
-    label.set_text(&match replaced {
-        1 => "1 replaced".to_string(),
-        n => format!("{n} replaced"),
-    });
+    // This began in the readout, on the reasoning that it needed no retraction because
+    // the next thing to report there would overwrite it. That reasoning was right about
+    // the mechanism and wrong about the timing, and the Windows seat MEASURED the
+    // difference: the replacement fires the buffer's `changed`, the engine re-scans, and
+    // its `occurrences-count` notify repaints the readout **~60 ms later**. The message
+    // was on screen for one frame. Worse, the in-process test asserted the label
+    // immediately after this function returned — before the re-search — so the gate was
+    // green on a message no reader could ever see.
+    //
+    // A footer notice is the right surface anyway: this reports an EVENT that has
+    // happened, not the state of the query, which is what the readout is for. It joins
+    // the quiet-command confirmations at Status-notice CAM row 5 and takes their
+    // retraction (timed, its own ctx per invocation, pushed to the stack this tab's
+    // chrome owns right now).
+    st.chrome().push_timed_notice(
+        &crate::winstate::statusbar::replacements_made(replaced),
+        super::toast::INFO_STATUS_TIME,
+    );
     // The scope is still in force and still covers the same passage, even though the
     // replacements changed its length — the marks moved with the text, which is why it
     // is a pair of marks and not a pair of offsets.
@@ -1635,6 +1645,10 @@ pub(super) fn set_match_label(label: &gtk::Label, current: i32, total: i32) {
         label.set_text("No matches");
     } else if current > 0 {
         label.set_text(&format!("{current} of {total}"));
+    } else if total == 1 {
+        // Not "1 matches". A readout is a sentence the reader reads on every search,
+        // and this is the one count it got wrong every time it was right.
+        label.set_text("1 match");
     } else {
         label.set_text(&format!("{total} matches"));
     }

@@ -122,14 +122,28 @@ fn cap_field_width(field: &impl IsA<gtk::Editable>) {
 /// field has to stay a `GtkSearchEntry` for the `stop-search` binding that closes the
 /// bar on Escape (ScrAP-48). A sibling button leaves the entry exactly as it is.
 ///
-/// A LABEL rather than an icon, and that is a deliberate avoidance: a chevron icon name
-/// is one more thing to be missing from a host icon theme and to need bundling
-/// (ScrAP-169, GTK4Rs/AP-48), and the glyph is in every font the application can be
-/// asked to draw with. The menu model is built on demand by `window::findbar`, so it is
-/// always the active tab's own list with no resync to forget.
+/// **The chevron is the toolkit's own, and the button contributes an EMPTY label.**
+/// That spelling is not decoration — it is the only one at this project's GTK floor
+/// that yields exactly one down-indicator.
+///
+/// This began as `set_label("▾")`: a glyph rather than an icon name, deliberately,
+/// because an icon name is one more thing to be missing from a host icon theme and to
+/// need bundling (ScrAP-169, GTK4Rs/AP-48). It drew TWO arrows. `GtkMenuButton` does
+/// not put a label in the button — it builds a box holding the label AND a
+/// `GtkBuiltinIcon` with css name `arrow` — so the application's chevron sat beside the
+/// toolkit's. Reported by the Windows seat; MEASURED here on GTK 4.6.9 by dumping the
+/// widget tree, which is what made it widget behaviour rather than one platform's
+/// theme (the built-in arrow is simply drawn at higher contrast there).
+///
+/// `set_child` does NOT avoid it: measured on the same build, a custom child is wrapped
+/// in the same `box[child, arrow]`. At 4.6 there is no way to refuse the arrow, so the
+/// honest answer is to stop competing with it. An empty label leaves the toolkit's
+/// chevron alone in the button, costs no icon-theme lookup, and cannot be a missing
+/// glyph in anybody's font. The button's accessible name comes from `a11y`, so nothing
+/// depends on the label carrying text.
 fn history_button(accessible_name: &str) -> gtk::MenuButton {
     let btn = gtk::MenuButton::new();
-    btn.set_label("▾");
+    btn.set_label("");
     btn.add_css_class("flat");
     // A freshly built window has committed nothing, and the bar is built before any tab
     // is registered — so the floor is set here and `findbar::sync_history_buttons`

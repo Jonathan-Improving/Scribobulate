@@ -54,9 +54,19 @@ pub(crate) const GROWTH_BOUNDS: super::growth::Bounds = super::growth::Bounds {
 const _: () = assert!(GROWTH_BOUNDS.residual_bytes < 9 * 1024 * 1024);
 const _: () = assert!(GROWTH_BOUNDS.total_bytes > 12_600_000);
 
-/// Warm-up renders discarded before the series is judged. Windows measured its
+/// Warm-up **renders** discarded before a render series is judged. Windows measured its
 /// entire 1.09 MB of warm-up arriving at iteration 2; three covers that and
 /// the GTK icon-cache / font first-paint on the other seats.
+///
+/// **This is the figure for a one-shot operation, and it does not transfer to a
+/// tick-driven one.** A render either has warmed up or has not; a playing animation
+/// reaches steady state over a whole cycle, because its decoder, its canvas and the
+/// frame clock all settle at their own pace. The playback gate therefore states its own
+/// (`memgate::playback`), which is why [`assert_bounded`] takes the warm-up rather than
+/// reading this constant — the macOS seat measured four failures in ten runs of one
+/// unchanged build there, every failing series rising and then going byte-identical for
+/// its last 20–28 samples, which is warm-up still finishing rather than a climb (a leak
+/// is still climbing at the last sample).
 pub(crate) const WARMUP: usize = 3;
 
 /// Samples collected *including* warm-up. After discarding [`WARMUP`] this
@@ -106,19 +116,22 @@ pub(crate) struct MeasurementGuard {
     _lock: std::sync::MutexGuard<'static, ()>,
 }
 
-/// Judge a sampled series against this platform's [`GROWTH_BOUNDS`], naming
-/// `rubric` in both the log line and the panic.
+/// Judge a sampled series against this platform's [`GROWTH_BOUNDS`], discarding
+/// `warmup` leading samples and naming `rubric` in both the log line and the panic.
 ///
-/// Every gate goes through here rather than reading the bounds itself: six call
-/// sites each passing their own constants is six places one can be mis-edited,
-/// and the log line is what a later failure gets compared against.
+/// Every gate goes through here rather than reading the BOUNDS itself: six call sites
+/// each carrying their own bounds is six places one can be mis-edited, and the log line
+/// is what a later failure gets compared against. The **warm-up** is the one thing a
+/// gate does state for itself, because it is a property of the operation being sampled
+/// rather than of the platform — see [`WARMUP`]. Passing it explicitly is what stopped
+/// a render's figure from silently governing an animation's.
 #[cfg(all(test, feature = "memory-gates"))]
-pub(crate) fn assert_bounded(rubric: &str, samples: &[u64]) {
+pub(crate) fn assert_bounded(rubric: &str, warmup: usize, samples: &[u64]) {
     println!(
         "[memgate {rubric}] {}",
-        super::growth::describe(samples, WARMUP, GROWTH_BOUNDS)
+        super::growth::describe(samples, warmup, GROWTH_BOUNDS)
     );
-    super::growth::assert_no_growth(samples, WARMUP, GROWTH_BOUNDS)
+    super::growth::assert_no_growth(samples, warmup, GROWTH_BOUNDS)
         .unwrap_or_else(|err| panic!("TDD {rubric}: {err}"));
 }
 
