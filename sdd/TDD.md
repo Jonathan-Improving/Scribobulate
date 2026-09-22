@@ -1856,6 +1856,21 @@
 - **Rationale** a replacement naming a group the pattern does not have is accepted by GRegex and expands to NOTHING, deleting the match rather than erroring, so "no error" cannot be read as "the reader got what they asked for". A genuinely malformed replacement — a trailing lone backslash — is rejected, and that is the case the error path exists for
 - **Coverage** `window::find::parity::a_replacement_expands_a_backreference_against_its_match`; `window::find::bartests::replace_acts_on_the_current_match_and_then_advances`; `tests/MANUAL-TEST.md` §11.18
 
+### 11.18 Each field offers that tab's own recent entries
+- **Given** the reader has committed several distinct search terms and replacement texts in one tab
+- **When** they open the drop-down beside either field
+- **Then** the entries appear most-recent-first, without duplicates, capped at the stated limit, and choosing one fills the field — and, for a search term, searches for it immediately
+- **And** a term typed but never committed — no Enter, no Next, no Replace — does not enter the history, because the find field searches as you type and a history fed from that is the reader's last query once per keystroke
+- **And** a drop-down with nothing to offer is unavailable, rather than opening an empty menu
+- **And given** a second tab
+- **When** its drop-downs are opened
+- **Then** they show that tab's own history, never the first tab's
+- **And given** the session is saved and the application restarted
+- **When** the restored tab's drop-downs are opened
+- **Then** its own history is still there, in the same order — while the find bar itself restores closed and no search is in force, because a restore must not put the reader into a search they did not just ask for
+- **And** a persisted history that is malformed — over long, holding a duplicate or an empty entry — is repaired on load rather than failing the session, which would cost every window and tab to protect a convenience
+- **Coverage** `window::find::history::tests`; `window::find::bartests::each_field_offers_that_tabs_own_recent_entries`; `tests/MANUAL-TEST.md` §11.20
+
 ## 12. Document outline
 
 > A collapsible sidebar lists the document's headings and navigates to them.

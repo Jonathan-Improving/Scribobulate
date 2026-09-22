@@ -46,6 +46,10 @@ pub(super) struct Chrome {
     /// The annotations viewer's heading label (TDD 20.22).
     pub annotations_title: gtk::Label,
     pub find_entry: gtk::SearchEntry,
+    /// The drop-down of this tab's recent searches, beside the find field.
+    pub find_history_btn: gtk::MenuButton,
+    /// The same, for the replacement field.
+    pub replace_history_btn: gtk::MenuButton,
     pub find_prev_btn: gtk::Button,
     pub find_next_btn: gtk::Button,
     pub match_count_label: gtk::Label,
@@ -108,6 +112,31 @@ fn cap_field_width(field: &impl IsA<gtk::Editable>) {
     let field = field.as_ref();
     field.set_width_chars(FIND_FIELD_WIDTH_CHARS);
     field.set_max_width_chars(FIND_FIELD_WIDTH_CHARS);
+}
+
+/// A find-bar history drop-down: a narrow button beside its field.
+///
+/// **A `GtkMenuButton`, not a combo box or a completion.** `GtkComboBoxText` and
+/// `GtkEntryCompletion` are both deprecated as of GTK 4.10 and the gtk4-rs bindings
+/// mark them `#[deprecated]`, which fails the zero-warning clippy gate; and the find
+/// field has to stay a `GtkSearchEntry` for the `stop-search` binding that closes the
+/// bar on Escape (ScrAP-48). A sibling button leaves the entry exactly as it is.
+///
+/// A LABEL rather than an icon, and that is a deliberate avoidance: a chevron icon name
+/// is one more thing to be missing from a host icon theme and to need bundling
+/// (ScrAP-169, GTK4Rs/AP-48), and the glyph is in every font the application can be
+/// asked to draw with. The menu model is built on demand by `window::findbar`, so it is
+/// always the active tab's own list with no resync to forget.
+fn history_button(accessible_name: &str) -> gtk::MenuButton {
+    let btn = gtk::MenuButton::new();
+    btn.set_label("▾");
+    btn.add_css_class("flat");
+    // A freshly built window has committed nothing, and the bar is built before any tab
+    // is registered — so the floor is set here and `findbar::sync_history_buttons`
+    // raises it. The same deal `win.find-in-selection` takes at its registration.
+    btn.set_sensitive(false);
+    crate::a11y::name_with_tooltip(&btn, accessible_name, accessible_name);
+    btn
 }
 
 fn restore_sidebar_split(paned: &gtk::Paned, fraction: f64) {
@@ -400,6 +429,7 @@ pub(super) fn build_chrome(
     let find_entry = crate::widgets::textfield::named_search_entry("Find");
     find_entry.set_placeholder_text(Some("Find…"));
     cap_field_width(&find_entry);
+    let find_history_btn = history_button("Recent searches");
 
     let find_prev_btn = gtk::Button::from_icon_name(Icon::GoUp.name());
     crate::a11y::name_with_tooltip(
@@ -476,6 +506,7 @@ pub(super) fn build_chrome(
     find_row.set_margin_start(6);
     find_row.set_margin_end(6);
     find_row.append(&find_entry);
+    find_row.append(&find_history_btn);
     for btn in &find_option_btns {
         find_row.append(btn);
     }
@@ -487,6 +518,7 @@ pub(super) fn build_chrome(
     let replace_entry = crate::widgets::textfield::named_entry("Replace with", "");
     replace_entry.set_placeholder_text(Some("Replace with…"));
     cap_field_width(&replace_entry);
+    let replace_history_btn = history_button("Recent replacements");
 
     let replace_btn = gtk::Button::with_label("Replace");
     replace_btn.add_css_class("flat");
@@ -499,6 +531,7 @@ pub(super) fn build_chrome(
     replace_row.set_margin_start(6);
     replace_row.set_margin_end(6);
     replace_row.append(&replace_entry);
+    replace_row.append(&replace_history_btn);
     replace_row.append(&replace_btn);
     replace_row.append(&replace_all_btn);
     replace_row.set_visible(false);
@@ -557,6 +590,8 @@ pub(super) fn build_chrome(
         status_bar,
         annotations_title,
         find_entry,
+        find_history_btn,
+        replace_history_btn,
         find_prev_btn,
         find_next_btn,
         match_count_label,

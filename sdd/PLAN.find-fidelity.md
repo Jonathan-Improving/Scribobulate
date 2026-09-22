@@ -149,17 +149,15 @@ reports how many it made.
 element is the engine saying it has been round, and it is the only reliable stop. Routed
 to the `gtk4-rs` skill.
 
-**Batch C — history.** Each field gains a drop-down listing that tab's previous entries,
-most recent first, de-duplicated, capped. A term enters the history when it is
-*committed* (Enter, Next/Prev, Replace, Replace All), never per keystroke. The control
-is a `GtkMenuButton` beside the field rather than a combo box: `GtkComboBoxText` and
-`GtkEntryCompletion` are both deprecated as of GTK 4.10 and the gtk4-rs bindings mark
-them `#[deprecated]`, which fails the zero-warning clippy gate; and the find field must
-stay a `GtkSearchEntry` for its `stop-search` Escape binding (ScrAP-48).
-
-Across all three batches the find bar's two rows become `ToolbarWrapBox`es and both
-entries are width-capped at construction, because nothing in the chrome may set the
-window's minimum width (TDD 9.38).
+**Batch C — history. LANDED.** Each field gains a `GtkMenuButton` (`▾`) whose menu is
+built **on demand** from the active tab's own list, so there is no model to resync on a
+tab switch — only the button's sensitivity, which is a property of that tab's list. One
+parameterised `win.pick-find-history` action serves both drop-downs; its target is the
+entry verbatim behind a one-character field marker, because an entry is arbitrary text
+and no separator is safe in it. Entries are recorded on COMMIT (Enter, Next/Prev,
+Replace, Replace All, and choosing a row), never on `search-changed` — the find field
+searches as you type, so that signal would record every prefix of every query. Persisted
+per tab and repaired on load rather than rejected.
 
 ### Ratified scope decisions
 

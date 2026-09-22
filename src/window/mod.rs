@@ -81,7 +81,8 @@ pub(crate) use rename::update_rename_action_state;
 // window-internal; only the shapes the per-tab state has to *hold* are named crate-wide.
 pub(crate) use backingloss::{clear_backing_loss, mark_backing_lost};
 pub(crate) use find::{
-    FindCursor, FindOptions, FindScope, PreviewFindCache, PreviewScope, RenderKey,
+    row_label, FindCursor, FindHistory, FindOptions, FindScope, PreviewFindCache, PreviewScope,
+    RenderKey,
 };
 pub(crate) use findbar::refresh_preview_find_highlight;
 pub(crate) use foldreveal::defer_with_window;
@@ -789,6 +790,9 @@ fn build_window_chrome_state(
         find_entry: chrome.find_entry.clone(),
         match_count_label: chrome.match_count_label.clone(),
         replace_row: chrome.replace_row.clone(),
+        replace_entry: chrome.replace_entry.clone(),
+        find_history_btn: chrome.find_history_btn.clone(),
+        replace_history_btn: chrome.replace_history_btn.clone(),
         fmt_edit_btns: tb_edit_btns,
         documents_btn,
         theme_btn,

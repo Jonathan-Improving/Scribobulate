@@ -634,3 +634,100 @@ fn whole_word_bounds_an_alternation_the_same_way_in_both_panes() {
     }
     win.destroy();
 }
+
+/// The entries a field's drop-down would offer, in order, read through the menu model
+/// the popover is actually built from.
+fn history_rows(win: &ApplicationWindow, btn: &gtk::MenuButton) -> Vec<String> {
+    // `popup()` is what the press does, and it is what runs the `create_popup_func`
+    // that builds the model from the ACTIVE tab. Reading the model rather than the
+    // popover's widgets keeps this about the CONTENT — and it works on a bare Xvfb,
+    // where a popover surface may never map (ScrAP-101).
+    btn.popup();
+    crate::testpump::drain_for(
+        crate::testpump::Clock::Idle,
+        std::time::Duration::from_millis(150),
+    );
+    let Some(model) = btn.menu_model() else {
+        return Vec::new();
+    };
+    let _ = win;
+    let rows: Vec<String> = (0..model.n_items())
+        .filter_map(|i| {
+            model
+                .item_attribute_value(i, gtk::gio::MENU_ATTRIBUTE_LABEL, None)
+                .and_then(|v| v.get::<String>())
+        })
+        .collect();
+    btn.popdown();
+    rows
+}
+
+/// **Each field offers that tab's own committed entries, most recent first** (TDD
+/// 11.18).
+///
+/// The half that fails quietly is the commit rule: the find field searches as you type,
+/// so a history fed from `search-changed` records every PREFIX of every query. That
+/// looks fine on a fixture with one search and is useless on a real one, which is why
+/// the "typed but never committed" leg is asserted explicitly rather than inferred from
+/// the committed ones being present.
+#[gtktest::test]
+fn each_field_offers_that_tabs_own_recent_entries() {
+    let app = test_app("com.extollit.scribobulate.integrationtest.findhistory");
+    let win = crate::window::new_window(&app, "IT-findhistory", MD, None);
+    set_mode(&win, "edit");
+    let st = state(&win).expect("a tab");
+    let find_btn = st.chrome().find_history_btn.clone();
+
+    search(&win, "note");
+    assert!(
+        !find_btn.is_sensitive(),
+        "a drop-down with nothing to offer must be unavailable — an empty menu is \
+         worse than a control that says it has nothing"
+    );
+    assert!(
+        history_rows(&win, &find_btn).is_empty(),
+        "typing is not committing: the field searches as you type, so a history fed \
+         from that records every prefix of every query"
+    );
+
+    // Commit three terms, the middle one twice.
+    for term in ["note", "Note", "note"] {
+        st.chrome().find_entry.set_text(term);
+        let _ = count(&win);
+        super::super::findbar::record_committed_query(&st);
+    }
+    assert_eq!(
+        history_rows(&win, &find_btn),
+        vec!["note".to_string(), "Note".to_string()],
+        "most recent first, de-duplicated — re-committing a term MOVES it rather than \
+         adding a second copy"
+    );
+    assert!(find_btn.is_sensitive(), "…and the control is now usable");
+
+    // Choosing an entry fills the field AND searches for it.
+    st.chrome().find_entry.set_text("");
+    let _ = count(&win);
+    crate::window::actions::simple_action(&win, super::super::findbar::PICK_HISTORY)
+        .expect("the pick action is registered")
+        .activate(Some(&"fNote".to_variant()));
+    assert_eq!(
+        st.chrome().find_entry.text().as_str(),
+        "Note",
+        "choosing a row fills the field"
+    );
+    assert!(
+        count(&win).is_some_and(|n| n > 0),
+        "…and searches for it immediately, rather than leaving the reader to press Enter"
+    );
+
+    // A second tab has its OWN history, not the first tab's.
+    let second = crate::window::create_tab_in_window(&win, MD, None, false, false)
+        .expect("the second tab is created");
+    let st2 = crate::winstate::tab_by_id(second).expect("the new tab is registered");
+    assert!(
+        history_rows(&win, &st2.chrome().find_history_btn).is_empty(),
+        "a fresh tab's drop-down offers its own history, never the previous tab's"
+    );
+    assert!(!st2.chrome().find_history_btn.is_sensitive());
+    win.destroy();
+}

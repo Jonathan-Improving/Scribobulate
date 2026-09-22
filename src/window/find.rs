@@ -19,6 +19,8 @@ mod bartests;
 /// subject is offset arithmetic across two coordinate systems, which is exactly the
 /// kind of decision that is cheap to unit-test and expensive to debug on screen.
 mod bodytext;
+/// The two fields' committed-entry histories. Pure, and persisted with the tab.
+mod history;
 /// The one matcher every preview text is searched with. GTK-free, and measured against
 /// the editor's engine by [`parity`].
 mod matcher;
@@ -36,6 +38,7 @@ mod plan;
 /// it. Pure; the marks and the buffer reads are here in the parent.
 mod scope;
 
+pub(crate) use history::{row_label, FindHistory};
 use matcher::Matcher;
 pub(crate) use matcher::{editor_pattern, engine_applies_word_boundaries};
 pub(crate) use options::FindOptions;

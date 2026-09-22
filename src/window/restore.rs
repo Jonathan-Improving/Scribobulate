@@ -82,7 +82,13 @@ fn apply_restored_tab_state(window: &ApplicationWindow, tab: &TabSession) {
 /// otherwise cover it has not run and never will for the window's first tab.
 fn adopt_restored_find_options(window: &ApplicationWindow, st: &Rc<TabState>, tab: &TabSession) {
     st.find_options.set(tab.find_options);
+    // Sanitised on the way in, not on the way out: a session file is untrusted and can
+    // carry an over-long list, a duplicate or an empty entry, none of which is worth
+    // failing the whole restore over.
+    *st.find_history.borrow_mut() = tab.find_history.clone().sanitised();
+    *st.replace_history.borrow_mut() = tab.replace_history.clone().sanitised();
     findbar::adopt_find_options(window, st);
+    findbar::sync_history_buttons(st);
 }
 
 /// Give a freshly restored tab the crash-recovery identity it had before the restart, so
@@ -192,6 +198,8 @@ fn restore_window(
                 // tab-switch resync (`tabs::switch`) points them here on first
                 // activation, which is the same deal its `view_mode` above has.
                 t.find_options.set(tab.find_options);
+                *t.find_history.borrow_mut() = tab.find_history.clone().sanitised();
+                *t.replace_history.borrow_mut() = tab.replace_history.clone().sanitised();
                 // No split arrangement here: it is app-wide, and
                 // `create_tab_in_window` (just above) already seeded this tab's own
                 // `SplitView` from it at construction time.

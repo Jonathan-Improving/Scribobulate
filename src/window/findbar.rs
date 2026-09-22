@@ -35,6 +35,8 @@ pub(super) fn wire_find_bar(window: &ApplicationWindow, chrome: &Chrome) {
     let find_prev_btn = &chrome.find_prev_btn;
     let find_next_btn = &chrome.find_next_btn;
     let find_bar = &chrome.find_bar;
+    let find_history_btn = &chrome.find_history_btn;
+    let replace_history_btn = &chrome.replace_history_btn;
     // ── win.find / win.find-replace actions ──────────────────────────────────
     // Both open the revealer; find-replace additionally reveals the replace row.
     {
@@ -162,6 +164,7 @@ pub(super) fn wire_find_bar(window: &ApplicationWindow, chrome: &Chrome) {
         window,
         move |_| {
             let Some(st) = state(&w) else { return };
+            record_committed_query(&st);
             find_step(&w, &st.search_context, SearchDir::Forward);
         }
     ));
@@ -170,6 +173,7 @@ pub(super) fn wire_find_bar(window: &ApplicationWindow, chrome: &Chrome) {
         window,
         move |_| {
             let Some(st) = state(&w) else { return };
+            record_committed_query(&st);
             find_step(&w, &st.search_context, SearchDir::Backward);
         }
     ));
@@ -180,6 +184,7 @@ pub(super) fn wire_find_bar(window: &ApplicationWindow, chrome: &Chrome) {
         window,
         move |_| {
             let Some(st) = state(&w) else { return };
+            record_committed_query(&st);
             find_step(&w, &st.search_context, SearchDir::Forward);
         }
     ));
@@ -192,6 +197,7 @@ pub(super) fn wire_find_bar(window: &ApplicationWindow, chrome: &Chrome) {
             if key == gtk::gdk::Key::Return && mods.contains(gtk::gdk::ModifierType::SHIFT_MASK) {
                 if let Some(w) = win.upgrade() {
                     if let Some(st) = state(&w) {
+                        record_committed_query(&st);
                         find_step(&w, &st.search_context, SearchDir::Backward);
                     }
                 }
@@ -258,6 +264,57 @@ pub(super) fn wire_find_bar(window: &ApplicationWindow, chrome: &Chrome) {
     // and the selection wiring raises it.
     in_selection.set_enabled(false);
 
+    // ── The two history drop-downs ───────────────────────────────────────────
+    // Each field's recent entries, most recent first. **Built on demand**, not resynced:
+    // the buttons are the WINDOW's and the histories are the TAB's, so a model built
+    // once and refreshed on a tab switch is one more mirror to keep true. A
+    // `create_popup_func` runs at the moment the reader presses the button, which makes
+    // "the active tab's own list" true by construction rather than by upkeep.
+    for (btn, field) in [
+        (find_history_btn, HistoryField::Find),
+        (replace_history_btn, HistoryField::Replace),
+    ] {
+        btn.set_create_popup_func(glib::clone!(
+            #[weak(rename_to = w)]
+            window,
+            move |btn| {
+                btn.set_menu_model(state(&w).map(|st| build_history_menu(&st, field)).as_ref());
+            }
+        ));
+    }
+
+    // One parameterised action for both drop-downs' rows: the chosen text is the
+    // target, so a row is not a closure and the menu can be rebuilt freely.
+    let pick = SimpleAction::new(PICK_HISTORY, Some(glib::VariantTy::STRING));
+    pick.connect_activate(glib::clone!(
+        #[weak(rename_to = w)]
+        window,
+        move |_, value| {
+            let Some(chosen) = value.and_then(|v| v.get::<String>()) else {
+                return;
+            };
+            let Some((field, text)) = HistoryField::split_target(&chosen) else {
+                log::error!("find: a history row carried an unreadable target");
+                return;
+            };
+            let Some(st) = state(&w) else { return };
+            let chrome = st.chrome();
+            match field {
+                // Choosing a search term searches for it immediately — the reader
+                // opened the list to get back to a search, not to fill a box.
+                HistoryField::Find => {
+                    chrome.find_entry.set_text(text);
+                    record_committed_query(&st);
+                    refresh_find(&w, &st);
+                }
+                // A replacement is not an action on its own; it fills the field and
+                // waits, exactly as typing it would.
+                HistoryField::Replace => chrome.replace_entry.set_text(text),
+            }
+        }
+    ));
+    window.add_action(&pick);
+
     // ── Replace button ────────────────────────────────────────────────────────
     let re = replace_entry.clone();
     replace_btn.connect_clicked(glib::clone!(
@@ -265,6 +322,8 @@ pub(super) fn wire_find_bar(window: &ApplicationWindow, chrome: &Chrome) {
         window,
         move |_| {
             let Some(st) = state(&w) else { return };
+            record_committed_query(&st);
+            record_committed_replacement(&st);
             replace_current_match(&w, &st, re.text().as_str());
         }
     ));
@@ -276,9 +335,120 @@ pub(super) fn wire_find_bar(window: &ApplicationWindow, chrome: &Chrome) {
         window,
         move |_| {
             let Some(st) = state(&w) else { return };
+            record_committed_query(&st);
+            record_committed_replacement(&st);
             replace_all_matches(&w, &st, re.text().as_str());
         }
     ));
+}
+
+/// The `win.` action a history row activates, carrying the chosen text as its target.
+///
+/// One action for both drop-downs rather than one each: a row's payload is the text,
+/// and which field it came from is a prefix on that text rather than a second action
+/// name to keep in step with a second menu builder.
+pub(crate) const PICK_HISTORY: &str = "pick-find-history";
+
+/// Which field a history belongs to.
+///
+/// The `win.` action's target has to say, because one action serves both drop-downs and
+/// a bare string cannot. Encoded as a one-character prefix on the text rather than as a
+/// tuple variant: a `GAction` target is a `GVariant`, a string is the cheapest shape
+/// that survives a menu model, and the entries themselves are arbitrary text so no
+/// separator is safe unless it is at a FIXED position.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum HistoryField {
+    Find,
+    Replace,
+}
+
+impl HistoryField {
+    /// This field's marker character. Never a separator to split on — the entry may
+    /// contain anything — only the first character of the target.
+    fn marker(self) -> char {
+        match self {
+            HistoryField::Find => 'f',
+            HistoryField::Replace => 'r',
+        }
+    }
+
+    /// The action target for `entry` in this field.
+    fn target(self, entry: &str) -> String {
+        format!("{}{entry}", self.marker())
+    }
+
+    /// Read a target back. `None` for anything that does not begin with a known marker,
+    /// which is a target this application did not write.
+    fn split_target(target: &str) -> Option<(Self, &str)> {
+        let mut chars = target.chars();
+        let field = match chars.next()? {
+            'f' => HistoryField::Find,
+            'r' => HistoryField::Replace,
+            _ => return None,
+        };
+        Some((field, chars.as_str()))
+    }
+
+    /// This field's history on `st`, cloned out — never borrowed across a caller that
+    /// then touches GTK (ScrAP-53).
+    fn history(self, st: &Rc<TabState>) -> crate::window::FindHistory {
+        match self {
+            HistoryField::Find => st.find_history.borrow().clone(),
+            HistoryField::Replace => st.replace_history.borrow().clone(),
+        }
+    }
+}
+
+/// Build the drop-down's model from `st`'s own history for `field`.
+///
+/// Rows are labelled by [`crate::window::row_label`] — shortened and single-lined,
+/// because an entry is a string the reader typed — while the action target carries the
+/// entry VERBATIM, so choosing a shortened row still searches for the whole thing.
+fn build_history_menu(st: &Rc<TabState>, field: HistoryField) -> gtk::gio::Menu {
+    let menu = gtk::gio::Menu::new();
+    for entry in field.history(st).entries() {
+        let item = gtk::gio::MenuItem::new(Some(&crate::window::row_label(entry)), None);
+        item.set_action_and_target_value(
+            Some(&format!("win.{PICK_HISTORY}")),
+            Some(&field.target(entry).to_variant()),
+        );
+        menu.append_item(&item);
+    }
+    menu
+}
+
+/// Record the find field's current text as a committed search term.
+///
+/// **Committed, not typed.** The find field searches as you type, so every prefix of
+/// every query is a search that happened; a history fed from `search-changed` is the
+/// reader's last query once per keystroke and pushes everything else off the end. The
+/// commit points are the ones where the reader has said "this one": Enter, Next, Prev,
+/// Replace, Replace All, and choosing an entry from the drop-down itself.
+pub(super) fn record_committed_query(st: &Rc<TabState>) {
+    let text = st.chrome().find_entry.text();
+    st.find_history.borrow_mut().record(text.as_str());
+    sync_history_buttons(st);
+}
+
+/// The replacement-field counterpart, recorded at the two points a replacement is
+/// actually applied.
+pub(super) fn record_committed_replacement(st: &Rc<TabState>) {
+    let text = st.chrome().replace_entry.text();
+    st.replace_history.borrow_mut().record(text.as_str());
+    sync_history_buttons(st);
+}
+
+/// A drop-down with nothing to offer is insensitive. Called wherever a history changes
+/// or a different tab's becomes the active one — a button that opens an empty menu is
+/// worse than one that says it has nothing.
+pub(super) fn sync_history_buttons(st: &Rc<TabState>) {
+    let chrome = st.chrome();
+    chrome
+        .find_history_btn
+        .set_sensitive(!st.find_history.borrow().is_empty());
+    chrome
+        .replace_history_btn
+        .set_sensitive(!st.replace_history.borrow().is_empty());
 }
 
 /// The `win.` action carrying **search in selection**.

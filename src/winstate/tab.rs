@@ -381,6 +381,15 @@ pub(crate) struct TabState {
     /// re-enters and borrows this again is a process abort rather than an error
     /// (ScrAP-53).
     pub(crate) find_scope: RefCell<Option<crate::window::FindScope>>,
+    /// This tab's committed search terms and replacement texts, most recent first.
+    ///
+    /// Per tab and PERSISTED, unlike the live query. The distinction is the one the
+    /// find bar turns on: restoring a search *in force* would put the reader into a
+    /// search they did not just ask for, whereas restoring what they have searched for
+    /// puts nothing in force and simply keeps the terms reachable.
+    pub(crate) find_history: RefCell<crate::window::FindHistory>,
+    /// The replacement-text counterpart of [`find_history`](Self::find_history).
+    pub(crate) replace_history: RefCell<crate::window::FindHistory>,
     /// Back-reference to this tab's window's shared chrome (see module doc).
     /// A `RefCell` (not a plain `Rc`) because Move Tab to
     /// New Window / cross-window drag re-homes a tab under a DIFFERENT window's
@@ -612,6 +621,8 @@ impl TabState {
             // from a `TabInit` would leave those unmoved and the toggles lying.
             find_options: Cell::new(crate::window::FindOptions::default()),
             find_scope: RefCell::new(None),
+            find_history: RefCell::default(),
+            replace_history: RefCell::default(),
             chrome_cell: RefCell::new(chrome),
             // Every tab starts at Preview; a restored session's real view mode is
             // replayed through the actual GAction right after construction (see

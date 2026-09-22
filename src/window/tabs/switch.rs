@@ -268,6 +268,9 @@ fn resync_find_bar_for_tab(window: &ApplicationWindow, st: &Rc<TabState>) {
     // whose handler re-runs the search — and it must re-run it under THIS tab's own
     // options, not the ones the tab being left had ticked.
     findbar::adopt_find_options(window, st);
+    // The drop-downs' MENUS need no resync — they are built when pressed, from whichever
+    // tab is active then — but their sensitivity is a property of this tab's lists.
+    findbar::sync_history_buttons(st);
     let query = st.find_query.borrow().clone();
     chrome.find_entry.set_text(&query);
     chrome.match_count_label.set_visible(!query.is_empty());

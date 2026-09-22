@@ -8,7 +8,7 @@
 //! |---|---|---|
 //! | App-wide | [`Session`] itself | reading theme, animations, split arrangement, toolbar layout |
 //! | Per window | [`ChromeSession`] inside [`WindowSession`] | status bar, sidebars, geometry, zoom |
-//! | Per tab | [`TabSession`] | path, view mode, unsafe images, find match options |
+//! | Per tab | [`TabSession`] | path, view mode, unsafe images, find match options and history |
 //!
 //! A field filed at the wrong scope neither fails to compile nor fails a round
 //! trip — it simply answers the wrong question later, and every such move so far
@@ -63,9 +63,24 @@ pub(crate) struct TabSession {
     /// options are different in kind: they are how the reader reads, not what they are
     /// currently looking for.
     ///
+    /// This tab's committed search terms, most recent first — the head of it is the
+    /// last thing the reader searched for in this tab.
+    ///
+    /// **A history is restored; a SEARCH is not.** The find bar comes back closed with
+    /// nothing in force, because restoring a search the reader did not just ask for is
+    /// a different thing from keeping the terms reachable. Additive and lenient like
+    /// `doc_id`: a malformed list is repaired on load (`FindHistory::sanitised`) rather
+    /// than failing the session, which would cost every window and tab to protect a
+    /// convenience.
+    pub find_history: crate::window::FindHistory,
+    /// The replacement-text counterpart of [`find_history`](Self::find_history).
+    pub replace_history: crate::window::FindHistory,
     /// FIELD ORDER: this is a sub-TABLE, so it must stay LAST — a scalar emitted after
     /// it makes `toml::to_string` fail with `ValueAfterTable` and [`super::save`]
     /// log-and-drop the whole session (see this module's header).
+    ///
+    /// The two histories above serialise as ARRAYS, not tables, so they are scalars for
+    /// this purpose and correctly precede it.
     pub find_options: crate::window::FindOptions,
 }
 
@@ -423,6 +438,8 @@ pub(super) fn sample_session() -> Session {
                         doc_id: None,
                         view_mode: ViewMode::Edit,
                         show_unsafe_images: false,
+                        find_history: crate::window::FindHistory::default(),
+                        replace_history: crate::window::FindHistory::default(),
                         find_options: crate::window::FindOptions::default(),
                     },
                     TabSession {
@@ -430,6 +447,8 @@ pub(super) fn sample_session() -> Session {
                         doc_id: None,
                         view_mode: ViewMode::Split,
                         show_unsafe_images: true,
+                        find_history: crate::window::FindHistory::default(),
+                        replace_history: crate::window::FindHistory::default(),
                         find_options: crate::window::FindOptions {
                             case_sensitive: true,
                             whole_word: false,
