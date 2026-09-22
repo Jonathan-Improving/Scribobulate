@@ -1,14 +1,14 @@
-//! [`AnchoredSpan`] — a source byte range that survives the document changing
-//! underneath it.
+//! [`AnchoredSpan`] — a byte range into a document that survives the document
+//! changing underneath it. The one held reference this application has.
 //!
 //! # Why this exists
 //!
-//! An annotation card is built at one instant and acted on at another. Between
-//! those two instants the document can change: the user types, an undo lands, or
-//! the split-mode live re-render re-scans the source. A plain `Range<usize>`
-//! captured at build time does not survive any of that — and applying a stale one
-//! is not a near-miss, it is *destructive*, because string surgery at the wrong
-//! offsets deletes whatever happens to be there and leaves the markup half-open.
+//! A control is built at one instant and acted on at another. Between those two
+//! instants the document can change: the user types, an undo lands, a save flushes
+//! the editor into the source, or the split-mode live re-render re-scans. A plain
+//! `Range<usize>` captured at build time does not survive any of that — and applying
+//! a stale one is not a near-miss, it is *destructive*, because string surgery at the
+//! wrong offsets deletes whatever happens to be there and leaves the markup half-open.
 //! Out of bounds it is worse still: a raw slice **panics**, and a panic inside a
 //! GTK signal handler aborts the process.
 //!
@@ -19,22 +19,53 @@
 //! # The resolution rule
 //!
 //! 1. If the captured text is still exactly at the captured offset, that is the
-//!    answer — the overwhelmingly common case, and it costs one comparison.
-//! 2. Otherwise, find every occurrence of the captured text and take the one
-//!    **nearest the captured offset**. An edit elsewhere shifts a construct by the
-//!    edit's size, so the nearest occurrence is the one that moved; ties break
-//!    toward the earlier, so the choice is deterministic.
-//! 3. If the text is gone entirely, there is no answer: `None`. The caller must
-//!    treat that as "do nothing", never as "guess".
+//!    answer — the overwhelmingly common case, and it costs one comparison. The fast
+//!    path is not merely an optimisation: it also disambiguates, so several identical
+//!    constructs in an unmoved document each resolve to themselves.
+//! 2. Otherwise the [`Ambiguity`] policy the capture declared decides, and it is the
+//!    ONLY thing that varies between the constructs using this type.
+//! 3. If the text is gone entirely, there is no answer: `None`.
 //!
-//! The nearest-occurrence rule is what keeps the feature *working* rather than
-//! merely safe. Validation alone would reject every post-edit removal, turning a
-//! corruption bug into a "Remove silently does nothing" bug.
+//! # `None` obliges the caller to RE-DERIVE, never to do nothing
 //!
-//! Pure and display-free by construction: it holds a `String` and a `Range`, so
-//! every rule above is exhaustively testable with plain `cargo test`.
+//! This is the contract that makes the type safe to reuse, and it was learnt from the
+//! one construct that got it wrong. A held reference that gives up whenever the
+//! document moved makes the feature useless in exactly the session where it is most
+//! used — and giving up *silently* leaves a live control on screen that does nothing,
+//! with no cause visible where it was caused (a save) or where it was felt (a click).
+//! So a caller that cannot resolve rebuilds the view the reference was minted by; the
+//! reader's next gesture then lands on a control that names the current document. The
+//! cost of the wrong answer is a wasted rebuild, never a dead feature.
+//!
+//! Pure and display-free by construction: it holds a `String`, a `Range` and a
+//! one-byte policy, so every rule above is exhaustively testable with plain
+//! `cargo test`.
 
 use std::ops::Range;
+
+/// What to do when the captured text is no longer at the captured offset — the one
+/// per-construct decision this type takes, because the STRENGTH of an identity varies
+/// by what it identifies.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Ambiguity {
+    /// Take the occurrence **nearest** the captured offset.
+    ///
+    /// Right for an identity a document does not repeat — an annotation carries
+    /// user-authored comment text, so the nearest occurrence is the construct that
+    /// moved. Ties break toward the earlier match, so the choice is deterministic.
+    Nearest,
+    /// Resolve only while the identity names **exactly one** place in the document,
+    /// and refuse otherwise.
+    ///
+    /// Right for an identity a document repeats: a disclosure's identity is its
+    /// opening delimiter (`<details><summary>Example</summary>`), and two identical
+    /// siblings plus an edit above them larger than half their separation resolves
+    /// "nearest" to the WRONG block — the one outcome a fold control promises never
+    /// happens. Proximity cannot disambiguate an identity that is not distinctive, so
+    /// it is not consulted for one; the caller re-derives instead (see the module
+    /// docs).
+    Unique,
+}
 
 /// A byte range captured from a source string at one instant, together with the
 /// text that occupied it, so it can be re-located in a source that has since
@@ -49,6 +80,11 @@ use std::ops::Range;
 pub(crate) struct AnchoredSpan {
     at: Range<usize>,
     text: String,
+    /// See [`Ambiguity`]. Carried by the span rather than passed at resolution so the
+    /// policy is a property of the CONSTRUCT, decided once where the identity is
+    /// known — a resolve-time argument would let two call sites judge one reference
+    /// by two different rules.
+    on_ambiguity: Ambiguity,
 }
 
 impl AnchoredSpan {
@@ -64,32 +100,62 @@ impl AnchoredSpan {
     /// therefore anchors nothing; a construct always has delimiters, so an empty
     /// capture means the caller's range was wrong.
     pub(crate) fn capture(source: &str, at: Range<usize>) -> Option<Self> {
+        Self::capture_with(source, at, Ambiguity::Nearest)
+    }
+
+    /// Capture `at` from `source`, stating what an ambiguous re-resolution means for
+    /// this construct — see [`Ambiguity`], and [`capture`](Self::capture) for the rest.
+    pub(crate) fn capture_with(
+        source: &str,
+        at: Range<usize>,
+        on_ambiguity: Ambiguity,
+    ) -> Option<Self> {
         if at.start >= at.end {
             return None;
         }
         let text = source.get(at.clone())?.to_string();
-        Some(Self { at, text })
+        Some(Self {
+            at,
+            text,
+            on_ambiguity,
+        })
     }
 
     /// Where the captured text lives in `source` **now**, or `None` if it is no
     /// longer present.
     ///
-    /// See the module docs for the rule. Note the fast path is not merely an
+    /// See the module docs for the rule, and [`Ambiguity`] for what a miss on the
+    /// fast path means for this construct. Note the fast path is not merely an
     /// optimisation — it also disambiguates: when a document holds several
-    /// identical annotations and none of them moved, each resolves to its own
+    /// identical constructs and none of them moved, each resolves to its own
     /// offset rather than all collapsing onto the first.
+    ///
+    /// **`None` is an instruction, not a verdict**: re-derive the view this
+    /// reference was minted by. See the module docs.
     pub(crate) fn resolve(&self, source: &str) -> Option<Range<usize>> {
         if source.get(self.at.clone()) == Some(self.text.as_str()) {
             return Some(self.at.clone());
         }
-        // Nearest occurrence to where it used to be. `match_indices` yields
-        // non-overlapping matches in ascending order, so `min_by_key` with a tie
-        // broken toward the earlier match is deterministic.
-        let want = self.at.start as i128;
-        let start = source
-            .match_indices(self.text.as_str())
-            .map(|(i, _)| i)
-            .min_by_key(|&i| (i as i128 - want).abs())?;
+        let mut found = source.match_indices(self.text.as_str()).map(|(i, _)| i);
+        let start = match self.on_ambiguity {
+            // Nearest occurrence to where it used to be. `match_indices` yields
+            // non-overlapping matches in ascending order, so `min_by_key` with a tie
+            // broken toward the earlier match is deterministic.
+            Ambiguity::Nearest => {
+                let want = self.at.start as i128;
+                found.min_by_key(|&i| (i as i128 - want).abs())?
+            }
+            // Exactly one, or none: a second occurrence makes the identity unable to
+            // name a place, and proximity is not consulted for an identity that is
+            // not distinctive.
+            Ambiguity::Unique => {
+                let only = found.next()?;
+                if found.next().is_some() {
+                    return None;
+                }
+                only
+            }
+        };
         Some(start..start + self.text.len())
     }
 
@@ -195,6 +261,55 @@ mod tests {
         // second must still resolve to the second.
         let live = format!("qq{src}");
         assert_eq!(a2.resolve(&live), Some(second + 2..second + 2 + len));
+    }
+
+    /// The ambiguity policy, both arms, on the shape that produced it: two identical
+    /// constructs and an edit above them big enough that proximity picks the wrong one.
+    #[test]
+    fn a_repetitive_identity_refuses_rather_than_choosing_between_two_of_itself() {
+        // `<details><summary>Example</summary>` twice, 40 bytes apart. `Nearest` is
+        // free to answer with either; `Unique` must answer with neither.
+        let id = "<details><summary>Example</summary>";
+        let src = format!("{id}\n\nbody one\n\n{id}\n\nbody two\n");
+        let second = src.rfind(id).unwrap();
+        let at = second..second + id.len();
+
+        let nearest = AnchoredSpan::capture_with(&src, at.clone(), Ambiguity::Nearest).unwrap();
+        let unique = AnchoredSpan::capture_with(&src, at.clone(), Ambiguity::Unique).unwrap();
+
+        // Unmoved: the fast path answers for both, and it answers correctly — which is
+        // why an ambiguous identity is safe as long as nothing moved.
+        assert_eq!(nearest.resolve(&src), Some(at.clone()));
+        assert_eq!(unique.resolve(&src), Some(at.clone()));
+
+        // An edit ABOVE both, longer than half the distance between them: the second
+        // construct's new position is now nearer the FIRST one's old offset.
+        let pad = "x".repeat(at.len() + 30);
+        let live = format!("{pad}\n\n{src}");
+        let moved = live.rfind(id).unwrap();
+        assert_ne!(
+            nearest.resolve(&live),
+            Some(moved..moved + id.len()),
+            "precondition: proximity picks the wrong one of the two, which is the \
+             failure the Unique policy exists to refuse"
+        );
+        assert_eq!(
+            unique.resolve(&live),
+            None,
+            "a repetitive identity names no place once the fast path misses"
+        );
+    }
+
+    #[test]
+    fn a_unique_identity_still_follows_its_construct_across_an_edit() {
+        // The other half: refusing on ambiguity must not degrade into refusing always.
+        let id = "<details><summary>Only one</summary>";
+        let src = format!("lead\n\n{id}\n\nbody\n");
+        let at = src.find(id).unwrap()..src.find(id).unwrap() + id.len();
+        let a = AnchoredSpan::capture_with(&src, at, Ambiguity::Unique).unwrap();
+        let live = format!("a new paragraph above it\n\n{src}");
+        let got = a.resolve(&live).expect("still exactly one occurrence");
+        assert_eq!(&live[got], id);
     }
 
     #[test]

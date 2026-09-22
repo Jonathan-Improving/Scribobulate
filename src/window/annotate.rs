@@ -163,7 +163,7 @@ pub(crate) fn apply_annotation_edit(buf: &gtk::TextBuffer, edit: AnnotationEdit)
             let Some(at) = construct.resolve(&old) else {
                 return;
             };
-            let body = crate::annotate::AnchoredSpan::absolute(&at, &body);
+            let body = crate::docref::AnchoredSpan::absolute(&at, &body);
             match crate::annotate::edit_comment(&old, body, &text) {
                 Some(new) => new,
                 None => return,
@@ -176,17 +176,26 @@ pub(crate) fn apply_annotation_edit(buf: &gtk::TextBuffer, edit: AnnotationEdit)
             let Some(at) = construct.resolve(&old) else {
                 return;
             };
-            let keep = keep_inner.map(|r| crate::annotate::AnchoredSpan::absolute(&at, &r));
+            let keep = keep_inner.map(|r| crate::docref::AnchoredSpan::absolute(&at, &r));
             match crate::annotate::remove_annotation(&old, at, keep) {
                 Some(new) => new,
                 None => return,
             }
         }
-        AnnotationEdit::Create(CreateAnnotation::Highlight { range, comment }) => {
+        AnnotationEdit::Create(CreateAnnotation::Highlight { target, comment }) => {
+            // Re-located in the live source first, exactly as the two mutations above
+            // are: the card was raised against an earlier state of the document and has
+            // been open ever since.
+            let Some(range) = target.resolve(&old) else {
+                return;
+            };
             // Extend/edit an intersecting highlight rather than nesting a new one.
             crate::annotate::insert_or_extend_highlight(&old, range, &comment)
         }
-        AnnotationEdit::Create(CreateAnnotation::Point { at, comment }) => {
+        AnnotationEdit::Create(CreateAnnotation::Point { target, comment }) => {
+            let Some(at) = target.resolve(&old).map(|r| r.end) else {
+                return;
+            };
             // A cross-block point comment anchors at the
             // selection END, which can map INSIDE an existing construct — splicing there
             // silently corrupts it and swallows the comment. Snap the anchor outside any
@@ -310,9 +319,12 @@ mod gtk_integration_tests {
         b.end_irreversible_action();
         b
     }
-    fn highlight(range: std::ops::Range<usize>, comment: &str) -> AnnotationEdit {
+    /// The Create edit a comment card issues: the target anchored to its own text,
+    /// exactly as `preview::annotate::capture_selection` builds it.
+    fn highlight_in(source: &str, range: std::ops::Range<usize>, comment: &str) -> AnnotationEdit {
         AnnotationEdit::Create(CreateAnnotation::Highlight {
-            range,
+            target: crate::docref::AnchoredSpan::capture(source, range)
+                .expect("a valid range over the source"),
             comment: comment.into(),
         })
     }
@@ -369,13 +381,7 @@ mod gtk_integration_tests {
         let buf: gtk::TextBuffer = st.editor_buf.clone().upcast();
         let src = text_of(&buf);
         let g = src.find("gamma").expect("gamma present");
-        apply_annotation_edit(
-            &buf,
-            AnnotationEdit::Create(CreateAnnotation::Highlight {
-                range: g..g + "gamma".len(),
-                comment: "second".into(),
-            }),
-        );
+        apply_annotation_edit(&buf, highlight_in(&src, g..g + "gamma".len(), "second"));
         crate::window::rerender_preview_from_live_edit(&window);
 
         assert_eq!(
@@ -413,7 +419,7 @@ mod gtk_integration_tests {
         // Annotate directly on the editor source buffer (what the preview Annotate
         // flow does) while still in Preview mode.
         let buf: gtk::TextBuffer = st.editor_buf.clone().upcast();
-        apply_annotation_edit(&buf, highlight(0..5, "one"));
+        apply_annotation_edit(&buf, highlight_in(&text_of(&buf), 0..5, "one"));
 
         assert!(
             action_enabled(&window, "undo"),
@@ -437,7 +443,7 @@ mod gtk_integration_tests {
         let base = text_of(&b);
 
         // 1. annotate "alpha" (0..5)
-        apply_annotation_edit(&b, highlight(0..5, "one"));
+        apply_annotation_edit(&b, highlight_in(&text_of(&b), 0..5, "one"));
         let after_a = text_of(&b);
         assert_ne!(after_a, base);
 
@@ -449,7 +455,10 @@ mod gtk_integration_tests {
 
         // 4. annotate "beta" — its offset shifted by the first annotation's markup.
         let beta_start = after_a.find("beta").unwrap();
-        apply_annotation_edit(&b, highlight(beta_start..beta_start + "beta".len(), "two"));
+        apply_annotation_edit(
+            &b,
+            highlight_in(&after_a, beta_start..beta_start + "beta".len(), "two"),
+        );
         let after_b = text_of(&b);
         assert_ne!(after_b, after_a);
 
@@ -473,13 +482,7 @@ mod gtk_integration_tests {
         b.set_text("the earth is flat here");
         b.end_irreversible_action();
 
-        apply_annotation_edit(
-            &b,
-            AnnotationEdit::Create(CreateAnnotation::Highlight {
-                range: 13..17,
-                comment: "citation needed".into(),
-            }),
-        );
+        apply_annotation_edit(&b, highlight_in(&text_of(&b), 13..17, "citation needed"));
         assert_eq!(
             text_of(&b),
             "the earth is {==flat==}{>>citation needed<<} here"
@@ -504,13 +507,7 @@ mod gtk_integration_tests {
     #[gtktest::test]
     fn create_highlight_wraps_the_selected_source_range() {
         let b = buf_with("the earth is flat here");
-        apply_annotation_edit(
-            &b,
-            AnnotationEdit::Create(CreateAnnotation::Highlight {
-                range: 13..17,
-                comment: "citation needed".into(),
-            }),
-        );
+        apply_annotation_edit(&b, highlight_in(&text_of(&b), 13..17, "citation needed"));
         assert_eq!(
             text_of(&b),
             "the earth is {==flat==}{>>citation needed<<} here"
@@ -520,9 +517,9 @@ mod gtk_integration_tests {
     /// Build the pair a card carries: the construct anchored to its own text, and
     /// a sub-range expressed relative to it. Mirrors exactly what
     /// `build_annotation_row` captures, so these tests exercise the real shape.
-    fn anchored(src: &str) -> (crate::annotate::AnchoredSpan, std::ops::Range<usize>) {
+    fn anchored(src: &str) -> (crate::docref::AnchoredSpan, std::ops::Range<usize>) {
         let at = src.find("{==").unwrap()..src.rfind("<<}").unwrap() + 3;
-        let a = crate::annotate::AnchoredSpan::capture(src, at).expect("a valid construct");
+        let a = crate::docref::AnchoredSpan::capture(src, at).expect("a valid construct");
         let inner_start = src.find("{==").unwrap() + 3;
         let inner = inner_start..src.find("==}").unwrap();
         let rel = a
@@ -622,7 +619,7 @@ mod gtk_integration_tests {
         let b = buf_with("alpha {==beta==}{>>note<<} gamma {>>note<<}");
         let cur = text_of(&b);
         let at = cur.find("{==").unwrap()..cur.find("<<}").unwrap() + 3;
-        let construct = crate::annotate::AnchoredSpan::capture(&cur, at).unwrap();
+        let construct = crate::docref::AnchoredSpan::capture(&cur, at).unwrap();
         let body_abs = cur.find("{>>").unwrap() + 3..cur.find("<<}").unwrap();
         let body = construct.relative(body_abs).unwrap();
         b.insert(&mut b.start_iter(), "EDITED ");

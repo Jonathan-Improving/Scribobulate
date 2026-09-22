@@ -42,6 +42,11 @@ use super::rawhtml::{has_attr, RawHtml, RawHtmlElement, RawItem, TagKind};
 mod preview;
 pub(crate) use preview::preview_insert_text;
 
+/// What a block is CALLED, so a control built by one render can find it again in a
+/// document that has since moved — the identity half of the fold key.
+mod identity;
+pub(crate) use identity::opening_delimiter;
+
 /// One disclosure-relevant tag from a raw-HTML fragment, in document order.
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub(crate) enum DetailsTag {

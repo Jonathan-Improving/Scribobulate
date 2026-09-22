@@ -1,6 +1,7 @@
 //! Outline sidebar refresh and heading navigation.
 
 use super::*;
+use crate::outline::expansion::HeadingPath;
 use crate::outline_view::HeadingObject;
 use crate::preview::scrib_render_data;
 use crate::span::OriginalByteOffset;
@@ -32,18 +33,27 @@ pub(crate) fn refresh_outline(window: &ApplicationWindow) {
     // indexes this build uses (TDD 12.24). Empty for a document nobody has folded, which is
     // the fully-open default of TDD 12.17.
     let keep_collapsed = st.outline_collapsed.borrow().collapsed_indexes(&paths);
-    *st.outline_paths.borrow_mut() = paths;
     // Re-select the previously activated heading (if it still exists) so the panel
     // keeps its position across the rebuild; the initial selection is applied
     // inside build_outline_content *before* the navigation handler is connected,
     // so restoring it does not re-fire a scroll.
-    let selected = st.outline_selected.get();
+    //
+    // Resolved from the heading's own PATH into THIS build's index. Holding the index
+    // instead re-selected whatever heading had moved into that position — a wrong row,
+    // silently, with the document's text able to explain nothing.
+    let selected = st
+        .outline_selected
+        .borrow()
+        .as_ref()
+        .and_then(|want| paths.iter().position(|p| p == want));
     let content = build_outline_content(
         &roots,
+        &paths,
         make_outline_activate(window),
         selected,
         &keep_collapsed,
     );
+    *st.outline_paths.borrow_mut() = paths;
     st.chrome().outline_scroller.set_child(Some(&content));
 
     // Keep the scroll-spy correct across expand/collapse. Any expand or collapse —
@@ -112,45 +122,86 @@ fn capture_outline_expansion(window: &ApplicationWindow) {
 /// to the chosen heading. The closure captures only a weak window ref and resolves
 /// the current mode / live widgets at click time, so it stays correct across
 /// content re-renders and view-mode switches.
-fn make_outline_activate(window: &ApplicationWindow) -> Rc<dyn Fn(usize, OriginalByteOffset)> {
+fn make_outline_activate(window: &ApplicationWindow) -> Rc<dyn Fn(HeadingPath, usize)> {
     let win = window.downgrade();
-    Rc::new(move |doc_index, src_offset| {
+    Rc::new(move |path, row_index| {
         let Some(window) = win.upgrade() else { return };
         // The scroll-spy sets the outline selection programmatically (visual-only);
         // its selection changes must never navigate or update the persistent
         // `outline_selected`. Two complementary guards catch every spy-origin
         // `selected-item` emission (GTK4Rs/AP-112): the transient `outline_spy_selecting`
         // bool covers the synchronous notify inside `set_selected`, and
-        // `outline_spy_doc` (the doc the spy currently owns) catches the emissions a
+        // `outline_spy_doc` (the heading the spy currently owns) catches the emissions a
         // `GtkSingleSelection` fires AFTER the bool resets — deferred, and again on
         // each `items-changed` while a node expands/collapses. A genuine user click
         // on a DIFFERENT heading never matches `outline_spy_doc`, so navigation still
-        // works.
+        // works. Both the guard and the row name the heading by its PATH, so the
+        // comparison is an identity test rather than an index test — an index one
+        // suppressed a real activation whenever the row the spy owned and the row the
+        // reader clicked happened to share a position in two different builds.
         let st = state(&window);
         let spy_selecting = st.as_ref().is_some_and(|s| s.outline_spy_selecting.get());
         let spy_owns = st
             .as_ref()
-            .is_some_and(|s| s.outline_spy_doc.get() == Some(doc_index));
+            .is_some_and(|s| s.outline_spy_doc.borrow().as_ref() == Some(&path));
         if spy_selecting || spy_owns {
             return;
         }
         // Remember the activated heading so a later outline rebuild (mode switch,
         // live edit, reload) can re-select it without losing the panel's position.
         if let Some(st) = state(&window) {
-            st.outline_selected.set(Some(doc_index));
+            *st.outline_selected.borrow_mut() = Some(path.clone());
         }
-        navigate_to_heading(&window, doc_index, src_offset);
+        navigate_to_heading(&window, &path, row_index);
     })
 }
+
+/// Where the heading a row names sits in the document **as it stands now** — its
+/// current document-order index, and the source byte offset of its own `#`.
+///
+/// **Re-derived rather than read off the row**, which is the whole of scope item 5: a
+/// row bakes both at build time, and the outline is rebuilt on a 300 ms debounce, so a
+/// reader who types a paragraph and then clicks a heading inside that window is handed
+/// the place that heading occupied before they typed. The parse costs one pass over the
+/// document per navigation GESTURE — the same document the outline itself re-parses on
+/// every keystroke.
+///
+/// `None` when the heading is gone from the document (renamed, deleted, or its title
+/// path broken by an ancestor being renamed): there is nothing to navigate to, and
+/// guessing is what a positional index does.
+fn resolve_heading(
+    window: &ApplicationWindow,
+    st: &Rc<TabState>,
+    path: &HeadingPath,
+) -> Option<(usize, OriginalByteOffset)> {
+    let md = st.shown_source(current_mode(window));
+    let headings = extract_headings(&md);
+    let roots = build_tree(&headings);
+    let doc_index = crate::outline::expansion::paths_in_document_order(&roots)
+        .iter()
+        .position(|p| p == path)?;
+    Some((doc_index, headings.get(doc_index)?.src_offset))
+}
+
 /// Scroll the active pane to a heading. Preview-tethered in preview/split modes
 /// (the user's stated preference); in pure-edit mode — which has no preview — it
 /// moves the editor caret instead, so the panel is useful in every mode.
-fn navigate_to_heading(
-    window: &ApplicationWindow,
-    doc_index: usize,
-    src_offset: OriginalByteOffset,
-) {
+/// `row_index` is the activated row's place in the build that produced it. It is the
+/// index the PREVIEW's own `heading_sites` are in — the outline build and the render
+/// are refreshed by the same tick, so they are the same generation — and it is
+/// deliberately NOT the index the live document would give, which is a different list
+/// during the 300 ms the debounce is out. The editor caret, by contrast, wants the LIVE
+/// offset, which is what `resolve_heading` answers.
+fn navigate_to_heading(window: &ApplicationWindow, path: &HeadingPath, row_index: usize) {
     let Some(st) = state(window) else { return };
+    // Resolved against the live document, never against the row's build-time offsets.
+    let Some((_live_index, src_offset)) = resolve_heading(window, &st, path) else {
+        log::debug!(
+            "outline: the activated heading is no longer in the document; nothing to \
+             navigate to"
+        );
+        return;
+    };
     // Activating an outline row is a navigation to a section of the document
     // already being read, exactly as a TOC link is, so it is history-bearing on
     // the same terms (TDD 23.11). Recorded BEFORE the scroll, because the
@@ -162,12 +213,12 @@ fn navigate_to_heading(
     // position, so recording there would create an entry no traversal could
     // honour.
     if matches!(current_mode(window), ViewMode::Preview | ViewMode::Split) {
-        record_outline_activation(window, &st, doc_index);
+        record_outline_activation(window, &st, path);
     }
     match current_mode(window) {
         ViewMode::Preview => {
             if let Some(sw) = st.split.preview_scroller() {
-                scroll_preview_to_heading_revealing(window, &sw, doc_index);
+                scroll_preview_to_heading_revealing(window, &sw, row_index);
             }
         }
         ViewMode::Split => {
@@ -179,7 +230,7 @@ fn navigate_to_heading(
                 // (the coalesced sync projects preview→editor). Genuine user input
                 // on the editor switches the driver back via mark_driver_on_input.
                 st.scroll.driver.set(ScrollDriver::Preview);
-                scroll_preview_to_heading_revealing(window, &preview_sw, doc_index);
+                scroll_preview_to_heading_revealing(window, &preview_sw, row_index);
             }
         }
         ViewMode::Edit => scroll_editor_to_offset(&st.editor, &st.editor_buf, src_offset),
@@ -219,7 +270,7 @@ fn scroll_preview_to_heading_revealing(
 /// content would warn us. The slug for that index comes from the same render that
 /// produced the row, so the two cannot disagree; a heading the render did not
 /// produce simply records nothing.
-fn record_outline_activation(window: &ApplicationWindow, st: &Rc<TabState>, doc_index: usize) {
+fn record_outline_activation(window: &ApplicationWindow, st: &Rc<TabState>, path: &HeadingPath) {
     let Some(sw) = st.split.preview_scroller() else {
         return;
     };
@@ -229,11 +280,37 @@ fn record_outline_activation(window: &ApplicationWindow, st: &Rc<TabState>, doc_
     else {
         return;
     };
+    let Some(title) = path.last().map(|step| step.title.as_str()) else {
+        return;
+    };
     let slug = crate::preview::scrib_render_data(&view)
-        .and_then(|rd| rd.borrow().heading_sites.get(doc_index)?.slug.clone());
+        .and_then(|rd| slug_for_title(&rd.borrow().heading_sites, title));
     if let Some(slug) = slug {
         crate::window::record_in_document_jump(window, st, crate::winstate::NavSpot::Heading(slug));
     }
+}
+
+/// The anchor slug the CURRENT RENDER gave the heading titled `title`, if it gave it
+/// one at all.
+///
+/// **Found by the title rather than by an index**, which is the whole point: the render
+/// and the outline build are refreshed by the same debounce but are not the same list,
+/// and an index into one applied to the other names a neighbouring heading. That
+/// mistake is the worst kind available here, because it LAUNDERS a stale reference into
+/// a durable record — the Back/Forward entry then resolves perfectly, to the wrong
+/// heading, and nothing later can notice.
+///
+/// The match itself is `links::slug_is_for`, which lives beside the rule that produces
+/// a slug so the two cannot drift; the first site it accepts is this heading's, because
+/// the uniquing suffix is assigned in document order. `None` — a heading the
+/// render did not produce, or one hidden inside a collapsed block — records nothing,
+/// which degrades the entry to "just this document" rather than pointing it somewhere
+/// wrong (TDD 23.14).
+fn slug_for_title(sites: &[crate::outline::HeadingSite], title: &str) -> Option<String> {
+    sites.iter().find_map(|site| {
+        let slug = site.slug.as_deref()?;
+        crate::links::slug_is_for(slug, title).then(|| slug.to_string())
+    })
 }
 
 /// Move the editor caret to the heading at source byte offset `src_offset` and
@@ -683,9 +760,9 @@ fn scroll_spy_set_selection(window: &ApplicationWindow, doc_index: Option<usize>
         None => gtk::INVALID_LIST_POSITION,
     };
 
-    // Record the doc_index the spy now OWNS (the selected row's heading, i.e. the
-    // deepest visible ancestor — which may differ from the input `doc_index` when
-    // the exact heading is collapsed away). `make_outline_activate` suppresses any
+    // Record the HEADING the spy now owns (the selected row's, i.e. the deepest
+    // visible ancestor — which may differ from the input `doc_index` when the exact
+    // heading is collapsed away), by the same durable path an activation carries. `make_outline_activate` suppresses any
     // `selected-item` activation matching this, catching the async / model-mutation
     // re-emissions a `GtkSingleSelection` fires OUTSIDE the transient
     // `outline_spy_selecting` guard (GTK4Rs/AP-112). Set unconditionally — even on the
@@ -697,10 +774,10 @@ fn scroll_spy_set_selection(window: &ApplicationWindow, doc_index: Option<usize>
                 .and_downcast::<gtk::TreeListRow>()
                 .and_then(|row| row.item())
                 .and_downcast::<HeadingObject>()
-                .map(|h| h.doc_index())
+                .map(|h| h.path())
         })
         .flatten();
-    st.outline_spy_doc.set(sel_doc);
+    *st.outline_spy_doc.borrow_mut() = sel_doc;
 
     if sel.selected() == target_pos {
         return; // no change — skip the set_selected + notify round-trip
@@ -966,7 +1043,11 @@ mod collapse_all_tests {
         st.outline_spy_selecting.set(true);
         sel.set_selected(selected_pos);
         st.outline_spy_selecting.set(false);
-        st.outline_spy_doc.set(Some(selected_pos as usize));
+        *st.outline_spy_doc.borrow_mut() = st
+            .outline_paths
+            .borrow()
+            .get(selected_pos as usize)
+            .cloned();
 
         // Park the shared outline scroller at the TOP so the selection is off-screen.
         let vadj = st.chrome().outline_scroller.vadjustment();
@@ -1123,9 +1204,16 @@ mod disclosure_reveal_tests {
         );
         let headings = extract_headings(MD);
         assert_eq!(headings.len(), 3, "A, Hidden, B");
+        let st = state(&window).expect("state");
 
-        // doc_index 1 is the hidden heading — the index the outline row carries.
-        navigate_to_heading(&window, 1, headings[1].src_offset);
+        // The hidden heading, named the way an outline row names one.
+        let path = st
+            .outline_paths
+            .borrow()
+            .get(1)
+            .cloned()
+            .expect("the outline lists the hidden heading");
+        navigate_to_heading(&window, &path, 1);
         crate::testpump::until(
             crate::testpump::Clock::Idle,
             "the disclosure to expand and the heading to appear",

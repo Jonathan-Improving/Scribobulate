@@ -64,6 +64,7 @@ mod copymap;
 mod cssfrag;
 mod decorplan;
 mod docio;
+mod docref;
 mod export;
 mod farscroll;
 mod fold;

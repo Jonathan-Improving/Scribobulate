@@ -31,9 +31,6 @@ use crate::preview::qdata::{scrib_anchor_widgets, scrib_labels, scrib_render_dat
 /// once instead of each half reaching for `TabState` on its own.
 pub(crate) struct SpliceInputs<'a> {
     pub(crate) md: &'a str,
-    /// The source generation the reader's folds were read at — carried onto every
-    /// control this splice wires. See `TabState::fold_epoch`.
-    pub(crate) fold_epoch: u64,
     pub(crate) doc_dir: Option<&'a std::path::Path>,
     pub(crate) zoom: f64,
     pub(crate) allow_unsafe_images: bool,
@@ -145,7 +142,7 @@ pub(crate) fn splice_disclosure(
         Err(refusal) => return SpliceVerdict::from(refusal),
     };
 
-    install_outcome(view, &render_data, outcome, inputs.zoom, inputs.fold_epoch);
+    install_outcome(view, &render_data, outcome, inputs.zoom);
 
     // AFTER the install, so the geometry the restore reads is the geometry of the
     // document the reader is now looking at.
@@ -230,7 +227,6 @@ fn install_outcome(
     render_data: &Rc<RefCell<crate::preview::qdata::RenderData>>,
     outcome: super::SpliceOutcome,
     zoom: f64,
-    fold_epoch: u64,
 ) {
     let super::SpliceOutcome {
         products,
@@ -285,7 +281,6 @@ fn install_outcome(
         render_data,
         region.disclosure_toggles,
         &merged_anchored,
-        fold_epoch,
     );
     // Every surviving control is re-pointed at the state it now shows. The toggle the
     // reader clicked is a SURVIVOR — it sits on the summary line, above the region a
@@ -946,14 +941,12 @@ mod gtk_integration_tests {
         after.toggle(key);
 
         // The pane under test: rendered at the document's own fold state, then SPLICED.
-        let pane =
-            crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default(), 0);
+        let pane = crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default());
         let view = crate::preview::view_of(&pane).expect("the preview tree render() built");
         let verdict = splice_disclosure(
             &view,
             SpliceInputs {
                 md: MD,
-                fold_epoch: 0,
                 doc_dir: None,
                 zoom: 1.0,
                 allow_unsafe_images: false,
@@ -971,14 +964,14 @@ mod gtk_integration_tests {
         // The reference pane: the same document taken to the same fold state by the
         // route the splice is claiming to be indistinguishable from.
         let reference_pane =
-            crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default(), 0);
+            crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default());
         let reference_view =
             crate::preview::view_of(&reference_pane).expect("the preview tree render() built");
         let scroller = reference_view
             .parent()
             .and_then(|p| p.downcast::<gtk::ScrolledWindow>().ok())
             .expect("render() puts the view in a ScrolledWindow");
-        crate::preview::re_render(&scroller, MD, None, 1.0, false, &after, 0);
+        crate::preview::re_render(&scroller, MD, None, 1.0, false, &after);
 
         // **And the maps as BUILT, which is the side that makes this oracle able to
         // fail at all.** Comparing two installed panes measures nothing about the

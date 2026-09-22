@@ -26,20 +26,30 @@ pub(super) fn wire_live_preview(content_box: &gtk::Box, buffer: &sourceview::Buf
         if !current_mode(&window).is_editor_visible() {
             return;
         }
-        // Ignore programmatic buffer replacement (load / external reload) —
-        // those re-render the preview and outline themselves.
         let Some(st) = state(&window) else { return };
+
+        // The edit moved every source byte offset after it, and a `FoldKey` IS an offset
+        // into the text the preview renders from — which in split mode is THIS buffer
+        // (`TabState::previewed_source`). So this must happen HERE, on the keystroke,
+        // not inside the 300 ms debounce below: a fold toggle clicked during that window
+        // reads the fresh editor text against the stale map, which is the same
+        // wrong-block collapse by a shorter route.
+        //
+        // **Above the `loading` guard, deliberately.** A programmatic replacement — an
+        // external reload, a session restore, a swap-file recovery — moves this text as
+        // surely as typing does, and `set_source`'s own clearing does NOT cover it here
+        // (in split mode that field is not the text the keys index, so the flush leaves
+        // the map alone by design). Below the guard, a reloaded document kept the
+        // previous one's fold keys.
+        if st.view_mode.get() == crate::winstate::ViewMode::Split {
+            st.note_source_offsets_moved();
+        }
+
+        // Ignore programmatic buffer replacement (load / external reload) beyond that —
+        // those re-render the preview and outline themselves.
         if st.loading.get() {
             return;
         }
-
-        // The edit moved every source byte offset after it, and a `FoldKey` IS a source
-        // byte offset — so this must happen HERE, on the keystroke, not inside the 300 ms
-        // debounce below. A fold toggle clicked during that window reads the fresh editor
-        // text against the stale map, which is the same wrong-block collapse by a shorter
-        // route. `set_source` is the other caller; this path deliberately does not go
-        // through it (the source and baseline are not touched by a live edit).
-        st.note_source_offsets_moved();
 
         // Cancel any already-pending re-render.
         if let Some(id) = pending.take() {
@@ -156,27 +166,22 @@ mod gtk_integration_tests {
         );
     }
 
-    /// **F-AP-B-105: a click that lands inside the debounce is a STATED no-op.**
+    /// **TDD 2.26n — a control follows the block it names across an edit that moved it.**
     ///
-    /// A `FoldKey` is baked into a toggle widget when it is built. In split mode the
-    /// preview re-renders on a ~300 ms debounce, so a reader can click a control in the
-    /// window between typing and the re-render — and that control's key names the
-    /// PREVIOUS document, while the fold map has already been cleared on the keystroke.
-    /// The click did nothing at all, silently, and `MANUAL-TEST.md` 2.26l asserted that
-    /// it would toggle the block clicked.
+    /// The predecessor of this test asserted the opposite (F-AP-B-105): a control minted
+    /// before a keystroke was REFUSED, because the only thing it carried was an offset
+    /// and a generation stamp, and a bare offset cannot be checked. It now carries the
+    /// block's own opening delimiter, so "moved" and "gone" are different answers.
     ///
-    /// **The loss is not fixed, it is declared.** Making the key survive means
-    /// re-deriving it against the new source, which is the "key per-fold state to
-    /// something that survives arbitrary edits" problem `crate::fold` removes rather
-    /// than solves. What must never happen is a DIFFERENT block toggling, and a stale
-    /// key can land on another block's new start offset — so the stamp refuses rather
-    /// than gambles.
+    /// Mutation-checked (POLICY § Typed GTK seams): drop the `set_reference` call from
+    /// `preview::render::anchor_disclosure_control` and the control resolves nothing,
+    /// re-derives, and toggles no block — this fails on the first assertion.
     #[gtktest::test]
-    fn a_toggle_minted_before_a_keystroke_is_refused_rather_than_applied() {
+    fn a_control_minted_before_a_keystroke_follows_its_block_rather_than_refusing() {
         use crate::fold::FoldState;
 
         let app = gtk::Application::new(
-            Some("com.extollit.scribobulate.integrationtest.foldepoch"),
+            Some("com.extollit.scribobulate.integrationtest.foldfollow"),
             gtk::gio::ApplicationFlags::NON_UNIQUE,
         );
         app.register(gtk::gio::Cancellable::NONE)
@@ -184,21 +189,14 @@ mod gtk_integration_tests {
 
         const DOC: &str =
             "Lead paragraph.\n\n<details>\n<summary>One</summary>\n\nBody one.\n\n</details>\n";
-        let window = crate::window::new_window(&app, "IT-foldepoch", DOC, None);
+        let window = crate::window::new_window(&app, "IT-foldfollow", DOC, None);
         change_action_state(&window, "view-mode", &"split".to_variant());
         let st = state(&window).expect("state registered after new_window");
 
-        let toggle = st
-            .split
-            .preview_scroller()
-            .and_then(|sw| sw.child())
-            .and_then(|c| c.downcast::<crate::codeview::CodePreviewView>().ok())
-            .and_then(|v| crate::preview::scrib_render_data(&v))
-            .map(|rd| rd.borrow().disclosure_lines[0].1.clone())
-            .expect("the render emitted a control");
+        let toggle = control(&st).expect("the render emitted a control");
 
-        // The reader types, above the block. Every offset below has moved and the map
-        // has been cleared on the keystroke (2.26l).
+        // The reader types, ABOVE the block: every offset below it has moved, and the
+        // map has been cleared on the keystroke (2.26l).
         let mut at = st.editor_buf.start_iter();
         st.editor_buf.insert(&mut at, "x");
         assert_eq!(
@@ -210,12 +208,209 @@ mod gtk_integration_tests {
         // ...and only THEN clicks the control the previous render built.
         toggle.set_active(!toggle.is_active());
 
+        let moved_key = crate::renderer::disclosure::scan_document(
+            &st.editor_text(),
+            crate::renderer::frontmatter::Show::AsDisclosure,
+        )[0]
+        .fold_key();
+        let folds = st.folds.borrow();
+        assert!(
+            !folds.is_collapsed(moved_key, false),
+            "the click toggled the block at its NEW offset — the control resolved its \
+             own text rather than refusing, and rather than acting on the offset the \
+             block used to be at"
+        );
+    }
+
+    /// **TDD 2.26n's ambiguity arm — a repeated identity toggles NO block.**
+    ///
+    /// Two disclosures whose opening delimiters are identical, plus an edit above them:
+    /// nothing in the document distinguishes them any more, and proximity is not
+    /// consulted for an identity that is not distinctive (`docref::Ambiguity::Unique`).
+    /// A wrong-block toggle is the one outcome this feature promises never happens, so
+    /// the answer is neither, plus a re-render so the reader's next click lands.
+    ///
+    /// Mutation-checked: capture the reference with `Ambiguity::Nearest` instead and
+    /// one of the two blocks toggles, failing this.
+    #[gtktest::test]
+    fn a_control_whose_identity_the_document_repeats_toggles_neither_block() {
+        use crate::fold::FoldState;
+
+        let app = gtk::Application::new(
+            Some("com.extollit.scribobulate.integrationtest.foldambiguous"),
+            gtk::gio::ApplicationFlags::NON_UNIQUE,
+        );
+        app.register(gtk::gio::Cancellable::NONE)
+            .expect("register (emits startup) before building any window");
+
+        // Identical summaries, far enough apart that an edit larger than half their
+        // separation makes the second one's new position nearer the first one's old
+        // offset — the shape that resolves to the WRONG block under nearest-match.
+        const BLOCK: &str = "<details>\n<summary>Example</summary>\n\nBody.\n\n</details>\n";
+        let doc = format!("Lead.\n\n{BLOCK}\n{BLOCK}");
+        let window = crate::window::new_window(&app, "IT-foldambig", &doc, None);
+        change_action_state(&window, "view-mode", &"split".to_variant());
+        let st = state(&window).expect("state registered after new_window");
+
+        let toggle = control(&st).expect("the render emitted a control");
+
+        let mut at = st.editor_buf.start_iter();
+        st.editor_buf.insert(&mut at, &"pad ".repeat(30));
+        toggle.set_active(!toggle.is_active());
+
         assert_eq!(
             *st.folds.borrow(),
             FoldState::default(),
-            "the stale click changed no fold at all — it was refused, not applied to a \
-             key that names the previous document"
+            "neither block was toggled: an identity the document repeats names no place, \
+             and guessing between the two is the failure the policy exists to refuse"
         );
+    }
+
+    /// **TDD 2.26m / 2.26o — every command that moves the source leaves the controls
+    /// acting.**
+    ///
+    /// The gate this plan was written for, and it is a TABLE rather than six tests on
+    /// purpose: a command added to the application adds a row here, where a new test is
+    /// something nobody writes. Each row drives a real command in split mode after an
+    /// edit and then asks the only question a reader can ask — does the control on
+    /// screen still act?
+    ///
+    /// The defect it holds shut: the disclosure control carried a source offset plus a
+    /// generation stamp, and `save_window`'s flush of editor→source bumped that stamp
+    /// without re-minting a single control. Every disclosure in the pane went dead,
+    /// silently, until the reader typed again — invisible where it was caused and
+    /// invisible where it was felt.
+    ///
+    /// Mutation-checked, and the three mutations land on three different tests, which
+    /// is what says each is pulling its own weight: withholding the control's reference
+    /// (`preview::render::anchor_disclosure_control`) fails every row here; restoring
+    /// the unconditional `note_source_offsets_moved()` in `TabState::set_source` fails
+    /// `a_save_in_split_mode_keeps_every_collapsed_block` and no row here, because a
+    /// control still ACTS against a map that has been emptied; swapping the ambiguity
+    /// policy fails only the repeated-identity test.
+    #[gtktest::test]
+    fn every_command_that_moves_the_source_leaves_the_disclosure_controls_acting() {
+        let app = gtk::Application::new(
+            Some("com.extollit.scribobulate.integrationtest.foldcommands"),
+            gtk::gio::ApplicationFlags::NON_UNIQUE,
+        );
+        app.register(gtk::gio::Cancellable::NONE)
+            .expect("register (emits startup) before building any window");
+
+        type Drive = fn(&gtk::ApplicationWindow, &Rc<TabState>);
+        let commands: &[(&str, Drive)] = &[
+            // Ctrl+S: `save_window`'s flush of the editor's text into the tab's source,
+            // which is the whole of what a successful save does to in-memory state that
+            // a control can see. The write itself is asynchronous and needs a file; it
+            // changes nothing here.
+            ("save", |_, st| st.set_source(&st.editor_text())),
+            // An annotation mutation and a zoom step both take the in-place refresh,
+            // which reinstalls the render's maps while KEEPING the widget tree (2.26o).
+            ("annotation refresh", |w, _| {
+                crate::window::rerender_preview_from_live_edit(w)
+            }),
+            ("zoom in", |w, _| {
+                gtk::prelude::ActionGroupExt::activate_action(w, "zoom-in", None);
+            }),
+            ("view-mode switch out and back", |w, _| {
+                change_action_state(w, "view-mode", &"preview".to_variant());
+                change_action_state(w, "view-mode", &"split".to_variant());
+            }),
+            // A wholesale replacement: the reader's folds are forgotten here by design
+            // (the document IS different), so this row asserts only that the controls
+            // the reload put on screen act.
+            ("external reload", |w, st| {
+                crate::window::apply_external_reload(w, &st.editor_text())
+            }),
+        ];
+
+        for (name, drive) in commands {
+            const DOC: &str =
+                "Lead paragraph.\n\n<details>\n<summary>One</summary>\n\nBody one.\n\n</details>\n";
+            let window = crate::window::new_window(&app, "IT-foldcmd", DOC, None);
+            change_action_state(&window, "view-mode", &"split".to_variant());
+            let st = state(&window).expect("state registered after new_window");
+
+            // The reader types, then the debounce fires (driven directly rather than
+            // waited out — nothing here pumps the main loop).
+            let mut at = st.editor_buf.start_iter();
+            st.editor_buf.insert(&mut at, "x");
+            let text = st.editor_text();
+            rerender_split_preview_driven_by_editor(&window, &text);
+
+            drive(&window, &st);
+
+            // Fetched AFTER the command: a mode switch and a reload both rebuild the
+            // pane, and the control the reader can click is the one on screen now.
+            let toggle = control(&st).unwrap_or_else(|| panic!("{name}: a control"));
+            let before = st.folds.borrow().clone();
+            toggle.set_active(!toggle.is_active());
+            assert_ne!(
+                *st.folds.borrow(),
+                before,
+                "{name}: the control the CURRENT render put on screen must act on the \
+                 click that follows"
+            );
+        }
+    }
+
+    /// **TDD 2.26m's second half — a save keeps the reader's collapsed blocks.**
+    ///
+    /// Separate from the table above because it asserts about state the reader can see
+    /// rather than about a control acting, and because it is the half that fails
+    /// silently: a save that forgets the folds looks like nothing at all until the next
+    /// re-render pops every block open.
+    #[gtktest::test]
+    fn a_save_in_split_mode_keeps_every_collapsed_block() {
+        use crate::fold::FoldState;
+
+        let app = gtk::Application::new(
+            Some("com.extollit.scribobulate.integrationtest.foldsave"),
+            gtk::gio::ApplicationFlags::NON_UNIQUE,
+        );
+        app.register(gtk::gio::Cancellable::NONE)
+            .expect("register (emits startup) before building any window");
+
+        const DOC: &str =
+            "Lead paragraph.\n\n<details open>\n<summary>One</summary>\n\nBody one.\n\n</details>\n";
+        let window = crate::window::new_window(&app, "IT-foldsave", DOC, None);
+        change_action_state(&window, "view-mode", &"split".to_variant());
+        let st = state(&window).expect("state registered after new_window");
+
+        // The reader types, the debounce re-renders, and then they collapse a block.
+        let mut at = st.editor_buf.start_iter();
+        st.editor_buf.insert(&mut at, "x");
+        let text = st.editor_text();
+        rerender_split_preview_driven_by_editor(&window, &text);
+        let toggle = control(&st).expect("the render emitted a control");
+        toggle.set_active(!toggle.is_active());
+        let collapsed = st.folds.borrow().clone();
+        assert_ne!(
+            collapsed,
+            FoldState::default(),
+            "precondition: the reader has a collapsed block to lose"
+        );
+
+        // Ctrl+S. In split mode the editor buffer is what the preview renders from and
+        // what a fold key indexes, so flushing it into `tab.source` moves nothing.
+        st.set_source(&st.editor_text());
+
+        assert_eq!(
+            *st.folds.borrow(),
+            collapsed,
+            "a flush that changed nothing the preview is rendered from kept the \
+             reader's collapsed blocks"
+        );
+    }
+
+    /// The disclosure control the pane is showing, in document order.
+    fn control(st: &Rc<TabState>) -> Option<gtk::ToggleButton> {
+        st.split
+            .preview_scroller()
+            .and_then(|sw| sw.child())
+            .and_then(|c| c.downcast::<crate::codeview::CodePreviewView>().ok())
+            .and_then(|v| crate::preview::scrib_render_data(&v))
+            .and_then(|rd| rd.borrow().disclosure_lines.first().map(|(_, t)| t.clone()))
     }
 
     /// **F-AP-B-101: a VIEW-MODE switch is not an edit, and must not forget the folds.**
@@ -289,7 +484,6 @@ mod gtk_integration_tests {
                 1.0,
                 st.allow_unsafe_images.get(),
                 &st.folds.borrow(),
-                st.fold_epoch(),
             );
         }
         assert!(

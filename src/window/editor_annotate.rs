@@ -2,7 +2,7 @@
 //! comment-entry card, the sibling of the preview's create overlay
 //! (`preview/annotate/overlay.rs`). Unlike the preview, the editor buffer holds the RAW
 //! Markdown source, so there is **no copymap/shift indirection**: a selection's char
-//! offsets convert directly to source byte offsets ([`create_from_editor_selection`]),
+//! offsets convert directly to source byte offsets ([`capture_editor_selection`]),
 //! and the created annotation is written straight into the editor buffer via the shared
 //! [`apply_annotation_edit`](crate::window::apply_annotation_edit) path (which the normal
 //! dirty-tracking + live-preview re-render then pick up for free — decision 3).
@@ -19,11 +19,11 @@
 //! `preview/annotate.rs` helpers it reuses.
 
 use crate::codeview::AnnotationEdit;
-use crate::preview::annotate::{create_from_editor_selection, position_card};
+use crate::preview::annotate::{capture_editor_selection, position_card, PendingTarget};
 use crate::widgets::comment_entry::CommentEntry;
 use gtk::glib;
 use gtk::prelude::*;
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 /// Build the editor Annotate card as an in-surface child of `overlay` (which wraps the
@@ -50,10 +50,12 @@ pub(crate) fn wire_editor_annotate_card(
     bar.set_valign(gtk::Align::Start);
     bar.set_visible(false);
 
-    // True while the card is showing; `pending` holds the selection offsets captured when
-    // it was raised, so the commit reads the right span even if the caret later moves.
+    // True while the card is showing; `pending` holds the selection captured when it was
+    // raised — already crossed into SOURCE space and carrying its own text — so the
+    // commit writes where the reader pointed even if the caret has moved, an undo has
+    // landed, or a Replace All has run while they were typing the comment.
     let entry_open = Rc::new(Cell::new(false));
-    let pending: Rc<Cell<(i32, i32)>> = Rc::new(Cell::new((0, 0)));
+    let pending: Rc<RefCell<Option<PendingTarget>>> = Rc::new(RefCell::new(None));
 
     let hide: Rc<dyn Fn()> = Rc::new({
         let bar = bar.clone();
@@ -83,9 +85,10 @@ pub(crate) fn wire_editor_annotate_card(
                 return;
             };
             let buf = editor.buffer();
-            let source = crate::saferizer::BufferText::of(&buf).into_string();
-            let (sa, sb) = pending.get();
-            let create = create_from_editor_selection(&source, sa, sb, text);
+            let create = pending
+                .borrow_mut()
+                .take()
+                .and_then(|target| target.with_comment(text));
             hide();
             if let Some(create) = create {
                 glib::idle_add_local_once(move || {
@@ -124,7 +127,9 @@ pub(crate) fn wire_editor_annotate_card(
             let Some((a, b)) = editor.buffer().selection_bounds() else {
                 return;
             };
-            pending.set((a.offset(), b.offset()));
+            let buf = editor.buffer();
+            let source = crate::saferizer::BufferText::of(&buf).into_string();
+            *pending.borrow_mut() = capture_editor_selection(&source, a.offset(), b.offset());
             // Pre-populate with the comments this annotation is about to MERGE, so a
             // destructive merge is visible and user-controlled instead of silent
             // (the preview-side sibling of this card does the same). `insert_or_extend_highlight`
@@ -133,24 +138,18 @@ pub(crate) fn wire_editor_annotate_card(
             // Handing it only the newly typed text destroys the reviewer's earlier remarks
             // with no prompt and no trace.
             //
-            // `editor_selection_target` is the SAME resolution the commit runs, and
+            // The CAPTURED target is the same reference the commit acts on, and
             // `merged_comment_for` shares `intersecting_highlights` with the mutation that
             // does the merging — so the card and the mutation cannot disagree about what
             // will be merged. A second predicate here would be free to drift.
-            let buf = editor.buffer();
-            let source = crate::saferizer::BufferText::of(&buf).into_string();
-            let existing = match crate::preview::annotate::editor_selection_target(
-                &source,
-                a.offset(),
-                b.offset(),
-            ) {
-                // A point comment inserts a NEW construct rather than replacing any, so it
-                // merges nothing and destroys nothing.
-                Some(crate::preview::annotate::SelectionTarget::Highlight(range)) => {
-                    crate::annotate::merged_comment_for(&source, range).unwrap_or_default()
-                }
-                _ => String::new(),
-            };
+            let existing = pending
+                .borrow()
+                .as_ref()
+                .filter(|target| !target.is_point())
+                .and_then(|target| {
+                    crate::annotate::merged_comment_for(&source, target.resolve(&source)?)
+                })
+                .unwrap_or_default();
             entry.set_text(&existing);
             entry_open.set(true);
             // Show BEFORE positioning — `position_card` measures the card, and a hidden

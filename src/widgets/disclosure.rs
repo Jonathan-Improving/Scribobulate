@@ -55,6 +55,33 @@ const ICON_EXPANDED: &str = "pan-down-symbolic";
 /// nothing.
 pub(crate) const CSS_CLASS: &str = "scrib-disclosure";
 
+/// The place in the document this control names — the block's opening delimiter,
+/// captured from the cleaned source the render walked.
+///
+/// **On the widget rather than in a per-render list**, for the property a list cannot
+/// have: a fold splice keeps most controls and rebuilds a few, and a survivor carries
+/// its own reference with it because the reference lives on the object that survived.
+/// A parallel vector would have to be merged in document order at every route that
+/// changes the widget tree, and a merge that is wrong by one names the neighbouring
+/// block — silently, and only for the reader who then clicks.
+const REFERENCE: crate::saferizer::qdata_key::QdataKey<crate::docref::AnchoredSpan> =
+    crate::saferizer::qdata_key::QdataKey::new("scrib-disclosure-ref");
+
+/// Give `toggle` the place it names, replacing any reference it already held.
+///
+/// Called where a render mints a control, and again by every route that reinstalls a
+/// render's maps while keeping the widget tree (TDD 2.26o) — the widget tree and the
+/// maps are two halves of one render, and a route that refreshes one and not the other
+/// leaves a live control addressing a document that no longer exists.
+pub(crate) fn set_reference(toggle: &gtk::ToggleButton, span: crate::docref::AnchoredSpan) {
+    REFERENCE.set(toggle, span);
+}
+
+/// The place `toggle` names, or `None` if it was built without one.
+pub(crate) fn reference(toggle: &gtk::ToggleButton) -> Option<crate::docref::AnchoredSpan> {
+    REFERENCE.get(toggle)
+}
+
 /// Build a disclosure toggle showing `expanded`'s state, named for `summary`.
 ///
 /// The caller owns what activation MEANS (the fold state and the re-render it drives);

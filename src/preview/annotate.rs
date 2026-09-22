@@ -18,33 +18,116 @@ use crate::span::CleanedByteOffset;
 mod overlay;
 pub(crate) use overlay::{position_card, wire_annotation_overlay};
 
-/// Turn a preview selection `[buf_a, buf_b)` + comment into the annotation to create.
+/// Capture a preview selection `[buf_a, buf_b)` as a target the comment card can act
+/// on **later** — the moment the reader clicks Annotate, not the moment they press Save.
+///
+/// # Why the crossing into source space happens HERE
+///
+/// The card stays open across an unbounded number of main-loop turns: the reader is
+/// typing a comment, and meanwhile a fold toggle, an external reload or a theme
+/// re-render can rebuild the preview's offset maps wholesale (Document-Reference CAM
+/// row 8). Holding the two BUFFER offsets and mapping them at Save resolved them against
+/// a `copymap` describing a different render — the longest-held reference in the
+/// application, resolved against the most replaceable map in it, and the failure WRITES
+/// into the document rather than mis-positioning a view.
+///
+/// A preview selection already carries everything needed to cross into source space at
+/// the moment it is made, so the crossing is simply moved earlier. What comes back is a
+/// [`PendingTarget`]: the construct's own text, re-findable in a document that has
+/// changed (ScrAP-187's mechanism, applied to the CREATE path).
+///
 /// The wrap span comes from the render's **copymap** ([`crate::copymap::wrap_span`]),
 /// which returns the OUTER, balanced source range — any inline construct the selection
 /// touches (emphasis/strong/link/code) is included WHOLE, so the `{==…==}` delimiters can
-/// never split a `**`/`` ` ``/`[]()` (the inline-construct-split bug). The cleaned span is
-/// translated to original-source bytes via the shift table; a span crossing a block
-/// boundary (blank line) falls back to a point comment at the selection END.
-/// Returns `None` for an empty selection/comment or an
-/// unmappable selection.
-pub(crate) fn create_from_selection(
+/// never split a `**`/`` ` ``/`[]()` (the inline-construct-split bug).
+///
+/// `None` for an empty or unmappable selection.
+pub(crate) fn capture_selection(
     copymap: &crate::copymap::CopyTree,
     shifts: &[(usize, usize)],
     cleaned: &str,
+    original: &str,
     buf_a: i32,
     buf_b: i32,
-    comment: &str,
-) -> Option<CreateAnnotation> {
-    let comment = comment.trim().to_string();
-    if comment.is_empty() {
-        return None;
-    }
-    Some(
-        match selection_target(copymap, shifts, cleaned, buf_a, buf_b)? {
-            SelectionTarget::Point(at) => CreateAnnotation::Point { at, comment },
-            SelectionTarget::Highlight(range) => CreateAnnotation::Highlight { range, comment },
-        },
+) -> Option<PendingTarget> {
+    PendingTarget::capture(
+        original,
+        selection_target(copymap, shifts, cleaned, buf_a, buf_b)?,
     )
+}
+
+/// The editor-side sibling of [`capture_selection`]: the editor buffer holds the raw
+/// Markdown verbatim, so there is no copymap indirection — only char→byte and the same
+/// balancing.
+pub(crate) fn capture_editor_selection(
+    source: &str,
+    char_a: i32,
+    char_b: i32,
+) -> Option<PendingTarget> {
+    PendingTarget::capture(source, editor_selection_target(source, char_a, char_b)?)
+}
+
+/// A selection the reader has aimed the comment card at, held in SOURCE space and
+/// re-resolvable against a document that has moved since.
+///
+/// The card's Save resolves it once, at the one choke point the mutation is applied
+/// (`window::annotate::apply_annotation_edit`), so the annotation lands on the text the
+/// reader selected or on nothing at all — never on a different range.
+#[derive(Clone, Debug)]
+pub(crate) struct PendingTarget {
+    span: crate::docref::AnchoredSpan,
+    /// A selection crossing a block boundary becomes a point comment at the span's END
+    /// rather than a highlight over it.
+    point: bool,
+}
+
+impl PendingTarget {
+    fn capture(source: &str, target: SelectionTarget) -> Option<Self> {
+        let (span, point) = match target {
+            SelectionTarget::Highlight(range) => (range, false),
+            SelectionTarget::Point(range) => (range, true),
+        };
+        Some(Self {
+            // `Nearest`, the default: an annotation target is prose the reader chose,
+            // and the nearest occurrence to where it was is the text that moved. Compare
+            // a disclosure's opening delimiter, which a document repeats (`docref`).
+            span: crate::docref::AnchoredSpan::capture(source, span)?,
+            point,
+        })
+    }
+
+    /// Where this target lives in `source` now, or `None` if its text is gone.
+    ///
+    /// Used by the card to show the comments a commit would MERGE, so the preview of
+    /// the merge and the merge itself resolve the same reference the same way.
+    pub(crate) fn resolve(&self, source: &str) -> Option<std::ops::Range<usize>> {
+        self.span.resolve(source)
+    }
+
+    /// True when this target merges nothing: a point comment inserts a new construct
+    /// rather than replacing any.
+    pub(crate) fn is_point(&self) -> bool {
+        self.point
+    }
+
+    /// Pair the target with the comment the reader typed. `None` for an empty comment.
+    pub(crate) fn with_comment(self, comment: &str) -> Option<CreateAnnotation> {
+        let comment = comment.trim().to_string();
+        if comment.is_empty() {
+            return None;
+        }
+        Some(if self.point {
+            CreateAnnotation::Point {
+                target: self.span,
+                comment,
+            }
+        } else {
+            CreateAnnotation::Highlight {
+                target: self.span,
+                comment,
+            }
+        })
+    }
 }
 
 /// Where in the ORIGINAL source a preview selection lands, independent of any comment.
@@ -52,9 +135,11 @@ pub(crate) fn create_from_selection(
 pub(crate) enum SelectionTarget {
     /// An intra-block selection, wrapped as a highlight over this source byte range.
     Highlight(std::ops::Range<usize>),
-    /// A selection crossing a block boundary — a point comment at this source byte
-    /// offset instead (the cross-block fallback).
-    Point(usize),
+    /// A selection crossing a block boundary — a point comment at this range's END
+    /// instead (the cross-block fallback). The whole range is carried rather than the
+    /// end alone because it is the range that has an IDENTITY: an offset cannot be
+    /// re-found in a document that moved, and the text at the selection can.
+    Point(std::ops::Range<usize>),
 }
 
 /// Resolve a preview buffer selection to its target in the ORIGINAL source.
@@ -96,7 +181,9 @@ pub(crate) fn selection_target(
         .is_some_and(|s| s.contains("\n\n"))
     {
         Some(SelectionTarget::Point(
-            crate::annotate::cleaned_to_original(shifts, CleanedByteOffset::new(span.end)).raw(),
+            crate::annotate::cleaned_to_original(shifts, CleanedByteOffset::new(span.start)).raw()
+                ..crate::annotate::cleaned_to_original(shifts, CleanedByteOffset::new(span.end))
+                    .raw(),
         ))
     } else {
         Some(SelectionTarget::Highlight(
@@ -105,32 +192,6 @@ pub(crate) fn selection_target(
                     .raw(),
         ))
     }
-}
-
-/// Turn an EDITOR selection into the annotation to create. The editor buffer holds
-/// the RAW Markdown source verbatim, so — unlike the preview's [`create_from_selection`]
-/// — there is NO copymap/shift indirection: the selection's character offsets convert
-/// directly to source BYTE offsets (mind the char→byte gap on non-ASCII text). The raw
-/// span is then balanced by [`crate::copymap::balance_source_span`] — the editor-side
-/// sibling of the preview's `wrap_span` — so an annotation can never split an inline
-/// construct. A selection crossing a block boundary (a blank line)
-/// falls back to a point comment at the selection END; an
-/// intra-block selection wraps as a highlight.
-/// Returns `None` for an empty/degenerate selection or an empty comment.
-pub(crate) fn create_from_editor_selection(
-    source: &str,
-    char_a: i32,
-    char_b: i32,
-    comment: &str,
-) -> Option<CreateAnnotation> {
-    let comment = comment.trim().to_string();
-    if comment.is_empty() {
-        return None;
-    }
-    Some(match editor_selection_target(source, char_a, char_b)? {
-        SelectionTarget::Point(at) => CreateAnnotation::Point { at, comment },
-        SelectionTarget::Highlight(range) => CreateAnnotation::Highlight { range, comment },
-    })
 }
 
 /// Resolve an EDITOR selection to its target in the original source, independent of any
@@ -173,7 +234,7 @@ pub(crate) fn editor_selection_target(
     // `balance_source_span` returns byte arithmetic over the source, not a
     // proven char boundary.
     if source.get(span.clone()).is_some_and(|s| s.contains("\n\n")) {
-        Some(SelectionTarget::Point(span.end))
+        Some(SelectionTarget::Point(span))
     } else {
         Some(SelectionTarget::Highlight(span))
     }
@@ -292,25 +353,52 @@ mod tests {
         (build(&md, &evs, 18, &scripts), md)
     }
 
+    /// The source range an editor selection commits a highlight over — the shape most
+    /// of the balancing cases below assert on, now that a create carries a re-resolvable
+    /// reference rather than a range.
+    fn editor_highlight(src: &str, a: i32, b: i32) -> Option<std::ops::Range<usize>> {
+        match capture_editor_selection(src, a, b)?.with_comment("note")? {
+            CreateAnnotation::Highlight { target, .. } => target.resolve(src),
+            CreateAnnotation::Point { .. } => None,
+        }
+    }
+
     #[test]
     fn selection_within_a_block_becomes_a_highlight() {
         let cleaned = "the earth is flat";
         let tree = plain_tree(cleaned);
-        match create_from_selection(&tree, &[(0, 0)], cleaned, 13, 17, "citation needed") {
-            Some(CreateAnnotation::Highlight { range, comment }) => {
-                assert_eq!(range, 13..17);
-                assert_eq!(&cleaned[range], "flat");
+        let target = capture_selection(&tree, &[(0, 0)], cleaned, cleaned, 13, 17)
+            .expect("an intra-block selection captures");
+        assert_eq!(target.resolve(cleaned), Some(13..17));
+        match target.with_comment("citation needed") {
+            Some(CreateAnnotation::Highlight { target, comment }) => {
+                assert_eq!(&cleaned[target.resolve(cleaned).unwrap()], "flat");
                 assert_eq!(comment, "citation needed");
             }
             other => panic!("expected a highlight, got {other:?}"),
         }
     }
 
+    /// The whole point of capturing early: the card is open while the document moves.
+    #[test]
+    fn a_captured_target_follows_its_text_through_an_edit_above_it() {
+        let cleaned = "the earth is flat";
+        let tree = plain_tree(cleaned);
+        let target = capture_selection(&tree, &[(0, 0)], cleaned, cleaned, 13, 17).unwrap();
+        let live = format!("PREPENDED {cleaned}");
+        let at = target.resolve(&live).expect("the claim is still there");
+        assert_eq!(&live[at], "flat");
+        // ...and a claim that is GONE resolves to nothing, which the mutation makes a
+        // clean no-op rather than a splice at coordinates naming something else.
+        assert_eq!(target.resolve("the earth is round"), None);
+    }
+
     #[test]
     fn empty_comment_is_rejected() {
         let cleaned = "the earth is flat";
         let tree = plain_tree(cleaned);
-        assert!(create_from_selection(&tree, &[(0, 0)], cleaned, 13, 17, "   ").is_none());
+        let target = capture_selection(&tree, &[(0, 0)], cleaned, cleaned, 13, 17).unwrap();
+        assert!(target.with_comment("   ").is_none());
     }
 
     #[test]
@@ -320,10 +408,9 @@ mod tests {
         let cleaned = "x flat";
         let tree = plain_tree(cleaned);
         let shifts = [(0usize, 0usize), (2usize, 5usize)];
-        match create_from_selection(&tree, &shifts, cleaned, 2, 6, "why") {
-            Some(CreateAnnotation::Highlight { range, .. }) => assert_eq!(range, 5..9),
-            other => panic!("expected a highlight, got {other:?}"),
-        }
+        let original = "x {==flat==}";
+        let target = capture_selection(&tree, &shifts, cleaned, original, 2, 6).unwrap();
+        assert_eq!(target.resolve(original), Some(5..9));
     }
 
     #[test]
@@ -359,10 +446,12 @@ mod tests {
     #[test]
     fn editor_selection_within_a_block_becomes_a_byte_range_highlight() {
         let src = "the earth is flat here";
-        match create_from_editor_selection(src, 13, 17, "citation needed") {
-            Some(CreateAnnotation::Highlight { range, comment }) => {
-                assert_eq!(range, 13..17);
-                assert_eq!(&src[range], "flat");
+        let target = capture_editor_selection(src, 13, 17).expect("captures");
+        assert!(!target.is_point());
+        match target.with_comment("citation needed") {
+            Some(CreateAnnotation::Highlight { target, comment }) => {
+                assert_eq!(target.resolve(src), Some(13..17));
+                assert_eq!(&src[target.resolve(src).unwrap()], "flat");
                 assert_eq!(comment, "citation needed");
             }
             other => panic!("expected a highlight, got {other:?}"),
@@ -374,22 +463,27 @@ mod tests {
         // "café " is 5 chars but 6 bytes (é = 2 bytes); a selection of "flat" (chars
         // 5..9) must map to BYTES 6..10, not 5..9.
         let src = "café flat";
-        match create_from_editor_selection(src, 5, 9, "why") {
-            Some(CreateAnnotation::Highlight { range, .. }) => {
-                assert_eq!(range, 6..10);
-                assert_eq!(&src[range], "flat");
-            }
-            other => panic!("expected a highlight, got {other:?}"),
-        }
+        let target = capture_editor_selection(src, 5, 9).expect("captures");
+        assert_eq!(target.resolve(src), Some(6..10));
+        assert_eq!(&src[target.resolve(src).unwrap()], "flat");
     }
 
     #[test]
     fn editor_selection_crossing_a_blank_line_becomes_a_point_comment_at_the_end() {
         let src = "para one\n\npara two";
         // chars 5..15 span the blank-line separator.
-        match create_from_editor_selection(src, 5, 15, "spans blocks") {
-            Some(CreateAnnotation::Point { at, comment }) => {
-                assert_eq!(at, 15, "point comment anchors at the selection end (byte)");
+        let target = capture_editor_selection(src, 5, 15).expect("captures");
+        assert!(
+            target.is_point(),
+            "a cross-block selection is a point comment"
+        );
+        match target.with_comment("spans blocks") {
+            Some(CreateAnnotation::Point { target, comment }) => {
+                assert_eq!(
+                    target.resolve(src).map(|r| r.end),
+                    Some(15),
+                    "point comment anchors at the selection end (byte)"
+                );
                 assert_eq!(comment, "spans blocks");
             }
             other => panic!("expected a point comment, got {other:?}"),
@@ -437,12 +531,17 @@ mod tests {
         assert_eq!(shown, "note A | note B");
 
         // …is committed back verbatim, exactly as a user who typed nothing would.
-        let create = create_from_editor_selection(src, a, b, &shown)
+        let create = capture_editor_selection(src, a, b)
+            .and_then(|t| t.with_comment(&shown))
             .expect("the pre-populated comment must commit");
-        let CreateAnnotation::Highlight { range, comment } = create else {
+        let CreateAnnotation::Highlight { target, comment } = create else {
             panic!("expected a highlight create");
         };
-        let out = crate::annotate::insert_or_extend_highlight(src, range, &comment);
+        let out = crate::annotate::insert_or_extend_highlight(
+            src,
+            target.resolve(src).expect("the claim is still there"),
+            &comment,
+        );
 
         assert!(
             out.contains("note A") && out.contains("note B"),
@@ -483,10 +582,11 @@ mod tests {
                 Some(SelectionTarget::Highlight(r)) => Some(r),
                 _ => None,
             };
-            let via_commit = match create_from_editor_selection(src, a, b, "x") {
-                Some(CreateAnnotation::Highlight { range, .. }) => Some(range),
-                _ => None,
-            };
+            let via_commit =
+                match capture_editor_selection(src, a, b).and_then(|t| t.with_comment("x")) {
+                    Some(CreateAnnotation::Highlight { target, .. }) => target.resolve(src),
+                    _ => None,
+                };
             assert_eq!(
                 via_target, via_commit,
                 "card and commit must agree on the source range for {src:?} [{a}..{b}]"
@@ -497,10 +597,12 @@ mod tests {
     #[test]
     fn editor_selection_rejects_empty_comment_and_degenerate_range() {
         let src = "the earth is flat";
-        assert!(create_from_editor_selection(src, 13, 17, "   ").is_none());
-        assert!(create_from_editor_selection(src, 13, 13, "x").is_none());
+        let commit =
+            |a, b, c: &str| capture_editor_selection(src, a, b).and_then(|t| t.with_comment(c));
+        assert!(commit(13, 17, "   ").is_none());
+        assert!(commit(13, 13, "x").is_none());
         // Reversed offsets are normalised, not rejected.
-        assert!(create_from_editor_selection(src, 17, 13, "x").is_some());
+        assert!(commit(17, 13, "x").is_some());
     }
 
     // ── an editor annotation must not split an inline construct ──
@@ -511,8 +613,8 @@ mod tests {
         // produce `**{==bol==}{>>note<<}d**`, splitting the emphasis run.
         let src = "a **bold** b";
         // chars 4..7 = "bol", strictly inside the `**` delimiters.
-        match create_from_editor_selection(src, 4, 7, "note") {
-            Some(CreateAnnotation::Highlight { range, .. }) => {
+        match editor_highlight(src, 4, 7) {
+            Some(range) => {
                 assert_eq!(&src[range.clone()], "**bold**");
                 assert_eq!(range, 2..10);
             }
@@ -524,8 +626,8 @@ mod tests {
     fn ww_editor_selection_of_plain_text_stays_char_precise() {
         // The balancer must not over-reach: prose touching no construct is untouched.
         let src = "the earth is flat here";
-        match create_from_editor_selection(src, 13, 17, "cite") {
-            Some(CreateAnnotation::Highlight { range, .. }) => {
+        match editor_highlight(src, 13, 17) {
+            Some(range) => {
                 assert_eq!(range, 13..17);
                 assert_eq!(&src[range], "flat");
             }
@@ -537,8 +639,8 @@ mod tests {
     fn ww_editor_selection_exactly_covering_a_construct_is_not_widened() {
         let src = "a **bold** b";
         // chars 2..10 = exactly `**bold**` — already balanced, must not grow.
-        match create_from_editor_selection(src, 2, 10, "note") {
-            Some(CreateAnnotation::Highlight { range, .. }) => assert_eq!(range, 2..10),
+        match editor_highlight(src, 2, 10) {
+            Some(range) => assert_eq!(range, 2..10),
             other => panic!("expected a highlight, got {other:?}"),
         }
     }
@@ -548,8 +650,8 @@ mod tests {
         // A code span is atomic — splitting its backticks breaks the construct.
         let src = "run `cargo test` now";
         // chars 5..11 = "cargo " — starts inside the code span's content.
-        match create_from_editor_selection(src, 5, 11, "which?") {
-            Some(CreateAnnotation::Highlight { range, .. }) => {
+        match editor_highlight(src, 5, 11) {
+            Some(range) => {
                 assert!(
                     src[range.clone()].starts_with('`') && src[range.clone()].ends_with('`'),
                     "code span must be swallowed whole, got {:?}",
@@ -565,8 +667,8 @@ mod tests {
         // Splitting `[]()` would leave a dangling destination.
         let src = "see [the docs](https://example.com) ok";
         // chars 6..12 = "he doc" — inside the link TEXT only.
-        match create_from_editor_selection(src, 6, 12, "stale?") {
-            Some(CreateAnnotation::Highlight { range, .. }) => {
+        match editor_highlight(src, 6, 12) {
+            Some(range) => {
                 assert_eq!(&src[range], "[the docs](https://example.com)");
             }
             other => panic!("expected a highlight, got {other:?}"),
@@ -579,8 +681,8 @@ mod tests {
         // strong, which a single non-iterating pass would miss.
         let src = "x **a [link](u) b** y";
         // chars 8..11 = "ink" — deep inside the nested link.
-        match create_from_editor_selection(src, 8, 11, "note") {
-            Some(CreateAnnotation::Highlight { range, .. }) => {
+        match editor_highlight(src, 8, 11) {
+            Some(range) => {
                 assert_eq!(&src[range], "**a [link](u) b**");
             }
             other => panic!("expected a highlight, got {other:?}"),
@@ -601,8 +703,8 @@ mod tests {
             ("a ~sub~ b", "u", "~sub~"),
         ] {
             let s = src.find(sub).unwrap();
-            match create_from_editor_selection(src, s as i32, (s + sub.len()) as i32, "note") {
-                Some(CreateAnnotation::Highlight { range, .. }) => {
+            match editor_highlight(src, s as i32, (s + sub.len()) as i32) {
+                Some(range) => {
                     assert_eq!(&src[range], want, "balanced span for {src:?}")
                 }
                 other => panic!("expected a balanced highlight for {src:?}, got {other:?}"),
@@ -620,8 +722,8 @@ mod tests {
         let src = "a ==mark== and **bold** b";
         let from = src.find("ark").unwrap(); // inside the highlight content
         let to = src.find("ld*").unwrap(); // inside the strong content
-        match create_from_editor_selection(src, from as i32, to as i32, "note") {
-            Some(CreateAnnotation::Highlight { range, .. }) => {
+        match editor_highlight(src, from as i32, to as i32) {
+            Some(range) => {
                 assert_eq!(&src[range], "==mark== and **bold**")
             }
             other => panic!("expected a balanced highlight, got {other:?}"),
@@ -635,8 +737,8 @@ mod tests {
         // touching one stays char-precise (over-reach would swallow unrelated prose).
         for (src, sub) in [("a == b", "="), ("2^10 ok", "^1"), ("a ~ b", "~")] {
             let s = src.find(sub).unwrap();
-            match create_from_editor_selection(src, s as i32, (s + sub.len()) as i32, "note") {
-                Some(CreateAnnotation::Highlight { range, .. }) => {
+            match editor_highlight(src, s as i32, (s + sub.len()) as i32) {
+                Some(range) => {
                     assert_eq!(range, s..s + sub.len(), "must not widen in {src:?}")
                 }
                 other => panic!("expected a highlight for {src:?}, got {other:?}"),
@@ -649,10 +751,12 @@ mod tests {
         // The block-crossing test must run on the BALANCED span, not the raw one:
         // if balancing widened the span across a blank line, wrapping is invalid.
         let src = "para one\n\npara two";
-        match create_from_editor_selection(src, 5, 15, "spans blocks") {
-            Some(CreateAnnotation::Point { at, .. }) => assert_eq!(at, 15),
-            other => panic!("expected a point comment, got {other:?}"),
-        }
+        let target = capture_editor_selection(src, 5, 15).expect("captures");
+        assert!(
+            target.is_point(),
+            "a span crossing a blank line is a point comment"
+        );
+        assert_eq!(target.resolve(src).map(|r| r.end), Some(15));
     }
 
     /// A two-paragraph copymap over CLEANED text whose second paragraph carries an
@@ -723,10 +827,12 @@ mod tests {
         // existing highlight).
         let a = 5;
         let b = cleaned.find("flat").unwrap() as i32 + 2;
-        let Some(SelectionTarget::Point(at)) = selection_target(&tree, &shifts, &cleaned, a, b)
+        let Some(SelectionTarget::Point(span)) = selection_target(&tree, &shifts, &cleaned, a, b)
         else {
             panic!("a cross-block selection must resolve to a Point");
         };
+        // The point comment anchors at the selection's END.
+        let at = span.end;
         // UNGUARDED, the anchor lands strictly inside the existing construct — this is
         // the corruption mechanism (candidate (b)), pinned so a regression is caught.
         let hl = &crate::annotate::extract(&original).annotations[0];
@@ -765,20 +871,27 @@ mod tests {
     #[test]
     fn cross_block_selection_becomes_a_point_comment_at_the_end() {
         let (tree, cleaned) = two_para_tree();
-        match create_from_selection(&tree, &[(0, 0)], &cleaned, 5, 15, "spans blocks") {
-            Some(CreateAnnotation::Point { at, comment }) => {
-                assert_eq!(at, 15, "point comment anchors at the selection end");
+        let target = capture_selection(&tree, &[(0, 0)], &cleaned, &cleaned, 5, 15)
+            .expect("a cross-block selection captures");
+        assert!(target.is_point());
+        match target.with_comment("spans blocks") {
+            Some(CreateAnnotation::Point { target, comment }) => {
+                assert_eq!(
+                    target.resolve(&cleaned).map(|r| r.end),
+                    Some(15),
+                    "point comment anchors at the selection end"
+                );
                 assert_eq!(comment, "spans blocks");
             }
             other => panic!("expected a point comment, got {other:?}"),
         }
     }
 
-    // ── table-cell annotation validation: cell copymap + create_from_selection composition ──
+    // ── table-cell annotation validation: cell copymap + capture_selection composition ──
     //
     // Mirrors `preview/build.rs` cell capture: buf is 0-based cell-local, src is
     // cleaned-document-absolute. NO mocks — real `copymap::{build,classify,cell_width}`
-    // and real `create_from_selection` / `annotate::extract`.
+    // and real `capture_selection` / `annotate::extract`.
 
     use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 
@@ -860,7 +973,7 @@ mod tests {
     }
 
     #[test]
-    fn xx_cell_selection_maps_to_original_via_create_from_selection() {
+    fn xx_cell_selection_maps_to_original_via_capture_selection() {
         // Identity shifts (no prior CriticMarkup): cell-local "flat" → original "flat".
         let original = "| the earth is flat here | x |\n| --- | --- |\n| y | z |\n";
         let ext = crate::annotate::extract(original);
@@ -870,9 +983,14 @@ mod tests {
         assert_eq!(plain, "the earth is flat here");
         let a = plain_off(plain, "flat");
         let b = a + "flat".chars().count() as i32;
-        match create_from_selection(tree, &ext.shifts, &ext.cleaned, a, b, "citation needed") {
-            Some(CreateAnnotation::Highlight { range, comment }) => {
-                assert_eq!(&original[range.clone()], "flat");
+        match capture_selection(tree, &ext.shifts, &ext.cleaned, original, a, b)
+            .and_then(|t| t.with_comment("citation needed"))
+        {
+            Some(CreateAnnotation::Highlight { target, comment }) => {
+                let range = target
+                    .resolve(original)
+                    .expect("the claim is in the source");
+                assert_eq!(&original[range], "flat");
                 assert_eq!(comment, "citation needed");
             }
             other => panic!("expected highlight, got {other:?}"),
@@ -882,7 +1000,7 @@ mod tests {
     #[test]
     fn xx_cell_selection_translates_through_real_shift_table() {
         // CriticMarkup BEFORE the table shifts cleaned→original; the cell copymap is
-        // built against cleaned, so create_from_selection must compose both maps.
+        // built against cleaned, so capture_selection must compose both maps.
         let original =
             "{==prior==}{>>p<<}\n\n| the earth is flat here | x |\n| --- | --- |\n| y | z |\n";
         let ext = crate::annotate::extract(original);
@@ -895,8 +1013,13 @@ mod tests {
         let (tree, _evs, plain) = &cells[0];
         let a = plain_off(plain, "flat");
         let b = a + "flat".chars().count() as i32;
-        match create_from_selection(tree, &ext.shifts, &ext.cleaned, a, b, "cite") {
-            Some(CreateAnnotation::Highlight { range, comment }) => {
+        match capture_selection(tree, &ext.shifts, &ext.cleaned, original, a, b)
+            .and_then(|t| t.with_comment("cite"))
+        {
+            Some(CreateAnnotation::Highlight { target, comment }) => {
+                let range = target
+                    .resolve(original)
+                    .expect("the claim is in the source");
                 assert_eq!(
                     &original[range.clone()],
                     "flat",
@@ -925,8 +1048,13 @@ mod tests {
         assert_eq!(plain, "see flat here");
         let a = plain_off(plain, "flat");
         let b = a + "flat".chars().count() as i32;
-        match create_from_selection(tree, &ext.shifts, &ext.cleaned, a, b, "whole") {
-            Some(CreateAnnotation::Highlight { range, .. }) => {
+        match capture_selection(tree, &ext.shifts, &ext.cleaned, original, a, b)
+            .and_then(|t| t.with_comment("whole"))
+        {
+            Some(CreateAnnotation::Highlight { target, .. }) => {
+                let range = target
+                    .resolve(original)
+                    .expect("the claim is in the source");
                 assert_eq!(&original[range], "**flat**");
             }
             other => panic!("expected highlight, got {other:?}"),

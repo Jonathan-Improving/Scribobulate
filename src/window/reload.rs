@@ -442,7 +442,6 @@ pub(crate) fn apply_external_reload(window: &ApplicationWindow, content: &str) {
                     zoom,
                     allow_unsafe,
                     &st.folds.borrow(),
-                    st.fold_epoch(),
                 );
             // Close any open marker popover BEFORE `set_preview` drops the view it is
             // parented to. That popover is autohide and holds a real X11 seat grab

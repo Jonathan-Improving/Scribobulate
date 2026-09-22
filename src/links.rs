@@ -53,6 +53,28 @@ pub(crate) fn unique_slug(base: &str, seen: &mut HashMap<String, u32>) -> String
     result
 }
 
+/// Could `slug` have been produced for a heading titled `title`?
+///
+/// The inverse of [`slugify`] + [`unique_slug`], and it lives beside them so the answer
+/// cannot drift from the rule that produced it. True for the bare slug and for the
+/// uniquing forms `-1`, `-2`, … that a repeated title takes.
+///
+/// **This is a weaker question than "which heading is this?" and deliberately so.** A
+/// caller with several candidates takes the first in document order, because the
+/// uniquing suffix is itself assigned in document order. What it buys over indexing a
+/// list by position is that a match is a statement about the HEADING rather than about
+/// where it sat in some earlier build — the distinction that matters when the answer is
+/// written into a durable record, such as a Back/Forward entry (TDD 12.25).
+pub(crate) fn slug_is_for(slug: &str, title: &str) -> bool {
+    let Some(tail) = slug.strip_prefix(&slugify(title)) else {
+        return false;
+    };
+    tail.is_empty()
+        || tail
+            .strip_prefix('-')
+            .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
 /// Normalise a link target into a candidate anchor slug: a leading `#` is
 /// stripped and the remainder percent-decoded (anchors with non-ASCII text may
 /// arrive percent-encoded).  The result is compared *literally* against computed
@@ -761,9 +783,34 @@ mod tests {
     use super::{
         anchor_target, doc_link_fragment, is_allowed_url, is_exportable_href, percent_decode,
         percent_encode_path, relativize_for_insert, resolve_contained_image, resolve_doc_link,
-        resolve_image, scheme_of, slugify, unique_slug, ImageResolution, LinkResolution,
+        resolve_image, scheme_of, slug_is_for, slugify, unique_slug, ImageResolution,
+        LinkResolution,
     };
     use std::collections::HashMap;
+
+    /// The inverse of the slug rule, which is what lets a durable record name a heading
+    /// by identity instead of by its position in a list that gets rebuilt.
+    #[test]
+    fn a_slug_is_recognised_for_the_title_that_produced_it() {
+        assert!(slug_is_for(
+            "anti-patterns-to-avoid",
+            "Anti-patterns to avoid"
+        ));
+        // The uniquing suffixes a repeated title takes.
+        assert!(slug_is_for("notes", "Notes"));
+        assert!(slug_is_for("notes-1", "Notes"));
+        assert!(slug_is_for("notes-12", "Notes"));
+        // ...and nothing else. A DIFFERENT heading that merely starts the same way is
+        // the failure this predicate exists to refuse: it would name the wrong section
+        // in a Back/Forward entry, resolvably and permanently.
+        assert!(!slug_is_for("notes-on-tone", "Notes"));
+        assert!(!slug_is_for("notes-1a", "Notes"));
+        assert!(!slug_is_for("note", "Notes"));
+        assert!(!slug_is_for("", "Notes"));
+        // And it is stated in terms of `slugify`, not of the raw title.
+        assert!(slug_is_for("c-guide", "C++ Guide"));
+        assert!(slug_is_for("c-guide-2", "C++ Guide"));
+    }
 
     #[test]
     fn slugify_matches_github() {

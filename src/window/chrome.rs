@@ -143,9 +143,8 @@ pub(crate) fn render_and_wire_preview(
     zoom: f64,
     allow_unsafe_images: bool,
     folds: &crate::fold::FoldState,
-    fold_epoch: u64,
 ) -> gtk::Widget {
-    let widget = render(md, doc_dir, zoom, allow_unsafe_images, folds, fold_epoch);
+    let widget = render(md, doc_dir, zoom, allow_unsafe_images, folds);
     widget.set_vexpand(true);
     attach_context_menu(&widget);
     widget
@@ -179,8 +178,6 @@ pub(super) fn build_chrome(
         zoom_level,
         show_unsafe_images,
         &crate::fold::FoldState::default(),
-        // A first build has no earlier source to be stale against.
-        0,
     );
 
     // ── tab strip (widgets/tab) ────────────────────────────────────────

@@ -438,10 +438,38 @@
 - **When** the user types anywhere in the editor — above, inside or below a collapsed block
 - **Then** every block returns to the state the document states for it (`<details open>` expanded, plain `<details>` collapsed), and no block is left collapsed that the document does not itself mark collapsed
 - **And** the reset takes effect on the **keystroke**, not on the debounced re-render that follows it, so a disclosure toggled during that window is decided against the edited source rather than against the pre-edit one
-- **And given** a control the reader activates in the window between the keystroke and the re-render — a control the PREVIOUS render built, whose key names text that has moved
-- **Then** the activation is **discarded**, and discarded visibly enough to be diagnosed (a `debug` record naming the generation it was minted against). It is not honoured, and it is not guessed at: re-keying it would have to define a disclosure's identity across an edit, which is the guess this rubric exists to refuse
-- **And** no block other than the one whose summary the reader activates ever changes its collapsed state as a result of an edit — which is what the discard is *for*, since a stale key can land on a different block's new start offset
-- **Rationale** a fold is keyed on the source byte offset of its opening raw-HTML block, and an edit moves every offset after it. Re-keying survivors would have to define a disclosure's identity across an edit that can split, merge or delete one — a guess the reader cannot predict — so the state is dropped instead, matching HTML, where a disclosure's state is the `open` attribute and therefore a property of the document rather than of the reader. Left unreset, a stale key silently reverts a collapsed block mid-typing or, when it collides with a different block's new start offset, **collapses the wrong block** — hiding content the reader never asked to hide
+- **And given** a control the reader activates in the window between the keystroke and the re-render — a control the PREVIOUS render built
+- **Then** it acts on **its own block**, wherever the edit moved it, per 2.26n. This rubric governs the fold MAP, which is dropped; it does not govern the control, which carries the block's own text and re-resolves at the click
+- **And** no block other than the one whose summary the reader activates ever changes its collapsed state as a result of an edit
+- **Rationale** a fold is keyed on the source byte offset of its opening raw-HTML block, and an edit moves every offset after it. Re-keying the surviving MAP would have to define a disclosure's identity across an edit that can split, merge or delete one — a guess the reader cannot predict — so the map is dropped instead, matching HTML, where a disclosure's state is the `open` attribute and therefore a property of the document rather than of the reader. Left unreset, a stale key silently reverts a collapsed block mid-typing or, when it collides with a different block's new start offset, **collapses the wrong block** — hiding content the reader never asked to hide. **Resolving the one control the reader is pointing at is a narrower question than persisting the map**, and the two are deliberately answered differently: this rubric's earlier wording made the control's activation a stated no-op, which was the right floor against a wrong-block toggle and the wrong answer for the reader, who got a live control that silently did nothing
+
+### 2.26m A source flush that moves nothing leaves the reader's controls alive
+- **Given** a document open in split mode whose preview shows at least one disclosure, and a reader who has typed and collapsed a block
+- **When** any path flushes the editor's text into the tab's source without changing what the preview was rendered from — **Ctrl+S** being the one the reader meets, a zoom re-render and an annotation mutation being the others
+- **Then** every disclosure control in the pane still acts on the click that follows, toggling its own block
+- **And** the reader's collapsed blocks are still collapsed, because nothing the fold keys index has moved
+- **And** the same holds for a flush whose text differs only in CriticMarkup, in any mode: an annotation's delimiters are extracted before the walk that mints a fold key, so the space the keys are measured in is byte-identical either side of the edit
+- **Rationale** in split mode the editor buffer is the text a fold key indexes and `tab.source` is deliberately stale, so a flush that makes the two agree moves nothing. Invalidating on it stranded every control in the pane, silently and indefinitely — the reader saw a dead UI with no cause visible at either end, self-healing on the next keystroke, which is why it was reported repeatedly and never reproduced on demand. The predicate a fold map is cleared on is "has the text these keys index moved?", and the mode is part of that question
+- **Coverage** `window::livepreview::gtk_integration_tests::every_command_that_moves_the_source_leaves_the_disclosure_controls_acting` (a table, one row per command) and `a_save_in_split_mode_keeps_every_collapsed_block`; `tests/MANUAL-TEST.md` §2.26m
+
+### 2.26n A control resolves against the live document, and re-derives when it cannot
+- **Given** a disclosure control built by one render, and an edit elsewhere in the document that moved its block without destroying it
+- **When** the reader activates that control
+- **Then** it toggles **its own** block at the block's new position
+- **And given** an edit that removed the block the control names
+- **Then** the activation changes no block's state at all
+- **And given** a document holding two disclosures whose opening delimiters are **identical**, and an edit above them large enough that the control's captured offset no longer distinguishes them
+- **Then** the activation toggles **neither** — and the pane is re-rendered, so the reader's next click acts on a control that names the current document
+- **And** in no case does a block other than the one whose summary was activated change its collapsed state
+- **Rationale** refusal is the floor, not the fix: a control that gives up whenever the document moved is useless in the session where it is most used, and one that gives up *silently* is the defect 2.26m records. Identity — the construct's own **opening delimiter**, carried beside the offset — is what distinguishes "moved" from "ambiguous", and the two have different answers: follow the first, decline the second **and say so by re-rendering**. An identity a document repeats cannot be disambiguated by proximity alone, so proximity is not consulted for one. The identity is the delimiter rather than the whole block because a block contains the reader's own typing, which would otherwise destroy the identity of the block being typed in
+- **Coverage** `docref` (the resolution rules, both ambiguity policies, as plain strings), `renderer::disclosure::identity` (what the delimiter is, including the synthetic front-matter case), and `window::livepreview::gtk_integration_tests::a_control_minted_before_a_keystroke_follows_its_block_rather_than_refusing` / `a_control_whose_identity_the_document_repeats_toggles_neither_block`; `tests/MANUAL-TEST.md` §2.26n
+
+### 2.26o Every path that reinstalls a render's maps also re-mints its controls
+- **Given** a path that rebuilds a render's buffer-keyed maps while keeping the existing widget tree — today the in-place annotation refresh
+- **When** it completes
+- **Then** the controls in that tree name the document the new maps were built from, and act on the click that follows
+- **Rationale** the widget tree and the maps are two halves of one render. A path that refreshes one and not the other leaves controls addressing a document that no longer exists, which is the same defect as 2.26m by a shorter route
+- **Coverage** the "annotation refresh" row of `every_command_that_moves_the_source_leaves_the_disclosure_controls_acting`; `tests/MANUAL-TEST.md` §2.26o
 
 ### 2.27 A document's front matter reads as metadata, not as content
 - **Given** a document that opens with a front-matter block — YAML between `---` fences, or TOML between `+++` fences
@@ -1732,6 +1760,15 @@
 - **When** the user closes the find bar
 - **Then** the reading position does not move at all — closing find never reloads or re-scrolls the preview
 
+### 11.12 Find Next resumes in the list it is counting
+- **Given** an active preview search with a match selected
+- **When** the hit list is rebuilt beneath it — the live-preview re-render or a fold splice, both of which change the render generation the list is keyed on
+- **Then** Find Next advances to the match **after the one the reader is looking at**, and the "N of M" readout describes the list actually in force
+- **And given** the match the reader was on has been edited away entirely
+- **Then** Find Next lands on the first match **after where it was**, rather than at the start of the list
+- **Rationale** the cursor used to be a bare ordinal into a collection the code already detects the re-derivation of — the weakest reference there is, and one that fails while every visible thing reads correct: "4 of 9" stays on screen and Find Next resumes at the fourth hit of a different list, skipping or repeating with nothing to warn on. Clamping it converts an out-of-range panic into a confidently wrong answer; re-finding by the POSITION the cursor landed on is what makes the readout and the thing it counts the same object
+- **Coverage** `window::find::tests::find_next_resumes_at_the_hit_it_landed_on_not_at_its_old_ordinal`; `tests/MANUAL-TEST.md` §11.12
+
 ### 11.7 Find scrolls to a match inside a table cell
 - **Given** pure-preview mode showing a **tall** table (taller than the viewport) whose cells contain the search term, with the find bar open
 - **When** the user navigates (Next/Prev) onto a cell match, then onto a further cell match in the **same** table
@@ -1979,6 +2016,18 @@
 - **And** a touchpad steps once per wheel-notch of *travel* rather than once per event, so one flick does not run the ladder end to end; travel that reverses inside a rung cancels instead of stepping twice
 - **And** with the modifier released, the wheel scrolls that pane exactly as before
 - **And** over the **editor** pane in split mode the gesture does nothing — zoom scales the preview, so that is where it is offered
+
+### 12.25 An outline row navigates to the heading it is showing
+- **Given** a document open in an editor-visible mode, and an edit made above a heading the outline lists
+- **When** the reader activates that heading's outline row — **including inside the 300 ms window before the outline is rebuilt**
+- **Then** the caret and viewport arrive at **that heading**, not at the byte offset it occupied before the edit
+- **And given** the row's activation records a Back/Forward entry
+- **Then** the entry names the heading the reader activated, so a later return arrives where they were — a recorded place outlives the render that produced it, and a wrong one cannot be noticed later
+- **And** the scroll-spy's own selection state never suppresses a navigation the reader asked for
+- **And given** the heading has been renamed or deleted since the row was built
+- **Then** the activation navigates nowhere rather than to the heading that has moved into its place
+- **Rationale** the row used to bake a source offset at build time and to fetch its Back/Forward slug through a positional index into a list the outline re-derives. Both are stale for the length of the debounce, and the second **launders a stale index into a durable record**: the slug resolves perfectly, to the wrong heading. The row now carries the heading's own title path — the same durable name the collapsed-section state is keyed on (12.24) — the editor's offset is re-derived from the live document at the click, and the recorded slug is found by TITLE rather than by any index. The row's build-time index survives for one job only, the preview scroll, because the preview's own heading list is of that same build
+- **Coverage** `outline::expansion` (what a path is and what it survives) and `window::outline_nav`'s navigation tests; `tests/MANUAL-TEST.md` §12.25
 
 ### 12.11 The outline panel has a labelled header
 - **Given** the outline sidebar is shown
@@ -3233,6 +3282,15 @@ appearance that predates the feature; `Sepia` is the book-like reading theme.
 - **Given** the annotations viewer is shown, in **any** view mode — including **preview-only**
 - **When** the user adds an annotation, edits its comment, or removes it through the preview's own annotate affordances (the selection pop-up and the margin card's Edit/Remove)
 - **Then** the list gains, updates, or drops that row **at once**, in the mode the change was made in — the user never has to switch mode, switch tab, or reload to see the list agree with the document, and the surrounding rows keep their order and selection (POLICY Derived-view CAM row 3, column A)
+
+### 20.23 An annotation is written against the text the reader selected
+- **Given** the create-annotation card open — in the preview or in the editor — over a selection the reader made
+- **When** anything rebuilds the document or the preview's offset maps while the card is open: a fold toggle, an external reload, a theme or zoom re-render, an undo, a Replace All
+- **And** the reader then commits the comment
+- **Then** the annotation lands on **the text they selected**, or on nothing at all if that text is gone; it never lands on a different range
+- **And** the comments the card offered back as the ones a commit would merge are the comments that commit actually merges — one reference, resolved the same way at both ends
+- **Rationale** the captured offsets used to index the preview **buffer** and were resolved at Save against the render's copymap, which every render and splice reinstalls wholesale (Document-Reference CAM row 8). The card is open across an unbounded number of main-loop turns — the reader is typing — which makes it the longest-held reference in the application, and its failure **writes into the document** rather than merely mis-positioning a view (ScrAP-187 is the same defect on the Remove/Edit path). The selection is therefore crossed into source space and anchored to its own text at the moment the card is raised, and resolved once, at the point the mutation is applied
+- **Coverage** `preview::annotate`'s capture/resolve tests, including a target that follows its text through an edit above it and one that resolves to nothing once the claim is gone; `tests/MANUAL-TEST.md` §20.23
 
 ### 20.18 Tab switch scrolls the annotations list to its selected row
 - **Given** two tabs whose annotations lists are long enough to scroll, tab A with a selected annotation row that is not the first, and the shared annotations scroller left showing a different part of the list (e.g. after visiting a shorter list, or parked at the top)

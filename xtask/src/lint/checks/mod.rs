@@ -42,6 +42,7 @@ pub fn run_all(tree: &Tree) -> bool {
         references::commit_hashes_cited(tree),
         register::next_free_number_is_free(tree),
         register::register_prescribes_a_banned_route(tree),
+        architecture::held_reference_rows(tree),
     ];
     verdicts.into_iter().all(|ok| ok)
 }

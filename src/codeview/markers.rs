@@ -21,12 +21,12 @@ pub(crate) struct MarkerSource {
     /// The full construct in the ORIGINAL source, anchored to its own text
     /// (drives Remove and Edit).
     ///
-    /// An [`AnchoredSpan`](crate::annotate::AnchoredSpan) rather than a bare
+    /// An [`AnchoredSpan`](crate::docref::AnchoredSpan) rather than a bare
     /// range because a marker outlives the source it was scanned from: the card
     /// built from it can still be open after the user has typed, after an undo,
     /// or after the split-mode live re-render has re-scanned the document. Its
     /// `captured_at().start` remains the annotation's navigation identity.
-    pub(crate) construct: crate::annotate::AnchoredSpan,
+    pub(crate) construct: crate::docref::AnchoredSpan,
     /// The highlighted content's byte range in the ORIGINAL source, kept when the
     /// annotation is removed; `None` for a point comment (whole construct goes).
     pub(crate) src_content: Option<std::ops::Range<usize>>,
@@ -92,7 +92,7 @@ pub(crate) enum AnnotationEdit {
     /// therefore a range RELATIVE to the construct's start, re-absolutised once the
     /// construct has been resolved against the live source.
     EditComment {
-        construct: crate::annotate::AnchoredSpan,
+        construct: crate::docref::AnchoredSpan,
         body: std::ops::Range<usize>,
         text: String,
     },
@@ -102,7 +102,7 @@ pub(crate) enum AnnotationEdit {
     /// `keep_inner` is RELATIVE to the construct's start, for the same reason as
     /// `EditComment::body`.
     Remove {
-        construct: crate::annotate::AnchoredSpan,
+        construct: crate::docref::AnchoredSpan,
         keep_inner: Option<std::ops::Range<usize>>,
     },
     /// Create a new annotation (from the preview selection overlay, Part C).
@@ -122,15 +122,26 @@ pub(crate) enum AnnotationEdit {
 }
 
 /// A new annotation to insert (Part C — selection overlay).
+///
+/// **`target` is an [`AnchoredSpan`](crate::docref::AnchoredSpan), not a range**, for
+/// the reason its siblings above are: the comment card is open while the reader types,
+/// and the document can move underneath it — the split-mode re-render, an undo, a
+/// Replace All, an external reload. A range captured when the card was raised is an
+/// instruction about where to cut in a document that no longer exists; the text at that
+/// range can be found again. Resolved at the one choke point the mutation is applied
+/// (`window::annotate::apply_annotation_edit`).
 #[derive(Clone, Debug)]
 pub(crate) enum CreateAnnotation {
-    /// Wrap `range` as a highlight and attach `comment`.
+    /// Wrap the target as a highlight and attach `comment`.
     Highlight {
-        range: std::ops::Range<usize>,
+        target: crate::docref::AnchoredSpan,
         comment: String,
     },
-    /// A point comment at byte offset `at` (the cross-block fallback).
-    Point { at: usize, comment: String },
+    /// A point comment at the target's END (the cross-block fallback).
+    Point {
+        target: crate::docref::AnchoredSpan,
+        comment: String,
+    },
 }
 
 /// The sink the window installs to perform an [`AnnotationEdit`] on the document.
@@ -1458,8 +1469,7 @@ mod a11y_integration_tests {
     #[gtktest::test]
     fn enter_commits_in_the_marker_edit_popover() {
         use gtk::subclass::prelude::*;
-        let pane =
-            crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default(), 0);
+        let pane = crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default());
         let view = view_of(pane.clone());
         let win = gtk::Window::new();
         win.set_default_size(700, 400);
@@ -1527,8 +1537,7 @@ mod a11y_integration_tests {
     /// symptom seen when driving the app by hand (no chip ever observed).
     #[gtktest::test]
     fn a_presented_preview_paints_marker_hitboxes() {
-        let pane =
-            crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default(), 0);
+        let pane = crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default());
         let view = view_of(pane.clone());
         let win = gtk::Window::new();
         win.set_default_size(700, 400);
@@ -1549,8 +1558,7 @@ mod a11y_integration_tests {
     /// spot with no scroll. This is the common case (annotate, then read it back).
     #[gtktest::test]
     fn next_annotation_opens_the_popover_for_an_on_screen_marker() {
-        let pane =
-            crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default(), 0);
+        let pane = crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default());
         let view = view_of(pane.clone());
         let win = gtk::Window::new();
         win.set_default_size(700, 400);
@@ -1578,8 +1586,7 @@ mod a11y_integration_tests {
     /// test fails if that regresses to an idle.
     #[gtktest::test]
     fn next_annotation_scrolls_to_an_off_screen_marker_and_opens_it() {
-        let pane =
-            crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default(), 0);
+        let pane = crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default());
         let view = view_of(pane.clone());
         let win = gtk::Window::new();
         win.set_default_size(700, 400);
@@ -1633,8 +1640,7 @@ mod a11y_integration_tests {
     #[gtktest::test]
     fn a_navigation_leaves_the_document_scrolled_to_the_target() {
         use gtk::subclass::prelude::*;
-        let pane =
-            crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default(), 0);
+        let pane = crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default());
         let view = view_of(pane.clone());
         let win = gtk::Window::new();
         win.set_default_size(700, 400);
@@ -1719,8 +1725,7 @@ mod a11y_integration_tests {
     #[gtktest::test]
     fn the_repin_guard_holds_the_post_scroll_position_not_the_pre_scroll_one() {
         use gtk::subclass::prelude::*;
-        let pane =
-            crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default(), 0);
+        let pane = crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default());
         let view = view_of(pane.clone());
         let win = gtk::Window::new();
         win.set_default_size(700, 400);
@@ -1780,8 +1785,7 @@ mod a11y_integration_tests {
     #[gtktest::test]
     fn an_expired_pending_open_is_discarded_without_opening_a_popover() {
         use gtk::subclass::prelude::*;
-        let pane =
-            crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default(), 0);
+        let pane = crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default());
         let view = view_of(pane.clone());
         let win = gtk::Window::new();
         win.set_default_size(700, 400);
@@ -1839,7 +1843,6 @@ mod a11y_integration_tests {
             1.0,
             false,
             &crate::fold::FoldState::default(),
-            0,
         );
         let view = view_of(pane.clone());
         let win = gtk::Window::new();
@@ -1882,8 +1885,7 @@ mod a11y_integration_tests {
     #[gtktest::test]
     fn dispose_popdowns_the_marker_popover_before_unparenting_it() {
         use gtk::subclass::prelude::*;
-        let pane =
-            crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default(), 0);
+        let pane = crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default());
         let view = view_of(pane.clone());
         let win = gtk::Window::new();
         win.set_default_size(700, 400);
@@ -1945,8 +1947,7 @@ mod a11y_integration_tests {
     /// torn-down view — defense-in-depth, either alone prevents the crash.
     #[gtktest::test]
     fn open_marker_popover_is_a_no_op_on_an_unrealized_view() {
-        let pane =
-            crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default(), 0);
+        let pane = crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default());
         let view = view_of(pane);
         assert!(
             !view.is_realized(),
@@ -1978,8 +1979,7 @@ mod a11y_integration_tests {
     #[gtktest::test]
     fn opening_an_annotation_moves_the_caret_to_it_so_the_next_step_advances() {
         use gtk::subclass::prelude::*;
-        let pane =
-            crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default(), 0);
+        let pane = crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default());
         let view = view_of(pane.clone());
         let win = gtk::Window::new();
         win.set_default_size(700, 400);
@@ -2052,8 +2052,7 @@ mod a11y_integration_tests {
     /// distinguish the two failures is not measuring the thing it names).
     #[gtktest::test]
     fn a_card_takes_the_focus_only_when_the_opener_asked_for_it() {
-        let pane =
-            crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default(), 0);
+        let pane = crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default());
         let view = view_of(pane.clone());
         let win = gtk::Window::new();
         win.set_default_size(700, 400);

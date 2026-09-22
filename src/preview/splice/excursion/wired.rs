@@ -218,7 +218,7 @@ fn control_collapse(md: &str) -> (f64, f64, f64, f64) {
         .and_then(|st| st.split.preview_scroller())
         .expect("a preview scroller");
     let folds = crate::fold::FoldState::default();
-    crate::preview::re_render(&sw, md, None, 1.0, false, &folds, 0);
+    crate::preview::re_render(&sw, md, None, 1.0, false, &folds);
     let (min_value, min_upper) = rig.settle_watching_the_trough();
     (before.upper, min_upper, min_value, before.page_size)
 }

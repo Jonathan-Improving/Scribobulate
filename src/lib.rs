@@ -54,6 +54,7 @@ pub(crate) mod copymap;
 pub(crate) mod cssfrag;
 pub(crate) mod decorplan;
 pub(crate) mod docio;
+pub(crate) mod docref;
 pub(crate) mod export;
 pub(crate) mod farscroll;
 pub(crate) mod fold;

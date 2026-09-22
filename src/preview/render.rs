@@ -63,17 +63,16 @@ pub(crate) fn view_of(widget: &gtk::Widget) -> Option<crate::codeview::CodePrevi
 /// A first build with no reader state passes `&FoldState::default()` explicitly, which
 /// says at the call site that the map is empty THERE rather than leaving it implicit.
 ///
-/// `fold_epoch` is the source generation `folds` was read at — see
-/// `TabState::fold_epoch`. Every control this render builds carries it, so a click that
-/// arrives after the source has moved is refused rather than applied to a key naming
-/// the previous document (F-AP-B-105).
+/// Every control this render builds carries the place it names, as its own text
+/// re-resolvable against a later document ([`anchor_disclosure_control`]), so a click
+/// that arrives after the source has moved acts on the block it was pointing at rather
+/// than on a key naming the previous document.
 pub(crate) fn render(
     md: &str,
     doc_dir: Option<&std::path::Path>,
     zoom: f64,
     allow_unsafe_images: bool,
     folds: &crate::fold::FoldState,
-    fold_epoch: u64,
 ) -> gtk::Widget {
     let RenderProducts {
         buf,
@@ -108,7 +107,7 @@ pub(crate) fn render(
     let view = CodePreviewView::new();
     view.add_css_class("scrib-preview");
     view.set_buffer(Some(&buf));
-    wire_disclosure_toggles(&view, &render_data, disclosure_toggles, fold_epoch);
+    wire_disclosure_toggles(&view, &render_data, disclosure_toggles);
     view.set_editable(false);
     // Found by the naming guard once its scope became the accessible ROLE rather than a
     // list of widget types: this view publishes role TextBox and had no accessible name, so
@@ -248,7 +247,6 @@ pub(crate) fn re_render(
     zoom: f64,
     allow_unsafe_images: bool,
     folds: &crate::fold::FoldState,
-    /* see `render`'s own `fold_epoch` */ fold_epoch: u64,
 ) {
     let Some(view) = sw
         .child()
@@ -311,14 +309,6 @@ pub(crate) fn re_render(
 
     // Update the shared RenderData cell — live closures on the view borrow this.
     let render_data = scrib_render_data(&view);
-    // Every render emits fresh toggles (the previous ones were unparented with the
-    // old anchored children), so activation is re-wired here rather than assumed to
-    // have survived — the same rebuild-boundary rule the find highlight follows. It
-    // needs the cell, because the summary LINES it records live there for the
-    // line-wide click hit-test, so it runs after the cell is resolved.
-    if let Some(rd) = &render_data {
-        wire_disclosure_toggles(&view, rd, disclosure_toggles, fold_epoch);
-    }
     if let Some(rd) = &render_data {
         let mut rd = rd.borrow_mut();
         rd.adopt_maps(maps);
@@ -328,6 +318,16 @@ pub(crate) fn re_render(
         // refresh's).
         rd.image_tints = image_tints;
         rd.table_anchors = collect_table_anchors(&anchored);
+    }
+    // Every render emits fresh toggles (the previous ones were unparented with the
+    // old anchored children), so activation is re-wired here rather than assumed to
+    // have survived — the same rebuild-boundary rule the find highlight follows. It
+    // needs the cell, because the summary LINES it records live there for the
+    // line-wide click hit-test AND because each control's reference is captured from
+    // the cleaned source this render walked — so it runs AFTER the maps are adopted,
+    // or the controls would name the render before this one.
+    if let Some(rd) = &render_data {
+        wire_disclosure_toggles(&view, rd, disclosure_toggles);
     }
 
     // Rebuild the table label list from the new table widgets.
@@ -490,6 +490,12 @@ pub(crate) fn refresh_annotations_in_place(
     // the buffer was not swapped, so the image-tint handler stays attached.
     if let Some(rd) = scrib_render_data(&view) {
         rd.borrow_mut().adopt_maps(products.maps);
+        // The controls in the tree were minted against the maps that have just been
+        // replaced. Re-pointing them here is the completeness half of resolving at use
+        // (TDD 2.26o): the widget tree and the maps are two halves of one render, and a
+        // route that refreshes one and not the other leaves live controls addressing a
+        // document that is no longer the one the pane is showing.
+        remint_disclosure_references(&rd);
     }
     true
 }
@@ -515,7 +521,6 @@ mod gtk_integration_tests {
             1.0,
             false,
             &crate::fold::FoldState::default(),
-            0,
         );
         let view = crate::preview::view_of(&widget).expect("the preview tree render() built");
         assert_ne!(
@@ -574,8 +579,7 @@ mod gtk_integration_tests {
         let chips = crate::palette::Palette::for_theme(&theme).code_chips;
         let _active = crate::theme::activate_for_test(theme);
 
-        let pane =
-            crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default(), 0);
+        let pane = crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default());
         let view = crate::preview::view_of(&pane).expect("the preview tree render() built");
         let labels = crate::preview::cell_search_targets(&view);
         let markup_of = |word: &str| {
@@ -630,8 +634,7 @@ mod gtk_integration_tests {
         const MD: &str = "# Target heading\n\n\
              | Language | Issue |\n|---|---|\n\
              | Python | \u{2611} [#6378](https://example.com/i?a=1&b=2) filed |\n";
-        let pane =
-            crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default(), 0);
+        let pane = crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default());
         let view = crate::preview::view_of(&pane).expect("the preview tree render() built");
 
         let cell = crate::preview::cell_search_targets(&view)
@@ -740,14 +743,7 @@ mod gtk_integration_tests {
              {WIDE_ROW}\n|---|---|\n{WIDE_ROW}\n"
         );
 
-        let widget = render(
-            &md,
-            None,
-            zoom,
-            false,
-            &crate::fold::FoldState::default(),
-            0,
-        );
+        let widget = render(&md, None, zoom, false, &crate::fold::FoldState::default());
         let view = crate::preview::view_of(&widget).expect("the preview tree render() built");
         let window = gtk::Window::new();
         window.set_default_size(700, 600);
@@ -852,7 +848,7 @@ mod gtk_integration_tests {
         let mut offenders: Vec<String> = Vec::new();
         for pane_w in [400i32, 500, 700, 900] {
             for (name, md) in &cases {
-                let widget = render(md, None, 1.0, false, &crate::fold::FoldState::default(), 0);
+                let widget = render(md, None, 1.0, false, &crate::fold::FoldState::default());
                 let view =
                     crate::preview::view_of(&widget).expect("the preview tree render() built");
                 let window = gtk::Window::new();
@@ -935,7 +931,6 @@ mod gtk_integration_tests {
             1.0,
             false,
             &crate::fold::FoldState::default(),
-            0,
         );
         let view = crate::preview::view_of(&pane).expect("the preview tree render() built");
         let sw = scroller_of(&pane);
@@ -948,7 +943,6 @@ mod gtk_integration_tests {
             1.0,
             false,
             &crate::fold::FoldState::default(),
-            0,
         );
 
         let after = view.buffer();
@@ -992,7 +986,7 @@ mod choke_point_tests {
     #[gtktest::test]
     fn the_annotation_refresh_route_invalidates_like_every_other_route() {
         let md = "A paragraph with {==a claim==}{>>a note<<} in it.\n";
-        let widget = render(md, None, 1.0, false, &crate::fold::FoldState::default(), 0);
+        let widget = render(md, None, 1.0, false, &crate::fold::FoldState::default());
         let view = crate::preview::view_of(&widget).expect("the preview tree render() built");
         let sw = widget
             .downcast_ref::<gtk::Overlay>()
@@ -1037,20 +1031,78 @@ fn wire_disclosure_toggles(
     view: &CodePreviewView,
     render_data: &Rc<RefCell<RenderData>>,
     toggles: Vec<crate::renderer::DisclosureToggle>,
-    fold_epoch: u64,
 ) {
     // The whole summary LINE is the click target, not just the arrow, so the line each
     // toggle sits on is recorded for `interactions`' line hit-test. Rebuilt per render
     // because both the widgets and the lines are (see `re_render`).
-    render_data.borrow_mut().disclosure_lines = toggles
+    let lines: Vec<(i32, gtk::ToggleButton)> = toggles
         .iter()
         .map(|t| {
             let line = view.buffer().iter_at_offset(t.summary_offset).line();
             (line, t.toggle.clone())
         })
         .collect();
+    {
+        let mut rd = render_data.borrow_mut();
+        rd.disclosure_lines = lines;
+    }
     for crate::renderer::DisclosureToggle { toggle, key, .. } in toggles {
-        connect_disclosure_toggle(view, &toggle, key, fold_epoch);
+        anchor_disclosure_control(&toggle, &render_data.borrow().md_owned, key);
+        connect_disclosure_toggle(view, &toggle);
+    }
+}
+
+/// Give a control the place it names, captured from the cleaned source the render it
+/// belongs to actually walked.
+///
+/// The identity is the block's **opening delimiter** and the ambiguity policy is
+/// `Unique` — see [`crate::renderer::disclosure::opening_delimiter`] for why the body
+/// is excluded and [`crate::docref::Ambiguity`] for why proximity is not consulted.
+/// A control that ends up with no reference is not left holding a bare offset: its
+/// activation re-derives the pane instead (see [`connect_disclosure_toggle`]).
+fn anchor_disclosure_control(toggle: &gtk::ToggleButton, cleaned: &str, key: crate::fold::FoldKey) {
+    let span = crate::renderer::disclosure::opening_delimiter(cleaned, key.source_offset())
+        .and_then(|at| {
+            crate::docref::AnchoredSpan::capture_with(cleaned, at, crate::docref::Ambiguity::Unique)
+        });
+    match span {
+        Some(span) => crate::widgets::disclosure::set_reference(toggle, span),
+        None => log::warn!(
+            "preview: a disclosure control at cleaned byte {} names no construct in \
+             the source this render walked ({} bytes); its activations will re-derive \
+             the pane rather than act",
+            key.source_offset(),
+            cleaned.len()
+        ),
+    }
+}
+
+/// Re-mint every live control's reference against the maps a route has just
+/// reinstalled — the completeness half of resolving at use (TDD 2.26o).
+///
+/// A route that rebuilds a render's buffer-keyed maps while KEEPING the widget tree
+/// (today `refresh_annotations_in_place`) leaves controls minted against the previous
+/// text. They mostly still resolve, because an identity is what survives an edit — but
+/// "mostly" is the property this whole mechanism exists not to rely on, and the maps
+/// and the widget tree are two halves of one render.
+///
+/// Pairing is by DOCUMENT ORDER, which is what both lists are in: `disclosure_lines`
+/// is built from the render's toggles in order, and `disclosure_extents` from the same
+/// walk. A length mismatch means the two halves describe different documents, so
+/// nothing is re-minted and the caller's fallback (a full re-render) is the answer.
+pub(super) fn remint_disclosure_references(render_data: &Rc<RefCell<RenderData>>) {
+    let rd = render_data.borrow();
+    if rd.disclosure_lines.len() != rd.disclosure_extents.len() {
+        log::warn!(
+            "preview: {} disclosure controls against {} drawn blocks — not re-minting \
+             references the two cannot be paired by",
+            rd.disclosure_lines.len(),
+            rd.disclosure_extents.len()
+        );
+        return;
+    }
+    for ((_, toggle), extent) in rd.disclosure_lines.iter().zip(rd.disclosure_extents.iter()) {
+        anchor_disclosure_control(toggle, &rd.md_owned, extent.key);
     }
 }
 
@@ -1068,7 +1120,6 @@ pub(super) fn wire_spliced_disclosure_toggles(
     render_data: &Rc<RefCell<RenderData>>,
     fresh: Vec<crate::renderer::DisclosureToggle>,
     merged_anchored: &[(TextChildAnchor, gtk::Widget)],
-    fold_epoch: u64,
 ) {
     let buf = view.buffer();
     render_data.borrow_mut().disclosure_lines = merged_anchored
@@ -1086,12 +1137,24 @@ pub(super) fn wire_spliced_disclosure_toggles(
         })
         .collect();
     for crate::renderer::DisclosureToggle { toggle, key, .. } in fresh {
-        connect_disclosure_toggle(view, &toggle, key, fold_epoch);
+        // A SURVIVOR keeps the reference it was built with, which is correct rather
+        // than merely convenient: a splice changes no source, so the text a survivor
+        // names is exactly where it was. Only the fresh controls need minting.
+        anchor_disclosure_control(&toggle, &render_data.borrow().md_owned, key);
+        connect_disclosure_toggle(view, &toggle);
     }
 }
 
 /// What activating a disclosure control MEANS — one definition, reached from both the
 /// full-render and the spliced wiring above.
+///
+/// # Which block it acts on
+///
+/// The control carries the block's own opening delimiter, not a bare offset, and
+/// resolves it against the document the pane is showing at the moment of the click
+/// (`anchor_disclosure_control`). A block that MOVED is followed; a block that is GONE,
+/// or one whose identity the document now repeats, resolves to nothing — and nothing
+/// means re-derive the pane, never leave a live control that does nothing (TDD 2.26n).
 ///
 /// # Why the work is deferred to an idle
 ///
@@ -1111,16 +1174,11 @@ pub(super) fn wire_spliced_disclosure_toggles(
 /// `SpliceVerdict` says whether that refusal came before the buffer was touched (the
 /// pane is intact and the fallback merely shows the toggle) or after the region was
 /// already deleted (the fallback is the repair).
-fn connect_disclosure_toggle(
-    view: &CodePreviewView,
-    toggle: &gtk::ToggleButton,
-    key: crate::fold::FoldKey,
-    epoch: u64,
-) {
+fn connect_disclosure_toggle(view: &CodePreviewView, toggle: &gtk::ToggleButton) {
     toggle.connect_toggled(glib::clone!(
         #[weak]
         view,
-        move |_| {
+        move |toggle| {
             let Some(window) = view
                 .root()
                 .and_then(|r| r.downcast::<gtk::ApplicationWindow>().ok())
@@ -1130,24 +1188,39 @@ fn connect_disclosure_toggle(
             let Some(st) = crate::winstate::state(&window) else {
                 return;
             };
-            // **The control's key names the document it was BUILT against.** In split
-            // mode the preview re-renders on a debounce, so a click can land in the
-            // window between a keystroke and the re-render — and by then every offset
-            // has moved and the fold map has been cleared. Refused rather than applied:
-            // the key would name either nothing or, worse, a DIFFERENT block's new
-            // start offset (F-AP-B-105). A `debug!` rather than silence, because the
-            // click is a stated no-op and not an error the reader can act on.
-            if st.fold_epoch() != epoch {
-                log::debug!(
-                    "preview: discarding a disclosure toggle minted against source \
-                     generation {epoch}; the document has moved to {} and the key names \
-                     the previous text",
-                    st.fold_epoch()
-                );
-                return;
-            }
-            st.folds.borrow_mut().toggle(key);
             let mode = st.view_mode.get();
+            // **Resolved at the click, against the text the pane is showing NOW** —
+            // `previewed_cleaned` is the one accessor that owns which text that is
+            // (the live editor buffer in split mode, the stored source otherwise), and
+            // reading `tab.source` directly here is the shortest route back into the
+            // defect this mechanism replaced.
+            let cleaned = st.previewed_cleaned(mode);
+            let Some(key) = crate::widgets::disclosure::reference(toggle)
+                .and_then(|span| span.resolve(&cleaned))
+                .map(|at| crate::fold::FoldKey::from_source_offset(at.start))
+            else {
+                // **Re-derive; never silently decline.** The control cannot name a
+                // block — its own text is gone from the document, or a repeated
+                // identity leaves it unable to say WHICH block it means. Leaving the
+                // pane alone would strand a live control that does nothing, which is
+                // the failure this whole design is a reaction to; re-rendering costs
+                // the reader one click and puts controls that name the current
+                // document back on screen.
+                log::debug!(
+                    "preview: a disclosure control names no single construct in the \
+                     document as it now stands; re-rendering the pane so the next \
+                     click acts"
+                );
+                crate::window::defer_with_window(&window, move |window| {
+                    crate::window::rerender_preview_in_place(
+                        window,
+                        mode,
+                        crate::window::RenderShape::SameContent,
+                    );
+                });
+                return;
+            };
+            st.folds.borrow_mut().toggle(key);
             // Through the shared deferral, which holds the window WEAKLY — a strong
             // capture here kept the whole window tree alive for as long as the idle was
             // pending (POLICY "widget-owned closures capture weakly", ScrAP-60), and its

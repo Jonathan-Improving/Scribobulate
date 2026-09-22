@@ -525,7 +525,7 @@ The invalidation classes (matrix columns):
 
 | # | Held reference | Points into | A | A′ | B | C | How it survives |
 |---|---|---|:-:|:-:|:-:|:-:|---|
-| 1 | Annotation card's Remove / Edit target | source bytes | ✓ | n/a | ✓ | ✓ | `AnchoredSpan` — carries the construct's own text and re-resolves at apply time; mutations total (ScrAP-187) |
+| 1 | Annotation card's Remove / Edit target (built in `src/preview/build.rs`) | source bytes | ✓ | n/a | ✓ | ✓ | `AnchoredSpan` — carries the construct's own text and re-resolves at apply time; mutations total (ScrAP-187) |
 | 2 | Annotations viewer's selected row | source bytes | ✓ | n/a | ✓ | ✓ | Stored as the annotation's start byte and **re-resolved against a fresh scan on every rebuild**; a vanished annotation simply loses the selection |
 | 3 | Task-checkbox toggle span | source bytes | ✓ | n/a | ✓ | — | The toggle re-locates a well-formed marker at the span and returns `None` otherwise, which the caller makes a clean no-op |
 | 4 | Pending marker-open request | marker-list **index** + buffer offset | ✓ | ⚠ | ✓ | ⚠ | Bounded by a wall-clock deadline and re-aimed each frame, but the target is a **positional index** into a list a re-render replaces — see the rule on positional references below |
@@ -533,6 +533,12 @@ The invalidation classes (matrix columns):
 | 6 | Back/Forward history entry's **place** in a document (TDD §23) | heading **slug**, or a buffer line | ◑ | ◑ | ✓ | ✓ | Two strengths, chosen by what the recording site can know. A slug is re-resolved against the tab's live heading map, and a render that no longer contains it **degrades the entry to "just this document"** rather than letting it point somewhere wrong (23.14). A line is the weak form — an arbitrary scroll position offers no stronger handle — and takes row 5's bargain: it clamps and mis-positions the viewport only |
 | 7 | Reading position carried across a view-mode switch | source bytes (`readingpos::DocPosition`) | ✓ | n/a | n/a | ✓ | Held only for the span of the swap — captured from the pane being left, resolved into the pane being entered — so class B cannot reach it (a wholesale replacement is not in flight during a mode switch), and the editor flushes to source before the capture so class A is settled. Class C is what makes it a `DocPosition` rather than a preview buffer offset: the preview is REBUILT by the very switch being crossed, so any reference into its buffer would be resolved against a collection that no longer exists |
 | 8 | Every buffer-keyed map a render installs — copymap, source map, heading sites, link spans, annotation placements, collapsed-block body ranges | preview **buffer** char offsets | n/a | ✓ | ✓ | ✓ | The splice reinstalls **all of them wholesale** from its own full re-parse (PASS A), never patching the live ones — so they are replaced rather than shifted, and a partial update is not a state the code can reach. The one way this fails is the splice reporting success having not written the region, which is why that refusal is a typed `SpliceVerdict::RegionLost` the caller must re-render on rather than a `bool` — a review finding, since a `bool` was reporting success with the region already deleted. Class A is `n/a` because a source mutation clears the fold map and forces a full re-render before any splice can run |
+| 9 | Preview create-annotation card's target (`src/preview/annotate.rs`, `PendingTarget`) | source bytes | ✓ | n/a | ✓ | ✓ | `AnchoredSpan` (nearest-occurrence), **captured when the card is RAISED, not when Save is pressed**. The card is open for as long as the reader is typing a comment, which makes it the longest-held reference in the application; the selection is crossed out of preview-buffer space into source space at capture, because a buffer offset has nothing to re-resolve against once row 8 has been reinstalled underneath it. Resolved once, at `window::annotate::apply_annotation_edit`, the one point the mutation is applied |
+| 10 | Editor create-annotation card's target (`src/window/editor_annotate.rs`) | source bytes | ✓ | n/a | ✓ | n/a | The same `PendingTarget` as row 9 and resolved at the same choke point. Narrower only in what can move it — the card holds focus, so the movers are undo/redo, Replace All and an external reload rather than the reader's own typing |
+| 11 | Disclosure control's block (`src/preview/render.rs`, `src/widgets/disclosure.rs`) | **cleaned** source bytes | ✓ | n/a | ✓ | ✓ | `AnchoredSpan` over the block's **opening delimiter** (`renderer::disclosure::opening_delimiter`), held on the widget and re-resolved at the click against `TabState::previewed_cleaned`. The ambiguity policy is **`Unique`**, not nearest: a document repeats `<details><summary>Example</summary>`, and choosing between two of them toggles a block the reader was not pointing at. Unresolvable ⇒ **re-render the pane**, never a silent refusal (TDD 2.26n). The identity is the delimiter and never the whole block — anchor the block and typing inside it destroys its own identity — and the front-matter disclosure is synthetic, so it anchors on the opening fence line and relies on front matter being at byte 0 |
+| 12 | Find cursor's current preview hit (`src/window/find.rs`, `FindCursor::Preview`) | preview **buffer** offset + ordinal | ✓ | ✓ | ✓ | ✓ | The POSITION is the reference and the ordinal is only what the reader is shown. Re-found in the rebuilt list by position (`resume_ordinal`): the same hit if it is still there, otherwise the count before where it was, so Find Next means "the first match after where I am". An ordinal alone is a class-C reference into a list the live re-render and the fold splice both replace, and it fails with "N of M" reading correct |
+| 13 | Outline row's heading (`src/outline_view.rs`, `src/window/outline_nav.rs`) | heading title **path** | ✓ | n/a | ✓ | ✓ | The row carries `outline::expansion::HeadingPath`, and the activation re-derives BOTH the document-order index and the source offset from a fresh parse of the live document (`resolve_heading`). The row's `doc_index` stays and is carried with the path, because the two answer different questions: the PREVIEW's `heading_sites` are indexed by the build the row came from (the outline rebuild and the re-render are one tick), while the EDITOR's caret wants the live offset. An index is never applied to a list of a different generation, which is the whole of the rule. The Back/Forward slug is taken by TITLE rather than by either index — that record is durable, so a wrong one cannot be noticed later. A heading whose path is gone navigates nowhere rather than to a neighbour |
+| 14 | Outline selection and the scroll-spy's guard (`TabState::outline_selected`, `outline_spy_doc`) | heading title **path** | ✓ | n/a | ✓ | ✓ | Both are re-resolved into the current build's indexes at `refresh_outline`, exactly as the sibling `outline_collapsed` already was. Held as indexes, the first re-selected whichever heading had moved into that position and the second suppressed a genuine activation whenever two builds' rows happened to share one |
 
 **Row 6's `◑` under content mutation is the one deliberate weakness in this matrix,
 and it is bounded rather than unnoticed.** A slug survives an edit (class A) by
@@ -561,6 +567,35 @@ wall-clock deadline and re-aimed each frame, which is the same mitigation it alr
 relies on under C, so no new mechanism was owed, but it is the row to re-read first if a
 pending marker ever opens on the wrong annotation after a fold.
 
+**Rows 9-14 were added by the held-references work, and the sweep they oblige is
+recorded here.** They are not new constructs — all six predate the rows, which is the
+finding rather than an aside: a sweep of `src/` found 28 entities holding a reference
+into the document across time, seven of them at risk, and **not one of the seven had a
+row**. That is how a construct reaches production without anyone having asked how it
+survives an edit; nobody read "anything holding a position in the document" and decided
+to skip it, because at the keystroke the construct is a `usize` captured into a closure
+and nothing about writing that line announces itself as entering a category. The sweep
+covered every offset, byte range, line number and collection index held across a turn in
+`src/`; the fourteen it cleared were already re-derived at use or bounded to a single
+turn. What makes the rows self-enforcing from here is not their prose but
+`cargo xtask lint-references`' held-reference check: every construction site of the one
+held-reference type must be named by a row in this matrix, so "this construct never got a
+row" is a build failure rather than something someone notices years later.
+
+**The shared idle hop.** Most of these references cross `window::defer_with_window`,
+which carries whatever the caller hands it — so a raw key handed to it is resolved
+against state that moved during the hop. Resolve INSIDE the deferred body, never before
+scheduling it.
+
+**One mechanism, two arms, and the arm is the whole difference.** A generation stamp
+compared at use is not wrong in itself: `window::find::PreviewFindCache` keys its hit
+list on the render generation and is correct, because a mismatch makes it **rebuild**.
+The disclosure control's retired `fold_epoch` keyed a control on the same kind of stamp
+and made a mismatch **refuse**, which is why one is a wasted rebuild and the other was a
+pane full of live controls that silently did nothing. If a second generation-stamp caller
+is ever added, build the type that makes rebuild the only reachable response rather than
+reviewing the second one by hand.
+
 Rules that give the matrix its teeth:
 
 - **Never carry a bare offset across a turn.** An integer is the one form of
@@ -575,10 +610,15 @@ Rules that give the matrix its teeth:
   — in a GTK signal handler a panic aborts the process and takes unsaved work with
   it. This is the floor, not the fix: on its own it converts corruption into a
   command that silently does nothing.
-- **Refusing is not enough — resolve where you can.** A held reference that gives
-  up whenever the document moved makes the feature useless in exactly the session
-  where it is most used. Prefer re-resolution (nearest match by identity) and
-  reserve refusal for genuinely absent referents.
+- **Refusing is not enough — resolve where you can, and a refusal must RE-DERIVE.**
+  A held reference that gives up whenever the document moved makes the feature
+  useless in exactly the session where it is most used. Prefer re-resolution by
+  identity and reserve refusal for a genuinely absent referent — and when you do
+  refuse, rebuild the view the reference was minted by, so the reader's next gesture
+  acts. A refusal that leaves the control on screen is the shape of the defect rows
+  9-14 were written after: invisible where it is caused (a save), invisible where it
+  is felt (a click that does nothing), and self-healing on the next keystroke, which
+  is why it was reported repeatedly and never reproduced on demand.
 - **Whole content is the strongest reference there is, and is sometimes affordable.**
   Crash recovery holds no cell in this matrix, and that is a design outcome rather than
   an oversight worth checking for: a swap file carries the document's *entire text* plus

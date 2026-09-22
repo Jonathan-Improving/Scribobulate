@@ -238,7 +238,13 @@ recurring is promoted into a type or choke point that makes the wrong call impos
 A change in a [CAM](CAM.md) category — commands, rendering features, views derived from
 the document, anything holding a position in it, document I/O, anything wired to a signal
 that fires continuously — accounts for every applicable cell of that matrix, and derives
-its manual-test checks from them.
+its manual-test checks from them.  It is mandatory to ensure CAM consistency whenever making
+functional modifications and/or feature additions.  Failure to do this can result in:
+- Stale code paths
+- Outright functional gaps
+- Incorrect or inconsistent cache invalidation
+- Missing or incorrect UI elements
+- Even data loss and/or corruption
 
 ## Version control
 

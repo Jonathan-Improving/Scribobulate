@@ -101,7 +101,7 @@ pub(crate) fn reveal_folds(
         for key in diverged {
             log::error!(
                 "window::foldreveal: key {key:?} names no disclosure in the current \
-                 source; flipping it rather than expanding it"
+                 source; nothing was expanded for it"
             );
         }
     }

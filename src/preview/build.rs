@@ -885,7 +885,7 @@ fn build_markers(
         // incapable of disagreeing. A construct that is not a valid slice of the
         // source it was just scanned from cannot be acted on safely, so it yields
         // no marker at all rather than an unusable one.
-        let Some(construct) = crate::annotate::AnchoredSpan::capture(
+        let Some(construct) = crate::docref::AnchoredSpan::capture(
             original,
             ann.src_span.start.raw()..ann.src_span.end.raw(),
         ) else {
@@ -2195,7 +2195,6 @@ mod gtk_integration_tests {
             1.0,
             false,
             &crate::fold::FoldState::default(),
-            0,
         );
         let sw = pane
             .downcast::<gtk::Overlay>()
@@ -2366,7 +2365,7 @@ mod gtk_integration_tests {
     /// Annotating a selection that spans inline code + bold produces ONE
     /// well-formed highlight whose `{==…==}` wraps both constructs WHOLE — never
     /// splitting a `` ` `` or `**` (the inline-construct-split regression). Drives
-    /// the real render's copymap through `create_from_selection` end-to-end.
+    /// the real render's copymap through `capture_selection` end-to-end.
     #[gtktest::test]
     fn annotate_across_inline_constructs_is_wellformed() {
         let md = "start with `code span` and **bold word** at end.";
@@ -2376,17 +2375,19 @@ mod gtk_integration_tests {
                                                 // the bold word's content boundary — the exact shape that used to split).
         let a = char_off(&text, "with");
         let b = char_off(&text, "word") + 4; // end of "word"
-        let create = crate::preview::annotate::create_from_selection(
+        let create = crate::preview::annotate::capture_selection(
             &products.maps.copymap,
             &products.maps.shifts,
             &products.maps.md_owned,
+            &products.maps.original_owned,
             a,
             b,
-            "note",
-        );
-        let Some(crate::codeview::CreateAnnotation::Highlight { range, comment }) = create else {
-            panic!("expected a highlight, got {create:?}");
+        )
+        .and_then(|target| target.with_comment("note"));
+        let Some(crate::codeview::CreateAnnotation::Highlight { target, comment }) = create else {
+            panic!("expected a highlight");
         };
+        let range = target.resolve(md).expect("the claim is in the source");
         // The wrap span includes the inline code and the bold WHOLE.
         assert_eq!(&md[range.clone()], "with `code span` and **bold word**");
         let out = crate::annotate::insert_or_extend_highlight(md, range, &comment);

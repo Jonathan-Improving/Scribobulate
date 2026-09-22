@@ -103,10 +103,12 @@ impl FindTarget {
 /// output only because the mode-switch path happens to reset it to 0 first — a property
 /// of the current call ORDER rather than of the design, which any reordering silently
 /// breaks. Naming the index space in the type turns that coincidence into a guarantee:
-/// [`editor_index`](Self::editor_index) and [`preview_index`](Self::preview_index) each
-/// answer 0 ("no current match") for the *other* space's index, so a cursor left over
-/// from the other pane can only ever UNDER-claim — it can never be read as a position in
-/// a list it does not belong to.
+/// [`editor_index`](Self::editor_index) answers 0 ("no current match") for a cursor in
+/// the preview's space, so a cursor left over from the other pane can only ever
+/// UNDER-claim — it can never be read as a position in a list it does not belong to.
+/// The preview arm needs no such accessor: it is a struct variant carrying the POSITION
+/// its ordinal named, and the ordinal alone is never what navigation resumes from (see
+/// [`resume_ordinal`]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub(crate) enum FindCursor {
     /// No current match: nothing is marked and the counter shows a bare total.
@@ -114,8 +116,19 @@ pub(crate) enum FindCursor {
     None,
     /// 1-based index into the editor `GtkSourceSearchContext`'s occurrence list.
     Editor(i32),
-    /// 1-based index into the preview's unified body+cell hit list.
-    Preview(i32),
+    /// A hit in the preview's unified body+cell list: its 1-based ordinal, **and the
+    /// buffer position it landed on**.
+    ///
+    /// The position is the identity and the ordinal is only what the reader is shown.
+    /// An ordinal alone is a positional index into a collection this code rebuilds
+    /// beneath the reader — the live-preview re-render and a fold splice both replace
+    /// the list while the query is unchanged — and the Document-Reference CAM calls that
+    /// the weakest reference there is (ScrAP-74): "4 of 9" stays on screen, reads
+    /// correct, and Find Next resumes at the fourth hit of a DIFFERENT list, skipping
+    /// or repeating with nothing to warn on. Re-finding by position lands on the hit the
+    /// reader is looking at, or — if it is gone — on the first hit after where it was,
+    /// which is what "next" means.
+    Preview { ordinal: i32, at: i32 },
 }
 
 impl FindCursor {
@@ -125,15 +138,7 @@ impl FindCursor {
     pub(crate) fn editor_index(self) -> i32 {
         match self {
             FindCursor::Editor(n) => n,
-            FindCursor::None | FindCursor::Preview(_) => 0,
-        }
-    }
-    /// The 1-based preview-list index, or 0 when the cursor indexes the editor's list
-    /// (or nothing at all).
-    pub(crate) fn preview_index(self) -> i32 {
-        match self {
-            FindCursor::Preview(n) => n,
-            FindCursor::None | FindCursor::Editor(_) => 0,
+            FindCursor::None | FindCursor::Preview { .. } => 0,
         }
     }
 }
@@ -785,10 +790,15 @@ fn preview_find_step(
             set_match_label(&st.chrome().match_count_label, 0, 0);
             return None;
         }
-        // Reads the PREVIEW index specifically: a cursor left pointing into the editor's
-        // occurrence list reads as 0 here and steps to the first preview hit, rather than
-        // being taken as a position in a list it was never an index into.
-        let cur = st.find_cursor.get().preview_index().clamp(0, total);
+        // Where the cursor sits in THIS list, re-found by the position it landed on.
+        // A cursor left pointing into the editor's occurrence list reads as 0 and steps
+        // to the first preview hit, rather than being taken as a position in a list it
+        // was never an index into.
+        let cur = match st.find_cursor.get() {
+            FindCursor::Preview { ordinal, at } => resume_ordinal(hits, ordinal, at),
+            FindCursor::None | FindCursor::Editor(_) => 0,
+        }
+        .clamp(0, total);
         let next = if dir == SearchDir::Backward {
             if cur <= 1 {
                 total
@@ -889,7 +899,10 @@ fn land_on_hit(
     let next = idx as i32 + 1;
     apply_preview_highlights(view, targets, hits, next as usize);
     scroll_to_preview_hit(view, &hits[idx]);
-    st.find_cursor.set(FindCursor::Preview(next));
+    st.find_cursor.set(FindCursor::Preview {
+        ordinal: next,
+        at: preview_hit_position(&hits[idx]),
+    });
     set_match_label(&st.chrome().match_count_label, next, hits.len() as i32);
     None
 }
@@ -916,6 +929,39 @@ fn reveal_and_resume(
     super::foldreveal::reveal_folds(window, &[key], move |window| {
         select_preview_hit_at_or_after(window, resume_off, &text);
     });
+}
+
+/// Where the cursor sits in `hits` — by the POSITION it landed on, not by the ordinal
+/// it was given, because the list may have been rebuilt underneath it.
+///
+/// Returns a 1-based "current" ordinal, which the caller steps forward or backward
+/// from. Two cases, and the second is the whole point:
+///
+/// - the hit is still there (the common case, and the ordinal usually still names it,
+///   which is why that is checked first) — it is the current one;
+/// - it is gone — the answer is the count of hits BEFORE where it was, so that "next"
+///   is the first hit at or after it and "previous" is the last one before it. The
+///   reader resumes where they were rather than where an ordinal happens to point.
+fn resume_ordinal(hits: &[PreviewHit], ordinal: i32, at: i32) -> i32 {
+    // Fast path: the ordinal still names the hit it was minted for — true whenever
+    // nothing was rebuilt, which is most of the time. The same shape as
+    // `docref::AnchoredSpan`'s exact-offset check, and for the same reason.
+    if ordinal >= 1
+        && hits
+            .get((ordinal - 1) as usize)
+            .is_some_and(|h| preview_hit_position(h) == at)
+    {
+        return ordinal;
+    }
+    let before = hits.iter().filter(|h| preview_hit_position(h) < at).count() as i32;
+    if hits
+        .get(before as usize)
+        .is_some_and(|h| preview_hit_position(h) == at)
+    {
+        before + 1
+    } else {
+        before
+    }
 }
 
 /// Where a hit sits in document order, as a buffer char offset. The one place the
@@ -1140,7 +1186,7 @@ pub(super) fn update_match_count_label(
 mod tests {
     use super::{
         ci_match_ranges, decode_occurrence_index, decode_occurrence_total, editor_cursor_for,
-        FindCursor, HitsKey,
+        resume_ordinal, FindCursor, HitsKey, PreviewHit,
     };
 
     /// The preview hit list's entire invalidation rule: a cached list answers only for
@@ -1194,18 +1240,64 @@ mod tests {
     ///
     /// Mutation check: making either accessor fall through to the other variant's payload
     /// (the pre-fix behaviour) fails here.
+    /// **The find cursor resumes in the list it is counting.**
+    ///
+    /// The list is rebuilt beneath the reader by the live-preview re-render and by a
+    /// fold splice, with the query unchanged — so an ordinal is a reference into a
+    /// collection that no longer exists. Three cases, and each is a different way the
+    /// ordinal-only version was wrong.
+    ///
+    /// Mutation check: return `ordinal` unconditionally (the pre-fix behaviour) and the
+    /// second and third cases fail.
+    #[test]
+    fn find_next_resumes_at_the_hit_it_landed_on_not_at_its_old_ordinal() {
+        let hits = |offsets: &[i32]| -> Vec<PreviewHit> {
+            offsets
+                .iter()
+                .map(|&start| PreviewHit::Body {
+                    start,
+                    end: start + 6,
+                })
+                .collect()
+        };
+
+        // (1) Nothing moved: the ordinal still names its hit, and is returned as-is.
+        let list = hits(&[10, 40, 90]);
+        assert_eq!(resume_ordinal(&list, 2, 40), 2);
+
+        // (2) An edit ABOVE inserted two matches: the reader is looking at the hit that
+        // is now fourth. The ordinal would resume at the second, sending Find Next
+        // backwards over hits already stepped through.
+        let list = hits(&[1, 5, 10, 40, 90]);
+        assert_eq!(resume_ordinal(&list, 2, 40), 4);
+
+        // (3) The hit itself is GONE — the text under it was edited away. "Next" is the
+        // first hit AFTER where it was, so the ordinal returned is the count before it.
+        let list = hits(&[10, 90]);
+        assert_eq!(
+            resume_ordinal(&list, 2, 40),
+            1,
+            "stepping forward from 1 lands on hit 2, the first one past the old position"
+        );
+        // ...including when it was the last hit in the document.
+        assert_eq!(resume_ordinal(&hits(&[10]), 2, 40), 1);
+        // ...and when the list is empty in that region entirely.
+        assert_eq!(resume_ordinal(&hits(&[90]), 2, 40), 0);
+    }
+
     #[test]
     fn a_find_cursor_never_reports_the_other_lists_index() {
         assert_eq!(FindCursor::Editor(7).editor_index(), 7);
-        assert_eq!(FindCursor::Editor(7).preview_index(), 0);
-        assert_eq!(FindCursor::Preview(3).preview_index(), 3);
-        assert_eq!(FindCursor::Preview(3).editor_index(), 0);
+        let preview = FindCursor::Preview {
+            ordinal: 3,
+            at: 120,
+        };
+        assert_eq!(preview.editor_index(), 0);
         assert_eq!(FindCursor::None.editor_index(), 0);
-        assert_eq!(FindCursor::None.preview_index(), 0);
     }
 
-    /// A freshly constructed cursor is "no current match" in BOTH spaces — the state a
-    /// tab starts in and the one every reset returns it to.
+    /// A freshly constructed cursor is "no current match" — the state a tab starts in
+    /// and the one every reset returns it to.
     #[test]
     fn the_default_find_cursor_indexes_nothing() {
         assert_eq!(FindCursor::default(), FindCursor::None);
@@ -1421,7 +1513,6 @@ mod gtk_integration_tests {
             1.0,
             false,
             &crate::fold::FoldState::default(),
-            0,
         ));
         let cache = super::PreviewFindCache::default();
         assert_eq!(
@@ -1462,7 +1553,6 @@ mod gtk_integration_tests {
             1.0,
             false,
             &crate::fold::FoldState::default(),
-            0,
         ));
         let cache = super::PreviewFindCache::default();
         assert_eq!(
@@ -1507,7 +1597,6 @@ mod gtk_integration_tests {
             1.0,
             false,
             &crate::fold::FoldState::default(),
-            0,
         ));
 
         // Clean markup of every cell before find touches anything.
@@ -1605,8 +1694,7 @@ mod gtk_integration_tests {
     /// the previous render's offsets and cell labels).
     #[gtktest::test]
     fn the_preview_hit_list_is_built_once_per_buffer_and_query() {
-        let pane =
-            crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default(), 0);
+        let pane = crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default());
         let sw = scroller_of(pane);
         let view = view_in(&sw);
         let cache = super::PreviewFindCache::default();
@@ -1654,7 +1742,6 @@ mod gtk_integration_tests {
             1.0,
             false,
             &crate::fold::FoldState::default(),
-            0,
         );
         let view_after = view_in(&sw);
         assert_eq!(
@@ -1728,7 +1815,6 @@ mod gtk_integration_tests {
             1.0,
             false,
             &crate::fold::FoldState::default(),
-            0,
         ));
         let total1 = super::highlight_preview_matches(&cache, &view1, "alpha");
         assert_eq!(total1, 2, "sanity: one body match, one cell match in MD1");
@@ -1753,7 +1839,6 @@ mod gtk_integration_tests {
             1.0,
             false,
             &crate::fold::FoldState::default(),
-            0,
         ));
         assert_eq!(
             view1.render_generation(),
@@ -2132,9 +2217,11 @@ mod gtk_integration_tests {
             buffer_has_search_highlight(&view.buffer()),
             "the revealed match is highlighted like any other"
         );
-        assert_eq!(
-            st.find_cursor.get().preview_index(),
-            1,
+        assert!(
+            matches!(
+                st.find_cursor.get(),
+                super::FindCursor::Preview { ordinal: 1, .. }
+            ),
             "the cursor names the match, not the hidden placeholder it replaced"
         );
         window.destroy();

@@ -11,7 +11,7 @@
 //! the parent module's pure, unit-tested `bar_placement` helper and the shared
 //! `saferizer::ViewportRect` anchor gate.
 
-use super::{bar_placement, create_from_selection};
+use super::{bar_placement, capture_selection, PendingTarget};
 use crate::codeview::CodePreviewView;
 use crate::preview::cell_copymap;
 use crate::preview::qdata::RenderData;
@@ -283,6 +283,20 @@ pub(crate) fn position_card(
     true
 }
 
+/// Which selection the comment card was raised over, in the coordinates a live
+/// selection arrives in.
+///
+/// Held only to answer "has the reader selected something ELSE?", which is a comparison
+/// against what is on screen. It is deliberately NOT what Save writes to — that is
+/// [`PendingTarget`], which crosses into source space at capture and carries its own
+/// text, because the two questions fail differently: a wrong answer here keeps or drops
+/// a card, and a wrong answer there edits the document in the wrong place.
+#[derive(Clone)]
+enum AnchorSel {
+    Body(i32, i32),
+    Cell(Label, i32, i32),
+}
+
 /// Wire the create overlay onto a freshly rendered preview `view` (called once per
 /// render, like the copy/link wiring). Two coordinated pieces:
 ///
@@ -359,13 +373,23 @@ pub(crate) fn wire_annotation_overlay(
     overlay.set_measure_overlay(&bar, false);
 
     // True while the comment entry is showing — suspends the selection-driven popover.
-    // `pending` holds the buffer offsets of the selection captured when "Annotate" was
-    // clicked, so the once-wired commit handler reads the right span. table-cell annotation: when the
-    // selection is in a table cell, `pending_cell` carries the label + cell-local offsets
-    // instead (buffer pending stays unused).
+    //
+    // `pending` holds the selection captured when "Annotate" was clicked, already
+    // crossed into SOURCE space and carrying its own text — see
+    // [`super::PendingTarget`]. It used to hold two buffer offsets plus, for a table
+    // cell, a second slot with the label and cell-local offsets; both were resolved at
+    // Save against a `copymap` that any render or fold splice reinstalls wholesale while
+    // the card sits open. One slot now, because a cell selection and a body selection
+    // produce the same kind of answer once the crossing happens at capture.
     let entry_open = Rc::new(Cell::new(false));
-    let pending: Rc<Cell<(i32, i32)>> = Rc::new(Cell::new((0, 0)));
-    let pending_cell: Rc<RefCell<Option<(Label, i32, i32)>>> = Rc::new(RefCell::new(None));
+    let pending: Rc<RefCell<Option<PendingTarget>>> = Rc::new(RefCell::new(None));
+    // The SELECTION the card was raised over, in the coordinates the live selection
+    // arrives in — a different job from `pending`, and the reason both exist. This one
+    // answers "has the reader selected something else?", which is a comparison against
+    // what is on screen right now and costs nothing if it is wrong; `pending` answers
+    // "what does Save write to?", which is an instruction to edit the document and must
+    // survive the document moving.
+    let anchor_sel: Rc<RefCell<Option<AnchorSel>>> = Rc::new(RefCell::new(None));
     let timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
 
     // RISK-1 (GTK4Rs/AP-128/152): cancel any pending ~40 ms selection timer when the view
@@ -411,28 +435,19 @@ pub(crate) fn wire_annotation_overlay(
     // defect recorded on the third copy of this surface.
     let card = CommentEntry::new("", {
         let view = view.downgrade();
-        let render_data = render_data.clone();
         let pending = pending.clone();
-        let pending_cell = pending_cell.clone();
         let hide_entry = hide_entry.clone();
         move |text: &str| {
             let Some(v) = view.upgrade() else { return };
-            let create = {
-                let rd = render_data.borrow();
-                if let Some((label, sa, sb)) = pending_cell.borrow_mut().take() {
-                    // Table-cell annotation: cell-local selection + cell copymap → same create_from_selection.
-                    // apply_annotation_edit routes Create::Highlight through
-                    // insert_or_extend_highlight (overlap-union for already-annotated claims).
-                    if let Some(tree) = cell_copymap(&label) {
-                        create_from_selection(&tree, &rd.shifts, &rd.md_owned, sa, sb, text)
-                    } else {
-                        None
-                    }
-                } else {
-                    let (sa, sb) = pending.get();
-                    create_from_selection(&rd.copymap, &rd.shifts, &rd.md_owned, sa, sb, text)
-                }
-            };
+            // The selection was resolved into source space when the card was RAISED, so
+            // nothing here consults a map that may have been replaced since.
+            // `apply_annotation_edit` re-locates the target in the live source and
+            // routes Create::Highlight through `insert_or_extend_highlight` (overlap
+            // union for already-annotated claims).
+            let create = pending
+                .borrow_mut()
+                .take()
+                .and_then(|target| target.with_comment(text));
             // Dismiss the bar now (cheap; touches no document widgets), but DEFER the
             // sink — which mutates the buffer and REBUILDS the preview widget tree
             // (set_buffer + re-render) — to an idle turn. Running that rebuild
@@ -492,7 +507,7 @@ pub(crate) fn wire_annotation_overlay(
         let entry = entry.downgrade();
         let entry_open = entry_open.clone();
         let pending = pending.clone();
-        let pending_cell = pending_cell.clone();
+        let anchor_sel = anchor_sel.clone();
         let render_data = render_data.clone();
         move || {
             let (Some(v), Some(ov), Some(pop), Some(bar), Some(entry)) = (
@@ -511,8 +526,16 @@ pub(crate) fn wire_annotation_overlay(
                 return;
             }
             if let Some((label, a, b)) = cell {
-                *pending_cell.borrow_mut() = Some((label.clone(), a, b));
-                pending.set((0, 0));
+                *anchor_sel.borrow_mut() = Some(AnchorSel::Cell(label.clone(), a, b));
+                // Crossed into SOURCE space HERE, against this render's own cell
+                // copymap — the map the commit used to consult, at the one moment it is
+                // certainly the map the reader is looking at.
+                *pending.borrow_mut() = {
+                    let rd = render_data.borrow();
+                    cell_copymap(&label).and_then(|tree| {
+                        capture_selection(&tree, &rd.shifts, &rd.md_owned, &rd.original_owned, a, b)
+                    })
+                };
                 pop.popdown();
                 entry.set_text("");
                 entry_open.set(true);
@@ -521,11 +544,21 @@ pub(crate) fn wire_annotation_overlay(
                 entry.grab_focus();
                 return;
             }
-            *pending_cell.borrow_mut() = None;
             let Some((a, b)) = buffer_sel else {
                 return;
             };
-            pending.set((a.offset(), b.offset()));
+            *anchor_sel.borrow_mut() = Some(AnchorSel::Body(a.offset(), b.offset()));
+            *pending.borrow_mut() = {
+                let rd = render_data.borrow();
+                capture_selection(
+                    &rd.copymap,
+                    &rd.shifts,
+                    &rd.md_owned,
+                    &rd.original_owned,
+                    a.offset(),
+                    b.offset(),
+                )
+            };
             pop.popdown();
             // Pre-populate with the comment(s) this annotation will MERGE.
             // `insert_or_extend_highlight` deliberately extends rather than nests — it
@@ -542,21 +575,19 @@ pub(crate) fn wire_annotation_overlay(
             let existing = crate::window::host_window(&v)
                 .and_then(|w| crate::window::document_source(&w))
                 .and_then(|source| {
-                    let rd = render_data.borrow();
-                    match super::selection_target(
-                        &rd.copymap,
-                        &rd.shifts,
-                        &rd.md_owned,
-                        a.offset(),
-                        b.offset(),
-                    )? {
-                        // A point comment inserts a NEW construct rather than replacing
-                        // any, so it merges nothing and destroys nothing.
-                        super::SelectionTarget::Point(_) => None,
-                        super::SelectionTarget::Highlight(range) => {
-                            crate::annotate::merged_comment_for(&source, range)
-                        }
+                    let pending = pending.borrow();
+                    let target = pending.as_ref()?;
+                    // A point comment inserts a NEW construct rather than replacing any,
+                    // so it merges nothing and destroys nothing.
+                    if target.is_point() {
+                        return None;
                     }
+                    // Through the CAPTURED target, re-resolved against the live source —
+                    // the same reference the commit will act on, resolved the same way.
+                    // Reading the render's offsets against the editor's text was a
+                    // second answer to one question, and the two disagree exactly while
+                    // the reader is typing.
+                    crate::annotate::merged_comment_for(&source, target.resolve(&source)?)
                 })
                 .unwrap_or_default();
             entry.set_text(&existing);
@@ -640,8 +671,7 @@ pub(crate) fn wire_annotation_overlay(
         let entry_open = entry_open.clone();
         let timer = timer.clone();
         let hide_entry = hide_entry.clone();
-        let pending = pending.clone();
-        let pending_cell = pending_cell.clone();
+        let anchor_sel = anchor_sel.clone();
         let anchor_gen = anchor_gen.clone();
         let pending_after_paint = pending_after_paint.clone();
         move || {
@@ -658,8 +688,7 @@ pub(crate) fn wire_annotation_overlay(
             let entry_open = entry_open.clone();
             let hide_entry = hide_entry.clone();
             let timer_inner = timer.clone();
-            let pending = pending.clone();
-            let pending_cell = pending_cell.clone();
+            let anchor_sel = anchor_sel.clone();
             let anchor_gen = anchor_gen.clone();
             let pending_after_paint = pending_after_paint.clone();
             let id = glib::timeout_add_local_once(Duration::from_millis(40), move || {
@@ -694,29 +723,27 @@ pub(crate) fn wire_annotation_overlay(
                 // (above) or a click in the document — and a click moves focus out of the
                 // card, which the focus-`leave` controller already dismisses on. Only a
                 // different, NON-EMPTY selection supersedes the card's anchor. The commit
-                // reads `pending`/`pending_cell`, never the live selection, so an anchor
+                // reads `pending`, never the live selection, so an anchor
                 // cleared underneath it costs the card nothing.
-                let anchor_cell = pending_cell
-                    .borrow()
-                    .as_ref()
-                    .map(|(label, sa, sb)| (label.clone(), *sa, *sb));
-                let superseded = match &anchor_cell {
+                let anchor = anchor_sel.borrow().clone();
+                let superseded = match &anchor {
                     // Cell-anchored: a body selection, or a selection in a different cell
                     // (or a different range in this one), supersedes it.
-                    Some((label, sa, sb)) => {
+                    Some(AnchorSel::Cell(label, sa, sb)) => {
                         buf_sel.is_some()
                             || cell_sel
                                 .as_ref()
                                 .is_some_and(|(l, a, b)| l != label || (*a, *b) != (*sa, *sb))
                     }
                     // Body-anchored: a cell selection, or a different body range.
-                    None => {
+                    Some(AnchorSel::Body(sa, sb)) => {
                         cell_sel.is_some()
                             || buf_sel
                                 .as_ref()
                                 .map(|(a, b)| (a.offset(), b.offset()))
-                                .is_some_and(|s| s != pending.get())
+                                .is_some_and(|s| s != (*sa, *sb))
                     }
+                    None => cell_sel.is_some() || buf_sel.is_some(),
                 };
                 if entry_open.get() && !superseded {
                     // Noise. Return outright — falling through would also re-evaluate the
@@ -992,8 +1019,7 @@ mod jjj_tests {
 
     /// Raise the card over a preview selection and return `(pane, view, entry)`.
     fn open_card(win: &gtk::Window) -> (gtk::Widget, CodePreviewView, gtk::Entry) {
-        let pane =
-            crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default(), 0);
+        let pane = crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default());
         let view = view_of(pane.clone());
         win.set_default_size(700, 400);
         win.set_child(Some(&pane));
@@ -1148,7 +1174,7 @@ mod jjj_tests {
         }
         let win = gtk::Window::new();
         let pane =
-            crate::preview::render(&md, None, 1.0, false, &crate::fold::FoldState::default(), 0);
+            crate::preview::render(&md, None, 1.0, false, &crate::fold::FoldState::default());
         let view = view_of(pane.clone());
         // The action popover only shows when the view has an annotation sink (normally
         // wired by the split view). A no-op sink is enough for this geometry test.
@@ -1218,8 +1244,7 @@ mod jjj_tests {
     /// the other two defense-in-depth layers; this pins the choke-point half.
     #[gtktest::test]
     fn popup_selection_action_is_a_no_op_on_an_unrealized_view() {
-        let pane =
-            crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default(), 0);
+        let pane = crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default());
         let view = view_of(pane);
         assert!(
             !view.is_realized(),

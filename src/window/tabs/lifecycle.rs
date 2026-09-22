@@ -339,7 +339,6 @@ pub(crate) fn create_tab_in_window(
             zoom,
             allow_unsafe_images,
             &crate::fold::FoldState::default(),
-            0,
         )
     });
     let core = assemble_tab_core(&content_box, md, preview.as_ref());

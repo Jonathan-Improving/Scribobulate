@@ -84,12 +84,18 @@ pub(crate) struct TabState {
     /// [`split`](Self::split), for the tab's whole life; it remains the stable,
     /// reparent-across-windows handle every per-tab closure resolves through.
     pub(crate) content_box: gtk::Box,
-    /// Document-order index of the heading last activated in the outline, if any.
+    /// The heading last activated in the outline, if any — by its durable title PATH.
     /// `refresh_outline` rebuilds the tree widget from scratch on every document
     /// change / mode switch, which would otherwise drop the selection; this lets
     /// the rebuilt tree re-select the same heading (without re-navigating) so the
     /// panel keeps its position across a view-mode switch.
-    pub(crate) outline_selected: Cell<Option<usize>>,
+    ///
+    /// **A path, not the `doc_index` it once held**, for the reason the sibling
+    /// `outline_collapsed` is keyed on one: an index is a position in a list every
+    /// rebuild replaces, so after an edit it re-selects whichever heading has moved
+    /// into that position — the wrong row, silently, with nothing about the document's
+    /// text to explain it (Document-Reference CAM, ScrAP-74).
+    pub(crate) outline_selected: RefCell<Option<crate::outline::expansion::HeadingPath>>,
     /// Which outline nodes this document's reader has collapsed, and the title paths of
     /// the headings the current build shows.
     ///
@@ -118,10 +124,6 @@ pub(crate) struct TabState {
     /// re-render that leaves the source alone — zoom, theme, view-mode, live preview —
     /// which is the set a reader expects, and is cleared when the text changes.
     pub(crate) folds: RefCell<crate::fold::FoldState>,
-    /// The generation of the source the fold keys are minted against — see
-    /// [`TabState::fold_epoch`]. Private, because the only legitimate write is
-    /// `note_source_offsets_moved`'s.
-    fold_epoch: std::cell::Cell<u64>,
     /// The current outline's headings reduced to what a HOT PATH needs — source byte
     /// offset and level, in document order — i.e. `refresh_outline`'s own
     /// `extract_headings` result, kept so the handlers that fire continuously can read
@@ -155,15 +157,15 @@ pub(crate) struct TabState {
     /// (deferred, and again on each `items-changed` during an expand/collapse) —
     /// those are caught by `outline_spy_doc` instead (see its note; GTK4Rs/AP-112).
     pub(crate) outline_spy_selecting: Cell<bool>,
-    /// The `doc_index` the scroll-spy currently OWNS (last set as the visual
-    /// selection, or `None` when it cleared it). Any `selected-item` activation
-    /// whose heading equals this is a spy-origin echo — GtkSingleSelection re-emits
+    /// The HEADING the scroll-spy currently OWNS (last set as the visual selection, or
+    /// `None` when it cleared it), named by the same durable path `outline_selected`
+    /// uses. Any `selected-item` activation whose heading equals this is a spy-origin echo — GtkSingleSelection re-emits
     /// it asynchronously and on model mutation, OUTSIDE `outline_spy_selecting` —
     /// so `make_outline_activate` must suppress navigation for it (else expanding
     /// or collapsing a node spuriously scrolls the preview to the highlighted row).
     /// A genuine user click on a DIFFERENT heading never matches, so navigation
     /// still works (GTK4Rs/AP-112).
-    pub(crate) outline_spy_doc: Cell<Option<usize>>,
+    pub(crate) outline_spy_doc: RefCell<Option<crate::outline::expansion::HeadingPath>>,
     /// Current scroll-spy connection: (preview SW, handler-ID on its
     /// vadjustment, the pointer identity of the window the handler's closure
     /// was bound to). Stored so `wire_scroll_spy` can disconnect the old
@@ -390,6 +392,18 @@ pub(crate) struct TabInit {
     pub(crate) chrome: Rc<WindowChrome>,
 }
 
+/// The CLEANED Markdown a raw source becomes — tabs normalised, CriticMarkup lifted
+/// out — which is the space every offset a render hands back is measured in, fold keys
+/// included.
+///
+/// A free function because two questions need it and only one of them is about a mode:
+/// [`TabState::previewed_cleaned`] asks it of the pane, and [`TabState::set_source`]
+/// asks it of two candidate texts to decide whether anything a reader holds has moved.
+pub(crate) fn cleaned_of(raw: &str) -> String {
+    let normalised = crate::renderer::NormalizedMd::new(raw);
+    crate::annotate::extract(normalised.as_str()).cleaned
+}
+
 impl TabState {
     /// The current source text every derived view renders from.
     ///
@@ -429,14 +443,31 @@ impl TabState {
         if *self.source.borrow() == next {
             return;
         }
+        // **Does this move the text a FOLD KEY indexes?** Not the same question as
+        // "did this field change", and answering the second one for the first is what
+        // stranded every disclosure control in the pane on an ordinary Ctrl+S.
+        //
+        // Two reasons the answer can be no while the field changes. In SPLIT mode this
+        // field is not the text the preview renders from at all — the editor buffer is
+        // ([`Self::previewed_source`]) — so a flush that makes the two agree moves
+        // nothing the reader can see, and the reader's own keystrokes have already been
+        // through `window::livepreview`'s call. And in every mode a key is measured in
+        // the CLEANED space, which a CriticMarkup edit leaves byte-identical by
+        // construction: the delimiters are extracted before the walk that mints the key.
+        let moved_fold_keys = self.view_mode.get() != crate::winstate::ViewMode::Split && {
+            let before = cleaned_of(&self.source.borrow());
+            before != cleaned_of(&next)
+        };
         *self.source.borrow_mut() = next.into_owned();
-        // Fold keys are source byte offsets, so a new document text moves every one of
-        // them: a key that still matched would collapse an unrelated block. Clearing
-        // here — at the single choke point every document replacement passes through —
-        // also gives the behaviour HTML itself specifies, where a disclosure's state is
-        // the `open` attribute and therefore a property of the document rather than of
-        // the session (`crate::fold`).
-        self.note_source_offsets_moved();
+        // Fold keys are byte offsets into that cleaned text, so once it has moved a key
+        // that still matched would collapse an unrelated block. Clearing here — at the
+        // single choke point every document replacement passes through — also gives the
+        // behaviour HTML itself specifies, where a disclosure's state is the `open`
+        // attribute and therefore a property of the document rather than of the session
+        // (`crate::fold`).
+        if moved_fold_keys {
+            self.note_source_offsets_moved();
+        }
     }
 
     /// Forget every reader-held state keyed on a SOURCE OFFSET, because the source
@@ -452,6 +483,13 @@ impl TabState {
     /// key happened to land on a different block's new start offset, collapsing THE
     /// WRONG BLOCK.
     ///
+    /// **Which text "the source" is, is a question with a mode in it** — see
+    /// [`Self::previewed_source`]. In split mode the editor buffer is what the preview
+    /// renders from and what a fold key indexes, so the flush [`Self::set_source`]
+    /// performs there moves nothing and does not reach this. That is a property of the
+    /// CALLER rather than of this method, which is why the rule is stated at the one
+    /// call site that has a mode.
+    ///
     /// **Clearing is the decision, not a shortcut.** `crate::fold`'s module doc already
     /// states that fold state is deliberately not stable across an edit, matching HTML,
     /// where a disclosure's state is the `open` attribute and therefore a property of
@@ -461,29 +499,6 @@ impl TabState {
     /// the answer it produced would be a guess the reader could not predict.
     pub(crate) fn note_source_offsets_moved(&self) {
         self.folds.borrow_mut().clear();
-        // **The stamp a control carries** — see [`Self::fold_epoch`]. Bumped here, at
-        // the same choke point the map is cleared at, so the two cannot disagree about
-        // when a key stopped meaning what it meant.
-        self.fold_epoch.set(self.fold_epoch.get().wrapping_add(1));
-    }
-
-    /// How many times the source has moved under the fold keys, so a control minted
-    /// against an older document can tell.
-    ///
-    /// A `FoldKey` is baked into a toggle widget when it is built. In split mode the
-    /// preview re-renders on a ~300 ms debounce, so a reader can click a control in the
-    /// window between typing and the re-render — and that control's key names the
-    /// PREVIOUS document. The map has already been cleared, so the click did nothing at
-    /// all, silently; `MANUAL-TEST.md` 2.26l asserted the opposite (F-AP-B-105).
-    ///
-    /// **This makes the loss STATED rather than fixed**, deliberately. Making the key
-    /// survive would mean re-deriving it against the new source, which is exactly the
-    /// "key per-fold state to something that survives arbitrary edits" problem
-    /// `crate::fold` removes rather than solves. A click inside the debounce is
-    /// discarded; what must never happen is a DIFFERENT block toggling, and a stamp
-    /// mismatch is how that is refused rather than gambled on.
-    pub(crate) fn fold_epoch(&self) -> u64 {
-        self.fold_epoch.get()
     }
 
     /// Construct a fresh tab, filling in the universal-default fields that do
@@ -511,7 +526,6 @@ impl TabState {
             chrome,
         } = init;
         Self {
-            fold_epoch: std::cell::Cell::new(0),
             id,
             // Every tab is born with a fresh recovery identity; restore overwrites it
             // with the persisted one (see the field's doc for why that is safe).
@@ -526,14 +540,14 @@ impl TabState {
             editor_buf,
             split,
             content_box,
-            outline_selected: Cell::new(None),
+            outline_selected: RefCell::new(None),
             outline_collapsed: RefCell::default(),
             outline_paths: RefCell::default(),
             folds: RefCell::new(crate::fold::FoldState::default()),
             heading_index: RefCell::new(Vec::new()),
             annotations_selected: Cell::new(None),
             outline_spy_selecting: Cell::new(false),
-            outline_spy_doc: Cell::new(None),
+            outline_spy_doc: RefCell::new(None),
             scroll_spy_conn: RefCell::new(None),
             suppress_conflict: Cell::new(false),
             pending_external: Cell::new(false),
@@ -683,9 +697,7 @@ impl TabState {
     /// derivation is three calls deep and a fourth consumer would be free to get one of
     /// them wrong.
     pub(crate) fn previewed_cleaned(&self, mode: crate::winstate::ViewMode) -> String {
-        let raw = self.previewed_source(mode);
-        let normalised = crate::renderer::NormalizedMd::new(&raw);
-        crate::annotate::extract(normalised.as_str()).cleaned
+        cleaned_of(&self.previewed_source(mode))
     }
 
     /// True when the editor differs from the saved baseline (unsaved changes).

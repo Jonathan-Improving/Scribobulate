@@ -166,7 +166,6 @@ fn register_view_mode_action(window: &ApplicationWindow) {
                         // a rebuild that did not carry the reader's folds re-opened
                         // every block they had closed.
                         &st.folds.borrow(),
-                        st.fold_epoch(),
                     );
                     st.split.set_preview(Some(&preview));
                 }

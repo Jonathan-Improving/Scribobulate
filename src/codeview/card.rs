@@ -781,8 +781,7 @@ mod gtk_integration_tests {
         size: impl FnOnce(&gtk::Window, &gtk::Widget),
     ) -> (gtk::Window, CodePreviewView, AnnotationCard) {
         use gtk::subclass::prelude::*;
-        let pane =
-            crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default(), 0);
+        let pane = crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default());
         let view = view_of(pane.clone());
         let win = gtk::Window::new();
         size(&win, &pane);

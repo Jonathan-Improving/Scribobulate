@@ -1507,7 +1507,6 @@ mod gtk_integration_tests {
             1.0,
             false,
             &crate::fold::FoldState::default(),
-            0,
         );
         let view =
             crate::preview::view_of(&widget).expect("Overlay > ScrolledWindow > CodePreviewView");
@@ -1576,7 +1575,6 @@ mod gtk_integration_tests {
                 1.0,
                 false,
                 &crate::fold::FoldState::default(),
-                0,
             );
             let view = crate::preview::view_of(&widget)
                 .expect("Overlay > ScrolledWindow > CodePreviewView");
@@ -1716,7 +1714,7 @@ mod gtk_integration_tests {
             comment: "a note".to_string(),
             claim: Some("annotated".to_string()),
             source: MarkerSource {
-                construct: crate::annotate::AnchoredSpan::capture(src, 0..src.len())
+                construct: crate::docref::AnchoredSpan::capture(src, 0..src.len())
                     .expect("the fixture span is a valid slice"),
                 src_content: Some(0..3),
                 src_comment_body: 0..3,
@@ -2447,8 +2445,7 @@ mod gtk_integration_tests {
         // ordered list item — the exact GTK4Rs/AP-127 construct (the `**OR**` line abuts the
         // code block with no blank separator).
         let md = "2. If you've configured git, otherwise either:\n   1. use our `.githooks`:\n      ```\n      git config set core.hookspath .githooks\n      ```\n      **OR**  \n   2. Add the `-s` flag when committing:\n      ```\n      git commit -s -m \"msg\"\n      ```\n";
-        let pane =
-            crate::preview::render(md, None, 1.0, false, &crate::fold::FoldState::default(), 0);
+        let pane = crate::preview::render(md, None, 1.0, false, &crate::fold::FoldState::default());
         let view = pane
             .clone()
             .downcast::<gtk::Overlay>()
@@ -2560,7 +2557,6 @@ mod gate_tests {
                 1.0,
                 false,
                 &crate::fold::FoldState::default(),
-                0,
             );
             let view = crate::preview::view_of(&widget)
                 .expect("Overlay > ScrolledWindow > CodePreviewView");
@@ -2609,7 +2605,6 @@ mod gate_tests {
             1.0,
             false,
             &crate::fold::FoldState::default(),
-            0,
         );
         let view =
             crate::preview::view_of(&widget).expect("Overlay > ScrolledWindow > CodePreviewView");

@@ -51,7 +51,6 @@ src/animation/schedule.rs
 src/animation/source.rs
 src/animation/visibility/mod.rs
 src/animation/worker.rs
-src/annotate/anchored.rs
 src/annotate/mod.rs
 src/annotate/mutate.rs
 src/annotate/scan.rs
@@ -72,6 +71,7 @@ src/docio/budget.rs
 src/docio/mod.rs
 src/docio/pool.rs
 src/docio/rename.rs
+src/docref.rs
 src/export/doc.rs
 src/export/html.rs
 src/export/markup.rs
@@ -148,6 +148,7 @@ src/readingpos.rs
 src/renderer/blockquote.rs
 src/renderer/blockspacing.rs
 src/renderer/disclosure.rs
+src/renderer/disclosure/identity.rs
 src/renderer/disclosure/preview.rs
 src/renderer/emit.rs
 src/renderer/end.rs

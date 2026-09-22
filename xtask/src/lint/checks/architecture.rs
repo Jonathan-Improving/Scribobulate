@@ -1,5 +1,5 @@
-//! The test-architecture checks (4, 5, 5b), the tracked-path legality check (12) and the
-//! PowerShell encoding check (14).
+//! The test-architecture checks (4, 5, 5b), the tracked-path legality check (12), the
+//! PowerShell encoding check (14) and the held-reference row check (24).
 //!
 //! The first three share a failure mode rather than a subject: each guards something that
 //! breaks SILENTLY, where the tree still builds, every test still passes, and the only
@@ -331,4 +331,104 @@ pub fn parser_dispatch_exhaustive(tree: &Tree) -> bool {
             "not count.",
         ],
     )
+}
+
+/// Check 24 — every held-reference construction site has a Document-Reference CAM row.
+///
+/// THE PART PROSE CANNOT SUPPLY. `sdd/CAM.md`'s Document-Reference matrix already governs
+/// every offset, range or index held across a turn, and its rules were already right when
+/// the defect that produced this check shipped. A sweep then found 28 such references in
+/// `src/`, seven of them at risk, and **not one of the seven had a row** — so the gap was
+/// never the rule, it was that nobody RECOGNISED themselves as entering the category. At
+/// the keystroke a held reference is a `usize` captured into a closure, and nothing about
+/// writing that line announces a category.
+///
+/// What makes it countable is that the codebase now has exactly ONE held-reference type
+/// (`crate::docref::AnchoredSpan`), so its construction sites are enumerable. Every file
+/// that builds one in production code must be named by the matrix — which is the point at
+/// which the author has to answer the row's questions: what the identity is, which
+/// invalidation classes reach it, and what an unresolvable reference does.
+///
+/// TESTS ARE EXCLUDED, by skipping each `#[cfg(…test…)]` module from its attribute to the
+/// first `}` in column zero. The obvious cheaper rule — cut the file at its first such
+/// attribute — is WRONG here and was measured wrong on the first run: `src/preview/render.rs`
+/// gates a test-only helper at line 43 and builds a real held reference at line 1066, so
+/// that rule hid the one site this check exists to see, and the check passed by seeing
+/// nothing. A gate that goes quiet when its input disappears is the failure mode this whole
+/// lint is written against.
+///
+/// PROVEN TO FIRE: delete the disclosure control's row from the matrix and this check
+/// names `src/preview/render.rs`, with the capture's own line.
+pub fn held_reference_rows(tree: &Tree) -> bool {
+    header(
+        "24",
+        "a held-reference construction site with no Document-Reference CAM row",
+    );
+    let cam = tree.text("sdd/CAM.md").unwrap_or_default();
+    let section = cam
+        .split_once("## Document-Reference CAM")
+        .map(|(_, rest)| rest.split("\n## ").next().unwrap_or(rest))
+        .unwrap_or_default();
+    if section.is_empty() {
+        return fail(
+            "sdd/CAM.md has no Document-Reference CAM section to hold the rows:",
+            &[],
+            &["The matrix this check reads is gone, so the check can prove nothing."],
+        );
+    }
+    let mut findings = Vec::new();
+    for (name, text) in tree.subset_texts(|path| path.starts_with("src/") && path.ends_with(".rs"))
+    {
+        // The type's own module defines and exercises it; a row would name the mechanism
+        // rather than a reference into a document.
+        if name == "src/docref.rs" {
+            continue;
+        }
+        for (index, line) in production_lines(text) {
+            if !line.contains("AnchoredSpan::capture") {
+                continue;
+            }
+            if section.contains(name) {
+                break;
+            }
+            findings.push(format!("{name}:{}: {}", index + 1, line.trim()));
+        }
+    }
+    if findings.is_empty() {
+        return pass();
+    }
+    fail(
+        "these build a held reference the matrix does not account for:",
+        &findings,
+        &[
+            "Add a row to sdd/CAM.md § Document-Reference CAM naming this file, and answer",
+            "its cells: what the reference's IDENTITY is, which invalidation classes reach",
+            "it (A / A' / B / C), and what happens when it cannot be resolved — which must",
+            "be to RE-DERIVE the view, never to silently do nothing.",
+        ],
+    )
+}
+
+/// A Rust file's lines with every `#[cfg(…test…)]` module skipped — see
+/// [`held_reference_rows`] for why the cut is per module rather than per file.
+///
+/// The module ends at the first `}` in column zero, which is this codebase's layout for a
+/// test module. `#[cfg(not(test))]` is deliberately not treated as one: it gates the
+/// PRODUCTION half of a pair.
+fn production_lines(text: &str) -> Vec<(usize, &str)> {
+    let mut out = Vec::new();
+    let mut in_test = false;
+    for (index, line) in text.lines().enumerate() {
+        if in_test {
+            in_test = line != "}";
+            continue;
+        }
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("#[cfg(") && trimmed.contains("test") && !trimmed.contains("not(") {
+            in_test = true;
+            continue;
+        }
+        out.push((index, line));
+    }
+    out
 }

@@ -3,16 +3,22 @@
 //! Builds a virtualized `GtkListView` over a `GtkTreeListModel` whose rows are
 //! `GtkTreeExpander`s (disclosure chevrons + depth indentation for free), driven
 //! by a small `HeadingObject` GObject wrapping each `outline::HeadingNode`.
-//! Activating a row calls back with the heading's document-order index and source
-//! byte offset; `window.rs` turns that into a scroll of the preview (or editor).
+//! Activating a row calls back with two things, and the pairing is deliberate: the
+//! heading's **path** — its durable identity (`outline::expansion::HeadingPath`), which
+//! `window/outline_nav.rs` re-finds in the document as it stands at the click — and the
+//! row's own `doc_index`, which names its place in THIS build and is only ever applied
+//! to the render of the same generation. The row used to hand over a source byte offset
+//! baked in at build time, which is stale for the length of the live-edit debounce: the
+//! reader types a paragraph, clicks a heading within 300 ms, and lands where that
+//! heading used to be.
 //!
 //! This module is GTK-construction code (custom GObject + signal factory), not
 //! headlessly testable, so it sits outside the unit-test coverage gate alongside
 //! `codeview.rs` — the pure model and tree-folding it consumes live in
 //! `outline/`, where they are unit-tested.
 
+use crate::outline::expansion::HeadingPath;
 use crate::outline::HeadingNode;
-use crate::span::OriginalByteOffset;
 use gtk::prelude::*;
 use gtk::{gio, glib, pango};
 use std::collections::BTreeSet;
@@ -25,8 +31,14 @@ mod imp {
 
     pub(crate) struct HeadingObject {
         pub(crate) level: Cell<u8>,
+        /// This row's place in the build that produced it — a transient handle, valid
+        /// for as long as this widget tree is, which is what the tree model and the
+        /// scroll-spy index by. Never carried out of the build: see `path`.
         pub(crate) doc_index: Cell<usize>,
-        pub(crate) src_offset: Cell<OriginalByteOffset>,
+        /// The heading's DURABLE identity — the title path from a root heading down to
+        /// it. What an activation carries, because it is the one name that still means
+        /// the same heading after the document has been edited (`outline::expansion`).
+        pub(crate) path: RefCell<HeadingPath>,
         pub(crate) title: RefCell<String>,
         /// Child headings nested under this one (empty for a leaf).
         pub(crate) children: gio::ListStore,
@@ -37,7 +49,7 @@ mod imp {
             Self {
                 level: Cell::new(1),
                 doc_index: Cell::new(0),
-                src_offset: Cell::new(OriginalByteOffset::new(0)),
+                path: RefCell::new(HeadingPath::new()),
                 title: RefCell::new(String::new()),
                 children: gio::ListStore::new::<super::HeadingObject>(),
             }
@@ -60,16 +72,23 @@ glib::wrapper! {
 
 impl HeadingObject {
     /// Recursively wrap a `HeadingNode` (and its subtree) as GObjects.
-    fn new(node: &HeadingNode) -> Self {
+    ///
+    /// `paths` is this build's `doc_index` → path map, handed in rather than re-derived
+    /// here: the rule for naming a heading (including how same-titled siblings are told
+    /// apart) belongs to `outline::expansion` alone, and a second implementation of it
+    /// would name the same heading two ways.
+    fn new(node: &HeadingNode, paths: &[HeadingPath]) -> Self {
         use glib::subclass::prelude::*;
         let obj: Self = glib::Object::new();
         let imp = obj.imp();
         imp.level.set(node.level);
         imp.doc_index.set(node.doc_index);
-        imp.src_offset.set(node.src_offset);
+        if let Some(path) = paths.get(node.doc_index) {
+            *imp.path.borrow_mut() = path.clone();
+        }
         *imp.title.borrow_mut() = node.text.clone();
         for child in &node.children {
-            imp.children.append(&HeadingObject::new(child));
+            imp.children.append(&HeadingObject::new(child, paths));
         }
         obj
     }
@@ -86,9 +105,10 @@ impl HeadingObject {
         use glib::subclass::prelude::*;
         self.imp().doc_index.get()
     }
-    fn src_offset(&self) -> OriginalByteOffset {
+    /// The heading's durable identity — see the field.
+    pub(crate) fn path(&self) -> HeadingPath {
         use glib::subclass::prelude::*;
-        self.imp().src_offset.get()
+        self.imp().path.borrow().clone()
     }
     fn children(&self) -> gio::ListStore {
         use glib::subclass::prelude::*;
@@ -200,7 +220,8 @@ pub(crate) fn row_expansion_states(model: &gtk::TreeListModel) -> Vec<(usize, bo
 /// had folded rather than springing the whole tree open (TDD 12.24).
 pub(crate) fn build_outline_content(
     roots: &[HeadingNode],
-    on_activate: Rc<dyn Fn(usize, OriginalByteOffset)>,
+    paths: &[HeadingPath],
+    on_activate: Rc<dyn Fn(HeadingPath, usize)>,
     initial_selected: Option<usize>,
     keep_collapsed: &BTreeSet<usize>,
 ) -> gtk::Widget {
@@ -218,7 +239,7 @@ pub(crate) fn build_outline_content(
 
     let root_store = gio::ListStore::new::<HeadingObject>();
     for r in roots {
-        root_store.append(&HeadingObject::new(r));
+        root_store.append(&HeadingObject::new(r, paths));
     }
 
     // passthrough=false ⇒ rows are GtkTreeListRow (required to drive a
@@ -296,7 +317,7 @@ pub(crate) fn build_outline_content(
             return;
         };
         if let Some(heading) = row.item().and_downcast::<HeadingObject>() {
-            on_activate(heading.doc_index(), heading.src_offset());
+            on_activate(heading.path(), heading.doc_index());
         }
     });
 

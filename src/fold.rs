@@ -52,13 +52,26 @@
 //! the "key per-fold state to something that survives arbitrary edits" problem rather
 //! than solving it.
 //!
-//! **Two paths move the source, and both must clear.** `TabState::set_source` is the
-//! obvious one; the other is a live edit in split mode, where the editor buffer is
-//! authoritative and the preview re-renders straight from it without `set_source` ever
-//! running. `TabState::note_source_offsets_moved` is the single method both call, and it
-//! exists because the second path called nothing at all — so a key that no longer named
-//! the block it was minted for either reverted a collapsed block mid-typing or, when it
-//! collided with a different block's new start offset, collapsed the wrong one.
+//! **Whoever moves the text the PREVIEW renders from clears the map, and nobody else
+//! does.** Which text that is has a mode in it (`TabState::previewed_source`): in split
+//! mode it is the editor buffer, so the buffer's own `changed` clears — including a
+//! programmatic replacement, which moves the keys exactly as typing does; in every other
+//! mode it is `tab.source`, so `TabState::set_source` clears. `note_source_offsets_moved`
+//! is the single method both call.
+//!
+//! Getting that predicate wrong in either direction is a defect with a report attached.
+//! Too narrow: the split-mode live edit called nothing at all, so a key that no longer
+//! named the block it was minted for either reverted a collapsed block mid-typing or,
+//! colliding with a different block's new start offset, collapsed the wrong one. Too
+//! wide: `set_source` cleared unconditionally, so an ordinary Ctrl+S in split mode —
+//! a flush of the editor into a field the preview is not rendering from — discarded
+//! every collapsed block the reader had (TDD 2.26m).
+//!
+//! **A key that no longer names a block is not the same problem.** A CONTROL carries
+//! the block's own opening delimiter beside its key and re-resolves at the click
+//! (`renderer::disclosure::opening_delimiter`), so a reader pointing at a block that
+//! moved still toggles it. That is a narrower question than persisting the whole map
+//! across an arbitrary edit, which is the one this module declines above.
 
 use std::collections::HashSet;
 
@@ -161,9 +174,12 @@ impl FoldState {
     /// by the caller's caller and enforced by nothing. Hand it an already-expanded block
     /// and a toggle CLOSES one the reader asked to see.
     ///
-    /// A key naming no span is flipped and RETURNED: the fold map and the document have
-    /// diverged, so there is no `open` attribute to reason from, and the flip is the old
-    /// behaviour kept rather than a guess invented. The caller logs what comes back.
+    /// A key naming no span is RETURNED and nothing is written for it: the fold map and
+    /// the document have diverged, so there is no `open` attribute to reason from and
+    /// no state this function could put the block into. It used to flip the key anyway
+    /// — having detected staleness, it acted on it regardless — which was bounded only
+    /// by the same `find` that had just proved no span carries the key, and so was a
+    /// write onto nothing. The caller logs what comes back.
     ///
     /// **Here rather than in `window::foldreveal`** (F-TEST-B-003). It was a loop of
     /// pure decisions inside a coverage-excluded file with no test of any kind; moving
@@ -178,10 +194,7 @@ impl FoldState {
         for key in chain {
             match spans.iter().find(|s| s.fold_key() == *key) {
                 Some(span) => self.set_collapsed(*key, span.open, false),
-                None => {
-                    diverged.push(*key);
-                    self.toggle(*key);
-                }
+                None => diverged.push(*key),
             }
         }
         diverged
@@ -358,20 +371,23 @@ mod tests {
         assert!(folds.expand_chain(&spans, &[key(0)]).is_empty());
         assert!(!folds.is_collapsed(key(0), true), "and now expanded");
 
-        // (3) A key naming NO span is returned as diverged *and* still flipped — the
-        // old behaviour kept deliberately, because with no `open` attribute there is
-        // nothing to reason from. Returning it is what lets the caller say so.
+        // (3) A key naming NO span is REPORTED and not written: with no `open`
+        // attribute there is nothing to reason from, and a mismatch that has been
+        // detected must not then be acted on anyway. Returning it is what lets the
+        // caller say so.
         let spans = [span(0, false)];
         let mut folds = FoldState::default();
         let stray = key(999);
+        let before = folds.clone();
         assert_eq!(
             folds.expand_chain(&spans, &[stray]),
             vec![stray],
             "a key with no span is reported"
         );
-        assert!(
-            !folds.is_collapsed(stray, false),
-            "and flipped, which is the fallback rather than a guess"
+        assert_eq!(
+            folds, before,
+            "and nothing is written for it — the document holds no such block, so \
+             there is no state to put one into"
         );
     }
 }

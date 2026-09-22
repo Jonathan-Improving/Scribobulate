@@ -179,7 +179,6 @@ fn re_render_preview(
         zoom,
         allow_unsafe,
         &tab.folds.borrow(),
-        tab.fold_epoch(),
     );
 }
 
