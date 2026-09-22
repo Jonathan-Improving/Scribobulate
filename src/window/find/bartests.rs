@@ -598,6 +598,100 @@ fn a_preview_scope_that_no_longer_resolves_turns_itself_off() {
     win.destroy();
 }
 
+/// A collapsed disclosure ABOVE a passage, so expanding it splices text in above the
+/// captured bound — the arm where a held offset and a `GtkTextTag` range behave
+/// differently.
+const FOLD_MD: &str = "note before the fold\n\n<details>\n<summary>Hidden section</summary>\n\nnote hidden one\n\nnote hidden two\n\n</details>\n\nnote in the passage\n\nnote also in the passage\n\nnote at the very end\n";
+
+/// **A fold splice is a boundary too, and the find state has to be told** (TDD 11.16).
+///
+/// Reported by the macOS seat against 11.19's fold-splice leg, and the report is worth
+/// keeping because it was right about the observation and wrong about the diagnosis in
+/// a way no amount of looking at the pane could settle. What they saw was a toggle that
+/// stayed ticked over a count that stayed correct, and they reasonably asked whether the
+/// rubric was over-strict — a bound that survives honestly should not be discarded.
+///
+/// It had not survived. **Nothing had asked it.** An in-place splice bumps the render
+/// generation through `build::install_content`, so the bound would have failed to
+/// resolve the moment anything looked; but `refresh_preview_find_highlight` had three
+/// callers and the splice path was not one of them. The highlight went on looking right
+/// because a `GtkTextTag` range moves with an insertion of its own accord while a held
+/// offset does not — so the tags tracked the splice, the bound did not, and the two
+/// agreed by coincidence. The state was not stale but INCONSISTENT: touching the search
+/// at all would have released the bound and jumped the count with no reader action
+/// between.
+///
+/// **This is why the assertion is that the count changes with NO search interaction.**
+/// A check that searched again afterwards would have passed on the broken build — the
+/// search itself is what repaired it.
+#[gtktest::test]
+fn expanding_a_fold_above_a_passage_releases_the_passage() {
+    let app = test_app("com.extollit.scribobulate.integrationtest.findscopesplice");
+    let win = crate::window::new_window(&app, "IT-findscopesplice", FOLD_MD, None);
+    set_mode(&win, "preview");
+    search(&win, "note");
+    let whole_pane = count(&win).expect("the preview counts the query");
+
+    // The two passage paragraphs, which sit BELOW the fold.
+    let view = match super::find_target(&win) {
+        super::FindTarget::Preview(v) => v,
+        _ => panic!("preview mode must resolve a preview view"),
+    };
+    let body = crate::saferizer::BufferText::of_range(
+        &view.buffer(),
+        &view.buffer().start_iter(),
+        &view.buffer().end_iter(),
+    )
+    .into_string();
+    let from = body
+        .find("note in the passage")
+        .expect("the fixture's passage must be rendered") as i32;
+    let to = body
+        .find("note at the very end")
+        .expect("the fixture's tail must be rendered") as i32;
+    select_range(&win, from, to);
+    set_option(&win, super::super::findbar::FIND_IN_SELECTION, true);
+    let confined = count(&win);
+    assert!(
+        confined.is_some_and(|n| n > 0 && n < whole_pane),
+        "precondition: the passage must confine the count, got {confined:?} of \
+         {whole_pane}"
+    );
+
+    // Expand the disclosure ABOVE the passage — the production path, through the
+    // control rather than through the splice, because a toggle whose handler never
+    // reaches the splice changes nothing and looks identical from here.
+    let toggle = crate::preview::scrib_render_data(&view)
+        .expect("the preview carries render data")
+        .borrow()
+        .disclosure_lines[0]
+        .1
+        .clone();
+    toggle.set_active(!toggle.is_active());
+    crate::testpump::drain_for(
+        crate::testpump::Clock::Frame,
+        std::time::Duration::from_millis(600),
+    );
+
+    assert!(
+        state(&win).expect("a tab").find_scope.borrow().is_none(),
+        "the bound indexed the previous render and must be released by the splice \
+         itself — not by whatever the reader happens to do next"
+    );
+    assert!(
+        !option_state(&win, super::super::findbar::FIND_IN_SELECTION),
+        "…and the toggle must stop claiming a confinement that is no longer in force"
+    );
+    assert_ne!(
+        count(&win),
+        confined,
+        "the readout must have recounted for the whole pane without the reader \
+         touching the search — a count that only corrects itself on the next \
+         keystroke is the inconsistency this guards"
+    );
+    win.destroy();
+}
+
 /// With nothing selected and nothing captured, the control is unavailable and says why
 /// (TDD 11.16).
 #[gtktest::test]

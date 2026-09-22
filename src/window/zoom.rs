@@ -247,6 +247,21 @@ pub(crate) fn rerender_preview_in_place(
     if mode == ViewMode::Split {
         queue_scroll_sync(window);
     }
+
+    // **A re-render is a boundary the find state has to be told about**, and this is the
+    // one door every in-place one comes through — zoom, a fold reveal, and a disclosure
+    // toggle whose splice refused. Without it the derived find state is not merely stale
+    // but INCONSISTENT: the render generation has moved, so a captured preview passage no
+    // longer resolves and the hit list is invalidated, while the toggle, the count and the
+    // painted highlight all still show the previous render's answer. Nothing corrects them
+    // until the reader touches the search, at which point the count changes with no action
+    // of theirs between (TDD 11.16). Reported by the macOS seat against the fold-splice
+    // leg; the same absence covered three routes, which is why it is fixed at the choke
+    // point rather than at the route that exposed it.
+    //
+    // Cheap to call unconditionally: it no-ops with the bar closed or the query empty, and
+    // re-entry is impossible — nothing on the find refresh path re-renders.
+    super::refresh_preview_find_highlight(window);
 }
 
 /// Re-render the active tab's preview from the **live editor buffer** (not the
