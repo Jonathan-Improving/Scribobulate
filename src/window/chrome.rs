@@ -444,6 +444,17 @@ pub(super) fn build_chrome(
             "Regular expression",
             "Interpret the query as a regular expression",
         ),
+        // The fourth is NOT a match option: it bounds where matching is applied rather
+        // than what matches. It sits with the other three because that is what it is to
+        // the reader — a qualifier on the search — and because the one thing it must
+        // not be is a Replace feature: it scopes FINDING, and replace acts on what
+        // finding produced.
+        (
+            super::findbar::FIND_IN_SELECTION,
+            "Sel",
+            "Search in selection",
+            "Confine the search to the selected passage",
+        ),
     ]
     .into_iter()
     .map(|(action, glyph, name, tooltip)| {

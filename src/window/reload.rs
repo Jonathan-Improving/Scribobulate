@@ -83,6 +83,12 @@ fn apply_reload_from_disk(window: &ApplicationWindow, st: &Rc<TabState>, content
     // (`g_sequence_insert_sorted` → freed GtkTextLine → SIGSEGV; ScrAP-105).
     // The view-mode re-issue already renders the preview fresh from the reloaded
     // source, so the debounced re-render is both redundant and the crash trigger.
+    // The captured find-in-selection passage named text in the buffer that was just
+    // replaced. `set_text` deletes everything, which collapses both marks onto offset 0
+    // — so the bound stops bounding while the toggle goes on saying it does. Released
+    // here rather than repaired: a reload is new content, and the only honest answer
+    // is that the reader has not selected anything in it (rubric 11.16's re-derive arm).
+    findbar::release_find_scope(window, st);
     st.loading.set(true);
     load_into_editor(&st.editor_buf, &content);
     st.loading.set(false);
@@ -401,6 +407,12 @@ pub(crate) fn apply_external_reload(window: &ApplicationWindow, content: &str) {
     // Unreachable with a loss recorded (a lost document's changes decide Toast, never
     // Reload), but a reload that did land here would make the file whole again.
     crate::window::clear_backing_loss(&st);
+    // The captured find-in-selection passage named text in the buffer that was just
+    // replaced. `set_text` deletes everything, which collapses both marks onto offset 0
+    // — so the bound stops bounding while the toggle goes on saying it does. Released
+    // here rather than repaired: a reload is new content, and the only honest answer
+    // is that the reader has not selected anything in it (rubric 11.16's re-derive arm).
+    findbar::release_find_scope(window, &st);
     // Replace the editor buffer (guarded so the split debounce ignores this).
     st.loading.set(true);
     load_into_editor(&st.editor_buf, content);

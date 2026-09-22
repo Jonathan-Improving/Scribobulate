@@ -328,3 +328,309 @@ fn option_state(window: &ApplicationWindow, name: &str) -> bool {
         .and_then(|v| v.get::<bool>())
         .expect("the option action is registered and stateful")
 }
+
+/// Select `[start, end)` characters of whichever pane the window is showing.
+fn select_range(win: &ApplicationWindow, start: i32, end: i32) {
+    let st = state(win).expect("a tab");
+    let buf: gtk::TextBuffer = match super::find_target(win) {
+        super::FindTarget::Preview(view) => view.buffer(),
+        _ => st.editor_buf.clone().upcast(),
+    };
+    buf.select_range(&buf.iter_at_offset(start), &buf.iter_at_offset(end));
+    crate::testpump::drain_for(
+        crate::testpump::Clock::Idle,
+        std::time::Duration::from_millis(100),
+    );
+}
+
+fn action_enabled(window: &ApplicationWindow, name: &str) -> bool {
+    window
+        .lookup_action(name)
+        .expect("the action is registered")
+        .is_enabled()
+}
+
+/// **Search in selection confines the search in the editor, and Replace All with it**
+/// (TDD 11.16, 11.17).
+///
+/// The scope is a pair of marks precisely so it survives the replacements: the
+/// assertion that it still covers the same passage AFTERWARDS is the one a pair of
+/// offsets fails, and it fails silently — the first Replace All looks right and the
+/// second one reaches text outside the selection.
+#[gtktest::test]
+fn search_in_selection_confines_the_editor_search_and_its_replacements() {
+    const DOC: &str = "one target\ntwo target\nthree target\nfour target\n";
+    let app = test_app("com.extollit.scribobulate.integrationtest.findscope");
+    let win = crate::window::new_window(&app, "IT-findscope", DOC, None);
+    set_mode(&win, "edit");
+    search(&win, "target");
+    assert_eq!(count(&win), Some(4), "unscoped, every occurrence counts");
+
+    // The first two lines only: "one target\ntwo target\n" is characters 0..22.
+    let bound_end = DOC.find("three").expect("the fixture has a third line") as i32;
+    select_range(&win, 0, bound_end);
+    assert!(
+        action_enabled(&win, super::super::findbar::FIND_IN_SELECTION),
+        "a live selection must make the control usable"
+    );
+    set_option(&win, super::super::findbar::FIND_IN_SELECTION, true);
+    assert_eq!(
+        count(&win),
+        Some(2),
+        "the count must describe only the occurrences inside the selected passage"
+    );
+
+    // Stepping wraps WITHIN the passage rather than around the document.
+    let st = state(&win).expect("a tab");
+    for expected in [1, 2, 1, 2] {
+        super::find_step(&win, &st.search_context, super::SearchDir::Forward);
+        assert_eq!(
+            st.find_cursor.get(),
+            crate::window::FindCursor::Editor(expected),
+            "stepping must wrap inside the passage, not out of it"
+        );
+    }
+
+    super::replace_all_matches(&win, &st, "TOKEN");
+    let after = crate::saferizer::BufferText::of(&st.editor_buf).into_string();
+    assert_eq!(
+        after, "one TOKEN\ntwo TOKEN\nthree target\nfour target\n",
+        "Replace All must reach only the occurrences the SEARCH covered — not because \
+         Replace All is scoped, but because the search it acts on is"
+    );
+    assert_eq!(
+        st.chrome().match_count_label.text().as_str(),
+        "2 replaced",
+        "Replace All reports how many it made, not how many are left"
+    );
+
+    // The passage still covers the same text even though the replacements changed its
+    // length — the marks moved with it. Searching the new word finds both, and only
+    // both.
+    st.chrome().find_entry.set_text("TOKEN");
+    assert_eq!(
+        count(&win),
+        Some(2),
+        "the scope must still cover the same passage after its length changed"
+    );
+    win.destroy();
+}
+
+/// Replace acts on the match the reader is LOOKING at (TDD 11.17; ScrAP-27).
+///
+/// The fixture puts the caret past a match on purpose: re-finding forward from the
+/// caret and replacing what it lands on is right only while the caret happens to sit on
+/// the highlighted match, and the whole point is the case where it does not.
+#[gtktest::test]
+fn replace_acts_on_the_current_match_and_then_advances() {
+    const DOC: &str = "aaa target bbb target ccc target\n";
+    let app = test_app("com.extollit.scribobulate.integrationtest.findreplacecur");
+    let win = crate::window::new_window(&app, "IT-findreplacecur", DOC, None);
+    set_mode(&win, "edit");
+    search(&win, "target");
+    // Settle first: the editor's engine answers its scanning sentinel until it has
+    // swept the buffer, and a step taken before then lands on the right match while
+    // honestly reporting no position for it (§11.3). This test is about WHICH match is
+    // replaced, so it waits rather than measuring through that state.
+    assert_eq!(count(&win), Some(3));
+    let st = state(&win).expect("a tab");
+
+    // Step onto the SECOND match, so "the current match" and "the first match after the
+    // start of the document" are different answers.
+    super::find_step(&win, &st.search_context, super::SearchDir::Forward);
+    super::find_step(&win, &st.search_context, super::SearchDir::Forward);
+    assert_eq!(st.find_cursor.get(), crate::window::FindCursor::Editor(2));
+
+    super::replace_current_match(&win, &st, "DONE");
+    let after = crate::saferizer::BufferText::of(&st.editor_buf).into_string();
+    assert_eq!(
+        after, "aaa target bbb DONE ccc target\n",
+        "the SECOND occurrence — the one that was highlighted — must be the one replaced"
+    );
+    // …and the selection advanced to the next one rather than staying put.
+    let (sel_start, sel_end) = st
+        .editor_buf
+        .selection_bounds()
+        .expect("Replace advances to the next match and selects it");
+    assert_eq!(
+        crate::saferizer::BufferText::of_range(&st.editor_buf, &sel_start, &sel_end).as_str(),
+        "target",
+        "Replace must advance to the next match"
+    );
+    assert!(
+        sel_start.offset() > "aaa target bbb DONE".len() as i32,
+        "…the next one FORWARD, not back to the first"
+    );
+    win.destroy();
+}
+
+/// **A preview scope that no longer resolves makes the holder re-derive** (TDD 11.16).
+///
+/// The toggle turns itself off and the search covers the whole pane. Reinterpreting the
+/// range against the new render would confine the search to whatever now happens to sit
+/// at those offsets, which is a confident answer about a passage the reader never chose
+/// — the arm the retired `fold_epoch` got wrong and `PreviewFindCache` got right.
+#[gtktest::test]
+fn a_preview_scope_that_no_longer_resolves_turns_itself_off() {
+    let app = test_app("com.extollit.scribobulate.integrationtest.findscopepreview");
+    let win = crate::window::new_window(&app, "IT-findscopepreview", MD, None);
+    set_mode(&win, "preview");
+    search(&win, "note");
+    assert_eq!(count(&win), Some(ALL));
+
+    // The first line of the rendered preview only.
+    select_range(&win, 0, 23);
+    set_option(&win, super::super::findbar::FIND_IN_SELECTION, true);
+    let confined = count(&win);
+    assert!(
+        confined.is_some_and(|n| n > 0 && n < ALL),
+        "the selection must confine the count to part of the pane, got {confined:?}"
+    );
+    assert!(option_state(&win, super::super::findbar::FIND_IN_SELECTION));
+
+    // A theme switch re-renders the preview beneath the bound.
+    crate::app::re_render_all_windows(&app);
+    crate::testpump::drain_for(
+        crate::testpump::Clock::Frame,
+        std::time::Duration::from_millis(400),
+    );
+    assert_eq!(
+        count(&win),
+        Some(ALL),
+        "an unresolvable bound must make the search cover the whole pane again"
+    );
+    assert!(
+        !option_state(&win, super::super::findbar::FIND_IN_SELECTION),
+        "…and the toggle must say so, rather than claiming a confinement that is gone"
+    );
+    assert!(
+        state(&win).expect("a tab").find_scope.borrow().is_none(),
+        "the bound itself must be released, not merely ignored"
+    );
+    win.destroy();
+}
+
+/// With nothing selected and nothing captured, the control is unavailable and says why
+/// (TDD 11.16).
+#[gtktest::test]
+fn the_in_selection_control_is_unavailable_with_nothing_to_confine() {
+    let app = test_app("com.extollit.scribobulate.integrationtest.findscopesens");
+    let win = crate::window::new_window(&app, "IT-findscopesens", MD, None);
+    set_mode(&win, "edit");
+    search(&win, "note");
+    let name = super::super::findbar::FIND_IN_SELECTION;
+    assert!(
+        !action_enabled(&win, name),
+        "nothing is selected, so there is nothing to confine the search to"
+    );
+    select_range(&win, 0, 10);
+    assert!(action_enabled(&win, name), "a selection makes it usable");
+    set_option(&win, name, true);
+    // Collapsing the selection must NOT take the control away: a captured bound has to
+    // stay releasable, or the reader is stuck inside it.
+    select_range(&win, 5, 5);
+    assert!(
+        action_enabled(&win, name),
+        "a captured bound must stay releasable after the selection that made it is gone"
+    );
+    win.destroy();
+}
+
+/// **The find bar's boundary refresh describes the pane in front of the reader, not
+/// only the preview** (TDD 11.13).
+///
+/// `refresh_preview_find_highlight` is what every boundary that rebuilds a pane calls —
+/// a mode switch, a theme re-render, an external reload. It used to act on the Preview
+/// arm alone, on the reasoning that only a rebuilt preview loses anything. True of the
+/// highlights; false of the READOUT, which was left showing the count of the pane the
+/// reader had just left. The two panes legitimately count differently — the preview
+/// searches three texts, so an anchored pattern matches inside each — so the stale
+/// number was true of neither the query nor the pane.
+///
+/// Reported by the macOS seat, ratifying batch A.
+///
+/// **The assertion is made against the refresh ITSELF, not against a live mode
+/// switch**, and the difference is the whole reliability of this guard. A mode switch
+/// has side effects that also happen to recount — the editor takes focus, the caret
+/// moves, and its engine re-emits `occurrences-count` — so a test that switches modes
+/// and then reads the label is measuring whichever of several paths got there first,
+/// and may pass on a build where this refresh does nothing at all. Poisoning the label
+/// and invoking the boundary refresh asks the one question that matters: does the call
+/// every pane-rebuilding boundary makes answer for the pane the reader can see?
+///
+/// Mutation check: narrow `findbar::refresh_preview_find_highlight` back to its
+/// `if let FindTarget::Preview(..)` arm → the poison survives in edit mode
+/// (`"999 matches"` against an owed `"2 matches"`). VERIFIED, and worth saying how it
+/// was nearly not: the first attempt at this check edited a pattern that did not exist
+/// in the file, so it mutated nothing and the test "passed" — a green mutation run is
+/// indistinguishable from a mutation that never happened unless the edit asserts it
+/// landed.
+#[gtktest::test]
+fn the_boundary_refresh_recounts_for_whichever_pane_is_visible() {
+    let app = test_app("com.extollit.scribobulate.integrationtest.findmodereadout");
+    let win = crate::window::new_window(&app, "IT-findmodereadout", MD, None);
+
+    set_mode(&win, "edit");
+    search(&win, "note");
+    set_option(&win, "find-regex", true);
+    let st = state(&win).expect("a tab");
+    st.chrome().find_entry.set_text("^note");
+    let in_editor = count(&win).expect("the editor counts the anchored pattern");
+
+    set_mode(&win, "preview");
+    let in_preview = count(&win).expect("the preview counts it too");
+    assert_ne!(
+        in_editor, in_preview,
+        "precondition: the fixture must make the two panes disagree, or a stale readout \
+         is indistinguishable from a fresh one"
+    );
+
+    let label = st.chrome().match_count_label.clone();
+    for (mode, owed) in [("preview", in_preview), ("edit", in_editor)] {
+        set_mode(&win, mode);
+        // Whatever the switch itself did, put a number on screen that is true of
+        // neither pane, then ask the boundary refresh to answer.
+        label.set_text("999 matches");
+        crate::window::refresh_preview_find_highlight(&win);
+        assert_eq!(
+            label.text().as_str(),
+            format!("{owed} matches"),
+            "in {mode} the boundary refresh must recount FOR {mode} — it is the one \
+             call every pane-rebuilding boundary makes, so an arm it does not cover is \
+             a readout nothing corrects"
+        );
+    }
+    win.destroy();
+}
+
+/// **Whole word bounds an alternation as one group, in the editor too** (TDD 11.14).
+///
+/// `notebook` starts with one branch and ends with the other, so it matches an
+/// ungrouped `\b…\b` wrapper and not a grouped one. GtkSourceView's own wrapper is
+/// ungrouped, so this passes only because the application wraps the pattern before
+/// handing it over — which is the whole of `matcher::editor_pattern`.
+///
+/// Driven through the find bar rather than through two engines directly, because the
+/// wrapping happens in `findbar::refresh_find` and a probe that set the raw query on a
+/// `SearchSettings` of its own would measure an engine the application never drives.
+#[gtktest::test]
+fn whole_word_bounds_an_alternation_the_same_way_in_both_panes() {
+    const SPANNING: &str = "note notebook book\n";
+    let app = test_app("com.extollit.scribobulate.integrationtest.findwordalt");
+    let win = crate::window::new_window(&app, "IT-findwordalt", SPANNING, None);
+    for mode in ["edit", "preview"] {
+        set_mode(&win, mode);
+        search(&win, "note|book");
+        set_option(&win, "find-regex", true);
+        set_option(&win, "find-whole-word", true);
+        assert_eq!(
+            count(&win),
+            Some(2),
+            "{mode}: `notebook` is neither whole word, so only the two standalone \
+             words match — an ungrouped wrapper counts it as 4 here"
+        );
+        set_option(&win, "find-whole-word", false);
+        set_option(&win, "find-regex", false);
+    }
+    win.destroy();
+}

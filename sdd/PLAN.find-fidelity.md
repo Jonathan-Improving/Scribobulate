@@ -134,28 +134,20 @@ three check items in the Edit menu, one stateful `win.` action each, classified 
 a fourth readout state in both panes. Both bar rows became wrap boxes and both fields are
 width-capped.
 
-**Batch B — scope.** "Search in selection" is a fourth toggle, and it scopes **finding**
-— replacement is simply an action applied to what finding produced, so the toggle is not
-a replace feature and is not editor-only. It applies in **both panes**, and the two hold
-their bound differently because they index different spaces:
+**Batch B — scope and replace semantics. LANDED.** "Search in selection" is a fourth
+toggle (`Sel`) and a fourth Edit-menu item, scoping **finding** in both panes. The editor
+holds a pair of `GtkTextMark`s (left/right gravity) so the passage tracks the edits
+Replace All makes inside it; the preview holds a char range keyed on the same
+`view_serial`+`generation` the hit cache uses, and an unresolvable one turns the toggle
+off rather than being reinterpreted. Both take a Document-Reference CAM row (15, 16).
+Replace acts on the current match and advances; Replace All is bounded by the scope and
+reports how many it made.
 
-- **Editor** — a pair of `GtkTextMark`s (start left gravity, end right gravity) in the
-  editor buffer, which is the document's own source space. Marks rather than a
-  `docref::AnchoredSpan` because the range must track edits made *inside* it, which is
-  what marks do natively and what a captured-text anchor cannot, and a selection is
-  unbounded in size so anchoring by its text is unbounded in cost.
-- **Preview** — a char range in the preview buffer, carried with the same
-  `view_serial`+`generation` key the hit cache already uses. A re-render invalidates it
-  exactly as it invalidates the hit list; the toggle then turns itself off and the search
-  covers the whole pane, because an unresolvable reference obliges the holder to
-  re-derive rather than refuse.
-
-Both take a Document-Reference CAM row. The toggle is insensitive when there is no
-selection to capture and none is already captured.
-
-Replace acts on the **current match** — the one highlighted — and then advances, rather
-than re-finding forward from the caret (ScrAP-27). Replace All is bounded by the scope
-and reports how many replacements it made.
+**The one trap worth carrying forward**: `GtkSourceSearchContext::forward` **wraps**
+(`wrap-around` is on by default and this application needs it on — TDD 11.3), so a
+`while let Some(..) = sc.forward(&it)` enumeration never terminates. The third tuple
+element is the engine saying it has been round, and it is the only reliable stop. Routed
+to the `gtk4-rs` skill.
 
 **Batch C — history.** Each field gains a drop-down listing that tab's previous entries,
 most recent first, de-duplicated, capped. A term enters the history when it is

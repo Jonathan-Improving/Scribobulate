@@ -32,9 +32,14 @@ mod parity;
 /// coverage gate can see it — `src/window/*.rs` is excluded from scope and this file's
 /// decision core is not GTK (`sdd/POLICY.md` § coverage gate, the extraction rule).
 mod plan;
+/// **Search in selection** — the shape of the captured bound and the arithmetic over
+/// it. Pure; the marks and the buffer reads are here in the parent.
+mod scope;
 
 use matcher::Matcher;
+pub(crate) use matcher::{editor_pattern, engine_applies_word_boundaries};
 pub(crate) use options::FindOptions;
+pub(crate) use scope::{PreviewScope, RenderKey};
 /// The find bar searches whichever text the user is actually looking at: the
 /// editor's `GtkSourceSearchContext` in edit/split (the editor is visible there),
 /// or the **preview**'s plain `GtkTextBuffer` in pure-preview mode (where the
@@ -171,6 +176,64 @@ impl FindCursor {
     }
 }
 
+/// The passage the reader confined the search to, and how each pane holds it.
+///
+/// **A held reference into the document** (CAM § Document-Reference), and the two panes
+/// index different spaces, so there is no single representation: the editor's is the
+/// document's own source, the preview's is a rendering of it that a re-render replaces
+/// wholesale. `scope` carries why each half is shaped as it is.
+///
+/// Not persisted. It indexes a buffer that does not exist until the document has been
+/// re-read, so a restored toggle would name a passage that is not there — and the
+/// toggle restores off for exactly that reason.
+pub(crate) enum FindScope {
+    /// The editor's source buffer, held as a pair of marks so the range TRACKS edits
+    /// made inside it. Replace All makes exactly such edits, which is why a static pair
+    /// of offsets is the wrong shape here and a `docref::AnchoredSpan` is too (it
+    /// re-finds by captured text, and the text is what changes).
+    ///
+    /// `start` has left gravity and `end` right gravity, so an insertion at either
+    /// boundary stays inside the passage rather than escaping it.
+    Editor {
+        start: gtk::TextMark,
+        end: gtk::TextMark,
+    },
+    /// The preview buffer, held as a character range against the render it was taken
+    /// from. Nothing to track: a re-render replaces the text, and the honest answer is
+    /// then that it does not resolve.
+    Preview(PreviewScope),
+}
+
+impl FindScope {
+    /// The editor's `[lo, hi)` bound, or `None` when this scope is the preview's or its
+    /// marks no longer live in `buf`.
+    ///
+    /// **The buffer check is not defensive padding.** Resolving a mark against a buffer
+    /// it does not belong to is a process ABORT inside GTK's btree, not an error
+    /// (ScrAP-104), and the editor buffer is swapped on a reload-from-disk. Every
+    /// resolution site in this project carries the same guard.
+    fn editor_bounds(&self, buf: &gtk::TextBuffer) -> Option<(i32, i32)> {
+        let FindScope::Editor { start, end } = self else {
+            return None;
+        };
+        if start.buffer().as_ref() != Some(buf) || end.buffer().as_ref() != Some(buf) {
+            return None;
+        }
+        let lo = buf.iter_at_mark(start).offset();
+        let hi = buf.iter_at_mark(end).offset();
+        (lo < hi).then_some((lo, hi))
+    }
+
+    /// The preview bound, if this scope is the preview's AND still describes `key`'s
+    /// render.
+    fn preview_bounds(&self, key: RenderKey) -> Option<PreviewScope> {
+        match self {
+            FindScope::Preview(p) if p.resolves_against(key) => Some(*p),
+            _ => None,
+        }
+    }
+}
+
 /// Name of the preview find-highlight `GtkTextTag`.
 ///
 /// One definition: the string was written out at five sites across three modules
@@ -221,6 +284,11 @@ fn cell_hl_current() -> (u16, u16, u16) {
 /// One occurrence of the search term in the preview, in document order. Body
 /// matches live in the buffer; cell matches live in a table cell `GtkLabel`; hidden
 /// matches live in no widget at all, only in the source.
+///
+/// `Clone` so a SCOPED view of the cached list can be handed to a consumer without the
+/// cache having to hold a second list per scope. The only non-trivial field is a
+/// `GtkLabel`, whose clone is a reference count.
+#[derive(Clone)]
 enum PreviewHit {
     /// Body-text match — buffer character offsets.
     Body { start: i32, end: i32 },
@@ -483,6 +551,7 @@ impl PreviewFindCache {
         view: &CodePreviewView,
         query: &str,
         options: FindOptions,
+        scope: Option<PreviewScope>,
         f: impl FnOnce(&[(i32, Label)], &[PreviewHit]) -> R,
     ) -> Result<R, matcher::PatternError> {
         let key = HitsKey::new(
@@ -512,7 +581,25 @@ impl PreviewFindCache {
             built = Some(BuiltHits { key, targets, hits });
         }
         let built = built.expect("the slot is Some: either it was current, or just built");
-        let out = f(&built.targets, &built.hits);
+        // **The scope is applied here and is NOT part of the key.** The cached list is
+        // every match in the render; confining the search selects from it. Keying on the
+        // scope instead would rebuild the whole list each time the reader dragged a new
+        // selection, and — worse — would make a list built under one bound reusable under
+        // no bound, which is the same list read two ways.
+        let confined: Vec<PreviewHit>;
+        let hits: &[PreviewHit] = match scope {
+            Some(sc) => {
+                confined = built
+                    .hits
+                    .iter()
+                    .filter(|h| sc.contains(preview_hit_position(h)))
+                    .cloned()
+                    .collect();
+                &confined
+            }
+            None => &built.hits,
+        };
+        let out = f(&built.targets, hits);
         self.slot.replace(Some(built));
         Ok(out)
     }
@@ -682,11 +769,56 @@ pub(super) fn highlight_preview_matches(
     view: &CodePreviewView,
     text: &str,
     options: FindOptions,
+    scope: Option<PreviewScope>,
 ) -> Result<i32, matcher::PatternError> {
-    cache.with_hits(view, text, options, |targets, hits| {
+    cache.with_hits(view, text, options, scope, |targets, hits| {
+        // The FULL list is painted from, with only the in-scope entries in it — a match
+        // outside the passage is not a match, so it carries no highlight either. Showing
+        // washed matches the reader cannot navigate to is the count-versus-navigation
+        // disagreement ScrAP-36 records, in a second form.
         apply_preview_highlights(view, targets, hits, 0);
         hits.len() as i32
     })
+}
+
+/// This tab's preview scope for `view`'s CURRENT render, **re-deriving when it no
+/// longer resolves**.
+///
+/// A re-render — live preview, a fold splice, a theme switch, an external reload —
+/// replaces the buffer the range indexes. Applying the old range to the new text would
+/// confine the search to whatever now happens to sit at those offsets, which is a
+/// confident answer about a passage the reader never chose. So the bound is dropped and
+/// the toggle turns itself off: the search covers the whole pane, which is the
+/// re-derivation an unresolvable reference obliges rather than the refusal it invites
+/// (CAM § Document-Reference).
+fn preview_scope_for(
+    window: &ApplicationWindow,
+    st: &Rc<TabState>,
+    view: &CodePreviewView,
+) -> Option<PreviewScope> {
+    let key = RenderKey {
+        view_serial: view.instance_serial(),
+        generation: view.render_generation(),
+    };
+    // Cloned out of the cell before anything else, so no borrow is alive across the
+    // action-state write below (ScrAP-53).
+    let resolved = st
+        .find_scope
+        .borrow()
+        .as_ref()
+        .map(|sc| (matches!(sc, FindScope::Preview(_)), sc.preview_bounds(key)));
+    match resolved {
+        Some((true, None)) => {
+            log::info!(
+                "find: the captured selection no longer describes this render; \
+                 the search now covers the whole preview"
+            );
+            super::findbar::release_find_scope(window, st);
+            None
+        }
+        Some((_, bounds)) => bounds,
+        None => None,
+    }
 }
 
 /// Highlight every match of a plain, case-insensitive literal `text` — the shape every
@@ -703,7 +835,7 @@ pub(super) fn highlight_preview_literal(
     view: &CodePreviewView,
     text: &str,
 ) -> i32 {
-    highlight_preview_matches(cache, view, text, FindOptions::default())
+    highlight_preview_matches(cache, view, text, FindOptions::default(), None)
         .expect("a literal query always compiles")
 }
 
@@ -716,10 +848,16 @@ pub(super) fn highlight_preview_literal(
 /// They agreed until the query could fail to compile, at which point each of them owed
 /// a fourth branch — which is the shape where one of four gets it wrong and reports
 /// "No matches" for a pattern the reader is still halfway through typing.
-pub(super) fn resync_preview_find(st: &Rc<TabState>, view: &CodePreviewView, query: &str) {
+pub(super) fn resync_preview_find(
+    window: &ApplicationWindow,
+    st: &Rc<TabState>,
+    view: &CodePreviewView,
+    query: &str,
+) {
     let label = &st.chrome().match_count_label;
     st.find_cursor.set(FindCursor::None);
-    match highlight_preview_matches(&st.preview_find, view, query, st.find_options.get()) {
+    let scope = preview_scope_for(window, st, view);
+    match highlight_preview_matches(&st.preview_find, view, query, st.find_options.get(), scope) {
         Ok(total) => set_match_label(label, 0, total),
         Err(e) => {
             // Nothing is highlighted, because nothing is known to match — the previous
@@ -800,6 +938,60 @@ fn scroll_to_preview_hit(view: &CodePreviewView, hit: &PreviewHit) {
     }
 }
 
+/// The editor scope's `[lo, hi)` bound in buffer character offsets, or `None` when the
+/// search covers the whole buffer.
+///
+/// The borrow is dropped before returning, and nothing between taking it and dropping
+/// it calls a GTK setter — `iter_at_mark` is a read. A setter here would be the
+/// re-entrant `RefCell` abort ScrAP-53 records.
+fn editor_scope_bounds(st: &Rc<TabState>) -> Option<(i32, i32)> {
+    let buf: gtk::TextBuffer = st.editor_buf.clone().upcast();
+    let scope = st.find_scope.borrow();
+    scope.as_ref()?.editor_bounds(&buf)
+}
+
+/// Every editor match inside the active scope, ascending, or `None` when there is no
+/// scope in force.
+///
+/// **`GtkSourceSearchContext` has no bounded region**, and that is the whole reason
+/// this exists: `occurrences_count()` counts the whole buffer and `replace_all()`
+/// replaces in it, so "in selection" cannot be expressed as a property and has to be a
+/// bound this application enforces on stepping, counting and replacing alike. Enumerating
+/// is cheap here in a way it would not be for the whole document, because a selection is
+/// what a reader can drag over.
+///
+/// A match that begins inside the passage and runs past its end is excluded
+/// (`scope::editor_match_is_inside`): replacing it would edit text the reader did not
+/// select.
+fn scoped_editor_matches(st: &Rc<TabState>) -> Option<Vec<(i32, i32)>> {
+    let (lo, hi) = editor_scope_bounds(st)?;
+    let sc = &st.search_context;
+    let buf = &st.editor_buf;
+    let mut out = Vec::new();
+    let mut it = buf.iter_at_offset(lo);
+    // **`sc.forward` WRAPS, and that is what ends this loop.** `GtkSourceSearchSettings`
+    // has `wrap-around` on by default and this application leaves it on — Next and Prev
+    // are specified to wrap (TDD 11.3) — so `forward` past the last match does not
+    // answer `None`, it answers the FIRST match again. Enumerating with
+    // `while let Some(..)` therefore never terminates: it re-walks the document
+    // forever, and on a bounded region every lap is inside the bound. The third tuple
+    // element is the engine saying it has been round; it is the only reliable stop.
+    //
+    // The offset guard below is the second half, not a duplicate: a single match that
+    // IS the whole search region reports no wrap on the pass that re-finds it.
+    while let Some((ms, me, wrapped)) = sc.forward(&it) {
+        let (start, end) = (ms.offset(), me.offset());
+        if wrapped || start >= hi || start < it.offset() || end <= start {
+            break;
+        }
+        if scope::editor_match_is_inside(start, end, lo, hi) {
+            out.push((start, end));
+        }
+        it = me;
+    }
+    Some(out)
+}
+
 /// Search direction (QA round-1 L4 — replaces a bare `backward: bool`, whose
 /// call sites like `find_step(&w, sc, true)` read as noise with no clue what
 /// `true` means without checking the signature).
@@ -826,36 +1018,37 @@ fn preview_find_step(
         return;
     }
     let Some(st) = state(window) else { return };
-    let stepped = st
-        .preview_find
-        .with_hits(view, text, st.find_options.get(), |targets, hits| {
-            let total = hits.len() as i32;
-            if total == 0 {
-                apply_preview_highlights(view, targets, hits, 0);
-                st.find_cursor.set(FindCursor::None);
-                set_match_label(&st.chrome().match_count_label, 0, 0);
-                return None;
-            }
-            // Where the cursor sits in THIS list, re-found by the position it landed on.
-            // A cursor left pointing into the editor's occurrence list reads as 0 and steps
-            // to the first preview hit, rather than being taken as a position in a list it
-            // was never an index into.
-            let cur = match st.find_cursor.get() {
-                FindCursor::Preview { ordinal, at } => resume_ordinal(hits, ordinal, at),
-                FindCursor::None | FindCursor::Editor(_) => 0,
-            }
-            .clamp(0, total);
-            let next = if dir == SearchDir::Backward {
-                if cur <= 1 {
-                    total
-                } else {
-                    cur - 1
+    let scope = preview_scope_for(window, &st, view);
+    let stepped =
+        st.preview_find
+            .with_hits(view, text, st.find_options.get(), scope, |targets, hits| {
+                let total = hits.len() as i32;
+                if total == 0 {
+                    apply_preview_highlights(view, targets, hits, 0);
+                    st.find_cursor.set(FindCursor::None);
+                    set_match_label(&st.chrome().match_count_label, 0, 0);
+                    return None;
                 }
-            } else {
-                cur % total + 1 // cur==0 ⇒ 1; cur==total ⇒ wrap to 1
-            };
-            land_on_hit(view, &st, targets, hits, (next - 1) as usize)
-        });
+                // Where the cursor sits in THIS list, re-found by the position it landed on.
+                // A cursor left pointing into the editor's occurrence list reads as 0 and steps
+                // to the first preview hit, rather than being taken as a position in a list it
+                // was never an index into.
+                let cur = match st.find_cursor.get() {
+                    FindCursor::Preview { ordinal, at } => resume_ordinal(hits, ordinal, at),
+                    FindCursor::None | FindCursor::Editor(_) => 0,
+                }
+                .clamp(0, total);
+                let next = if dir == SearchDir::Backward {
+                    if cur <= 1 {
+                        total
+                    } else {
+                        cur - 1
+                    }
+                } else {
+                    cur % total + 1 // cur==0 ⇒ 1; cur==total ⇒ wrap to 1
+                };
+                land_on_hit(view, &st, targets, hits, (next - 1) as usize)
+            });
 
     // Next/Prev do NOTHING for a pattern that does not compile (rubric 11.15). There is
     // no list to step through, and stepping a stale one would move the reader through
@@ -894,9 +1087,13 @@ fn select_preview_hit_at_or_after(window: &ApplicationWindow, min_off: i32, text
         return;
     };
     let Some(st) = state(window) else { return };
-    let reveal = st
-        .preview_find
-        .with_hits(&view, text, st.find_options.get(), |targets, hits| {
+    let scope = preview_scope_for(window, &st, &view);
+    let reveal = st.preview_find.with_hits(
+        &view,
+        text,
+        st.find_options.get(),
+        scope,
+        |targets, hits| {
             let total = hits.len() as i32;
             if total == 0 {
                 return None;
@@ -914,7 +1111,8 @@ fn select_preview_hit_at_or_after(window: &ApplicationWindow, min_off: i32, text
                 return None;
             };
             land_on_hit(&view, &st, targets, hits, idx)
-        });
+        },
+    );
     // This is reached only by resuming inside a block the same pattern already matched
     // into, so a compile failure here means the options changed mid-reveal. Nothing to
     // resume onto; the readout was set by whoever changed them.
@@ -1154,6 +1352,12 @@ pub(super) fn do_find_next(
     dir: SearchDir,
 ) {
     let Some(st) = state(window) else { return };
+    // Confined to a passage: step through the list this application enumerated, because
+    // the engine's own stepping knows nothing about the bound and would walk straight
+    // out of it (and its wrap would wrap around the document rather than the passage).
+    if scoped_editor_step(&st, dir) {
+        return;
+    }
     let buf = &st.editor_buf;
     // Step from the correct end of the current selection: forward from its END (to
     // move past the current match), backward from its START. `select_range` leaves
@@ -1198,9 +1402,199 @@ pub(super) fn do_find_next(
         // re-searching the whole document on every press (`occurrence_index`).
         let cursor = editor_cursor_for(occurrence_index(sc, &ms, &me));
         st.find_cursor.set(cursor);
-        update_match_count_label(sc, &st.chrome().match_count_label, cursor.editor_index());
+        update_editor_readout(&st, cursor.editor_index());
     }
 }
+/// Step within the captured passage. `false` when there is no passage, which is the
+/// caller's signal to take the engine's own path.
+///
+/// Everything here that could be WRONG — which entry is current, which one "next"
+/// means, how it wraps — is `scope`'s, decided from three integers and tested without a
+/// display. What is left is the selection, the scroll and the readout, which must move
+/// TOGETHER or the bar reports a position that is not the one highlighted.
+fn scoped_editor_step(st: &Rc<TabState>, dir: SearchDir) -> bool {
+    let Some(matches) = scoped_editor_matches(st) else {
+        return false;
+    };
+    let label = &st.chrome().match_count_label;
+    let buf = &st.editor_buf;
+    // Where the reader is, by POSITION rather than by the ordinal they were last given
+    // — the list is re-enumerated on every press and an edit inside the passage moves
+    // every match after it (rubric 11.12's rule, over the editor's list).
+    let at = buf.selection_bounds().map_or_else(
+        || buf.property::<i32>("cursor-position"),
+        |(s, _)| s.offset(),
+    );
+    let total = matches.len() as i32;
+    let Some(next) = scope::step(
+        scope::ordinal_at(&matches, at),
+        total,
+        dir == SearchDir::Backward,
+    ) else {
+        st.find_cursor.set(FindCursor::None);
+        set_match_label(label, 0, 0);
+        return true;
+    };
+    let (start, end) = matches[(next - 1) as usize];
+    buf.select_range(&buf.iter_at_offset(start), &buf.iter_at_offset(end));
+    crate::farscroll::scroll_to_mark_when_ready(
+        st.editor.upcast_ref(),
+        &buf.get_insert(),
+        0.1,
+        false,
+        0.0,
+        0.5,
+    );
+    st.find_cursor.set(FindCursor::Editor(next));
+    set_match_label(label, next, total);
+    true
+}
+
+/// Refresh the editor pane's readout, honouring the captured passage.
+///
+/// **The one door for the editor's count**, so a scoped search cannot report the whole
+/// buffer's total against a scoped position — which is a "3 of 47" where only 5 of the
+/// 47 are reachable, and reads as the navigation being broken rather than the number.
+pub(super) fn update_editor_readout(st: &Rc<TabState>, current: i32) {
+    let label = &st.chrome().match_count_label;
+    match scoped_editor_matches(st) {
+        Some(matches) => {
+            if let Some(e) = st.search_context.regex_error() {
+                set_invalid_pattern_label(label, &e.message());
+                return;
+            }
+            set_match_label(label, current, matches.len() as i32);
+        }
+        None => update_match_count_label(&st.search_context, label, current),
+    }
+}
+
+/// Replace **the match the reader is looking at**, then advance to the next one.
+///
+/// The current match is the SELECTION, tested against the engine rather than assumed:
+/// `sc.forward` from the selection's start must return that exact range. The
+/// alternative — re-finding forward from the caret, which is what this used to do — is
+/// right only while the caret happens to sit on the highlighted match, and wrong in
+/// every case where it does not: the reader sees one match washed and a different one
+/// change (ScrAP-27's shape, on the replace side rather than the step side).
+///
+/// Nothing current, or something current that is not a match: **step to one instead of
+/// replacing something else.** A Replace that edits a match the reader has not been
+/// shown is a silent edit, and the one keystroke that undoes it is not obviously owed.
+pub(super) fn replace_current_match(
+    window: &ApplicationWindow,
+    st: &Rc<TabState>,
+    replacement: &str,
+) {
+    let sc = &st.search_context;
+    let buf = &st.editor_buf;
+    let Some((sel_start, sel_end)) = buf.selection_bounds() else {
+        do_find_next(window, sc, SearchDir::Forward);
+        return;
+    };
+    let on_a_match = sc.forward(&sel_start).is_some_and(|(ms, me, _)| {
+        ms.offset() == sel_start.offset() && me.offset() == sel_end.offset()
+    });
+    // Inside the passage too, when there is one: a selection left over from before the
+    // reader confined the search is still a match, and replacing it would edit text
+    // outside the bound they asked for.
+    let in_scope = editor_scope_bounds(st).is_none_or(|(lo, hi)| {
+        scope::editor_match_is_inside(sel_start.offset(), sel_end.offset(), lo, hi)
+    });
+    if !on_a_match || !in_scope {
+        do_find_next(window, sc, SearchDir::Forward);
+        return;
+    }
+    let (mut ms, mut me) = (sel_start, sel_end);
+    if let Err(e) = sc.replace(&mut ms, &mut me, replacement) {
+        // With a regular expression this is where a malformed REPLACEMENT lands — a
+        // backreference to a group the pattern does not have. Reported rather than
+        // swallowed, because the reader pressed a button and nothing happened.
+        log::error!("find/replace: single replace failed: {e}");
+        set_invalid_pattern_label(&st.chrome().match_count_label, &e.message());
+        return;
+    }
+    do_find_next(window, sc, SearchDir::Forward);
+    update_editor_readout(st, st.find_cursor.get().editor_index());
+}
+
+/// Replace every match — **bounded by the captured passage when there is one** — and
+/// report how many were replaced.
+///
+/// `GtkSourceSearchContext::replace_all` is whole-buffer with no way to bound it, so
+/// the scoped arm walks this application's own enumeration. It walks it **backwards**:
+/// a replacement changes every offset after it, and going from the end means the
+/// offsets still to be used are all before the edit and therefore still valid.
+pub(super) fn replace_all_matches(
+    window: &ApplicationWindow,
+    st: &Rc<TabState>,
+    replacement: &str,
+) {
+    let sc = &st.search_context;
+    let label = &st.chrome().match_count_label;
+    let replaced = match scoped_editor_matches(st) {
+        Some(matches) => {
+            let buf = &st.editor_buf;
+            let mut done = 0u32;
+            for (start, end) in matches.iter().rev() {
+                let (mut ms, mut me) = (buf.iter_at_offset(*start), buf.iter_at_offset(*end));
+                match sc.replace(&mut ms, &mut me, replacement) {
+                    Ok(()) => done += 1,
+                    Err(e) => {
+                        log::error!("find/replace: replace all failed inside the selection: {e}");
+                        set_invalid_pattern_label(label, &e.message());
+                        return;
+                    }
+                }
+            }
+            done
+        }
+        None => {
+            // **Counted BEFORE, because afterwards there is nothing left to count** —
+            // and because the `sourceview5` binding drops the count
+            // `gtk_source_search_context_replace_all` returns. `occurrence_total`
+            // answers `None` while the engine is still scanning, which is a state this
+            // reports rather than papers over with a number (TDD 11.8).
+            let before = occurrence_total(sc).map(|n| n.max(0) as u32);
+            if let Err(e) = sc.replace_all(replacement) {
+                log::error!("find/replace: replace all failed: {e}");
+                set_invalid_pattern_label(label, &e.message());
+                return;
+            }
+            let Some(before) = before else {
+                log::info!(
+                    "find/replace: replaced every match; the engine was still scanning \
+                     when asked how many, so no count is reported"
+                );
+                st.find_cursor.set(FindCursor::None);
+                crate::a11y::describe(label, None);
+                label.set_visible(true);
+                label.set_text("Replaced");
+                return;
+            };
+            before
+        }
+    };
+    st.find_cursor.set(FindCursor::None);
+    // The count REPLACED, not the count remaining — which after a Replace All is
+    // usually zero and would read as "nothing happened" for the one action guaranteed
+    // to have changed the most.
+    //
+    // Not a status notice: it needs no retraction, because it occupies the find bar's
+    // own report surface and the next thing that reports there overwrites it, exactly
+    // as every other readout state does.
+    crate::a11y::describe(label, None);
+    label.set_visible(true);
+    label.set_text(&match replaced {
+        1 => "1 replaced".to_string(),
+        n => format!("{n} replaced"),
+    });
+    // The scope is still in force and still covers the same passage, even though the
+    // replacements changed its length — the marks moved with the text, which is why it
+    // is a pair of marks and not a pair of offsets.
+    super::findbar::update_find_scope_sensitivity(window);
+}
+
 /// Format the "N of M" / "No matches" match-count label from raw totals.
 /// Set the find bar's match counter. `total` is a real count: this function has no
 /// sentinel and no third state.

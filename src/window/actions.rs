@@ -187,6 +187,7 @@ pub(crate) fn connect_buf_to_copy_action(window: &ApplicationWindow) {
             window,
             move |_, _| {
                 recompute_copy_enabled(&w);
+                super::findbar::update_find_scope_sensitivity(&w);
             }
         ),
     );
@@ -212,6 +213,9 @@ pub(crate) fn connect_buf_to_copy_action(window: &ApplicationWindow) {
             recompute_copy_enabled(&w);
             // Table-cell annotation: cell-label selection also gates win.annotate (same ScrAP-110 signal).
             update_annotate_action_state(&w);
+            // A PREVIEW selection is what "search in selection" captures in preview
+            // mode, and the preview buffer's own selection reaches here too.
+            super::findbar::update_find_scope_sensitivity(&w);
         }
     ));
     store_copy_primary_handler(window, id);
@@ -333,6 +337,9 @@ pub(crate) fn apply_mode_action_state(window: &ApplicationWindow, mode: ViewMode
     // switch INTO a preview with a live selection must enable it — neither fires a
     // preview mark-set, so recompute here (SSOT: same helper the overlay driver calls).
     update_annotate_action_state(window);
+    // Same recompute for `win.find-in-selection`: which pane the search targets changes
+    // with the mode, and so does which buffer's selection counts.
+    super::findbar::update_find_scope_sensitivity(window);
     // Save is a *file-side* action — it writes the editor buffer to disk, it does
     // NOT mutate the buffer — so it is exempt from the preview-mode mutable-action
     // lockout and stays enabled in preview-only mode whenever there are unsaved

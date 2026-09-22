@@ -39,10 +39,15 @@ fn editor_count(hay: &str, query: &str, opts: FindOptions) -> Result<i32, String
     let buf = sourceview::Buffer::new(None);
     buf.set_text(hay);
     let settings = sourceview::SearchSettings::new();
+    // Exactly what the find bar hands the engine — the application's own wrapping for a
+    // whole-word regular expression, and the engine's own for a literal
+    // (`window::findbar::refresh_find` / `push_options_to_engine`). Setting the RAW
+    // query here instead would measure an engine the application never drives, which is
+    // how this file came to record a false conclusion once already.
     settings.set_case_sensitive(opts.case_sensitive);
-    settings.set_at_word_boundaries(opts.whole_word);
+    settings.set_at_word_boundaries(super::matcher::engine_applies_word_boundaries(opts));
     settings.set_regex_enabled(opts.regex);
-    settings.set_search_text(Some(query));
+    settings.set_search_text(Some(super::matcher::editor_pattern(query, opts).as_str()));
     let sc = sourceview::SearchContext::new(&buf, Some(&settings));
     crate::testpump::until(
         crate::testpump::Clock::Idle,
@@ -241,4 +246,67 @@ fn an_empty_query_matches_nothing_in_either_pane() {
             "the editor's engine treats an unset search text as no matches"
         );
     }
+}
+
+/// **Question 5 — what a replacement string means under a regular expression.**
+///
+/// Replace is the editor's alone (the preview is read-only), so this is not a
+/// comparison between engines: it is a probe of the one engine that performs it, kept
+/// here because it belongs with the other four answers and because the claim it settles
+/// is in the same rubric family (TDD 11.17).
+///
+/// MEASURED, and one half came out the opposite way to the guess:
+///
+/// - A backreference **does** expand against the match it replaced, so `\2 \1` over
+///   `(\w+) (\w+)` swaps the two words. That is the behaviour rubric 11.17 asserts.
+/// - A reference to a group the pattern does **not** have is **accepted and expands to
+///   nothing** — `\9` deletes the match rather than being rejected or inserted
+///   literally. It is GRegex's rule, not GtkSourceView's, and it is why the replace
+///   path cannot treat "no error" as "the reader got what they asked for": there is no
+///   diagnostic to surface, because the engine does not consider it a mistake.
+/// - A replacement that is genuinely malformed — a trailing lone backslash — IS
+///   rejected, which is the case the error path exists for.
+#[gtktest::test]
+fn a_replacement_expands_a_backreference_against_its_match() {
+    /// Replace the fixture's single match with `replacement`, and answer what the
+    /// document became. Re-derives the match each time: a `GtkTextIter` does not
+    /// survive the `set_text` that resets the fixture.
+    fn replace_once(replacement: &str) -> Result<String, String> {
+        let buf = sourceview::Buffer::new(None);
+        buf.set_text("alpha beta\n");
+        let settings = sourceview::SearchSettings::new();
+        settings.set_regex_enabled(true);
+        settings.set_search_text(Some(r"(\w+) (\w+)"));
+        let sc = sourceview::SearchContext::new(&buf, Some(&settings));
+        crate::testpump::until(
+            crate::testpump::Clock::Idle,
+            "the search context to find the fixture's one match",
+            || sc.occurrences_count() >= 1,
+        );
+        let (mut ms, mut me) = sc
+            .forward(&buf.start_iter())
+            .map(|(ms, me, _)| (ms, me))
+            .expect("the pattern matches the fixture");
+        match sc.replace(&mut ms, &mut me, replacement) {
+            Ok(()) => Ok(crate::saferizer::BufferText::of(&buf).into_string()),
+            Err(e) => Err(e.message().to_string()),
+        }
+    }
+
+    assert_eq!(
+        replace_once(r"\2 \1").as_deref(),
+        Ok("beta alpha\n"),
+        "a backreference must expand against the match it replaced, not appear literally"
+    );
+    assert_eq!(
+        replace_once(r"\9").as_deref(),
+        Ok("\n"),
+        "a reference to a group the pattern does not have expands to NOTHING and is not \
+         an error — so a silent deletion is a thing the reader can ask for by accident, \
+         and there is no diagnostic for the replace path to surface"
+    );
+    assert!(
+        replace_once("\\").is_err(),
+        "a trailing lone backslash is the malformed replacement the error path exists for"
+    );
 }

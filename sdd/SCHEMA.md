@@ -72,6 +72,7 @@ member. For a stateful action the work is driven by `change-state`, not
 | `win.find-match-case` | — | `b` | Whether the find query is case-sensitive. Per ACTIVE TAB: the value lives on the tab and this action mirrors whichever tab is active, so activating it addresses the tab in front of the reader. |
 | `win.find-whole-word` | — | `b` | Whether a find match must be bounded by non-word characters. Per active tab, as above. |
 | `win.find-regex` | — | `b` | Whether the find query is a regular expression (GRegex) rather than a literal. Per active tab, as above. |
+| `win.find-in-selection` | — | `b` | Whether the search is confined to a captured passage. Per active tab; **disabled** when there is no selection to capture and none already captured, which is the only find control whose availability depends on the document rather than on the query. Setting it true captures the current selection in whichever pane is visible; setting it false releases it. It can also untick ITSELF, when a re-render leaves the captured passage unresolvable. |
 | `win.annotate` | — | — | Attach a CriticMarkup comment to the selection. |
 | `win.next-annotation` | — | — | Go to the next annotation in the document, wrapping at the end. |
 | `win.prev-annotation` | — | — | Go to the previous annotation in the document, wrapping at the start. |

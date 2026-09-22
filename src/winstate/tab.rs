@@ -368,6 +368,19 @@ pub(crate) struct TabState {
     /// Read by both engines: pushed onto `search_settings` for the editor, and handed to
     /// `window::find`'s matcher for the preview's three texts.
     pub(crate) find_options: Cell<crate::window::FindOptions>,
+    /// The passage **search in selection** confined this tab's search to, or `None`
+    /// when the search covers the whole pane.
+    ///
+    /// Per tab like the options, but **never persisted**: it indexes a buffer that does
+    /// not exist until the document has been re-read, so restoring it would name a
+    /// passage that is not there. The toggle restores off.
+    ///
+    /// A `RefCell` rather than a `Cell` because the editor arm holds two `GtkTextMark`s
+    /// and a `GtkTextMark` is not `Copy`. Read it with the same discipline every other
+    /// `RefCell` here takes: clone out before calling into GTK, because a setter that
+    /// re-enters and borrows this again is a process abort rather than an error
+    /// (ScrAP-53).
+    pub(crate) find_scope: RefCell<Option<crate::window::FindScope>>,
     /// Back-reference to this tab's window's shared chrome (see module doc).
     /// A `RefCell` (not a plain `Rc`) because Move Tab to
     /// New Window / cross-window drag re-homes a tab under a DIFFERENT window's
@@ -598,6 +611,7 @@ impl TabState {
             // one path that also has to move the three GActions; setting the field here
             // from a `TabInit` would leave those unmoved and the toggles lying.
             find_options: Cell::new(crate::window::FindOptions::default()),
+            find_scope: RefCell::new(None),
             chrome_cell: RefCell::new(chrome),
             // Every tab starts at Preview; a restored session's real view mode is
             // replayed through the actual GAction right after construction (see

@@ -1827,6 +1827,35 @@
 - **Rationale** "No matches" for a malformed pattern is the confidently-wrong answer §11.8 already refuses for the scanning case: it reports on the document when what actually happened is that nobody was able to ask. It is also the state a reader occupies for most of the time they spend typing a pattern, so it has to read as "keep going" rather than as an answer
 - **Coverage** `window::find::parity::a_malformed_pattern_is_rejected_by_both_engines`; `tests/MANUAL-TEST.md` §11.15
 
+### 11.16 Search in selection confines the search, in either pane
+- **Given** edit mode with a selection spanning part of the document, containing some but not all occurrences of a term
+- **When** the reader enables **in selection**
+- **Then** the count, the highlights and Next/Prev describe only the occurrences inside the selection, and wrapping wraps within it
+- **And when** the reader invokes Replace All
+- **Then** only the occurrences inside the selection are replaced — not because Replace All is scoped, but because the search it acts on is — and the scope still covers the same passage afterwards even though the replacements changed its length
+- **And given** pure-preview mode with a selection made in the rendered preview
+- **When** the reader enables **in selection**
+- **Then** the same confinement holds there: body matches, table-cell matches and matches inside a collapsed disclosure are each counted only when they fall inside the selected passage
+- **And when** the preview is re-rendered beneath the scope — a live-preview re-render, a fold splice, a theme switch or an external reload
+- **Then** the scope is not silently reinterpreted against the new render: the toggle turns itself off and the search covers the whole pane, because a reference that cannot be resolved obliges a re-derivation rather than a confident wrong answer
+- **And given** no selection, and none already captured
+- **When** the reader looks at the in-selection control
+- **Then** it is insensitive with an explanatory description — and a captured scope keeps it sensitive after the selection that made it is gone, or the reader is stuck inside it
+- **Rationale** `GtkSourceSearchContext` has no bounded region: `occurrences-count` counts the whole buffer and `replace_all` replaces in it, so this cannot be a property and has to be a bound the application enforces on stepping, counting and replacing alike. The two panes hold it differently because they index different spaces (CAM § Document-Reference rows 15–16)
+- **Coverage** `window::find::scope::tests`; `window::find::bartests::search_in_selection_confines_the_editor_search_and_its_replacements`, `…::a_preview_scope_that_no_longer_resolves_turns_itself_off`, `…::the_in_selection_control_is_unavailable_with_nothing_to_confine`; `tests/MANUAL-TEST.md` §11.17–§11.19
+
+### 11.17 Replace acts on the match the reader is looking at
+- **Given** a match selected and highlighted as the current match
+- **When** the reader invokes Replace
+- **Then** *that* match is replaced and the selection advances to the next one — never the next match after the caret, which is the same match only while the caret happens to sit on it (ScrAP-27)
+- **And given** the caret is not on a match at all
+- **When** the reader invokes Replace
+- **Then** nothing is replaced and the search steps to a match instead, so the reader is shown what will change before it changes
+- **And** with the regular-expression option enabled, a backreference in the replacement expands against the match it replaced
+- **And** Replace All reports the number of replacements it made, rather than the number of matches left — which after a Replace All is normally zero and would read as nothing having happened
+- **Rationale** a replacement naming a group the pattern does not have is accepted by GRegex and expands to NOTHING, deleting the match rather than erroring, so "no error" cannot be read as "the reader got what they asked for". A genuinely malformed replacement — a trailing lone backslash — is rejected, and that is the case the error path exists for
+- **Coverage** `window::find::parity::a_replacement_expands_a_backreference_against_its_match`; `window::find::bartests::replace_acts_on_the_current_match_and_then_advances`; `tests/MANUAL-TEST.md` §11.18
+
 ## 12. Document outline
 
 > A collapsible sidebar lists the document's headings and navigates to them.

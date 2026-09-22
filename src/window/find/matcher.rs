@@ -29,11 +29,47 @@
 
 use super::options::FindOptions;
 
-/// The wrapper GtkSourceView's own regex path applies for whole-word mode, mirrored
-/// here so a pattern means the same thing in both panes. The non-capturing group
-/// matters: `\b` around a bare alternation would bind to the first and last branches
-/// only, so `cat|dog` would become `\bcat|dog\b`.
+/// How a regular expression is bounded to whole words. **The non-capturing group is the
+/// whole point**: `\b` around a bare alternation binds each anchor to one branch, so
+/// `note|book` becomes `\bnote|book\b` — "a word starting `note`, or a word ending
+/// `book`" — and `notebook` matches both halves of that while being neither word.
+///
+/// **GtkSourceView does NOT group it**, MEASURED on 5.20.0 by the macOS seat: its own
+/// regex whole-word wrapper is the ungrouped `\b%s\b`, so the editor counted `note|book`
+/// over `note notebook book` as 4 where the preview counted 2. This is why
+/// [`editor_pattern`] exists — the application wraps the query ITSELF and turns
+/// `at-word-boundaries` off for the regex case, so both panes run the same pattern
+/// rather than each wrapping its own way.
+///
+/// Recorded at length because the first parity fixture for this could not see it: `cat`
+/// sat at a word END and `dog` at a word START, and the grouped and ungrouped forms
+/// agree on that text. The distinguishing fixture needs ONE word holding the first
+/// branch at its start and the second at its end.
 const WORD_WRAPPED: &str = r"\b(?:{})\b";
+
+/// The pattern to hand the EDITOR's engine for `query` under `opts`, and the pattern
+/// this module compiles for the preview — one spelling, so the two panes cannot wrap a
+/// query differently.
+///
+/// Only the regular-expression case differs from the query itself. A LITERAL whole-word
+/// search is left to `GtkSourceSearchSettings:at-word-boundaries`, whose word predicate
+/// was measured to agree with this module's (`super::parity`); pre-wrapping a literal
+/// would turn it into a pattern, which is a different search entirely.
+pub(crate) fn editor_pattern(query: &str, opts: FindOptions) -> String {
+    if opts.regex && opts.whole_word && !query.is_empty() {
+        WORD_WRAPPED.replace("{}", query)
+    } else {
+        query.to_string()
+    }
+}
+
+/// Whether the editor's engine should be left to apply its own whole-word bounding.
+///
+/// False for a regular expression, because its wrapper is ungrouped and would re-wrap
+/// what [`editor_pattern`] has already wrapped correctly.
+pub(crate) fn engine_applies_word_boundaries(opts: FindOptions) -> bool {
+    opts.whole_word && !opts.regex
+}
 
 /// A compiled query, ready to be run against any number of texts.
 pub(crate) enum Matcher {
@@ -90,11 +126,7 @@ impl Matcher {
                 whole_word: opts.whole_word,
             });
         }
-        let pattern = if opts.whole_word {
-            WORD_WRAPPED.replace("{}", query)
-        } else {
-            query.to_string()
-        };
+        let pattern = editor_pattern(query, opts);
         let mut flags = glib::RegexCompileFlags::OPTIMIZE | glib::RegexCompileFlags::MULTILINE;
         if !opts.case_sensitive {
             flags |= glib::RegexCompileFlags::CASELESS;

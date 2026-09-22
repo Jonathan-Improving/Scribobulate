@@ -450,6 +450,7 @@ fn build_edit_menu() -> Menu {
         ("Match Case", "win.find-match-case"),
         ("Whole Word", "win.find-whole-word"),
         ("Regular Expression", "win.find-regex"),
+        ("Search in Selection", "win.find-in-selection"),
     ] {
         find_options_section.append_item(&item(label, action));
     }

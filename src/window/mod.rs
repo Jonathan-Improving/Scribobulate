@@ -80,7 +80,9 @@ pub(crate) use rename::update_rename_action_state;
 // The two find types `TabState` stores. The module itself stays private — the engine is
 // window-internal; only the shapes the per-tab state has to *hold* are named crate-wide.
 pub(crate) use backingloss::{clear_backing_loss, mark_backing_lost};
-pub(crate) use find::{FindCursor, FindOptions, PreviewFindCache};
+pub(crate) use find::{
+    FindCursor, FindOptions, FindScope, PreviewFindCache, PreviewScope, RenderKey,
+};
 pub(crate) use findbar::refresh_preview_find_highlight;
 pub(crate) use foldreveal::defer_with_window;
 pub(crate) use foldsplice::splice_disclosure_in_place;

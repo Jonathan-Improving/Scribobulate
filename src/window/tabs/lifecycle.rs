@@ -65,6 +65,9 @@ pub(crate) fn wire_tab_buffer_signals(content_box: &gtk::Box, buffer: &sourcevie
                 // annotated too — its buffer IS the raw source). Same SSOT helper the
                 // preview driver and mode/tab switches call.
                 update_annotate_action_state(&w);
+                // …and `win.find-in-selection`, which is the one find control whose
+                // availability depends on the document rather than on the query.
+                findbar::update_find_scope_sensitivity(&w);
             }
         }
     });

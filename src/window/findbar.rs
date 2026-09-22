@@ -79,7 +79,7 @@ pub(super) fn wire_find_bar(window: &ApplicationWindow, chrome: &Chrome) {
                 if text.is_empty() {
                     return;
                 }
-                resync_preview_find(&st, &view, text.as_str());
+                resync_preview_find(&w, &st, &view, text.as_str());
             }
         });
 
@@ -236,47 +236,126 @@ pub(super) fn wire_find_bar(window: &ApplicationWindow, chrome: &Chrome) {
         });
     }
 
+    // ── win.find-in-selection ────────────────────────────────────────────────
+    // The fourth toggle, and the one that is NOT a match option (`FindOptions` says
+    // why): it does not change what counts as a match, it bounds where matching is
+    // applied — and it is a held reference into the document rather than a boolean, so
+    // it is neither persisted nor carried in the same struct.
+    //
+    // It scopes FINDING. Replace is then an action on what finding produced, which is
+    // why this is not a replace feature and is not editor-only.
+    let in_selection =
+        super::viewactions::register_bool_action(window, FIND_IN_SELECTION, false, |window, on| {
+            let Some(st) = state(window) else { return };
+            if on {
+                capture_find_scope(window, &st);
+            } else {
+                *st.find_scope.borrow_mut() = None;
+            }
+            refresh_find(window, &st);
+        });
+    // Nothing is selected in a freshly built window, so the control starts unavailable
+    // and the selection wiring raises it.
+    in_selection.set_enabled(false);
+
     // ── Replace button ────────────────────────────────────────────────────────
     let re = replace_entry.clone();
-    let ml = match_count_label.clone();
     replace_btn.connect_clicked(glib::clone!(
         #[weak(rename_to = w)]
         window,
         move |_| {
             let Some(st) = state(&w) else { return };
-            let sc = &st.search_context;
-            let replacement = re.text();
-            let cursor = st
-                .editor_buf
-                .iter_at_offset(st.editor_buf.property::<i32>("cursor-position"));
-            if let Some((mut ms, mut me, _)) = sc.forward(&cursor) {
-                if let Err(e) = sc.replace(&mut ms, &mut me, replacement.as_str()) {
-                    log::error!("find/replace: single replace failed: {e}");
-                }
-                do_find_next(&w, sc, SearchDir::Forward);
-                // The EDITOR's index specifically — Replace is edit/split-only, so a
-                // cursor still pointing into the preview's list is not a position here.
-                update_match_count_label(sc, &ml, st.find_cursor.get().editor_index());
-            }
+            replace_current_match(&w, &st, re.text().as_str());
         }
     ));
 
     // ── Replace All button ────────────────────────────────────────────────────
     let re = replace_entry.clone();
-    let ml = match_count_label.clone();
     replace_all_btn.connect_clicked(glib::clone!(
         #[weak(rename_to = w)]
         window,
         move |_| {
             let Some(st) = state(&w) else { return };
-            let replacement = re.text();
-            if let Err(e) = st.search_context.replace_all(replacement.as_str()) {
-                log::error!("find/replace: replace all failed: {e}");
-            }
-            st.find_cursor.set(FindCursor::None);
-            update_match_count_label(&st.search_context, &ml, 0);
+            replace_all_matches(&w, &st, re.text().as_str());
         }
     ));
+}
+
+/// The `win.` action carrying **search in selection**.
+///
+/// A named constant rather than a literal because four surfaces spell it — the action
+/// registration, the find-bar toggle's `action-name`, the Edit-menu item and the
+/// sensitivity update — and an action name is a string no compiler checks. The three
+/// match options get the same treatment from `FindOptions::ACTIONS`; this one is not in
+/// that table because it is not one of them.
+pub(crate) const FIND_IN_SELECTION: &str = "find-in-selection";
+
+/// Capture the passage the reader has selected in whichever pane they are looking at.
+///
+/// The two panes index different spaces and so capture differently — see `FindScope`.
+/// Capturing nothing leaves the toggle on with no bound, which would read as "in
+/// selection, and everything is in the selection"; the action is insensitive without a
+/// selection precisely so that state is unreachable.
+fn capture_find_scope(window: &ApplicationWindow, st: &Rc<TabState>) {
+    let captured = match find_target(window) {
+        FindTarget::Editor => st.editor_buf.selection_bounds().map(|(start, end)| {
+            // LEFT gravity on the start and RIGHT on the end, so text inserted at
+            // either boundary lands INSIDE the passage rather than escaping it. Replace
+            // All inserts at exactly those boundaries when the first or last match is
+            // flush with them.
+            FindScope::Editor {
+                start: st.editor_buf.create_mark(None, &start, true),
+                end: st.editor_buf.create_mark(None, &end, false),
+            }
+        }),
+        FindTarget::Preview(view) => view.buffer().selection_bounds().map(|(start, end)| {
+            FindScope::Preview(PreviewScope {
+                key: RenderKey {
+                    view_serial: view.instance_serial(),
+                    generation: view.render_generation(),
+                },
+                start: start.offset(),
+                end: end.offset(),
+            })
+        }),
+        FindTarget::PreviewUnresolved => None,
+    };
+    *st.find_scope.borrow_mut() = captured;
+}
+
+/// Drop the captured passage and untick the toggle, from a path that discovered the
+/// bound no longer resolves.
+///
+/// `set_action_state`, never `change_state`: the handler would clear a bound this has
+/// already cleared and re-run the search that is in the middle of discovering it — and
+/// the caller is `find`'s own scope resolution, so that is a re-entrant search.
+pub(super) fn release_find_scope(window: &ApplicationWindow, st: &Rc<TabState>) {
+    *st.find_scope.borrow_mut() = None;
+    set_action_state(window, FIND_IN_SELECTION, &false.to_variant());
+    update_find_scope_sensitivity(window);
+}
+
+/// Whether the in-selection control is usable: there is a passage to capture, or one is
+/// already captured so the reader can let it go.
+///
+/// **The one option whose availability depends on the document rather than the query**,
+/// which is why it has a sensitivity rule at all and the other three do not. Called
+/// from every place a selection can change — the same three hooks `win.copy` is driven
+/// from, since a selection is a selection.
+pub(crate) fn update_find_scope_sensitivity(window: &ApplicationWindow) {
+    let Some(st) = state(window) else { return };
+    let captured = st.find_scope.borrow().is_some();
+    let selectable = match find_target(window) {
+        FindTarget::Editor => st.editor_buf.has_selection(),
+        FindTarget::Preview(view) => view.buffer().has_selection(),
+        FindTarget::PreviewUnresolved => false,
+    };
+    let enabled = captured || selectable;
+    set_action_enabled(window, FIND_IN_SELECTION, enabled);
+    crate::a11y::describe(
+        &st.chrome().find_entry,
+        (!enabled).then_some("Select a passage to confine the search to it."),
+    );
 }
 
 /// Re-run the active tab's search under its current query AND options, and put the
@@ -296,11 +375,14 @@ pub(super) fn refresh_find(window: &ApplicationWindow, st: &Rc<TabState>) {
     let label = &chrome.match_count_label;
     let text = chrome.find_entry.text();
     push_options_to_engine(st);
-    st.search_settings.set_search_text(if text.is_empty() {
-        None
-    } else {
-        Some(text.as_str())
-    });
+    // **The query the editor's engine is given is not always the query the reader
+    // typed.** For a whole-word REGULAR EXPRESSION the application wraps it — see
+    // `matcher::editor_pattern` — because GtkSourceView's own wrapper is ungrouped and
+    // binds each `\b` to one branch of an alternation. Every other case passes through
+    // unchanged.
+    let pattern = crate::window::find::editor_pattern(text.as_str(), st.find_options.get());
+    st.search_settings
+        .set_search_text((!pattern.is_empty()).then_some(pattern.as_str()));
     label.set_visible(!text.is_empty());
     // The step cursor indexes a list that has just been replaced, whichever pane owns
     // it, so the next Next/Prev starts from the top.
@@ -309,8 +391,8 @@ pub(super) fn refresh_find(window: &ApplicationWindow, st: &Rc<TabState>) {
     // editor isn't visible). Otherwise the source context's occurrences-count
     // notification refreshes the label.
     match find_target(window) {
-        FindTarget::Preview(view) => resync_preview_find(st, &view, text.as_str()),
-        FindTarget::Editor => update_match_count_label(&st.search_context, label, 0),
+        FindTarget::Preview(view) => resync_preview_find(window, st, &view, text.as_str()),
+        FindTarget::Editor => update_editor_readout(st, 0),
         // Deliberately NOT the editor arm: in pure-preview mode the editor's
         // occurrence count describes a buffer the user cannot see, so showing
         // it would be a confidently wrong number rather than a missing one.
@@ -336,23 +418,40 @@ pub(super) fn adopt_find_options(window: &ApplicationWindow, st: &Rc<TabState>) 
     for (name, accessor) in FindOptions::ACTIONS {
         set_action_state(window, name, &accessor.get(&options).to_variant());
     }
+    // The scope is a tab's too, and its toggle is the window's, so it takes the same
+    // resync — and its sensitivity, which the other three do not have, has to be
+    // recomputed against whatever the newly active tab has selected.
+    set_action_state(
+        window,
+        FIND_IN_SELECTION,
+        &st.find_scope.borrow().is_some().to_variant(),
+    );
+    update_find_scope_sensitivity(window);
     push_options_to_engine(st);
 }
 
 /// Push this tab's options onto its own `GtkSourceSearchSettings`.
 ///
-/// The editor's engine implements all three natively, so this is the whole editor half
-/// of the feature. It is a separate function from [`refresh_find`] because a tab can
-/// become active with the find bar CLOSED — there is nothing to recount then, but the
-/// engine still has to be holding this tab's options before the bar next opens.
+/// The editor's engine implements two of the three natively; the third — whole word
+/// under a regular expression — it implements WRONGLY for an alternation, so the
+/// application takes it over (`matcher::editor_pattern`). It is a separate function
+/// from [`refresh_find`] because a tab can become active with the find bar CLOSED —
+/// there is nothing to recount then, but the engine still has to be holding this tab's
+/// options before the bar next opens.
 fn push_options_to_engine(st: &Rc<TabState>) {
+    let options = st.find_options.get();
     let FindOptions {
         case_sensitive,
-        whole_word,
+        whole_word: _,
         regex,
-    } = st.find_options.get();
+    } = options;
     st.search_settings.set_case_sensitive(case_sensitive);
-    st.search_settings.set_at_word_boundaries(whole_word);
+    // NOT the reader's `whole_word` outright: for a regular expression the wrapping is
+    // the application's, because the engine's own is ungrouped
+    // (`matcher::WORD_WRAPPED`), and letting it wrap again would nest one correct
+    // bounding inside one incorrect one.
+    st.search_settings
+        .set_at_word_boundaries(crate::window::find::engine_applies_word_boundaries(options));
     st.search_settings.set_regex_enabled(regex);
 }
 
@@ -446,11 +545,19 @@ pub(crate) fn refresh_preview_find_highlight(window: &ApplicationWindow) {
     if !chrome.find_bar_revealer.reveals_child() {
         return;
     }
-    let query = chrome.find_entry.text();
-    if query.is_empty() {
+    if chrome.find_entry.text().is_empty() {
         return;
     }
-    if let FindTarget::Preview(view) = find_target(window) {
-        resync_preview_find(&st, &view, query.as_str());
-    }
+    // **Both directions, not only the one that rebuilds a buffer.** This used to act on
+    // the Preview arm alone, on the reasoning that a mode switch builds a fresh preview
+    // whose highlights are gone while the editor's engine is untouched. The engine is
+    // untouched — and the READOUT is not: it was still showing the count of the pane
+    // the reader just left. The two panes legitimately count differently (the preview
+    // searches three texts, so an anchored pattern matches in each), so switching
+    // Preview→Edit left a number on screen that was true of neither the query nor the
+    // pane, and only the next Next or keystroke corrected it. Reported by the macOS
+    // seat ratifying the match-options batch; the bug is one arm short, not one signal
+    // missed, which is why the fix routes the whole refresh rather than adding a second
+    // call beside it.
+    refresh_find(window, &st);
 }
