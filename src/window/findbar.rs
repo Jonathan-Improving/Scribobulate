@@ -589,11 +589,11 @@ pub(super) fn refresh_find(window: &ApplicationWindow, st: &Rc<TabState>) {
 /// **A scope belongs to the pane it was taken in.** The editor's is a pair of marks in
 /// the source buffer and the preview's is a range in a rendering of it; neither means
 /// anything in the other pane. Switching view mode changes which pane the search acts
-/// on, and a held scope of the wrong kind then confines nothing — while the toggle goes
+/// on, and a held scope of the wrong kind then confines nothing — while the control goes
 /// on saying it does.
 ///
 /// Reported by the macOS seat: capture a passage in Preview, switch to Side by Side,
-/// and `Sel` stayed ticked against a whole-document count. The count was truthful,
+/// and "Search in selection" stayed ticked against a whole-document count. The count was truthful,
 /// which is what made it a mirror defect rather than a wrong answer — and mirror
 /// defects are the ones nobody notices until they have trusted one.
 ///

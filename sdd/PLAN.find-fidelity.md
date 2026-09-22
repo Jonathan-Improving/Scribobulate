@@ -125,7 +125,7 @@ wrong count TDD 11.8 exists to refuse.
 Approach 1, delivered in three batches. Each batch is a self-contained behaviour change
 that can be ratified by the Mac and Windows seats on its own.
 
-**Batch A — match options. LANDED.** Three toggles (`Aa`, `W`, `.*`) in the find bar and
+**Batch A — match options. LANDED.** Three toggles (`Aa`, `Words`, `Reg-Ex`) in the find bar and
 three check items in the Edit menu, one stateful `win.` action each, classified as
 **uncommon commands**. Per-tab state beside `find_query`, persisted in `TabSession`
 (additive, no version bump). The preview's three hard-wired matchers collapsed onto
@@ -134,12 +134,12 @@ three check items in the Edit menu, one stateful `win.` action each, classified 
 a fourth readout state in both panes. Both bar rows became wrap boxes and both fields are
 width-capped.
 
-**Batch B — scope and replace semantics. LANDED.** "Search in selection" is a fourth
-toggle (`Sel`) and a fourth Edit-menu item, scoping **finding** in both panes. The editor
+**Batch B — scope and replace semantics. LANDED.** "Search in selection" is a check box
+beside the three toggles and a fourth Edit-menu item, scoping **finding** in both panes. The editor
 holds a pair of `GtkTextMark`s (left/right gravity) so the passage tracks the edits
 Replace All makes inside it; the preview holds a char range keyed on the same
-`view_serial`+`generation` the hit cache uses, and an unresolvable one turns the toggle
-off rather than being reinterpreted. Both take a Document-Reference CAM row (15, 16).
+`view_serial`+`generation` the hit cache uses, and an unresolvable one clears the box
+rather than being reinterpreted. Both take a Document-Reference CAM row (15, 16).
 Replace acts on the current match and advances; Replace All is bounded by the scope and
 reports how many it made.
 
@@ -149,7 +149,8 @@ reports how many it made.
 element is the engine saying it has been round, and it is the only reliable stop. Routed
 to the `gtk4-rs` skill.
 
-**Batch C — history. LANDED.** Each field gains a `GtkMenuButton` (`▾`) whose menu is
+**Batch C — history. LANDED.** Each field gains a `GtkMenuButton` (a bundled
+`document-open-recent-symbolic` plus `always-show-arrow`) whose menu is
 built **on demand** from the active tab's own list, so there is no model to resync on a
 tab switch — only the button's sensitivity, which is a property of that tab's list. One
 parameterised `win.pick-find-history` action serves both drop-downs; its target is the
@@ -170,6 +171,43 @@ per tab and repaired on load rather than rejected.
   search the reader did not just ask for. The find bar restores closed, as it does now.
 - **The captured selection bound is not persisted** either — it indexes a buffer that
   does not exist until the document is re-read. The toggle restores off.
+
+### Re-ratifying after a UI rearrangement
+
+Functionality on this branch is ratified on all three platforms. **Moving the bar's
+existing widgets around does not re-open that**, and the reason is that the one thing a
+rearrangement reliably breaks is already machine-gated on the Linux host:
+`window::gtk_integration_tests::no_chrome_sets_the_windows_width_floor_above_the_backstop` asserts the
+window's minimum is EXACTLY `MIN_WINDOW_WIDTH` with every toolbar section shown, both
+sidebars open, the find bar open with its replace row, and a document whose headings
+stretch anything that stretches. A control that raises the floor fails there. That is
+worth more than a seat's eye on it, because the macOS failure mode is silent — the window
+is **not** grown to meet a risen minimum, so the control is simply not drawn (TDD 9.38).
+Accessibility naming is gated the same way: `clippy.toml` bans the bare tooltip setter,
+so a control that is not named through `a11y::` fails the build.
+
+So a pure rearrangement needs a green pipeline and nothing else. **Three changes are not
+rearrangements and each owes a narrow platform check** — narrow, not a repeat of the full
+pass:
+
+| Change | Who has to look | Why Linux cannot answer it |
+|---|---|---|
+| A new glyph or non-ASCII character in a label | both seats | Different font stacks. The `▾` the history buttons once carried had to be confirmed as not tofu in the bundled macOS font. |
+| A new ICON NAME | neither, IF it is bundled | `tests/icon_resolution.rs` answers it per platform, but only for the theme that machine has: this host's Adwaita is 41, which says nothing about the Adwaita 50 the Windows tree stages. Bundling under the requested name settles it before a seat sees a placeholder, and the host theme still wins where it has one. |
+| A new control, as opposed to a moved one | this seat first | Construction details do not show up in a layout test. `set_label` builds `box[label, arrow]`, which drew a second chevron beside the toolkit's own — identical on every platform, and caught only by looking. A widget-tree dump plus a screenshot here is the check; it does not need a seat. |
+| Anything touching the titlebar | `windows` | Windows requires a NATIVE frame, and adding a `GtkHeaderBar` or `set_titlebar()` silently defeats `GTK_CSD=0` (MANUAL-TEST §7.0a). |
+
+⚠️ **If a floor is ever re-measured by hand rather than by that test, converge first.**
+Both seats independently established that a single resize reports the *pre-wrap* floor —
+macOS by a coarse drag that stops short, Windows by a `SetWindowPos` refused at the
+unwrapped minimum — and that the window reports the short width faithfully, so nothing
+looks wrong. Repeat the resize until it stops changing before reading it. The full recipe
+for each platform is in MANUAL-TEST §A.2 and §A.3. The automated test avoids this entirely
+by MEASURING rather than dragging, which is the third reason to lean on it.
+
+**This section outlives the plan** and must be migrated on retirement rather than deleted
+with it — it is a rule about when a change needs platform ratification, so POLICY is its
+home, not this file.
 
 ## Proposed TDD Rubrics
 

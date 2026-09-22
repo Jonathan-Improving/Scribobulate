@@ -122,28 +122,36 @@ fn cap_field_width(field: &impl IsA<gtk::Editable>) {
 /// field has to stay a `GtkSearchEntry` for the `stop-search` binding that closes the
 /// bar on Escape (ScrAP-48). A sibling button leaves the entry exactly as it is.
 ///
-/// **The chevron is the toolkit's own, and the button contributes an EMPTY label.**
-/// That spelling is not decoration — it is the only one at this project's GTK floor
-/// that yields exactly one down-indicator.
+/// **An icon and NO arrow — and the absence is chosen, not defaulted.** At this GTK
+/// floor a `GtkMenuButton`'s child *type* decides whether it gets a down-indicator: the
+/// `GtkImage` child type is the image by itself, while the `GtkLabel` child type builds
+/// a box holding the label AND a `GtkBuiltinIcon` with css name `arrow`.
+/// `always-show-arrow` (GTK 4.4, inside the 4.6 floor) would put that node back over an
+/// image child, and it is deliberately not called. MEASURED here on GTK 4.6.9, both by
+/// dumping the widget tree and by rendering the button: with it set, the `arrow` node
+/// exists, reports itself visible, is ALLOCATED its share of the button — and PAINTS
+/// NOTHING under Adwaita. The result is an icon shoved to the left of a button with an
+/// empty half. Setting it is worse than not, and the reason is the same one that makes
+/// the property look attractive: what the node draws is a theme's business, and the
+/// theme does not consider this node its business.
 ///
-/// This began as `set_label("▾")`: a glyph rather than an icon name, deliberately,
-/// because an icon name is one more thing to be missing from a host icon theme and to
-/// need bundling (ScrAP-169, GTK4Rs/AP-48). It drew TWO arrows. `GtkMenuButton` does
-/// not put a label in the button — it builds a box holding the label AND a
-/// `GtkBuiltinIcon` with css name `arrow` — so the application's chevron sat beside the
-/// toolkit's. Reported by the Windows seat; MEASURED here on GTK 4.6.9 by dumping the
-/// widget tree, which is what made it widget behaviour rather than one platform's
-/// theme (the built-in arrow is simply drawn at higher contrast there).
+/// This button was an EMPTY label before it carried an icon, and the reason it was
+/// empty is the reason it is not a `set_label` now. It began as `set_label("▾")` — a
+/// glyph rather than an icon name, deliberately, because an icon name is one more thing
+/// to be missing from a host icon theme (ScrAP-169, GTK4Rs/AP-48) — and it drew TWO
+/// arrows on Windows, the application's chevron beside the toolkit's. `set_child` does
+/// not avoid it either: a custom child is wrapped in the same `box[child, arrow]`. Note
+/// what the pair of measurements says together: the toolkit's arrow is drawn on Windows
+/// and not under Adwaita, so it is not something to build a layout around in either
+/// direction. The empty label was the answer while the button had nothing to say; a
+/// blank button says nothing about what it opens, which is what put an icon here.
 ///
-/// `set_child` does NOT avoid it: measured on the same build, a custom child is wrapped
-/// in the same `box[child, arrow]`. At 4.6 there is no way to refuse the arrow, so the
-/// honest answer is to stop competing with it. An empty label leaves the toolkit's
-/// chevron alone in the button, costs no icon-theme lookup, and cannot be a missing
-/// glyph in anybody's font. The button's accessible name comes from `a11y`, so nothing
-/// depends on the label carrying text.
+/// The icon-theme hazard that argued against an icon name in the first place is
+/// answered by BUNDLING rather than by avoiding the name — see
+/// `data/resources.gresource.xml`, and note the host theme still wins where it has one.
 fn history_button(accessible_name: &str) -> gtk::MenuButton {
     let btn = gtk::MenuButton::new();
-    btn.set_label("");
+    btn.set_icon_name(Icon::DocumentOpenRecent.name());
     btn.add_css_class("flat");
     // A freshly built window has committed nothing, and the bar is built before any tab
     // is registered — so the floor is set here and `findbar::sync_history_buttons`
@@ -472,32 +480,28 @@ pub(super) fn build_chrome(
     //
     // Each is a `GtkToggleButton` bound to its `win.` action by name — the same action
     // the Edit menu's check item drives — so neither surface holds state of its own
-    // (POLICY "One action per command"). The glyphs are the find-bar convention, short
-    // enough that four of them together are narrower than one word each would be.
+    // (POLICY "One action per command").
+    //
+    // The labels are ASCII and they are WORDS, not the find-bar's conventional glyphs.
+    // `Aa` is the one that survived, because it demonstrates the thing it names; `W`
+    // and `.*` did not, because they only stand for it — `W` is not narrower than
+    // "Words" by enough to buy the guess it demands, and `.*` is legible to somebody
+    // who already knows what regular expressions are and opaque to everybody else. A
+    // tooltip is not the answer to that: it is a second reading, and it is absent on a
+    // touch surface.
     let find_option_btns: Vec<gtk::ToggleButton> = [
         ("find-match-case", "Aa", "Match case", "Match case"),
         (
             "find-whole-word",
-            "W",
+            "Words",
             "Whole word",
             "Match whole words only",
         ),
         (
             "find-regex",
-            ".*",
+            "Reg-Ex",
             "Regular expression",
             "Interpret the query as a regular expression",
-        ),
-        // The fourth is NOT a match option: it bounds where matching is applied rather
-        // than what matches. It sits with the other three because that is what it is to
-        // the reader — a qualifier on the search — and because the one thing it must
-        // not be is a Replace feature: it scopes FINDING, and replace acts on what
-        // finding produced.
-        (
-            super::findbar::FIND_IN_SELECTION,
-            "Sel",
-            "Search in selection",
-            "Confine the search to the selected passage",
         ),
     ]
     .into_iter()
@@ -509,6 +513,26 @@ pub(super) fn build_chrome(
         btn
     })
     .collect();
+
+    // NOT a match option, and now not shaped like one either: it bounds WHERE matching
+    // is applied rather than what matches. A `GtkCheckButton` says that — the three
+    // toggles modify how the query is read, and a check box beside them reads as a
+    // condition on the search rather than a fourth reading of the query. It still rides
+    // the same `win.` action, so the Edit menu's check item and this one cannot
+    // disagree, and it is still a FIND control: replace acts on what finding produced.
+    //
+    // A check box carries its own visible label, so this one is the row's widest single
+    // control and therefore the row's whole contribution to the window's minimum width
+    // (TDD 9.38) — which is why the label is a short phrase and why
+    // `no_chrome_sets_the_windows_width_floor_above_the_backstop` is the gate on it.
+    let find_in_selection_check = gtk::CheckButton::with_label("Search in selection");
+    find_in_selection_check
+        .set_action_name(Some(&format!("win.{}", super::findbar::FIND_IN_SELECTION)));
+    crate::a11y::name_with_tooltip(
+        &find_in_selection_check,
+        "Search in selection",
+        "Confine the search to the selected passage",
+    );
 
     // A WRAP box, not a `GtkBox`: with everything shown this row is wider than a narrow
     // window, and a `GtkBox` would answer the sum of its children as its minimum width
@@ -524,6 +548,7 @@ pub(super) fn build_chrome(
     for btn in &find_option_btns {
         find_row.append(btn);
     }
+    find_row.append(&find_in_selection_check);
     find_row.append(&find_prev_btn);
     find_row.append(&find_next_btn);
     find_row.append(&match_count_label);

@@ -38,12 +38,12 @@ described from a different vantage point.
 | ID | Platform | Scope | Issue | Severity |
 |----|----------|-------|-------|----------|
 | D | Any | Production | A large document leaves the process spinning a CPU core at ~100% while idle — a GTK/Pango relayout pass that re-shapes text every main-loop iteration and never converges | High |
-| F | Mac | Upstream | A GTK4/Quartz autorelease-pool crash SIGABRTs the macOS integration suite in roughly one full run in four, at a varying site | Medium |
+| F | Mac | Upstream | A GTK4/Quartz autorelease-pool crash SIGABRTs the macOS integration suite in roughly one full run in four. The body names a dominant site and a stack; the site wanders when the suite's test set changes | Medium |
 | G | Linux | Test | A one-time ~12.6 MB allocation appears in step 5b's footprint samples on the GitHub Linux runner and on no development host, at a different sample each run. **Unattributed** — the runner logs `libEGL warning: DRI3 error: Could not get DRI3 device`, so a lazily created buffer in its software GL stack is a suspicion and nothing more. The growth gate tolerates one allocation by design (TDD 6.11), so this is not currently red; what is unknown is whether the sampler is measuring something the application does not own | Low |
 | I | Mac | Upstream | macOS only: every native file-chooser invocation (Open, Save, Export) grows RSS by ~1.1 MB and does not give it back. Roughly four fifths is AppKit's own price for presenting an `NSSavePanel` — reproduced with no GTK in the process — with about a fifth GTK-attributable. Caching the panel upstream would recover ~95% | Medium |
 | M | Windows | Production | On a machine with no Visual C++ runtime the app installs and then fails to start; the installer's bootstrapper for it has landed but has never been verified against that condition | Medium |
 | U | Any | Production | The preview is drawn horizontally scrolled (~20px, its left padding gone, a horizontal scrollbar showing) after a mode switch or an explicit Reload rebuilds it — intermittent, pre-existing, seen on Linux and Windows | Low |
-| X | Mac | Test | The macOS integration suite hangs part-way through a run, at a varying site, in roughly two to four runs in five. Independent of any one feature — it survives removing the surface it was first blamed on | High |
+| X | Mac | Test | The macOS integration suite hangs part-way through a run in roughly two to four runs in five. Independent of any one feature — it survives removing the surface it was first blamed on. **A stack now names the mechanism**: GDK's macOS event source drains an autorelease pool inside `prepare()`, a deferred `NSWindow` dealloc there tears down a text input context, and the IMK session's semaphore runs a nested `CFRunLoop` that re-enters `g_main_context_iteration` | High |
 | Y | Any | Test | A PDF blockquote-panel tiling assertion fails in the display-free suite about one run in four under pipeline load, and passes every time it is run directly. Observed once in four pipeline runs and never in eight direct runs of the same suite; **no root cause is recorded, deliberately** — the fixture's sprite path is a unique temp directory, so a key collision is ruled out, but the sprite cache it clears three times is process-global and at least ten test files mutate it from parallel libtest threads. Reproduce before theorising | Medium |
 
 ## Closed issues
@@ -704,7 +704,7 @@ these checks as "not observed" is reporting this gap, not a defect in the code u
   reopens at Low/Medium/High, since the names are already in place to be read.
 
 
-## X. The macOS integration suite hangs intermittently, at a varying site
+## X. The macOS integration suite hangs intermittently
 
 **Severity**: High (it is the reason a macOS ratification cannot be read at face value. A
 hung run produces no verdict, so every macOS result now costs several runs to interpret,
@@ -737,6 +737,77 @@ timers, the pooled counter's latch, the mark-set handler's attachment, and final
 status bar's mere *presence in the widget tree*, via a diagnostic environment flag that
 builds the window without it. **With the whole strip absent from the tree, 2 of 5 runs still
 hung.** No configuration tested has ever been hang-free.
+
+**THE MECHANISM, with a stack — measured 2026-09-22 by the macOS seat.** A full run with
+the per-case cap raised to 900 s, then `sample` of the process spinning at 100% CPU:
+**2,913 of 2,913 samples on the main thread, one path.**
+
+```
+g_main_context_iteration -> g_main_context_prepare_unlocked
+  -> gdk_macos_event_source_prepare
+    -> -[NSAutoreleasePool drain] -> objc_autoreleasePoolPop
+      -> AutoreleasePoolPage::releaseUntil -> NSKVODeallocate
+        -> -[NSWindow dealloc] -> -[NSView _setWindow:]
+          -> +[NSTextInputContext currentInputContext_withFirstResponderSync:]
+            -> -[NSTextInputContext deactivate] -> DeactivateTSMDocument
+              -> IMKInputSessionDeactivate -> -[IMKInputSession_Modern deactivate]
+                -> -[HIRunLoopSemaphore wait:]
+                  -> _CFRunLoopRunSpecificWithOptions          <- NESTED RUN LOOP
+                    -> __CFRunLoopDoBlocks -> ___CFPasteboardHandleFulfillMessage
+                      -> -[GdkMacosPasteboard ...]
+                        -> g_main_context_iteration ...        <- RE-ENTRY
+```
+
+GDK's macOS event source drains an autorelease pool **inside `prepare()`**. The drain
+deallocs a deferred `NSWindow`, which tears down its text input context, which deactivates
+an IMK session, which waits on a semaphore that runs a **nested `CFRunLoop`**, which
+services a pasteboard callback into `GdkMacosPasteboard`, which **re-enters
+`g_main_context_iteration` from inside `prepare()`** and never unwinds. One sampled stack
+held 23 `__CFRunLoopRun`, 18 `_CFRunLoopRunSpecificWithOptions` and 10
+`g_main_context_iterate_unlocked` frames. That is exactly the recursion the
+`g_main_context_prepare() called recursively` warning below reports, and it is why the
+site is a symptom rather than a subject. Every frame is libobjc, AppKit, HIToolbox or GDK.
+
+**TWO PRECONDITIONS, both measured, and the negative result is the load-bearing half.**
+The site is not arbitrary and it is not a depth marker — both readings were tested and
+falsified:
+
+- *Not depth.* Across two tips the hang held its test NAME while its ordinal moved
+  (613 cases / position 590, then 615 / 592, with two cases inserted ahead of it).
+  Whatever inherited the old position ran fine.
+- *Not "the first test of that shape".* `window/tabs/contextmenu.rs` holds four tests of
+  the form `<command>_for_tab_acts_on_the_clicked_tab_not_the_active_one`, each of which
+  builds a second window and focuses a background tab. The one that sorts FIRST passes —
+  logged `ok` immediately before the hang in 3 of 3 runs.
+- *The SECOND family member to run is the one that hangs.* Skipping the hanging test moved
+  the hang to its sibling, 3 of 3; skipping the test BEFORE it instead made the previously
+  100% site go clean and moved the hang one further along, 2 of 2. Nothing else predicts a
+  site that was 5-for-5 going green.
+- ⚠️ **But two family members alone are not enough.** Running just those two tests and
+  nothing else: **both pass, 1.4 s.** So the dose is *second family member* **and** a
+  process that has accumulated a full suite's worth of state. Depth is a precondition, not
+  the selector. Had the confirming experiment been the last one run, this entry would now
+  record a mechanism that is wrong in its second half.
+
+The preconditions follow from the stack without further assumption: the trigger is a
+**deferred window dealloc landing in a pool that is drained inside `prepare()`**, which
+needs both accumulated pool traffic (the suite) and tests that create and drop extra
+windows (the family).
+
+**Not reproduced off macOS.** Linux: zero hangs, whole-suite green. Windows: zero hangs
+and zero aborts in three full runs, with both named tests passing 6 of 6. Both hosts run
+these cases serially, so the comparison is like-for-like — `gtk_suite` runs every case on
+the process main thread by construction, which is why no `--test-threads` flag appears in
+its invocation and why one was wrongly cited as evidence once.
+
+⚠️ **The one application-visible lever, untested and NOT a recommendation.** Nothing here
+is ours to fix — every faulting frame is upstream. But the trigger is window destruction
+being deferred into a pool that GDK drains at the worst possible moment, so *when* a test's
+windows are deallocated is in principle reachable from `src/gtk_suite.rs`: draining a
+per-case autorelease pool at a controlled point, outside the GTK main loop, would move the
+dealloc off `prepare()`. That would mean an Objective-C runtime dependency on macOS and has
+not been prototyped, costed or approved. Recorded so the option is not re-derived from
+scratch; do not treat it as a plan.
 
 **The hang is NOT quiet, and that is new evidence: it has a SIGNATURE.** MEASURED
 2026-09-19 on the `mitigations` branch — three `poll(2) failed due to: Resource

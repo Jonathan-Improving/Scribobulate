@@ -36,6 +36,18 @@
     <file>scalable/actions/expand-all-symbolic.svg</file>
     <file>scalable/actions/collapse-all-symbolic.svg</file>
     <!--
+      The find bar's two history drop-downs (Recent searches / Recent
+      replacements). `document-open-recent-symbolic` is a LEGACY freedesktop
+      action name, and legacy is precisely the category Adwaita has been
+      shedding: this host's Adwaita 41 carries it, which is no evidence at all
+      about the Adwaita 50 gvsbuild stages on Windows — that is how
+      emblem-synchronizing-symbolic got through (see below). Bundling under the
+      exact requested name settles it on every platform up front instead of
+      after a seat reports a placeholder. A host theme that has the name still
+      wins; this is the fallback.
+    -->
+    <file>scalable/actions/document-open-recent-symbolic.svg</file>
+    <!--
       adwaita-icon-theme REMOVED both of these legacy freedesktop names in
       48.alpha ("symbolic: remove emblems", issue #287), so any host on a recent
       Adwaita loses them — this is icon-theme drift, not a property of any one
