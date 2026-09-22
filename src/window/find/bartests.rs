@@ -423,6 +423,87 @@ fn search_in_selection_confines_the_editor_search_and_its_replacements() {
     win.destroy();
 }
 
+/// Every character the editor lights while a passage confines the search, and nothing
+/// else. An empty answer means the scoped tag is not on the buffer at all.
+fn highlighted_offsets(st: &std::rc::Rc<crate::winstate::TabState>) -> Vec<i32> {
+    let buf: gtk::TextBuffer = st.editor_buf.clone().upcast();
+    let Some(tag) = buf.tag_table().lookup(super::EDITOR_SCOPE_HL_TAG) else {
+        return Vec::new();
+    };
+    (0..buf.char_count())
+        .filter(|o| buf.iter_at_offset(*o).has_tag(&tag))
+        .collect()
+}
+
+/// **The editor lights what it counts, and nothing outside the passage** (TDD 11.16).
+///
+/// Reported independently by the Windows and macOS seats against the first delivery of
+/// the scope: the count said 2 while every occurrence in the document stayed lit,
+/// because `GtkSourceSearchContext`'s `highlight` property is whole-buffer and has no
+/// bounded form. The preview pane was already correct — measured, 16 matches down to 7
+/// with the table cells and the collapsed body going dark — so this was one pane not
+/// implementing the rubric rather than a limitation both shared, and a reader seeing
+/// the two disagree reads the NUMBER as the broken half.
+///
+/// Asserted by character rather than by eye: the engine's own highlight and this one
+/// are deliberately the same colour (they are the same matches, fewer of them), so a
+/// screenshot cannot tell a confined highlight from an unconfined one.
+#[gtktest::test]
+fn the_editor_lights_only_the_matches_inside_the_passage() {
+    const DOC: &str = "one target\ntwo target\nthree target\nfour target\n";
+    let app = test_app("com.extollit.scribobulate.integrationtest.findscopehl");
+    let win = crate::window::new_window(&app, "IT-findscopehl", DOC, None);
+    set_mode(&win, "edit");
+    search(&win, "target");
+    let st = state(&win).expect("a tab");
+    assert!(
+        st.search_context.is_highlight(),
+        "unscoped, the engine paints its own whole-buffer highlight"
+    );
+    assert!(
+        highlighted_offsets(&st).is_empty(),
+        "unscoped, this application paints nothing of its own — two highlights over \
+         the same matches is a second thing to keep true"
+    );
+
+    let bound_end = DOC.find("three").expect("the fixture has a third line") as i32;
+    select_range(&win, 0, bound_end);
+    set_option(&win, super::super::findbar::FIND_IN_SELECTION, true);
+    // Drained deliberately: the engine's `occurrences-count` settles asynchronously and
+    // its notification is the one that used to overwrite a scoped readout with the
+    // unscoped count. An assertion taken before it lands cannot see that.
+    assert_eq!(count(&win), Some(2), "the count describes the passage");
+
+    assert!(
+        !st.search_context.is_highlight(),
+        "the engine's highlight cannot be bounded, so it must be OFF while a passage \
+         confines the search"
+    );
+    // "one target\ntwo target\n" — the two occurrences inside the passage, written out
+    // rather than searched for, so the expectation does not come from the code under
+    // test.
+    let expected: Vec<i32> = (4..10).chain(15..21).collect();
+    assert_eq!(
+        highlighted_offsets(&st),
+        expected,
+        "exactly the in-passage occurrences are lit — not the two on lines three and \
+         four, which the readout already says are not matches"
+    );
+
+    set_option(&win, super::super::findbar::FIND_IN_SELECTION, false);
+    assert_eq!(count(&win), Some(4), "unticking restores the whole buffer");
+    assert!(
+        highlighted_offsets(&st).is_empty(),
+        "the scoped highlight is taken OFF the buffer, not merely stopped being added \
+         to — it is a tag, and a tag outlives the search that applied it"
+    );
+    assert!(
+        st.search_context.is_highlight(),
+        "and the engine takes its own highlight back"
+    );
+    win.destroy();
+}
+
 /// Replace acts on the match the reader is LOOKING at (TDD 11.17; ScrAP-27).
 ///
 /// The fixture puts the caret past a match on purpose: re-finding forward from the

@@ -995,6 +995,91 @@ fn scoped_editor_matches(st: &Rc<TabState>) -> Option<Vec<(i32, i32)>> {
     Some(out)
 }
 
+/// Name of the editor's scoped find-highlight `GtkTextTag`.
+///
+/// One definition, for the reason [`PREVIEW_HL_TAG`] records: a tag looked up by a name
+/// that does not match the name it was created with fails silently.
+pub(super) const EDITOR_SCOPE_HL_TAG: &str = "scrib-scoped-search-hl";
+
+/// The editor's own "highlight every match" tag, used ONLY while a passage confines the
+/// search.
+///
+/// **It has to look exactly like the engine's own highlight**, because the reader sees
+/// one turn into the other when they tick the control: a different colour would read as
+/// a different kind of match rather than as the same matches, fewer of them. So the
+/// style is taken from the buffer's `GtkSourceStyleScheme` under `search-match` — the
+/// same style the engine paints with — rather than from a colour of this application's
+/// choosing. `gtk_source_style_apply` is idempotent and unsets what the style does not
+/// define, so it is re-applied on every paint and a live scheme change is picked up for
+/// free.
+///
+/// The fallback matters: the scheme is whatever is installed on the machine
+/// (`apply_editor_style_scheme` picks from a list and can end with `None`), and a scheme
+/// need not define `search-match`. A tag with no style at all is an invisible highlight,
+/// which is the silent failure this whole function exists to avoid — so the fallback is
+/// the preview's theme key, which is the one colour in this application already
+/// guaranteed to be a legible highlight against the active reading theme (TDD 18.5).
+fn editor_scope_hl_tag(buf: &sourceview::Buffer) -> gtk::TextTag {
+    let table = buf.tag_table();
+    let tag = table.lookup(EDITOR_SCOPE_HL_TAG).unwrap_or_else(|| {
+        let t = gtk::TextTag::new(Some(EDITOR_SCOPE_HL_TAG));
+        table.add(&t);
+        t
+    });
+    match buf.style_scheme().and_then(|s| s.style("search-match")) {
+        Some(style) => style.apply(&tag),
+        None => tag.set_background_rgba(Some(&crate::theme::active().find_hl_all_color.rgba())),
+    }
+    tag
+}
+
+/// Paint the editor's match highlight to agree with the count beside it.
+///
+/// **`GtkSourceSearchContext`'s `highlight` property is whole-buffer and cannot be
+/// bounded** — the same absence [`scoped_editor_matches`] exists for. Left on while a
+/// passage confines the search, it lights every occurrence in the document while the
+/// readout says five, and the reader is shown a contradiction in which the number is the
+/// part that looks broken. So the engine's highlight is turned OFF for the duration and
+/// this application paints the enumerated in-scope matches itself.
+///
+/// Takes the list [`update_editor_readout`] already computed rather than re-deriving it,
+/// which is the point: what is lit is *the same list* that was counted, by construction,
+/// so the two cannot drift.
+///
+/// **It lowers the engine's highlight but never raises it.** Who may raise it is a
+/// lifecycle question — the bar opening, a tab becoming active — and this runs from
+/// `occurrences-count` as well, which settles asynchronously and can fire long after
+/// the bar has closed and deliberately turned it off. Restoring it is therefore
+/// `findbar::refresh_find`'s job, which is only ever reached with the bar open.
+fn apply_editor_scope_highlight(st: &Rc<TabState>, scoped: Option<&[(i32, i32)]>) {
+    let buf: gtk::TextBuffer = st.editor_buf.clone().upcast();
+    let tag = editor_scope_hl_tag(&st.editor_buf);
+    buf.remove_tag(&tag, &buf.start_iter(), &buf.end_iter());
+    let Some(matches) = scoped else {
+        return;
+    };
+    st.search_context.set_highlight(false);
+    for (start, end) in matches {
+        buf.apply_tag(&tag, &buf.iter_at_offset(*start), &buf.iter_at_offset(*end));
+    }
+}
+
+/// Drop the scoped highlight from `st`'s editor without touching the engine or the
+/// count.
+///
+/// For the two lifecycle boundaries that end a tab's visible search without going
+/// through a readout: the find bar closing, and a tab ceasing to be the active one. A
+/// buffer tag survives both — it belongs to the buffer, not to the bar — so a tab left
+/// with one shows a stale, permanent highlight the next time it is looked at, which is
+/// the defect `search_context.set_highlight(false)` is already spelled out beside both
+/// of those sites to prevent.
+pub(super) fn clear_editor_scope_highlight(st: &Rc<TabState>) {
+    let buf: gtk::TextBuffer = st.editor_buf.clone().upcast();
+    if let Some(tag) = buf.tag_table().lookup(EDITOR_SCOPE_HL_TAG) {
+        buf.remove_tag(&tag, &buf.start_iter(), &buf.end_iter());
+    }
+}
+
 /// Search direction (QA round-1 L4 — replaces a bare `backward: bool`, whose
 /// call sites like `find_step(&w, sc, true)` read as noise with no clue what
 /// `true` means without checking the signature).
@@ -1464,7 +1549,11 @@ fn scoped_editor_step(st: &Rc<TabState>, dir: SearchDir) -> bool {
 /// 47 are reachable, and reads as the navigation being broken rather than the number.
 pub(super) fn update_editor_readout(st: &Rc<TabState>, current: i32) {
     let label = &st.chrome().match_count_label;
-    match scoped_editor_matches(st) {
+    let scoped = scoped_editor_matches(st);
+    // The highlight is painted from the SAME list the count is taken from, in the same
+    // call, so "what is lit" and "what is counted" cannot disagree.
+    apply_editor_scope_highlight(st, scoped.as_deref());
+    match scoped {
         Some(matches) => {
             if let Some(e) = st.search_context.regex_error() {
                 set_invalid_pattern_label(label, &e.message());

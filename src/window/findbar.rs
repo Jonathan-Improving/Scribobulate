@@ -111,6 +111,9 @@ pub(super) fn wire_find_bar(window: &ApplicationWindow, chrome: &Chrome) {
             let Some(w) = win.upgrade() else { return };
             if let Some(st) = state(&w) {
                 st.search_context.set_highlight(false);
+                // The engine's highlight is a property; the scoped one is a tag on the
+                // BUFFER, which outlives the bar unless it is taken off here.
+                crate::window::find::clear_editor_scope_highlight(&st);
             }
             clear_preview_highlight(&w);
             if let Some(st) = state(&w) {
@@ -546,6 +549,16 @@ pub(super) fn refresh_find(window: &ApplicationWindow, st: &Rc<TabState>) {
     let label = &chrome.match_count_label;
     let text = chrome.find_entry.text();
     push_options_to_engine(st);
+    // **Who owns the engine's whole-buffer highlight.** `GtkSourceSearchContext` has no
+    // bounded highlight, so while a passage confines the search this application paints
+    // the in-scope matches itself and the engine's own must be off — otherwise the
+    // readout says 2 while the document stays lit end to end, and the number is the half
+    // that reads as broken. Raised HERE rather than in `find::update_editor_readout`,
+    // which also runs from the engine's own asynchronous count notification and so can
+    // fire after the bar has closed and deliberately turned the highlight off.
+    // Computed out of the borrow first: the setter can re-enter (ScrAP-53).
+    let unscoped = st.find_scope.borrow().is_none();
+    st.search_context.set_highlight(unscoped);
     // **The query the editor's engine is given is not always the query the reader
     // typed.** For a whole-word REGULAR EXPRESSION the application wraps it — see
     // `matcher::editor_pattern` — because GtkSourceView's own wrapper is ungrouped and
@@ -672,8 +685,9 @@ fn push_options_to_engine(st: &Rc<TabState>) {
 /// not `window`/`match_count_label` directly — QA round-1 H2: a
 /// captured window+label pair keeps updating the ORIGIN window's label after
 /// a Move Tab to New Window / cross-window drag. Resolving both fresh via
-/// [`tabs::resolve_tab_window`] + `winstate::chrome` on every fire targets
-/// whichever window this tab currently belongs to.
+/// [`tabs::resolve_tab_window`], plus the tab's own chrome inside
+/// [`update_editor_readout`], on every fire targets whichever window this tab
+/// currently belongs to.
 ///
 /// The closure captures NOTHING that strong-references `search_context`
 /// itself (QA round-2 N12, researcher-confirmed leak): it used to hold a
@@ -717,17 +731,16 @@ pub(super) fn wire_occurrences_count(
         if st.search_context.as_ptr() != sc.as_ptr() {
             return;
         }
-        let Some(chrome) = winstate::chrome(&w) else {
-            return;
-        };
         // This handler already returned above unless the editor is the visible pane, so
         // the editor's index is the right space to read — and asking for it by name means
         // a preview cursor can never be misreported here as an editor position.
-        update_match_count_label(
-            sc,
-            &chrome.match_count_label,
-            st.find_cursor.get().editor_index(),
-        );
+        //
+        // **Through the readout rather than straight to the label**: the engine's count
+        // is the WHOLE buffer's, and this notification is the one that arrives *after*
+        // the scan settles — so writing it here directly is a scoped search's count
+        // being overwritten by the unscoped one a moment later, which is the failure
+        // that is invisible in any assertion taken before the engine finishes.
+        update_editor_readout(&st, st.find_cursor.get().editor_index());
     });
 }
 

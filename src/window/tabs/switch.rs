@@ -298,6 +298,9 @@ fn resync_find_bar_for_tab(window: &ApplicationWindow, st: &Rc<TabState>) {
     for other in winstate::tabs_for_window(window) {
         if other.id != st.id {
             other.search_context.set_highlight(false);
+            // Same reason, one layer down: a scoped highlight is a tag on that tab's
+            // OWN buffer, so turning the engine's property off does not take it away.
+            crate::window::find::clear_editor_scope_highlight(&other);
         }
     }
 
