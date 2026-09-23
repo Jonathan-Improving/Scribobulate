@@ -232,14 +232,37 @@ pub fn largest_allocation() -> usize {
     LARGEST_ALLOCATION.load(std::sync::atomic::Ordering::SeqCst)
 }
 
-/// Assert nothing canvas-sized was allocated in the region just measured.
-pub fn assert_no_canvas_sized_allocation(what: &str) {
+/// Run `f` and assert nothing canvas-sized was allocated while it ran.
+///
+/// **The measurement and the reading happen under ONE hold of the lock, and that is the
+/// whole point of this function existing.** The counter is process-global — there is one
+/// `#[global_allocator]` per binary — while libtest runs a binary's cases on several
+/// threads at once, so any window between `f` returning and the counter being read is a
+/// window in which another case's allocations land in it.
+///
+/// That window was real. The pattern here used to be `measured(|| …)` followed by a
+/// separate assertion, which takes the lock, resets, measures, and then **drops the
+/// lock** at the end of the statement — leaving the read unprotected. MEASURED: a
+/// pipeline run failed with *"probe() allocated 4194304 bytes"*, which is exactly
+/// `MAX_LEGITIMATE_ALLOCATION_BYTES * 4`, the deliberate allocation made by the sibling
+/// positive control in the same binary. `probe` had allocated nothing of the kind.
+///
+/// **The false failure is the harmless direction.** The same window lets a sibling's
+/// `reset_largest_allocation` zero the counter between a real oversized allocation and
+/// the read — an absence assertion passing because nobody was counting. That direction
+/// is silent, and it is what makes this a correctness fix to a gate rather than a flake
+/// to be re-run.
+pub fn measured_no_canvas_sized_allocation<R>(what: &str, f: impl FnOnce() -> R) -> R {
+    let _lock = MEASUREMENT.lock().unwrap_or_else(|e| e.into_inner());
+    reset_largest_allocation();
+    let out = f();
     let seen = largest_allocation();
     assert!(
         seen < MAX_LEGITIMATE_ALLOCATION_BYTES,
         "{what} allocated {seen} bytes in a single request, over the \
          {MAX_LEGITIMATE_ALLOCATION_BYTES}-byte threshold"
     );
+    out
 }
 
 /// **The positive control for the instrument itself.**
