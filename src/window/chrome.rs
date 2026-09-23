@@ -478,9 +478,9 @@ pub(super) fn build_chrome(
     // qualify: everything to their left is WHAT the reader is looking for, everything
     // to their right is how they move through what was found.
     //
-    // Each is a `GtkToggleButton` bound to its `win.` action by name — the same action
-    // the Edit menu's check item drives — so neither surface holds state of its own
-    // (POLICY "One action per command").
+    // Each is bound to its `win.` action by name — the same action the Edit menu's check
+    // item drives — so neither surface holds state of its own (POLICY "One action per
+    // command").
     //
     // The labels are ASCII WORDS, not the find-bar's conventional glyphs (`Aa`, `W`,
     // `.*`). A glyph only stands for the thing; `W` is not narrower than "Words" by
@@ -567,6 +567,13 @@ pub(super) fn build_chrome(
     find_row.set_margin_bottom(4);
     find_row.set_margin_start(6);
     find_row.set_margin_end(6);
+    // The option grid is three rows tall, so everything beside it is a short child and
+    // the wrap box would otherwise centre it — leaving the find field floating against
+    // the middle of the check boxes instead of starting the bar. `Start` puts the field,
+    // its history button and the navigation group on the grid's FIRST line, which is
+    // where a reader looks for them.
+    find_entry.set_valign(gtk::Align::Start);
+    find_history_btn.set_valign(gtk::Align::Start);
     find_row.append(&find_entry);
     find_row.append(&find_history_btn);
     find_row.append(&find_option_grid);
@@ -576,23 +583,34 @@ pub(super) fn build_chrome(
     // and Next opened the next. TDD 9.38 names a directional pair as a group that must
     // never split, and the toolbar answers it the same way, with one small box standing
     // as a single pack item (`toolbar::cluster`).
+    // The readout travels with them. Prev/Next alone was not enough: with a live query
+    // the count label appeared between the pair and what followed and pushed that onto a
+    // row of its own. The label's width is not fixed — "1 of 10", "No matches" and
+    // "Invalid pattern" are three different widths — so this group's natural width
+    // varies with what the search is saying. That is safe only because the group stays
+    // well under `MIN_WINDOW_WIDTH` even at its widest, and
+    // `no_chrome_sets_the_windows_width_floor_above_the_backstop` is what says whether
+    // that is still true.
     let find_nav_group = gtk::Box::new(gtk::Orientation::Horizontal, 2);
     find_nav_group.append(&find_prev_btn);
     find_nav_group.append(&find_next_btn);
+    find_nav_group.append(&match_count_label);
+    find_nav_group.set_valign(gtk::Align::Start);
     find_row.append(&find_nav_group);
-    find_row.append(&match_count_label);
-    find_row.append(&close_find_btn);
 
     let replace_entry = crate::widgets::textfield::named_entry("Replace with", "");
     replace_entry.set_placeholder_text(Some("Replace with…"));
     cap_field_width(&replace_entry);
     let replace_history_btn = history_button("Recent replacements");
 
+    // NOT `.flat`. Every other control in this bar is an icon or a check box, whose
+    // shape says what it is on its own; these two are bare words, and a flat button of
+    // bare words is indistinguishable from a label. They are also the only two controls
+    // here that CHANGE THE DOCUMENT, which is the last place to economise on the frame
+    // that says "this is a button you are about to press".
     let replace_btn = gtk::Button::with_label("Replace");
-    replace_btn.add_css_class("flat");
 
     let replace_all_btn = gtk::Button::with_label("Replace All");
-    replace_all_btn.add_css_class("flat");
 
     let replace_row = crate::widgets::wrapbox::ToolbarWrapBox::new(4, 4);
     replace_row.set_margin_bottom(4);
@@ -604,9 +622,33 @@ pub(super) fn build_chrome(
     replace_row.append(&replace_all_btn);
     replace_row.set_visible(false);
 
-    let find_bar = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    find_bar.append(&find_row);
-    find_bar.append(&replace_row);
+    // The close button is NOT part of either row. It dismisses the whole bar, not the
+    // row it happens to sit on, so it is pinned to the top-right corner of the bar and
+    // the two wrapping rows are packed beside it. Inside the wrap box it was just
+    // another item in the flow: it drifted left as the rows grew, sat directly above the
+    // replace field at narrow widths, and read as that field's control.
+    //
+    // The spacer is `hexpand` on the BODY rather than a filler widget — a box gives its
+    // extra width to the expanding child, so the body takes the slack and pushes the
+    // close to the edge, with nothing in the tree that exists only to be empty.
+    //
+    // This does raise the window's minimum by the button's width, because the outer box
+    // is a plain `GtkBox` and its minimum is the sum of the two. That is affordable only
+    // while the widest wrap-box child plus this button stays under `MIN_WINDOW_WIDTH`,
+    // and the gate that says so is
+    // `no_chrome_sets_the_windows_width_floor_above_the_backstop`.
+    let find_bar_body = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    find_bar_body.set_hexpand(true);
+    find_bar_body.append(&find_row);
+    find_bar_body.append(&replace_row);
+
+    close_find_btn.set_valign(gtk::Align::Start);
+    close_find_btn.set_margin_top(8);
+    close_find_btn.set_margin_end(6);
+
+    let find_bar = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    find_bar.append(&find_bar_body);
+    find_bar.append(&close_find_btn);
 
     let find_bar_revealer = gtk::Revealer::new();
     find_bar_revealer.set_transition_type(gtk::RevealerTransitionType::SlideDown);

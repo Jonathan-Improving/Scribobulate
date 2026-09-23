@@ -148,6 +148,39 @@ pub(super) fn wire_find_bar(window: &ApplicationWindow, chrome: &Chrome) {
         find_bar.add_controller(key_ctrl);
     }
 
+    // ── Escape anywhere in the window while the bar is open ───────────────────
+    // The two handlers above only ever see Escape when focus is INSIDE the bar, and
+    // focus usually is not: opening the bar, typing a query and pressing Enter moves
+    // the caret into the document, and from then on Escape did nothing at all. The
+    // reader's model is that Escape dismisses the thing that just appeared, and it was
+    // only honoured while they happened to be standing in it.
+    //
+    // **BUBBLE phase, deliberately, and this is the whole safety argument.** A key
+    // event is offered to the focused widget's controllers before it bubbles to the
+    // window, so anything else with a claim on Escape answers first and stops it:
+    // popovers and menus, the annotation comment card, the emoji overlay, the prompt
+    // dialog and the annotations sidebar all take Escape this way. Capture phase would
+    // put this handler AHEAD of every one of them and close the find bar instead of the
+    // popover the reader was actually looking at — a strictly worse bug than the one
+    // being fixed, and one that would look like the popover refusing to close.
+    //
+    // The reveal check is what keeps this inert the rest of the time: with the bar
+    // closed the handler declines, so Escape still belongs to whatever else wants it.
+    {
+        let cfb = Rc::clone(&close_find_bar);
+        let fr = find_bar_revealer.clone();
+        let key_ctrl = gtk::EventControllerKey::new();
+        key_ctrl.set_propagation_phase(gtk::PropagationPhase::Bubble);
+        key_ctrl.connect_key_pressed(move |_, key, _, _| {
+            if key == gtk::gdk::Key::Escape && fr.reveals_child() {
+                cfb();
+                return glib::Propagation::Stop;
+            }
+            glib::Propagation::Proceed
+        });
+        window.add_controller(key_ctrl);
+    }
+
     // ── Escape key in find_entry specifically ─────────────────────────────────
     // find_entry is a GtkSearchEntry, which has its own class keybinding
     // (GDK_KEY_Escape -> "stop-search") that fires and stops propagation

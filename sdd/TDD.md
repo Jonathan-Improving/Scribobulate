@@ -1758,6 +1758,8 @@
 - **And** a match position is never carried from one pane's occurrence list into the other's: the editor's list and the preview's unified body+cell list are numbered independently, so after a mode switch the counter and the next Next/Prev either resume in the list the visible pane actually owns or start from the top — never at a number that was a position in the *other* list
 - **And when** the user presses Escape or the close button
 - **Then** the bar hides, match highlighting clears (both body text and inside table cells), and focus returns to the editor
+- **And Escape does this from ANYWHERE in the window, not only while the focus is inside the bar.** The usual way to be holding the bar open is to have typed a query and pressed Enter, which puts the caret back in the document — so the case where the reader most wants Escape is the case where the bar does not have focus. It is honoured on the way back UP from whatever is focused, never on the way down: every other Escape in the application — a popover or menu, the annotation card, the emoji overlay, the prompt dialog, the annotations sidebar — answers first and keeps it. Closing the find bar instead of the popover the reader is looking at is a worse defect than the one this clause exists to close, and it would present as the popover refusing to close
+- **And** with the bar shut this costs Escape nothing: the handler declines unless the bar is actually revealed
 - **And given** pure-preview mode scrolled to an arbitrary reading position (including within a tall table)
 - **When** the user closes the find bar
 - **Then** the reading position does not move at all — closing find never reloads or re-scrolls the preview

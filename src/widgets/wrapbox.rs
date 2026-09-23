@@ -19,17 +19,22 @@
 //! skipped entirely and take no space, exactly like a plain `GtkBox`, so
 //! hiding a toolbar section still costs it nothing here.
 //!
-//! A child SHORTER than its row is centred in it, and that is the one place
-//! this widget does something a caller cannot ask for with an alignment
-//! property. `gtk_widget_set_valign` needs slack to work in, and there is never
-//! any here: a child is allocated exactly its natural height, so a `valign` of
-//! `Center` on a short child is a no-op and the child rides at the row's TOP.
-//! Every toolbar row was uniform-height buttons for the life of this widget, so
-//! nothing revealed it until the find bar gained a `GtkCheckButton`, whose
-//! natural height is shorter than a button's — its label sat visibly above the
-//! toggle labels beside it. Centring is chosen over baseline alignment because
-//! the rows this widget lays out are not all text (icons, entries, a check
-//! indicator), and a row with no baseline to share still has a middle.
+//! A child SHORTER than its row is placed by its own `valign`: `Start` at the
+//! row's top, `End` at its bottom, and anything else — including GTK's default
+//! `Fill` — centred. `Fill` centres rather than stretching because this widget
+//! never stretches a child; that is the same rule as the width, stated for the
+//! other axis.
+//!
+//! This is the widget's job rather than the caller's, and the reason is that
+//! `gtk_widget_set_valign` has nothing to work with here on its own: a child is
+//! allocated exactly its natural height, so GTK is given no slack to place it
+//! in, and the property is inert unless this code reads it. Every toolbar row
+//! was uniform-height buttons for the life of this widget, so none of it
+//! mattered until the find bar gained controls of two different heights — a
+//! `GtkCheckButton` shorter than a button, then a three-row option grid beside
+//! a one-row entry. Centring is the default rather than baseline alignment
+//! because the rows here are not all text (icons, entries, a check indicator),
+//! and a row with no baseline to share still has a middle.
 
 use gtk::prelude::*;
 use gtk::{gdk, glib};
@@ -158,12 +163,21 @@ mod imp {
         // than as each child is placed.
         let mut row_start = 0usize;
 
-        // Lift each child of a finished row to the vertical middle of it. A
-        // child exactly as tall as its row does not move, which is every child
-        // of a row of uniform buttons.
-        fn centre_row(rects: &mut [gdk::Rectangle], row_h: i32) {
-            for rect in rects {
-                rect.set_y(rect.y() + (row_h - rect.height()) / 2);
+        // Place each child of a finished row within the row's height, by its own
+        // `valign`. A child exactly as tall as its row does not move whatever it
+        // asks for, which is every child of a row of uniform buttons.
+        fn place_row(rects: &mut [gdk::Rectangle], children: &[gtk::Widget], row_h: i32) {
+            for (rect, child) in rects.iter_mut().zip(children) {
+                let slack = row_h - rect.height();
+                let dy = match child.valign() {
+                    gtk::Align::Start => 0,
+                    gtk::Align::End => slack,
+                    // Center, Fill and Baseline all land here. Fill is GTK's
+                    // default and is treated as Center deliberately — see the
+                    // module header.
+                    _ => slack / 2,
+                };
+                rect.set_y(rect.y() + dy);
             }
         }
 
@@ -172,7 +186,7 @@ mod imp {
             let (_, nat_h, _, _) = child.measure(gtk::Orientation::Vertical, -1);
             let would_overflow = x > 0 && x + col_spacing + nat_w > avail_width;
             if would_overflow {
-                centre_row(&mut rects[row_start..], row_h);
+                place_row(&mut rects[row_start..], &children[row_start..], row_h);
                 y += row_h + row_spacing;
                 x = 0;
                 row_h = 0;
@@ -183,7 +197,7 @@ mod imp {
             x = cx + nat_w;
             row_h = row_h.max(nat_h);
         }
-        centre_row(&mut rects[row_start..], row_h);
+        place_row(&mut rects[row_start..], &children[row_start..], row_h);
         let total_h = if rects.is_empty() { 0 } else { y + row_h };
         (rects, total_h)
     }

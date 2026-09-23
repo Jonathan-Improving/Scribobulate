@@ -44,6 +44,7 @@ described from a different vantage point.
 | M | Windows | Production | On a machine with no Visual C++ runtime the app installs and then fails to start; the installer's bootstrapper for it has landed but has never been verified against that condition | Medium |
 | U | Any | Production | The preview is drawn horizontally scrolled (~20px, its left padding gone, a horizontal scrollbar showing) after a mode switch or an explicit Reload rebuilds it — intermittent, pre-existing, seen on Linux and Windows | Low |
 | X | Mac | Test | The macOS integration suite hangs part-way through a run in roughly two to four runs in five. Independent of any one feature — it survives removing the surface it was first blamed on. **A stack now names the mechanism**: GDK's macOS event source drains an autorelease pool inside `prepare()`, a deferred `NSWindow` dealloc there tears down a text input context, and the IMK session's semaphore runs a nested `CFRunLoop` that re-enters `g_main_context_iteration` | High |
+| Z | Any | Production | GTK logs `GtkText - unexpected blinking selection. Removing` once during find-bar use. Cosmetic — GTK detects its own inconsistent blink state and clears it, and nothing on screen changes. Reproduced once in a compound driven run and in **none** of five isolated legs (idle, open bar, open and type, open/type/Enter/Escape, menu open then Escape), so the trigger is a combination or a timing, not any one interaction. Not caused by the window-level Escape handler — the operator's sighting predates it | Low |
 | Y | Any | Test | A PDF blockquote-panel tiling assertion fails in the display-free suite intermittently under pipeline load, and passes every time it is run directly. **No root cause is recorded, and two suspicions have now been falsified** — a sprite-key collision (the fixture's path is a unique temp directory) and cross-thread mutation of the sprite cache (it is `thread_local!`, so there is no shared cache to race). The one captured failure is a single misplaced row, which rules out the oversize-lattice branch the assertion itself offers. Reproduce before theorising | Medium |
 
 ## Closed issues
@@ -896,6 +897,38 @@ on a build that fails.
 the branch touches the find bar, the toolbar wrap box and three packaging scripts, none
 of which reach PDF export, sprites or rasterisation, and an immediately preceding
 pipeline run of the same code passed.
+
+## Z. GTK logs "unexpected blinking selection" during find-bar use
+
+`[WARN Gtk] GtkText - unexpected blinking selection. Removing`, emitted once. `GtkText`
+is the inner text widget of a `GtkEntry`/`GtkSearchEntry`, so the subject is one of the
+find bar's two fields, not the document view. GTK raises this from its cursor-blink
+callback when it finds a selection present in a state where it does not expect one, and
+it then removes its own blink source — which is why nothing is visibly wrong.
+
+**What is measured.** Reproduced once, in a driven run that opened the bar, typed,
+pressed Enter, pressed Escape, reopened the bar, opened a menu and pressed Escape again.
+Then five legs were run one per fresh process, each with the app otherwise untouched:
+
+| Leg | Warnings |
+|---|---|
+| Idle, no interaction | 0 |
+| Open the bar and leave it | 0 |
+| Open the bar and type | 0 |
+| Open, type, Enter, Escape | 0 |
+| Menu open, then Escape | 0 |
+
+So no single interaction produces it and the compound sequence did. That is the whole
+finding; **the trigger is not known** and the obvious guess — that closing the bar moves
+focus to the editor while a field still holds a selection — is a guess, recorded here
+only so the next reader knows it was not tested.
+
+**It is not the window-level Escape handler.** That handler landed after the operator's
+sighting, which rules it out by timing rather than by argument.
+
+**Before theorising, reproduce.** One observation in a compound run and five clean
+negative controls is not enough to attribute this, and a fix aimed at the focus guess
+would be unfalsifiable at this rate — it would "pass" on a build where nothing changed.
 
 ## CLSD-04. In fullscreen on macOS, a click during the transition animation is never delivered
 
