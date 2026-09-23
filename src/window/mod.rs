@@ -1547,6 +1547,14 @@ pub(crate) mod gtk_integration_tests {
         );
         let ch = winstate::chrome(&win).expect("chrome registered");
         let sidebar = sidebar_paned_of(&ch.outline_scroller);
+        // Waited for, not assumed from the drain above: the first window of a fresh
+        // process on Quartz can take longer than any fixed span to be allocated, and
+        // an unallocated paned reads position 0 and height 0.
+        crate::testpump::until(
+            crate::testpump::Clock::Frame,
+            "the sidebar is allocated",
+            || sidebar.height() > 0,
+        );
 
         // Move the divider somewhere the default split would never land on its own.
         let chosen = sidebar.position() + 40;
@@ -1613,6 +1621,14 @@ pub(crate) mod gtk_integration_tests {
         );
         let ch = winstate::chrome(&win).expect("chrome registered");
         let sidebar = sidebar_paned_of(&ch.outline_scroller);
+        // Waited for, not assumed from the drain above: the first window of a fresh
+        // process on Quartz can take longer than any fixed span to be allocated, and
+        // an unallocated paned reads position 0 and height 0.
+        crate::testpump::until(
+            crate::testpump::Clock::Frame,
+            "the sidebar is allocated",
+            || sidebar.height() > 0,
+        );
 
         let quarter = crate::session::sidebar_divider_position(0.25, sidebar.height())
             .expect("the sidebar has a height once presented");

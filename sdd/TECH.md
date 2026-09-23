@@ -175,7 +175,7 @@ Every module below runs on the GTK main thread; see [Concurrency model](#concurr
 |--------|----------------|
 | `main.rs` | `[[bin]]` entry point, and nothing else — delegates to `lib.rs`'s `run()`, plus the Windows subsystem attribute. Deliberately empty: a binary crate exposes no importable surface, so anything here is untestable by construction. |
 | `lib.rs` | Crate root. Owns the module list and `run()`: `GtkApplication` setup, single-instance registration, the Cairo renderer override, and the `activate`/`open` wiring. The crate is a library so that test targets can link it; the module tree stays `pub(crate)`. |
-| `gtk_suite.rs` | A **second crate root**, a `harness = false` test target whose `main()` runs the GTK test bodies on the process main thread — the one thing `#[gtk::test]` cannot do. Built `--cfg test`, so it reaches `pub(crate)` internals; re-declares `lib.rs`'s module list, a duplication gated by `cargo xtask lint-references` check 4. |
+| `gtk_suite.rs` | A **second crate root**, a `harness = false` test target whose `main()` runs the GTK test bodies on the process main thread — the one thing `#[gtk::test]` cannot do. **One process per test module**: the driver re-executes its own binary once per module with a `--run-case <name>` per case, and the child records each case's start and verdict in a report file, so when a child aborts, traps or hangs the driver knows which case it was, marks that case alone, and resumes the rest of the module in a fresh process (`--per-case` isolates every case, for diagnosis). No verdict depends on state another module left behind; long-session stability is not this suite's question. Built `--cfg test`, so it reaches `pub(crate)` internals; re-declares `lib.rs`'s module list, a duplication gated by `cargo xtask lint-references` check 4. |
 | `suite_registry.rs` | The `inventory` registry `#[gtktest::test]` submits into and `gtk_suite.rs` iterates. Test-only (`cfg(all(test, feature))`). |
 | `gtktest/` (workspace member) | The `#[gtktest::test]` attribute. Emits the body once and registers it with **both** harnesses — a `#[gtk::test]` wrapper carrying the original name for libtest, plus a registry submission for the main-thread suite — so a body cannot drift between the two runs. |
 | `xtask/` (workspace member) | The build-pipeline gates that are not a `cargo` subcommand — today `cargo xtask lint-references`, contract step 9. A **default member** of the workspace, so steps 1, 2 and 4 format, lint and test it like any other code; its corpora are ordinary `#[test]` cases. It replaced a bash script and a hand-synced PowerShell port of the same rule, on the ground that `cargo` is the one interpreter all three platforms already have. Nothing in `src/` depends on it. |
@@ -375,8 +375,8 @@ collapse the rest"), backs `gtk_log_harness`'s glib writer for both GTK test
 harnesses, so the recorded case — a non-terminating widget-dispose loop that
 emitted the same `Gtk-WARNING` ~99 million times, 4.2 GB in ~2 minutes — cannot
 recur in either place. Neither installation caps output *volume* with a pipe:
-`gtk_suite.rs`'s own per-case wall-clock cap is what still ends a genuinely hung
-case, and intercepting a body's stdout through a pipe would need a reader draining
+`gtk_suite.rs`'s per-case wall-clock cap (the driver kills the case's child process)
+is what still ends a genuinely hung case, and intercepting a body's stdout through a pipe would need a reader draining
 it concurrently — a body that out-writes an undrained pipe blocks, trading a real
 failure mode for a worse one.
 
