@@ -45,6 +45,7 @@ described from a different vantage point.
 | U | Any | Production | The preview is drawn horizontally scrolled (~20px, its left padding gone, a horizontal scrollbar showing) after a mode switch or an explicit Reload rebuilds it — intermittent, pre-existing, seen on Linux and Windows | Low |
 | X | Mac | Test | The macOS integration suite hangs part-way through a run in roughly two to four runs in five. Independent of any one feature — it survives removing the surface it was first blamed on. **A stack now names the mechanism**: GDK's macOS event source drains an autorelease pool inside `prepare()`, a deferred `NSWindow` dealloc there tears down a text input context, and the IMK session's semaphore runs a nested `CFRunLoop` that re-enters `g_main_context_iteration` | High |
 | Z | Any | Production | GTK logs `GtkText - unexpected blinking selection. Removing` once during find-bar use. Cosmetic — GTK detects its own inconsistent blink state and clears it, and nothing on screen changes. Reproduced once in a compound driven run and in **none** of five isolated legs (idle, open bar, open and type, open/type/Enter/Escape, menu open then Escape), so the trigger is a combination or a timing, not any one interaction. Not caused by the window-level Escape handler — the operator's sighting predates it | Low |
+| W | Mac | Production | Observed ONCE: after a compound find-bar run the Escape key stopped closing the find bar and then never worked again in that process — permanent, not transient, with the bar visibly open and the application otherwise responsive. Not reproduced in three isolated legs nor in a faithful replay of the whole compound sequence. The handler has since been hardened so that it declines the key when the bar did not actually close, which BOUNDS this rather than fixes it: the diagnosed cause is still unknown | High |
 | Y | Any | Test | A PDF blockquote-panel tiling assertion fails in the display-free suite intermittently under pipeline load, and passes every time it is run directly. **No root cause is recorded, and two suspicions have now been falsified** — a sprite-key collision (the fixture's path is a unique temp directory) and cross-thread mutation of the sprite cache (it is `thread_local!`, so there is no shared cache to race). The one captured failure is a single misplaced row, which rules out the oversize-lattice branch the assertion itself offers. Reproduce before theorising | Medium |
 
 ## Closed issues
@@ -856,6 +857,48 @@ treating either as understood.
   site is the one thing that has moved every time and it is being read as a clue.
 - **Accept slower macOS ratification** in the meantime: read a macOS result only from
   several runs, never from one, and never treat a hang as a verdict about the change.
+
+## W. Escape stopped closing the find bar, permanently, once
+
+Reported by the `mac` seat while verifying the window-level Escape handler. After the
+annotation-card leg of a full compound pass: Escape #1 closed the card and left the bar
+open (correct), **Escape #2 did not close the bar, and Escape never worked again in that
+process** — five further presses with the frontmost window re-asserted each time, plus a
+click into the editor to restore focus, all no-ops. The bar stayed visibly open. The
+application was otherwise responsive.
+
+**Severity is High because of the shape, not the frequency.** It is a functional wedge
+of a key the whole application shares, it is permanent within the process, and the only
+escape from it is to quit. Compare ISSUES Z, which is superficially similar — one
+occurrence, compound run only — but is a log line with no user-visible effect.
+
+**Not reproduced.** Three isolated legs pass (edit mode with no selection, edit mode with
+a selection, the annotate card). A faithful replay of the entire compound sequence in
+order — preview Cmd+F, type, Enter, click, Escape, three further Escapes, history
+popover, theme drop-down, a click on a disabled menu item, a mode switch, the Go To Line
+dialog, select, annotate, Escape, Escape — passes end to end. The disabled-menu-item
+click was also tried alone and passes.
+
+**What the hardening does and does not do.** `wire_find_bar`'s window-level handler used
+to return `Propagation::Stop` whenever the bar was revealed, on the assumption that the
+close it had just called worked. That spelling has a latent permanent wedge in it: if the
+bar is still open afterwards, the next press takes the same branch, does nothing, and
+swallows Escape again — for every other consumer in the window, for the life of the
+process, which is exactly the reported shape. The handler now re-reads the revealer and
+**declines** when the bar did not close, and asks both `reveals_child` and
+`child_revealed` so a desync between the target and drawn states cannot hide the bar from
+it either. **This bounds the blast radius; it is not a diagnosis.** Neither mechanism has
+been shown to be what happened.
+
+**The evidence from the one occurrence is gone**, and the way it was lost is worth
+keeping: the seat reset an isolated `HOME` to clear session state before replaying, which
+deleted the wedged run's persistent log with it. stdout was empty, so that log was the
+only place anything could have been recorded. **Copy the state directory aside before
+resetting anything, on any run that has already shown an anomaly.**
+
+**If this is chased**, the compound pass must be re-run against the hardened build with
+the state directory preserved, and the handler now logs a warning on the declining path —
+that line appearing is the first hard evidence anyone will have.
 
 ## Y. A PDF blockquote-panel tiling assertion fails intermittently in the display-free suite
 

@@ -166,17 +166,45 @@ pub(super) fn wire_find_bar(window: &ApplicationWindow, chrome: &Chrome) {
     //
     // The reveal check is what keeps this inert the rest of the time: with the bar
     // closed the handler declines, so Escape still belongs to whatever else wants it.
+    //
+    // **`Stop` IS RETURNED ON EVIDENCE, NEVER ON THE ASSUMPTION THAT CLOSING WORKED.**
+    // The obvious spelling — close, then return `Stop` — swallows the key for every
+    // other consumer in the window, and it does so on the strength of a call whose
+    // result was not checked. If the bar is ever still open afterwards, that spelling
+    // enters the same branch on the next press, does nothing visible, and swallows
+    // Escape again: the key is dead for the life of the process, and the reader sees an
+    // open bar that will not close by any means. Re-reading the revealer and declining
+    // when it did not close turns that permanent wedge into, at worst, the behaviour
+    // this handler was added to improve on. A `mac` seat run did wedge exactly that way
+    // once and was never reproduced, so this is a bound on the blast radius rather than
+    // a fix for a diagnosed cause — do not read it as one (ISSUES).
+    //
+    // The predicate asks BOTH revealer properties for the same reason. `reveals_child`
+    // is the target state and `child_revealed` is the drawn one, and they differ for the
+    // length of the slide animation — and would differ indefinitely if the two ever
+    // desynced, which is the other shape the wedge above could take. Taking either as
+    // "the bar is up" means the handler fires whenever the reader can see a bar,
+    // which is the only definition that matches what they are pressing Escape at.
     {
         let cfb = Rc::clone(&close_find_bar);
         let fr = find_bar_revealer.clone();
         let key_ctrl = gtk::EventControllerKey::new();
         key_ctrl.set_propagation_phase(gtk::PropagationPhase::Bubble);
         key_ctrl.connect_key_pressed(move |_, key, _, _| {
-            if key == gtk::gdk::Key::Escape && fr.reveals_child() {
-                cfb();
-                return glib::Propagation::Stop;
+            let showing = |r: &gtk::Revealer| r.reveals_child() || r.is_child_revealed();
+            if key != gtk::gdk::Key::Escape || !showing(&fr) {
+                return glib::Propagation::Proceed;
             }
-            glib::Propagation::Proceed
+            cfb();
+            if fr.reveals_child() {
+                // It did not take. Decline, so Escape stays available to everything
+                // else rather than being consumed by a handler that achieved nothing.
+                log::warn!(
+                    "find: Escape did not close the find bar; leaving the key to other handlers"
+                );
+                return glib::Propagation::Proceed;
+            }
+            glib::Propagation::Stop
         });
         window.add_controller(key_ctrl);
     }
