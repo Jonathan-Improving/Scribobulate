@@ -161,3 +161,7 @@ rpmbuild --define "_topdir $top" \
 
 rpm_file="$(find "$top/RPMS" -name '*.rpm' -print -quit)"
 echo "built $rpm_file"
+# POLICY "Artefact signing": see the note in build-deb.sh. The consequence differs here
+# and is stricter -- rpm checks by default where dpkg does not.
+echo "  Not signed. \`rpm --checksig\` reports NOT OK, and dnf/yum refuse it unless"
+echo "  the install passes \`--nogpgcheck\` or the repository sets gpgcheck=0."

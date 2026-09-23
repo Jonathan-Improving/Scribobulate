@@ -80,7 +80,10 @@ pub(crate) use rename::update_rename_action_state;
 // The two find types `TabState` stores. The module itself stays private — the engine is
 // window-internal; only the shapes the per-tab state has to *hold* are named crate-wide.
 pub(crate) use backingloss::{clear_backing_loss, mark_backing_lost};
-pub(crate) use find::{FindCursor, PreviewFindCache};
+pub(crate) use find::{
+    row_label, FindCursor, FindHistory, FindOptions, FindScope, PreviewFindCache, PreviewScope,
+    RenderKey,
+};
 pub(crate) use findbar::refresh_preview_find_highlight;
 pub(crate) use foldreveal::defer_with_window;
 pub(crate) use foldsplice::splice_disclosure_in_place;
@@ -787,6 +790,9 @@ fn build_window_chrome_state(
         find_entry: chrome.find_entry.clone(),
         match_count_label: chrome.match_count_label.clone(),
         replace_row: chrome.replace_row.clone(),
+        replace_entry: chrome.replace_entry.clone(),
+        find_history_btn: chrome.find_history_btn.clone(),
+        replace_history_btn: chrome.replace_history_btn.clone(),
         fmt_edit_btns: tb_edit_btns,
         documents_btn,
         theme_btn,
@@ -1141,6 +1147,14 @@ pub(crate) mod gtk_integration_tests {
         }
         change_action_state(&win, "outline", &true.to_variant());
         change_action_state(&win, "annotations", &true.to_variant());
+        // The find bar OPEN, with its replace row shown, so its option toggles and both
+        // its text fields are in the tree. It is the second-largest contributor after
+        // the toolbar, and the one that grew most recently: a field with no width cap
+        // makes its row's minimum the field's natural width, and that is the whole
+        // failure this assertion is placed here to see.
+        actions::simple_action(&win, "find-replace")
+            .expect("win.find-replace is registered")
+            .activate(None);
         win.present();
         crate::testpump::drain_for(
             crate::testpump::Clock::Frame,
@@ -1155,7 +1169,8 @@ pub(crate) mod gtk_integration_tests {
              floor instead of the backstop, so a narrow display can no longer fit the \
              window. Measure each direct child of the window's root box to find which: the \
              toolbar, the sidebar paned, the find-bar revealer and the status bar are the \
-             four that have ever been the answer"
+             four that have ever been the answer. The find bar is open here, so an \
+             uncapped find or replace field is one of the candidates"
         );
     }
 

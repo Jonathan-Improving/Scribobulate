@@ -23,6 +23,17 @@ pub(crate) const DOCUMENT_COPIED: &str = "Document copied";
 /// Confirmation for Copy Link Location (TDD 16.15).
 pub(crate) const LINK_LOCATION_COPIED: &str = "Link location copied";
 
+/// Confirmation for Replace All (TDD 11.17), which is otherwise the only find command
+/// whose outcome the find bar cannot report: after it, the match count is normally zero,
+/// and "No matches" is what the reader is left looking at for the one action guaranteed
+/// to have changed the most.
+pub(crate) fn replacements_made(count: u32) -> String {
+    match count {
+        1 => "1 replacement made".to_string(),
+        n => format!("{n} replacements made"),
+    }
+}
+
 /// The line separator a document uses, classified from its buffer (TDD 16.13).
 ///
 /// A property of the DOCUMENT, never of the host (POLICY § Cross-platform): an

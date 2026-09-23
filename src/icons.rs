@@ -53,6 +53,13 @@ pub(crate) enum Icon {
     GoUp,
     /// Find-bar "next match".
     GoDown,
+    /// Find-bar history drop-downs (recent searches / recent replacements).
+    /// Bundled: the name is a *legacy* freedesktop action that this host's
+    /// Adwaita 41 still carries, which proves nothing about the Adwaita 50 the
+    /// Windows staging tree ships — the same drift that cost
+    /// `emblem-synchronizing-symbolic` (see `data/resources.gresource.xml`). A
+    /// host theme that has it still wins; our copy is the fallback.
+    DocumentOpenRecent,
     /// Conflict toast warning glyph.
     DialogWarning,
     /// Info toast: reload / generic-refresh notice. Also File ▸ Reload.
@@ -201,6 +208,7 @@ impl Icon {
             Icon::CollapseAll => "collapse-all-symbolic",
             Icon::GoUp => "go-up-symbolic",
             Icon::GoDown => "go-down-symbolic",
+            Icon::DocumentOpenRecent => "document-open-recent-symbolic",
             Icon::DialogWarning => "dialog-warning-symbolic",
             Icon::ViewRefresh => "view-refresh-symbolic",
             Icon::DocumentSave => "document-save-symbolic",
@@ -296,7 +304,8 @@ impl Icon {
             Icon::ExpandAll => Some(Icon::CollapseAll),
             Icon::CollapseAll => Some(Icon::GoUp),
             Icon::GoUp => Some(Icon::GoDown),
-            Icon::GoDown => Some(Icon::DialogWarning),
+            Icon::GoDown => Some(Icon::DocumentOpenRecent),
+            Icon::DocumentOpenRecent => Some(Icon::DialogWarning),
             Icon::DialogWarning => Some(Icon::ViewRefresh),
             Icon::ViewRefresh => Some(Icon::DocumentSave),
             Icon::DocumentSave => Some(Icon::SendTo),
@@ -390,6 +399,7 @@ impl Icon {
             | Icon::CollapseAll
             | Icon::GoUp
             | Icon::GoDown
+            | Icon::DocumentOpenRecent
             | Icon::DialogWarning
             | Icon::ViewRefresh
             | Icon::DocumentSave

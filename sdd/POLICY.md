@@ -149,6 +149,44 @@ project's reason to exist.
 - Group a platform's code by the cause it answers, not by the API it happens to call.
 - Prefer hand-rolled FFI over a new binding crate for a handful of calls.
 
+### When a UI change needs a platform seat, and when it does not
+
+**Moving existing widgets around does not re-open a ratified feature.** The one thing a
+rearrangement reliably breaks is machine-gated on the Linux host:
+`window::gtk_integration_tests::no_chrome_sets_the_windows_width_floor_above_the_backstop`
+asserts the window's minimum is exactly `MIN_WINDOW_WIDTH` with every toolbar section
+shown, both sidebars open, the find bar open with its replace row, and a document whose
+headings stretch anything that stretches. A control that raises the floor fails there.
+That is worth more than a seat's eye, because the macOS failure mode is silent — the
+window is **not** grown to meet a risen minimum, so the control is simply not drawn (TDD
+9.38). Accessibility naming is gated the same way: `clippy.toml` bans the bare tooltip
+setter, so a control not named through `a11y::` fails the build.
+
+So a pure rearrangement needs a green pipeline and nothing else. **These are not
+rearrangements, and each owes a narrow check** — narrow, not a repeat of a full pass:
+
+| Change | Who has to look | Why Linux cannot answer it |
+|---|---|---|
+| A new glyph or non-ASCII character in a label | both seats | Different font stacks. A `▾` once used on the history buttons had to be confirmed as not tofu in the bundled macOS font. |
+| A new ICON NAME | neither, **if it is bundled** | `tests/icon_resolution.rs` answers per platform, but only for the theme that machine has. Bundling under the requested name settles it before a seat sees a placeholder, and the host theme still wins where it has one. ⚠️ MEASURED consequence: when every host theme *does* carry the name, the bundled copy is shadowed everywhere and **nothing in the fleet exercises the fallback**. Know that before "simplifying" one away. |
+| A new control, or a changed widget CLASS | this seat first | Construction details do not show in a layout test. `set_label` builds `box[label, arrow]`, which drew a second chevron beside the toolkit's own — identical on every platform and caught only by looking. A widget-tree dump plus a screenshot here is the check. ⚠️ The tree alone can mislead: a `GtkMenuButton` arrow node reports present, visible and allocated while painting nothing. **The render is the witness, not the tree.** |
+| A new KEY BINDING, or a window-level event controller | both seats | **Not because the toolkit's propagation differs — it was MEASURED not to.** A bubble-phase window controller for Escape behaved identically on X11/GTK 4.6, GDK-Win32/GTK 4.22 and Quartz: every in-toolkit claimant (popover, drop-down, in-window card, GTK dialog) answered first on all three. Two *other* things did differ and are what a seat is for: a **native** surface may swallow the key before the toolkit sees it (macOS's native menu bar consumes Escape entirely — same visible outcome, different mechanism), and **where focus lands after an action is platform-specific** (after Enter in the find field, Windows returns focus to the document and macOS keeps it in the entry), which decides whether a key even reaches the controller under test. The two rules themselves are platform-INDEPENDENT: take a window-level key on the **bubble** phase so every other claimant answers first, and never report a key handled on the assumption that the handler's action worked — check that it did, or a failed handler swallows that key for the rest of the process. |
+| Anything touching the titlebar | `windows` | Windows requires a NATIVE frame; a `GtkHeaderBar` or `set_titlebar()` silently defeats `GTK_CSD=0` (MANUAL-TEST §7.0a). |
+
+⚠️ **If a floor is ever re-measured by hand rather than by that test, converge first.**
+Both seats independently established that a single resize reports the *pre-wrap* floor —
+macOS by a coarse drag that stops short, Windows by a `SetWindowPos` refused at the
+unwrapped minimum — and the window reports the short width faithfully, so nothing looks
+wrong. Repeat the resize until it stops changing before reading it. Per-platform recipes
+are in MANUAL-TEST §A.2 and §A.3; the automated test avoids this entirely by measuring
+rather than dragging, which is the third reason to lean on it.
+
+⚠️ **A screenshot does not mean the same thing on every platform.** On Win32 a popover
+and a dialog are each their own toplevel and a window capture cannot see them, while an
+in-window overlay is visible only in the capture; on Quartz a screen-region capture sees
+both. Judging "the popover did not open" under the wrong platform's rule produces a
+confident falsehood. MANUAL-TEST §A.2 and §A.3 each state their own rule.
+
 ## Code style
 
 - `rustfmt` and clippy clean. Use `Result`/`?`; no `unwrap`/`expect` outside tests and

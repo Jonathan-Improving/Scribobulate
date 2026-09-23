@@ -1230,6 +1230,14 @@ fn connect_disclosure_toggle(view: &CodePreviewView, toggle: &gtk::ToggleButton)
                 // for `RegionLost` is not a nicety but the repair: the region has
                 // already been deleted from the live buffer.
                 if crate::window::splice_disclosure_in_place(window, mode, key).spliced() {
+                    // The splice's own boundary notification. It does NOT go through
+                    // `rerender_preview_in_place` — that is the whole point of splicing —
+                    // so it owes the notification separately, and this is the route the
+                    // macOS seat caught missing it: the passage stayed ticked over a count
+                    // nothing had recomputed, looking correct only because a `GtkTextTag`
+                    // range moves with an insertion on its own while a held offset does
+                    // not.
+                    crate::window::refresh_preview_find_highlight(window);
                     return;
                 }
                 crate::window::rerender_preview_in_place(

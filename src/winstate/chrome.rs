@@ -103,7 +103,17 @@ pub(crate) struct WindowChrome {
     /// per-tab state — `TabState.find_replace_mode` — restored here on tab
     /// switch by `window/tabs/`'s `on_active_tab_changed`, since it isn't
     /// itself part of any `win.*` action's state).
-    pub(crate) replace_row: gtk::Box,
+    pub(crate) replace_row: crate::widgets::wrapbox::ToolbarWrapBox,
+    /// The replacement field. Held here rather than re-discovered from
+    /// [`replace_row`](Self::replace_row)'s children: the find bar's history drop-down
+    /// writes into it, and a tree walk for a widget the producer already built is
+    /// ScrAP-10's shape.
+    pub(crate) replace_entry: gtk::Entry,
+    /// The find field's recent-searches drop-down, and the replacement field's. Their
+    /// menus are built on demand from the ACTIVE tab's own history, so nothing about
+    /// them needs resyncing on a tab switch except their sensitivity.
+    pub(crate) find_history_btn: gtk::MenuButton,
+    pub(crate) replace_history_btn: gtk::MenuButton,
     /// The Insert Link / Insert Image format buttons (toolbar + caret overlay) whose
     /// tooltip flips to "Edit …" when the editor selection is exactly that markup.
     pub(crate) fmt_edit_btns: Vec<(FmtInsertKind, gtk::Button)>,

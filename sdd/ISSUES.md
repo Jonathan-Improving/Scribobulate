@@ -38,13 +38,15 @@ described from a different vantage point.
 | ID | Platform | Scope | Issue | Severity |
 |----|----------|-------|-------|----------|
 | D | Any | Production | A large document leaves the process spinning a CPU core at ~100% while idle — a GTK/Pango relayout pass that re-shapes text every main-loop iteration and never converges | High |
-| F | Mac | Upstream | A GTK4/Quartz autorelease-pool crash SIGABRTs the macOS integration suite in roughly one full run in four, at a varying site | Medium |
+| F | Mac | Upstream | A GTK4/Quartz autorelease-pool crash SIGABRTs the macOS integration suite in roughly one full run in four. The body names a dominant site and a stack; the site wanders when the suite's test set changes | Medium |
 | G | Linux | Test | A one-time ~12.6 MB allocation appears in step 5b's footprint samples on the GitHub Linux runner and on no development host, at a different sample each run. **Unattributed** — the runner logs `libEGL warning: DRI3 error: Could not get DRI3 device`, so a lazily created buffer in its software GL stack is a suspicion and nothing more. The growth gate tolerates one allocation by design (TDD 6.11), so this is not currently red; what is unknown is whether the sampler is measuring something the application does not own | Low |
 | I | Mac | Upstream | macOS only: every native file-chooser invocation (Open, Save, Export) grows RSS by ~1.1 MB and does not give it back. Roughly four fifths is AppKit's own price for presenting an `NSSavePanel` — reproduced with no GTK in the process — with about a fifth GTK-attributable. Caching the panel upstream would recover ~95% | Medium |
 | M | Windows | Production | On a machine with no Visual C++ runtime the app installs and then fails to start; the installer's bootstrapper for it has landed but has never been verified against that condition | Medium |
 | U | Any | Production | The preview is drawn horizontally scrolled (~20px, its left padding gone, a horizontal scrollbar showing) after a mode switch or an explicit Reload rebuilds it — intermittent, pre-existing, seen on Linux and Windows | Low |
-| X | Mac | Test | The macOS integration suite hangs part-way through a run, at a varying site, in roughly two to four runs in five. Independent of any one feature — it survives removing the surface it was first blamed on | High |
-| Y | Any | Test | A PDF blockquote-panel tiling assertion fails in the display-free suite about one run in four under pipeline load, and passes every time it is run directly. Observed once in four pipeline runs and never in eight direct runs of the same suite; **no root cause is recorded, deliberately** — the fixture's sprite path is a unique temp directory, so a key collision is ruled out, but the sprite cache it clears three times is process-global and at least ten test files mutate it from parallel libtest threads. Reproduce before theorising | Medium |
+| X | Mac | Test | The macOS integration suite hangs part-way through a run in roughly two to four runs in five. Independent of any one feature — it survives removing the surface it was first blamed on. **A stack now names the mechanism**: GDK's macOS event source drains an autorelease pool inside `prepare()`, a deferred `NSWindow` dealloc there tears down a text input context, and the IMK session's semaphore runs a nested `CFRunLoop` that re-enters `g_main_context_iteration` | High |
+| Z | Any | Production | GTK logs `GtkText - unexpected blinking selection. Removing` once during find-bar use. Cosmetic — GTK detects its own inconsistent blink state and clears it, and nothing on screen changes. Reproduced once in a compound driven run and in **none** of five isolated legs (idle, open bar, open and type, open/type/Enter/Escape, menu open then Escape), so the trigger is a combination or a timing, not any one interaction. Not caused by the window-level Escape handler — the operator's sighting predates it | Low |
+| W | Mac | Production | Observed ONCE: after a compound find-bar run the Escape key stopped closing the find bar and then never worked again in that process — permanent, not transient, with the bar visibly open and the application otherwise responsive. Not reproduced in three isolated legs nor in a faithful replay of the whole compound sequence. The handler has since been hardened so that it declines the key when the bar did not actually close, which BOUNDS this rather than fixes it: the diagnosed cause is still unknown | High |
+| Y | Any | Test | A PDF blockquote-panel tiling assertion fails in the display-free suite intermittently under pipeline load, and passes every time it is run directly. **No root cause is recorded, and two suspicions have now been falsified** — a sprite-key collision (the fixture's path is a unique temp directory) and cross-thread mutation of the sprite cache (it is `thread_local!`, so there is no shared cache to race). The one captured failure is a single misplaced row, which rules out the oversize-lattice branch the assertion itself offers. Reproduce before theorising | Medium |
 
 ## Closed issues
 
@@ -704,7 +706,7 @@ these checks as "not observed" is reporting this gap, not a defect in the code u
   reopens at Low/Medium/High, since the names are already in place to be read.
 
 
-## X. The macOS integration suite hangs intermittently, at a varying site
+## X. The macOS integration suite hangs intermittently
 
 **Severity**: High (it is the reason a macOS ratification cannot be read at face value. A
 hung run produces no verdict, so every macOS result now costs several runs to interpret,
@@ -737,6 +739,77 @@ timers, the pooled counter's latch, the mark-set handler's attachment, and final
 status bar's mere *presence in the widget tree*, via a diagnostic environment flag that
 builds the window without it. **With the whole strip absent from the tree, 2 of 5 runs still
 hung.** No configuration tested has ever been hang-free.
+
+**THE MECHANISM, with a stack — measured 2026-09-22 by the macOS seat.** A full run with
+the per-case cap raised to 900 s, then `sample` of the process spinning at 100% CPU:
+**2,913 of 2,913 samples on the main thread, one path.**
+
+```
+g_main_context_iteration -> g_main_context_prepare_unlocked
+  -> gdk_macos_event_source_prepare
+    -> -[NSAutoreleasePool drain] -> objc_autoreleasePoolPop
+      -> AutoreleasePoolPage::releaseUntil -> NSKVODeallocate
+        -> -[NSWindow dealloc] -> -[NSView _setWindow:]
+          -> +[NSTextInputContext currentInputContext_withFirstResponderSync:]
+            -> -[NSTextInputContext deactivate] -> DeactivateTSMDocument
+              -> IMKInputSessionDeactivate -> -[IMKInputSession_Modern deactivate]
+                -> -[HIRunLoopSemaphore wait:]
+                  -> _CFRunLoopRunSpecificWithOptions          <- NESTED RUN LOOP
+                    -> __CFRunLoopDoBlocks -> ___CFPasteboardHandleFulfillMessage
+                      -> -[GdkMacosPasteboard ...]
+                        -> g_main_context_iteration ...        <- RE-ENTRY
+```
+
+GDK's macOS event source drains an autorelease pool **inside `prepare()`**. The drain
+deallocs a deferred `NSWindow`, which tears down its text input context, which deactivates
+an IMK session, which waits on a semaphore that runs a **nested `CFRunLoop`**, which
+services a pasteboard callback into `GdkMacosPasteboard`, which **re-enters
+`g_main_context_iteration` from inside `prepare()`** and never unwinds. One sampled stack
+held 23 `__CFRunLoopRun`, 18 `_CFRunLoopRunSpecificWithOptions` and 10
+`g_main_context_iterate_unlocked` frames. That is exactly the recursion the
+`g_main_context_prepare() called recursively` warning below reports, and it is why the
+site is a symptom rather than a subject. Every frame is libobjc, AppKit, HIToolbox or GDK.
+
+**TWO PRECONDITIONS, both measured, and the negative result is the load-bearing half.**
+The site is not arbitrary and it is not a depth marker — both readings were tested and
+falsified:
+
+- *Not depth.* Across two tips the hang held its test NAME while its ordinal moved
+  (613 cases / position 590, then 615 / 592, with two cases inserted ahead of it).
+  Whatever inherited the old position ran fine.
+- *Not "the first test of that shape".* `window/tabs/contextmenu.rs` holds four tests of
+  the form `<command>_for_tab_acts_on_the_clicked_tab_not_the_active_one`, each of which
+  builds a second window and focuses a background tab. The one that sorts FIRST passes —
+  logged `ok` immediately before the hang in 3 of 3 runs.
+- *The SECOND family member to run is the one that hangs.* Skipping the hanging test moved
+  the hang to its sibling, 3 of 3; skipping the test BEFORE it instead made the previously
+  100% site go clean and moved the hang one further along, 2 of 2. Nothing else predicts a
+  site that was 5-for-5 going green.
+- ⚠️ **But two family members alone are not enough.** Running just those two tests and
+  nothing else: **both pass, 1.4 s.** So the dose is *second family member* **and** a
+  process that has accumulated a full suite's worth of state. Depth is a precondition, not
+  the selector. Had the confirming experiment been the last one run, this entry would now
+  record a mechanism that is wrong in its second half.
+
+The preconditions follow from the stack without further assumption: the trigger is a
+**deferred window dealloc landing in a pool that is drained inside `prepare()`**, which
+needs both accumulated pool traffic (the suite) and tests that create and drop extra
+windows (the family).
+
+**Not reproduced off macOS.** Linux: zero hangs, whole-suite green. Windows: zero hangs
+and zero aborts in three full runs, with both named tests passing 6 of 6. Both hosts run
+these cases serially, so the comparison is like-for-like — `gtk_suite` runs every case on
+the process main thread by construction, which is why no `--test-threads` flag appears in
+its invocation and why one was wrongly cited as evidence once.
+
+⚠️ **The one application-visible lever, untested and NOT a recommendation.** Nothing here
+is ours to fix — every faulting frame is upstream. But the trigger is window destruction
+being deferred into a pool that GDK drains at the worst possible moment, so *when* a test's
+windows are deallocated is in principle reachable from `src/gtk_suite.rs`: draining a
+per-case autorelease pool at a controlled point, outside the GTK main loop, would move the
+dealloc off `prepare()`. That would mean an Objective-C runtime dependency on macOS and has
+not been prototyped, costed or approved. Recorded so the option is not re-derived from
+scratch; do not treat it as a plan.
 
 **The hang is NOT quiet, and that is new evidence: it has a SIGNATURE.** MEASURED
 2026-09-19 on the `mitigations` branch — three `poll(2) failed due to: Resource
@@ -784,6 +857,144 @@ treating either as understood.
   site is the one thing that has moved every time and it is being read as a clue.
 - **Accept slower macOS ratification** in the meantime: read a macOS result only from
   several runs, never from one, and never treat a hang as a verdict about the change.
+
+## W. Escape stopped closing the find bar, permanently, once
+
+Reported by the `mac` seat while verifying the window-level Escape handler. After the
+annotation-card leg of a full compound pass: Escape #1 closed the card and left the bar
+open (correct), **Escape #2 did not close the bar, and Escape never worked again in that
+process** — five further presses with the frontmost window re-asserted each time, plus a
+click into the editor to restore focus, all no-ops. The bar stayed visibly open. The
+application was otherwise responsive.
+
+**Severity is High because of the shape, not the frequency.** It is a functional wedge
+of a key the whole application shares, it is permanent within the process, and the only
+escape from it is to quit. Compare ISSUES Z, which is superficially similar — one
+occurrence, compound run only — but is a log line with no user-visible effect.
+
+**Not reproduced.** Three isolated legs pass (edit mode with no selection, edit mode with
+a selection, the annotate card). A faithful replay of the entire compound sequence in
+order — preview Cmd+F, type, Enter, click, Escape, three further Escapes, history
+popover, theme drop-down, a click on a disabled menu item, a mode switch, the Go To Line
+dialog, select, annotate, Escape, Escape — passes end to end. The disabled-menu-item
+click was also tried alone and passes.
+
+**What the hardening does and does not do.** `wire_find_bar`'s window-level handler used
+to return `Propagation::Stop` whenever the bar was revealed, on the assumption that the
+close it had just called worked. That spelling has a latent permanent wedge in it: if the
+bar is still open afterwards, the next press takes the same branch, does nothing, and
+swallows Escape again — for every other consumer in the window, for the life of the
+process, which is exactly the reported shape. The handler now re-reads the revealer and
+**declines** when the bar did not close, and asks both `reveals_child` and
+`child_revealed` so a desync between the target and drawn states cannot hide the bar from
+it either. **This bounds the blast radius; it is not a diagnosis.** Neither mechanism has
+been shown to be what happened.
+
+**The evidence from the one occurrence is gone**, and the way it was lost is worth
+keeping: the seat reset an isolated `HOME` to clear session state before replaying, which
+deleted the wedged run's persistent log with it. stdout was empty, so that log was the
+only place anything could have been recorded. **Copy the state directory aside before
+resetting anything, on any run that has already shown an anomaly.**
+
+**That re-run has now happened, and it did not reproduce.** Two full compound passes
+against the hardened build, identical sequence, state directory copied aside before each
+reset. Every leg correct both times, including the wedge probe (five further Escapes plus
+a focus-restoring click). **`find: Escape did not close the find bar` appeared zero
+times.**
+
+**Why that absence is worth something.** "The sink is live" was necessary and not
+sufficient: the line being watched for is WARN, and everything these runs emit on their
+own is info or debug, so *no warn line* and *warn cannot get through* would look
+identical. The `mac` seat forced one — a malformed `themes.toml` in the isolated config,
+producing a real `WARN scribobulate::theme::spec` line in the same persistent log, same
+binary, same `RUST_LOG` — then removed the control so it could not contaminate the run.
+The absence is therefore measured rather than inferred.
+
+**It does not clear the suspected path.** Two clean passes fail to catch the
+Stop-on-assumption mechanism; they do not exclude it. Nothing here upgrades this entry
+from suspicion to mechanism, and the hardening remains a bound on blast radius. What can
+be said is narrower and still useful: **whatever wedged did not announce itself on the
+path that is now instrumented.**
+
+**Where to look on the next sighting.** Not at the sequence — it now has four clean
+replays against it. The original wedge occurred in a *hand-paced* run with screenshots,
+accessibility-tree walks and menu enumerations interleaved; the replays are scripted with
+fixed two-second settles. Wall-clock timing and AX traffic are the two things that
+differed, and the accessibility bus is a plausible source of both extra main-loop work
+and extra focus churn.
+
+## Y. A PDF blockquote-panel tiling assertion fails intermittently in the display-free suite
+
+`export::pdf::measure::tests::a_blockquote_panel_sprite_tiles_across_the_page_and_keeps_one_grid`
+fails inside a full pipeline run and passes when run on its own. It has never been
+reproduced on demand.
+
+**Two suspicions are now falsified. Neither is a root cause; both are recorded so the
+next reader does not re-derive them.**
+
+1. *A sprite-key collision.* Ruled out when the entry was opened — the fixture writes its
+   sprite to a unique temp directory.
+2. *Parallel libtest threads mutating a shared sprite cache.* This is what the entry used
+   to assert, and it is **wrong**: the cache is `thread_local!` (`src/sprite.rs`, the
+   `NATURAL` / `RESAMPLED` / `SURFACES` triple), so each test thread holds its own and
+   there is nothing between them to race. At least ten test files do call
+   `sprite::clear_cache()`, which is what made the story plausible — but every one of
+   those calls clears only its own thread's copy.
+
+**What the one captured failure actually says.** The assertion collapses the marker rows
+to run starts and requires them to share one residue modulo the point pitch (12). The
+observed starts were `[60, 72, 81, 96, 108, 120, 132]`: every one is a multiple of 12
+except `81`, which should have been `84`. So the page was **not** drawn on the wrong
+lattice — a systematic error would move every start, and the assertion message's own
+second hypothesis ("the lattice is in PIXELS and the tile is printing 4/3 oversize")
+predicts exactly that. One start out of seven is off by three rows, which is a single
+row-gap inside one marker band, not a wrong grid.
+
+That reframes the search: the question is what makes **one row** of a band fail to match
+the marker colour exactly, not what would rescale the tile.
+
+**Negative controls, measured 2026-09-23 on Linux.** Five consecutive direct runs of the
+test alone: all pass. Three consecutive full `cargo test --lib` runs: all pass, 1,871
+cases each. The failure came from a pipeline run of the same code. Anything claiming a
+fix has to survive repeated pipeline runs, because every cheaper instrument here is green
+on a build that fails.
+
+**Do not chase this from the find-bar branch it was observed on.** It is unrelated to it:
+the branch touches the find bar, the toolbar wrap box and three packaging scripts, none
+of which reach PDF export, sprites or rasterisation, and an immediately preceding
+pipeline run of the same code passed.
+
+## Z. GTK logs "unexpected blinking selection" during find-bar use
+
+`[WARN Gtk] GtkText - unexpected blinking selection. Removing`, emitted once. `GtkText`
+is the inner text widget of a `GtkEntry`/`GtkSearchEntry`, so the subject is one of the
+find bar's two fields, not the document view. GTK raises this from its cursor-blink
+callback when it finds a selection present in a state where it does not expect one, and
+it then removes its own blink source — which is why nothing is visibly wrong.
+
+**What is measured.** Reproduced once, in a driven run that opened the bar, typed,
+pressed Enter, pressed Escape, reopened the bar, opened a menu and pressed Escape again.
+Then five legs were run one per fresh process, each with the app otherwise untouched:
+
+| Leg | Warnings |
+|---|---|
+| Idle, no interaction | 0 |
+| Open the bar and leave it | 0 |
+| Open the bar and type | 0 |
+| Open, type, Enter, Escape | 0 |
+| Menu open, then Escape | 0 |
+
+So no single interaction produces it and the compound sequence did. That is the whole
+finding; **the trigger is not known** and the obvious guess — that closing the bar moves
+focus to the editor while a field still holds a selection — is a guess, recorded here
+only so the next reader knows it was not tested.
+
+**It is not the window-level Escape handler.** That handler landed after the operator's
+sighting, which rules it out by timing rather than by argument.
+
+**Before theorising, reproduce.** One observation in a compound run and five clean
+negative controls is not enough to attribute this, and a fix aimed at the focus guess
+would be unfalsifiable at this rate — it would "pass" on a build where nothing changed.
 
 ## CLSD-04. In fullscreen on macOS, a click during the transition animation is never delivered
 

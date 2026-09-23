@@ -18,6 +18,23 @@
 //! never squeezed to fit. Invisible children (`set_visible(false)`) are
 //! skipped entirely and take no space, exactly like a plain `GtkBox`, so
 //! hiding a toolbar section still costs it nothing here.
+//!
+//! A child SHORTER than its row is placed by its own `valign`: `Start` at the
+//! row's top, `End` at its bottom, and anything else — including GTK's default
+//! `Fill` — centred. `Fill` centres rather than stretching because this widget
+//! never stretches a child; that is the same rule as the width, stated for the
+//! other axis.
+//!
+//! This is the widget's job rather than the caller's, and the reason is that
+//! `gtk_widget_set_valign` has nothing to work with here on its own: a child is
+//! allocated exactly its natural height, so GTK is given no slack to place it
+//! in, and the property is inert unless this code reads it. Every toolbar row
+//! was uniform-height buttons for the life of this widget, so none of it
+//! mattered until the find bar gained controls of two different heights — a
+//! `GtkCheckButton` shorter than a button, then a three-row option grid beside
+//! a one-row entry. Centring is the default rather than baseline alignment
+//! because the rows here are not all text (icons, entries, a check indicator),
+//! and a row with no baseline to share still has a middle.
 
 use gtk::prelude::*;
 use gtk::{gdk, glib};
@@ -137,25 +154,50 @@ mod imp {
         col_spacing: i32,
         row_spacing: i32,
     ) -> (Vec<gdk::Rectangle>, i32) {
-        let mut rects = Vec::with_capacity(children.len());
+        let mut rects: Vec<gdk::Rectangle> = Vec::with_capacity(children.len());
         let mut x = 0;
         let mut y = 0;
         let mut row_h = 0;
+        // Where the row being built starts in `rects`. A row's height is only
+        // known once the row is closed, so the centring is applied then rather
+        // than as each child is placed.
+        let mut row_start = 0usize;
+
+        // Place each child of a finished row within the row's height, by its own
+        // `valign`. A child exactly as tall as its row does not move whatever it
+        // asks for, which is every child of a row of uniform buttons.
+        fn place_row(rects: &mut [gdk::Rectangle], children: &[gtk::Widget], row_h: i32) {
+            for (rect, child) in rects.iter_mut().zip(children) {
+                let slack = row_h - rect.height();
+                let dy = match child.valign() {
+                    gtk::Align::Start => 0,
+                    gtk::Align::End => slack,
+                    // Center, Fill and Baseline all land here. Fill is GTK's
+                    // default and is treated as Center deliberately — see the
+                    // module header.
+                    _ => slack / 2,
+                };
+                rect.set_y(rect.y() + dy);
+            }
+        }
 
         for child in children {
             let (_, nat_w, _, _) = child.measure(gtk::Orientation::Horizontal, -1);
             let (_, nat_h, _, _) = child.measure(gtk::Orientation::Vertical, -1);
             let would_overflow = x > 0 && x + col_spacing + nat_w > avail_width;
             if would_overflow {
+                place_row(&mut rects[row_start..], &children[row_start..], row_h);
                 y += row_h + row_spacing;
                 x = 0;
                 row_h = 0;
+                row_start = rects.len();
             }
             let cx = if x == 0 { 0 } else { x + col_spacing };
             rects.push(gdk::Rectangle::new(cx, y, nat_w, nat_h));
             x = cx + nat_w;
             row_h = row_h.max(nat_h);
         }
+        place_row(&mut rects[row_start..], &children[row_start..], row_h);
         let total_h = if rects.is_empty() { 0 } else { y + row_h };
         (rects, total_h)
     }
@@ -271,6 +313,50 @@ mod gtk_integration_tests {
             a_alloc.x() + a_alloc.width() + 2,
             "the hidden middle child must not leave a gap or shift `b` further \
              than `a`'s own width plus spacing"
+        );
+    }
+
+    /// A child shorter than its row sits in the MIDDLE of it, not at the top.
+    ///
+    /// The subject is a `GtkCheckButton` rather than a contrived short widget,
+    /// because the check button is what revealed this: it is the first control
+    /// in any toolbar row here that is not a button, and its label rode above
+    /// the toggle labels beside it. Asserting on centres rather than on `y`
+    /// keeps the check passing if either control's natural height changes with
+    /// a theme — what must hold is that they agree, not what they measure.
+    #[gtktest::test]
+    fn a_short_child_is_centred_in_its_row_rather_than_riding_at_the_top() {
+        let wrap = ToolbarWrapBox::new(4, 4);
+        let tall = gtk::Button::with_label("Reg-Ex");
+        let short = gtk::CheckButton::with_label("Search in selection");
+        wrap.append(&tall);
+        wrap.append(&short);
+
+        let win = gtk::Window::new();
+        win.set_child(Some(&wrap));
+        win.present();
+        crate::testpump::drain_for(
+            crate::testpump::Clock::Frame,
+            std::time::Duration::from_millis(200),
+        );
+        let (_, nat_w, _, _) = wrap.measure(gtk::Orientation::Horizontal, -1);
+        wrap.size_allocate(&gtk::Allocation::new(0, 0, nat_w, 100), -1);
+
+        let tall_alloc = tall.allocation();
+        let short_alloc = short.allocation();
+        assert!(
+            short_alloc.height() < tall_alloc.height(),
+            "precondition: the check button must be the shorter of the two — \
+             if a theme ever makes them equal this test proves nothing, so it \
+             says so rather than passing vacuously"
+        );
+        let tall_centre = tall_alloc.y() + tall_alloc.height() / 2;
+        let short_centre = short_alloc.y() + short_alloc.height() / 2;
+        assert!(
+            (tall_centre - short_centre).abs() <= 1,
+            "the short child's centre ({short_centre}) must line up with the \
+             row's ({tall_centre}); off by more than rounding means it is \
+             riding at the row's top edge"
         );
     }
 }

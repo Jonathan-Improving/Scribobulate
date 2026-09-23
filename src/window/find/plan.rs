@@ -19,38 +19,28 @@
 
 use std::collections::HashMap;
 
-/// How many times `needle` occurs in the text a collapsed disclosure's body would
+/// How many times the query occurs in the text a collapsed disclosure's body would
 /// render as.
 ///
 /// **Two rules meet here and neither owns the other.** The reduction to plain text is
-/// `renderer::disclosure`'s — it is knowledge about a disclosure body. The case folding
-/// is find's. This function is the composition, and it lives in this module for the
-/// reason the module header already gives: it is a pure decision, and
-/// `src/window/*.rs` is outside the gate.
+/// `renderer::disclosure`'s — it is knowledge about a disclosure body. What counts as
+/// an occurrence is the matcher's. This function is the composition, and it lives in
+/// this module for the reason the module header already gives: it is a pure decision,
+/// and `src/window/*.rs` is outside the gate.
 ///
-/// **The folding matches the CELL and HIDDEN paths, and not the buffer one** — this
-/// used to say it was the same rule a visible match is decided by, which is true of two
-/// of the three (F-DRY-109). `ci_match_ranges` folds with `char::to_lowercase().next()`,
-/// taking the first character of a multi-character lowering; a BODY match is decided by
-/// `GtkTextIter::forward_search` under `CASE_INSENSITIVE`, which is GLib's Unicode
-/// casefold. The two differ on the characters whose lowering is longer than one
-/// character — `İ` (U+0130) is the standing example — so a count from here can disagree
-/// with the body sweep on such a needle.
-///
-/// **Recorded as a decision rather than left as a surprise**, with a test below pinning
-/// one case. Making all three agree means folding the haystack and the needle through
-/// `glib::casefold` inside `ci_match_ranges`, which moves cell-match BYTE offsets and so
-/// needs its own measurement; it is not worth that on a difference no document this
-/// project has seen exhibits.
-pub(super) fn hidden_match_count(body_src: &str, needle: &str) -> usize {
-    if needle.is_empty() || body_src.is_empty() {
+/// **It used to be its own third matcher, and that was the defect.** The count here
+/// folded case with `char::to_lowercase().next()` while a BODY match was decided by
+/// `GtkTextIter::forward_search` under `CASE_INSENSITIVE` — GLib's Unicode casefold —
+/// so the two disagreed on any character whose lowering is longer than one character
+/// (`İ`, U+0130, was the standing example) and one document could be counted two ways
+/// by one search. Taking the [`Matcher`](super::matcher::Matcher) as an argument is
+/// what removes that: there is now one rule, and a caller cannot supply a different one
+/// to this path than it used for the buffer.
+pub(super) fn hidden_match_count(body_src: &str, matcher: &super::matcher::Matcher) -> usize {
+    if body_src.is_empty() {
         return 0;
     }
-    super::ci_match_ranges(
-        &crate::renderer::disclosure::body_plain_text(body_src),
-        needle,
-    )
-    .len()
+    matcher.count(&crate::renderer::disclosure::body_plain_text(body_src))
 }
 
 /// A cell's identity for the purposes of this decision. The applier's key is a label
@@ -295,16 +285,29 @@ mod tests {
     /// `hidden_match_count`'s edges. It decides whether find REPORTS a match the reader
     /// cannot currently see, so a wrong answer is a match count that disagrees with the
     /// document — and the block has to be expanded before anyone can tell.
+    /// The default matcher — a case-insensitive literal, which is what the hidden path
+    /// was hard-wired to before it took one.
+    fn literal(query: &str) -> super::super::matcher::Matcher {
+        super::super::matcher::Matcher::compile(
+            query,
+            super::super::options::FindOptions::default(),
+        )
+        .expect("a literal always compiles")
+    }
+
     #[test]
     fn an_empty_needle_finds_nothing_in_a_hidden_body() {
         // Not "every position matches": an empty query is a query with no answer, and
         // the visible path treats it the same way.
-        assert_eq!(super::hidden_match_count("some hidden body text", ""), 0);
+        assert_eq!(
+            super::hidden_match_count("some hidden body text", &literal("")),
+            0
+        );
     }
 
     #[test]
     fn an_empty_hidden_body_yields_no_matches() {
-        assert_eq!(super::hidden_match_count("", "anything"), 0);
+        assert_eq!(super::hidden_match_count("", &literal("anything")), 0);
     }
 
     #[test]
@@ -313,7 +316,7 @@ mod tests {
         // visible one must be decided by the same folding, or the count and the document
         // disagree.
         assert_eq!(
-            super::hidden_match_count("Alpha and alpha and ALPHA\n", "alpha"),
+            super::hidden_match_count("Alpha and alpha and ALPHA\n", &literal("alpha")),
             3
         );
     }
@@ -323,9 +326,12 @@ mod tests {
         // `**bold**` renders as `bold`, so a search for the rendered word must find it
         // and a search for the asterisks must not — the reduction is what makes the
         // hidden count agree with what expanding the block would show.
-        assert_eq!(super::hidden_match_count("a **bold** word\n", "bold"), 1);
         assert_eq!(
-            super::hidden_match_count("a **bold** word\n", "**bold**"),
+            super::hidden_match_count("a **bold** word\n", &literal("bold")),
+            1
+        );
+        assert_eq!(
+            super::hidden_match_count("a **bold** word\n", &literal("**bold**")),
             0
         );
     }
@@ -375,26 +381,43 @@ mod tests {
         assert!(!p.drop_selection, "a body hit keeps its selection");
     }
 
-    /// **F-DRY-109: the folding here is the CELL rule, not the body rule**, and the
-    /// difference is recorded rather than discovered.
+    /// The hidden path counts by the **same** rule as every other preview text, which
+    /// is the property that replaced a recorded divergence rather than a new claim.
     ///
-    /// `ci_match_ranges` lowers with `to_lowercase().next()` — the first character of a
-    /// possibly-multi-character lowering. `İ` (U+0130) lowers to `i` + U+0307, so this
-    /// rule sees `i` and matches a needle of `i`; GLib's casefold, which the body sweep
-    /// uses, does not treat the two as equal. A hidden-match count can therefore differ
-    /// from what the body sweep reports for such a needle.
-    ///
-    /// Pinned so the day someone unifies the three paths, this test tells them what
-    /// they changed rather than a user telling them.
+    /// This used to pin the opposite: the count here folded case one way and the body
+    /// sweep folded it another, so `İ` (U+0130) was one occurrence of `i` to this path
+    /// and none to the buffer's, and the test existed to record that one document could
+    /// be counted two ways by one search. Handing in the matcher is what collapsed the
+    /// two rules into one; asserting against a second matcher built the same way is how
+    /// that collapse is held, because a future third folding rule could only reappear
+    /// by this function growing its own again.
     #[test]
-    fn the_hidden_count_folds_by_the_cell_rule_not_the_buffer_rule() {
-        // One occurrence by this rule. The assertion is about WHICH rule, so the value
-        // matters less than that it is stated: a change to the folding moves it.
-        assert_eq!(hidden_match_count("İstanbul", "i"), 1);
-        // The ordinary case is unaffected and agrees with every rule, which is what
-        // makes the line above a narrow, recorded exception rather than a wide one.
-        assert_eq!(hidden_match_count("Istanbul", "i"), 1);
-        assert_eq!(hidden_match_count("banana", "NA"), 2);
-        assert_eq!(hidden_match_count("banana", "q"), 0);
+    fn the_hidden_count_uses_the_matcher_it_is_given() {
+        assert_eq!(hidden_match_count("banana", &literal("NA")), 2);
+        assert_eq!(hidden_match_count("banana", &literal("q")), 0);
+        assert_eq!(hidden_match_count("", &literal("a")), 0);
+        // The same text through the matcher directly must give the same answer — this
+        // function adds the plain-text reduction and NOTHING about matching.
+        let plain = crate::renderer::disclosure::body_plain_text("**bold** banana");
+        assert_eq!(
+            hidden_match_count("**bold** banana", &literal("na")),
+            literal("na").count(&plain)
+        );
+    }
+
+    /// Case sensitivity reaches this path, which is the whole reason it takes a matcher
+    /// rather than a needle.
+    #[test]
+    fn an_option_set_by_the_reader_reaches_the_hidden_count() {
+        use super::super::options::FindOptions;
+        let sensitive = super::super::matcher::Matcher::compile(
+            "NA",
+            FindOptions {
+                case_sensitive: true,
+                ..FindOptions::default()
+            },
+        )
+        .expect("a literal always compiles");
+        assert_eq!(hidden_match_count("banana", &sensitive), 0);
     }
 }

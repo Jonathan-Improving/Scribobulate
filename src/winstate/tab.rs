@@ -355,6 +355,41 @@ pub(crate) struct TabState {
     /// widget on tab switch so re-opening find on a tab shows its own last
     /// search rather than whatever the previously active tab left behind.
     pub(crate) find_query: RefCell<String>,
+    /// This tab's find **match options** — case, whole word, regular expression.
+    ///
+    /// Per tab for the same reason as [`find_query`](Self::find_query), and it has to
+    /// be: the options are half of what the reader asked for, so carrying the query per
+    /// tab while leaving the options shared restores one tab's term under another tab's
+    /// interpretation of it. Persisted with the tab (`session::TabSession`), unlike the
+    /// live query — a term survives a restart as the head of that tab's history, whereas
+    /// a restored *search in force* would put the reader into a search they did not just
+    /// ask for.
+    ///
+    /// Read by both engines: pushed onto `search_settings` for the editor, and handed to
+    /// `window::find`'s matcher for the preview's three texts.
+    pub(crate) find_options: Cell<crate::window::FindOptions>,
+    /// The passage **search in selection** confined this tab's search to, or `None`
+    /// when the search covers the whole pane.
+    ///
+    /// Per tab like the options, but **never persisted**: it indexes a buffer that does
+    /// not exist until the document has been re-read, so restoring it would name a
+    /// passage that is not there. The toggle restores off.
+    ///
+    /// A `RefCell` rather than a `Cell` because the editor arm holds two `GtkTextMark`s
+    /// and a `GtkTextMark` is not `Copy`. Read it with the same discipline every other
+    /// `RefCell` here takes: clone out before calling into GTK, because a setter that
+    /// re-enters and borrows this again is a process abort rather than an error
+    /// (ScrAP-53).
+    pub(crate) find_scope: RefCell<Option<crate::window::FindScope>>,
+    /// This tab's committed search terms and replacement texts, most recent first.
+    ///
+    /// Per tab and PERSISTED, unlike the live query. The distinction is the one the
+    /// find bar turns on: restoring a search *in force* would put the reader into a
+    /// search they did not just ask for, whereas restoring what they have searched for
+    /// puts nothing in force and simply keeps the terms reachable.
+    pub(crate) find_history: RefCell<crate::window::FindHistory>,
+    /// The replacement-text counterpart of [`find_history`](Self::find_history).
+    pub(crate) replace_history: RefCell<crate::window::FindHistory>,
     /// Back-reference to this tab's window's shared chrome (see module doc).
     /// A `RefCell` (not a plain `Rc`) because Move Tab to
     /// New Window / cross-window drag re-homes a tab under a DIFFERENT window's
@@ -579,6 +614,15 @@ impl TabState {
             search_context,
             search_settings,
             find_query: RefCell::new(String::new()),
+            // Born at the default — a case-insensitive literal, the behaviour the bar
+            // had before options existed. A restored tab's own options are applied
+            // after construction by `window::findbar::adopt_find_options`, which is the
+            // one path that also has to move the three GActions; setting the field here
+            // from a `TabInit` would leave those unmoved and the toggles lying.
+            find_options: Cell::new(crate::window::FindOptions::default()),
+            find_scope: RefCell::new(None),
+            find_history: RefCell::default(),
+            replace_history: RefCell::default(),
             chrome_cell: RefCell::new(chrome),
             // Every tab starts at Preview; a restored session's real view mode is
             // replayed through the actual GAction right after construction (see

@@ -410,9 +410,9 @@ fn build_view_menu(themes: &crate::theme::Themes) -> (Menu, Menu) {
     (outer, documents_menu)
 }
 
-/// Edit menu: the EDIT_CMDS commands plus an editor section mirroring the
-/// GtkSourceView context menu — Insert Emoji and a Change Case submenu.
-/// These are menu-only (not in EDIT_CMDS, so no toolbar buttons).
+/// Edit menu: the EDIT_CMDS commands, an editor section mirroring the
+/// GtkSourceView context menu — Insert Emoji and a Change Case submenu — and the find
+/// bar's three match options. All menu-only (not in EDIT_CMDS, so no toolbar buttons).
 fn build_edit_menu() -> Menu {
     let edit_menu = build_command_menu(&EDIT_CMDS);
     let editor_section = Menu::new();
@@ -438,6 +438,23 @@ fn build_edit_menu() -> Menu {
     change_case.append(Some(&mnem("tOGGLE cASE")), Some("win.change-case::toggle"));
     editor_section.append_submenu(Some(&mnem("Change Case")), &change_case);
     edit_menu.append_section(None, &editor_section);
+
+    // The find bar's match options, beside the Find commands they qualify. Their own
+    // section so they read as settings on the search rather than as three more
+    // commands. **Uncommon commands** (CAM § Uncommon commands): one `GAction` each,
+    // shared with the find-bar toggle, but no toolbar button and no accelerator — a
+    // control that only means anything while the find bar is open does not earn a
+    // permanent seat on the toolbar.
+    let find_options_section = Menu::new();
+    for (label, action) in [
+        ("Match Case", "win.find-match-case"),
+        ("Whole Word", "win.find-whole-word"),
+        ("Regular Expression", "win.find-regex"),
+        ("Search in Selection", "win.find-in-selection"),
+    ] {
+        find_options_section.append_item(&item(label, action));
+    }
+    edit_menu.append_section(None, &find_options_section);
     edit_menu
 }
 

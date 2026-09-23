@@ -41,21 +41,23 @@ fn oversized_canvas_refuses_without_allocating_a_canvas_sized_buffer() {
 
     // `probe` does not enforce the cap (see `richimg::probe`'s doc comment) — it must
     // still read the bogus dimensions without allocating anything canvas-sized.
-    let info =
-        support::measured(|| richimg::probe(&bytes, &limits).expect("probe reads headers only"));
+    let info = support::measured_no_canvas_sized_allocation("probe()", || {
+        richimg::probe(&bytes, &limits).expect("probe reads headers only")
+    });
     assert_eq!((info.width, info.height), (16384, 16384));
     // GIF alone reports a frame count here: the fixture declares an oversized screen
     // and then no image descriptors, so the count is a real zero rather than an absence.
     assert_eq!(info.frame_count, Some(0));
-    support::assert_no_canvas_sized_allocation("probe()");
 
-    let new_result = support::measured(|| Animation::new(Arc::clone(&bytes), &limits));
+    let new_result = support::measured_no_canvas_sized_allocation("Animation::new", || {
+        Animation::new(Arc::clone(&bytes), &limits)
+    });
     assert_eq!(new_result.err(), Some(Error::TooLarge));
-    support::assert_no_canvas_sized_allocation("Animation::new");
 
-    let first_frame_result = support::measured(|| first_frame(&bytes, &limits));
+    let first_frame_result = support::measured_no_canvas_sized_allocation("first_frame", || {
+        first_frame(&bytes, &limits)
+    });
     assert_eq!(first_frame_result.err(), Some(Error::TooLarge));
-    support::assert_no_canvas_sized_allocation("first_frame");
 }
 
 /// A control: the counting allocator itself must not be why nothing decodes.

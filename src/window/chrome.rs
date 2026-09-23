@@ -46,6 +46,10 @@ pub(super) struct Chrome {
     /// The annotations viewer's heading label (TDD 20.22).
     pub annotations_title: gtk::Label,
     pub find_entry: gtk::SearchEntry,
+    /// The drop-down of this tab's recent searches, beside the find field.
+    pub find_history_btn: gtk::MenuButton,
+    /// The same, for the replacement field.
+    pub replace_history_btn: gtk::MenuButton,
     pub find_prev_btn: gtk::Button,
     pub find_next_btn: gtk::Button,
     pub match_count_label: gtk::Label,
@@ -53,7 +57,7 @@ pub(super) struct Chrome {
     pub replace_entry: gtk::Entry,
     pub replace_btn: gtk::Button,
     pub replace_all_btn: gtk::Button,
-    pub replace_row: gtk::Box,
+    pub replace_row: crate::widgets::wrapbox::ToolbarWrapBox,
     pub find_bar: gtk::Box,
     pub find_bar_revealer: gtk::Revealer,
     /// This window's OWN `View ▸ Documents` submenu model (GTK4Rs/AP-76) —
@@ -85,6 +89,78 @@ pub(super) struct Chrome {
 /// first moment the question has an answer. One-shot: it disconnects itself, so the
 /// reader's later drags are never overwritten by a re-allocation (a window resize emits
 /// it again).
+/// How wide, in characters, a find-bar text field is — minimum and maximum both.
+///
+/// **A single fixed width, not a floor.** The find bar's rows are wrap boxes, which
+/// give every child its NATURAL width, so an uncapped field's natural width becomes the
+/// row's minimum and therefore the window's (TDD 9.38). Capping only the maximum would
+/// leave the natural width free to grow; capping only the minimum would leave it free
+/// to be the whole row. Pinning both is what makes the bar's contribution to the
+/// window's floor a number chosen here rather than one emerging from a layout.
+///
+/// 24 characters holds an ordinary search term and a short regular expression, and sits
+/// comfortably under `MIN_WINDOW_WIDTH`.
+const FIND_FIELD_WIDTH_CHARS: i32 = 24;
+
+/// Pin a find-bar field's width so it cannot decide the window's minimum.
+///
+/// Applies to BOTH fields from one place: they sit in two different rows built a
+/// hundred lines apart, and a cap applied to one of them is a floor raised by the other
+/// — which on macOS is not merely ugly, because a window is not grown to meet a risen
+/// minimum there and the controls past the edge are silently not drawn.
+fn cap_field_width(field: &impl IsA<gtk::Editable>) {
+    let field = field.as_ref();
+    field.set_width_chars(FIND_FIELD_WIDTH_CHARS);
+    field.set_max_width_chars(FIND_FIELD_WIDTH_CHARS);
+}
+
+/// A find-bar history drop-down: a narrow button beside its field.
+///
+/// **A `GtkMenuButton`, not a combo box or a completion.** `GtkComboBoxText` and
+/// `GtkEntryCompletion` are both deprecated as of GTK 4.10 and the gtk4-rs bindings
+/// mark them `#[deprecated]`, which fails the zero-warning clippy gate; and the find
+/// field has to stay a `GtkSearchEntry` for the `stop-search` binding that closes the
+/// bar on Escape (ScrAP-48). A sibling button leaves the entry exactly as it is.
+///
+/// **An icon and NO arrow — and the absence is chosen, not defaulted.** At this GTK
+/// floor a `GtkMenuButton`'s child *type* decides whether it gets a down-indicator: the
+/// `GtkImage` child type is the image by itself, while the `GtkLabel` child type builds
+/// a box holding the label AND a `GtkBuiltinIcon` with css name `arrow`.
+/// `always-show-arrow` (GTK 4.4, inside the 4.6 floor) would put that node back over an
+/// image child, and it is deliberately not called. MEASURED here on GTK 4.6.9, both by
+/// dumping the widget tree and by rendering the button: with it set, the `arrow` node
+/// exists, reports itself visible, is ALLOCATED its share of the button — and PAINTS
+/// NOTHING under Adwaita. The result is an icon shoved to the left of a button with an
+/// empty half. Setting it is worse than not, and the reason is the same one that makes
+/// the property look attractive: what the node draws is a theme's business, and the
+/// theme does not consider this node its business.
+///
+/// This button was an EMPTY label before it carried an icon, and the reason it was
+/// empty is the reason it is not a `set_label` now. It began as `set_label("▾")` — a
+/// glyph rather than an icon name, deliberately, because an icon name is one more thing
+/// to be missing from a host icon theme (ScrAP-169, GTK4Rs/AP-48) — and it drew TWO
+/// arrows on Windows, the application's chevron beside the toolkit's. `set_child` does
+/// not avoid it either: a custom child is wrapped in the same `box[child, arrow]`. Note
+/// what the pair of measurements says together: the toolkit's arrow is drawn on Windows
+/// and not under Adwaita, so it is not something to build a layout around in either
+/// direction. The empty label was the answer while the button had nothing to say; a
+/// blank button says nothing about what it opens, which is what put an icon here.
+///
+/// The icon-theme hazard that argued against an icon name in the first place is
+/// answered by BUNDLING rather than by avoiding the name — see
+/// `data/resources.gresource.xml`, and note the host theme still wins where it has one.
+fn history_button(accessible_name: &str) -> gtk::MenuButton {
+    let btn = gtk::MenuButton::new();
+    btn.set_icon_name(Icon::DocumentOpenRecent.name());
+    btn.add_css_class("flat");
+    // A freshly built window has committed nothing, and the bar is built before any tab
+    // is registered — so the floor is set here and `findbar::sync_history_buttons`
+    // raises it. The same deal `win.find-in-selection` takes at its registration.
+    btn.set_sensitive(false);
+    crate::a11y::name_with_tooltip(&btn, accessible_name, accessible_name);
+    btn
+}
+
 fn restore_sidebar_split(paned: &gtk::Paned, fraction: f64) {
     // The handler disconnects itself, so it needs its own id — which `connect` only
     // returns after the closure has been built. The shared cell is the handover. It
@@ -374,6 +450,8 @@ pub(super) fn build_chrome(
     // soon as the user types. The constructor takes the name for that reason.
     let find_entry = crate::widgets::textfield::named_search_entry("Find");
     find_entry.set_placeholder_text(Some("Find…"));
+    cap_field_width(&find_entry);
+    let find_history_btn = history_button("Recent searches");
 
     let find_prev_btn = gtk::Button::from_icon_name(Icon::GoUp.name());
     crate::a11y::name_with_tooltip(
@@ -395,38 +473,182 @@ pub(super) fn build_chrome(
     crate::a11y::name_with_tooltip(&close_find_btn, "Close find bar", "Close (Escape)");
     close_find_btn.add_css_class("flat");
 
-    let find_row = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+    // ── the match-option toggles ─────────────────────────────────────────────
+    // After the field and before the navigation buttons, because that is what they
+    // qualify: everything to their left is WHAT the reader is looking for, everything
+    // to their right is how they move through what was found.
+    //
+    // Each is bound to its `win.` action by name — the same action the Edit menu's check
+    // item drives — so neither surface holds state of its own (POLICY "One action per
+    // command").
+    //
+    // The labels are ASCII WORDS, not the find-bar's conventional glyphs (`Aa`, `W`,
+    // `.*`). A glyph only stands for the thing; `W` is not narrower than "Words" by
+    // enough to buy the guess it demands, and `.*` is legible to somebody who already
+    // knows what regular expressions are and opaque to everybody else. A tooltip is not
+    // the answer to that: it is a second reading, and it is absent on a touch surface.
+    //
+    // CHECK BOXES rather than toggle buttons, because that is what these are — four
+    // independent booleans, which is also exactly what the Edit menu shows for the same
+    // four actions. A toggle button says "pressed", which is a weaker claim and the
+    // reason three bare words in a toolbar read as stray text rather than as controls.
+    let find_option_btns: Vec<gtk::CheckButton> = [
+        ("find-match-case", "Case", "Match case", "Match case"),
+        (
+            "find-whole-word",
+            "Words",
+            "Whole word",
+            "Match whole words only",
+        ),
+        (
+            "find-regex",
+            "Reg-Ex",
+            "Regular expression",
+            "Interpret the query as a regular expression",
+        ),
+    ]
+    .into_iter()
+    .map(|(action, glyph, name, tooltip)| {
+        let btn = gtk::CheckButton::with_label(glyph);
+        btn.set_action_name(Some(&format!("win.{action}")));
+        crate::a11y::name_with_tooltip(&btn, name, tooltip);
+        btn
+    })
+    .collect();
+
+    // NOT a match option: it bounds WHERE matching is applied rather than what matches,
+    // and the column it sits in is what says so. It still rides the same `win.` action,
+    // so the Edit menu's check item and this one cannot disagree, and it is still a
+    // FIND control: replace acts on what finding produced.
+    let find_in_selection_check = gtk::CheckButton::with_label("Search in selection");
+    find_in_selection_check
+        .set_action_name(Some(&format!("win.{}", super::findbar::FIND_IN_SELECTION)));
+    crate::a11y::name_with_tooltip(
+        &find_in_selection_check,
+        "Search in selection",
+        "Confine the search to the selected passage",
+    );
+
+    // TWO COLUMNS, and the split carries the meaning the labels cannot: the left column
+    // is how the query is READ, the right is where it is APPLIED. Four check boxes in
+    // one line leave the reader to infer that from the wording; a column boundary
+    // states it. The cost is honest and was weighed — the bar goes from two rows to
+    // four, and that height comes out of the document view.
+    //
+    // A `GtkGrid` is ONE child of the wrap box, so the whole block wraps as a unit and
+    // the columns cannot be split across a row boundary (TDD 9.38's "closely related
+    // controls never split"). It also means the grid's natural width — not any single
+    // check box's — is what the row contributes to the window's minimum, which is why
+    // the labels stay short: at `MIN_WINDOW_WIDTH` of 360 the two columns together must
+    // stay under the capped find field beside them, and
+    // `no_chrome_sets_the_windows_width_floor_above_the_backstop` is the gate that says
+    // whether they did.
+    //
+    // `halign(Start)` on every cell: a grid stretches its children to the column width
+    // by default, which would leave each check box with a wide invisible click target
+    // running to the next column.
+    let find_option_grid = gtk::Grid::new();
+    find_option_grid.set_row_spacing(2);
+    find_option_grid.set_column_spacing(14);
+    for (row, btn) in find_option_btns.iter().enumerate() {
+        btn.set_halign(gtk::Align::Start);
+        find_option_grid.attach(btn, 0, row as i32, 1, 1);
+    }
+    find_in_selection_check.set_halign(gtk::Align::Start);
+    find_in_selection_check.set_valign(gtk::Align::Start);
+    find_option_grid.attach(&find_in_selection_check, 1, 0, 1, 1);
+
+    // A WRAP box, not a `GtkBox`: with everything shown this row is wider than a narrow
+    // window, and a `GtkBox` would answer the sum of its children as its minimum width
+    // and so raise the WINDOW's (TDD 9.38). Wrapping lets the row's contribution be its
+    // widest single control instead.
+    let find_row = crate::widgets::wrapbox::ToolbarWrapBox::new(4, 4);
     find_row.set_margin_top(4);
     find_row.set_margin_bottom(4);
     find_row.set_margin_start(6);
     find_row.set_margin_end(6);
+    // The option grid is three rows tall, so everything beside it is a short child and
+    // the wrap box would otherwise centre it — leaving the find field floating against
+    // the middle of the check boxes instead of starting the bar. `Start` puts the field,
+    // its history button and the navigation group on the grid's FIRST line, which is
+    // where a reader looks for them.
+    find_entry.set_valign(gtk::Align::Start);
+    find_history_btn.set_valign(gtk::Align::Start);
     find_row.append(&find_entry);
-    find_row.append(&find_prev_btn);
-    find_row.append(&find_next_btn);
-    find_row.append(&match_count_label);
-    find_row.append(&close_find_btn);
+    find_row.append(&find_history_btn);
+    find_row.append(&find_option_grid);
+    // Previous/Next travel together. `ToolbarWrapBox` wraps per child, so two separate
+    // children may land on two rows — which is what happened the moment the option grid
+    // grew tall enough to push them to the row's end: Prev sat at the right of one row
+    // and Next opened the next. TDD 9.38 names a directional pair as a group that must
+    // never split, and the toolbar answers it the same way, with one small box standing
+    // as a single pack item (`toolbar::cluster`).
+    // The readout travels with them. Prev/Next alone was not enough: with a live query
+    // the count label appeared between the pair and what followed and pushed that onto a
+    // row of its own. The label's width is not fixed — "1 of 10", "No matches" and
+    // "Invalid pattern" are three different widths — so this group's natural width
+    // varies with what the search is saying. That is safe only because the group stays
+    // well under `MIN_WINDOW_WIDTH` even at its widest, and
+    // `no_chrome_sets_the_windows_width_floor_above_the_backstop` is what says whether
+    // that is still true.
+    let find_nav_group = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+    find_nav_group.append(&find_prev_btn);
+    find_nav_group.append(&find_next_btn);
+    find_nav_group.append(&match_count_label);
+    find_nav_group.set_valign(gtk::Align::Start);
+    find_row.append(&find_nav_group);
 
     let replace_entry = crate::widgets::textfield::named_entry("Replace with", "");
     replace_entry.set_placeholder_text(Some("Replace with…"));
+    cap_field_width(&replace_entry);
+    let replace_history_btn = history_button("Recent replacements");
 
+    // NOT `.flat`. Every other control in this bar is an icon or a check box, whose
+    // shape says what it is on its own; these two are bare words, and a flat button of
+    // bare words is indistinguishable from a label. They are also the only two controls
+    // here that CHANGE THE DOCUMENT, which is the last place to economise on the frame
+    // that says "this is a button you are about to press".
     let replace_btn = gtk::Button::with_label("Replace");
-    replace_btn.add_css_class("flat");
 
     let replace_all_btn = gtk::Button::with_label("Replace All");
-    replace_all_btn.add_css_class("flat");
 
-    let replace_row = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+    let replace_row = crate::widgets::wrapbox::ToolbarWrapBox::new(4, 4);
     replace_row.set_margin_bottom(4);
     replace_row.set_margin_start(6);
     replace_row.set_margin_end(6);
     replace_row.append(&replace_entry);
+    replace_row.append(&replace_history_btn);
     replace_row.append(&replace_btn);
     replace_row.append(&replace_all_btn);
     replace_row.set_visible(false);
 
-    let find_bar = gtk::Box::new(gtk::Orientation::Vertical, 0);
-    find_bar.append(&find_row);
-    find_bar.append(&replace_row);
+    // The close button is NOT part of either row. It dismisses the whole bar, not the
+    // row it happens to sit on, so it is pinned to the top-right corner of the bar and
+    // the two wrapping rows are packed beside it. Inside the wrap box it was just
+    // another item in the flow: it drifted left as the rows grew, sat directly above the
+    // replace field at narrow widths, and read as that field's control.
+    //
+    // The spacer is `hexpand` on the BODY rather than a filler widget — a box gives its
+    // extra width to the expanding child, so the body takes the slack and pushes the
+    // close to the edge, with nothing in the tree that exists only to be empty.
+    //
+    // This does raise the window's minimum by the button's width, because the outer box
+    // is a plain `GtkBox` and its minimum is the sum of the two. That is affordable only
+    // while the widest wrap-box child plus this button stays under `MIN_WINDOW_WIDTH`,
+    // and the gate that says so is
+    // `no_chrome_sets_the_windows_width_floor_above_the_backstop`.
+    let find_bar_body = gtk::Box::new(gtk::Orientation::Vertical, 0);
+    find_bar_body.set_hexpand(true);
+    find_bar_body.append(&find_row);
+    find_bar_body.append(&replace_row);
+
+    close_find_btn.set_valign(gtk::Align::Start);
+    close_find_btn.set_margin_top(8);
+    close_find_btn.set_margin_end(6);
+
+    let find_bar = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    find_bar.append(&find_bar_body);
+    find_bar.append(&close_find_btn);
 
     let find_bar_revealer = gtk::Revealer::new();
     find_bar_revealer.set_transition_type(gtk::RevealerTransitionType::SlideDown);
@@ -478,6 +700,8 @@ pub(super) fn build_chrome(
         status_bar,
         annotations_title,
         find_entry,
+        find_history_btn,
+        replace_history_btn,
         find_prev_btn,
         find_next_btn,
         match_count_label,

@@ -524,12 +524,12 @@ mod gtk_tests {
             "the find field must carry the wiring"
         );
 
-        // The replace entry is not held in `WindowChrome` (only its row is), so it is
-        // reached the way the chrome holds it — the row's first GtkEntry child.
-        let replace_entry =
-            std::iter::successors(chrome.replace_row.first_child(), |w| w.next_sibling())
-                .find_map(|w| w.downcast::<gtk::Entry>().ok())
-                .expect("the replace row holds a GtkEntry");
+        // Held by the chrome directly, so this reads it rather than re-discovering it
+        // from the row's children (ScrAP-10: pass a built widget forward, do not walk
+        // the tree for it). The walk this replaces also depended on the entry being the
+        // row's FIRST `GtkEntry`, which stopped being obvious once the row gained a
+        // history drop-down beside the field.
+        let replace_entry = chrome.replace_entry.clone();
         assert_eq!(
             capture_key_controllers(&replace_entry),
             1,

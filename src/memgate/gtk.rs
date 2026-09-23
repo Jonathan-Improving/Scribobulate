@@ -5,7 +5,7 @@
 //! harnesses; the pipeline step invokes `--test gtk_suite memgate`.
 
 use crate::links::ImageResolution;
-use crate::memgate::footprint::{assert_bounded, current, SAMPLE_COUNT};
+use crate::memgate::footprint::{assert_bounded, current, SAMPLE_COUNT, WARMUP};
 use crate::renderer::start::{load_texture, LoadedImage};
 use gtk::gdk::prelude::TextureExt;
 use gtk::glib::object::ObjectExt;
@@ -102,7 +102,7 @@ fn growth_animated_webp_ttd_6_6() {
     let path = fixture("anim.webp");
     let samples = sample_loads(&path, SAMPLE_COUNT, CachePath::Warm)
         .expect("richimg decodes anim.webp on every host; a None here is a broken fixture");
-    assert_bounded("6.6 animated WebP", &samples);
+    assert_bounded("6.6 animated WebP", WARMUP, &samples);
 }
 
 #[gtktest::test]
@@ -113,7 +113,7 @@ fn uncached_decode_animated_webp_ttd_6_9() {
     let path = fixture("anim.webp");
     let samples = sample_loads(&path, SAMPLE_COUNT, CachePath::Cold)
         .expect("richimg decodes anim.webp on every host; a None here is a broken fixture");
-    assert_bounded("6.9 uncached animated WebP", &samples);
+    assert_bounded("6.9 uncached animated WebP", WARMUP, &samples);
 }
 
 #[gtktest::test]
@@ -124,7 +124,7 @@ fn uncached_decode_png_is_flat_ttd_6_9() {
     let path = fixture("wide.png");
     let samples = sample_loads(&path, SAMPLE_COUNT, CachePath::Cold)
         .expect("PNG decode is native; a None here is a broken fixture, not a skip");
-    assert_bounded("6.9 PNG control", &samples);
+    assert_bounded("6.9 PNG control", WARMUP, &samples);
 }
 
 #[gtktest::test]
@@ -135,7 +135,7 @@ fn growth_png_is_flat_ttd_6_6() {
     let path = fixture("wide.png");
     let samples = sample_loads(&path, SAMPLE_COUNT, CachePath::Warm)
         .expect("PNG decode is native; a None here is a broken fixture, not a skip");
-    assert_bounded("6.6 PNG control", &samples);
+    assert_bounded("6.6 PNG control", WARMUP, &samples);
 }
 
 #[gtktest::test]

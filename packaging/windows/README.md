@@ -174,6 +174,7 @@ cannot be stale.
 | `'create-lists.bat' is not recognized`, `U1052` during gvsbuild | `NoDefaultCurrentDirectoryInExePath`. See step 1. |
 | A red `NativeCommandError` quoting cargo's own `Finished` line | Not a failure. Windows PowerShell 5.1 wraps a native command's stderr into error records when the stream is redirected, and cargo writes status lines to stderr. Check `$LASTEXITCODE`, not the colour. |
 | `cargo` works via `build.bat` but not bare, in PowerShell | `build.bat` sets the environment in a child process. Use it for every invocation, or set the four variables in the session. |
+| `target\release\scribobulate.exe` run bare: a LIVE process, no window, ~3 MB working set, and no error dialog | The GTK runtime DLLs are not on `PATH` (gvsbuild's `bin`). It reads as a startup hang or an app that silently died, which is why it is here rather than under the row below: there is no loader error to search for, and the process stays alive. Launch through `build.bat`, or set the four variables in the session. MEASURED by the Windows seat while verifying a driven run. |
 | Installed, but the app will not start | Microsoft's Visual C++ runtime. Install the [redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe). |
 
 **`Remove-Item Env:NoDefaultCurrentDirectoryInExePath` is the fix;

@@ -264,6 +264,13 @@ fn resync_find_bar_for_tab(window: &ApplicationWindow, st: &Rc<TabState>) {
     // borrowed" inside a GTK signal dispatch, which cannot unwind and
     // aborts the whole process. Mirrors the existing clone-first idiom at
     // this function's find-bar-open branch below.
+    // The options BEFORE the query: `set_text` synchronously emits `search-changed`,
+    // whose handler re-runs the search — and it must re-run it under THIS tab's own
+    // options, not the ones the tab being left had ticked.
+    findbar::adopt_find_options(window, st);
+    // The drop-downs' MENUS need no resync — they are built when pressed, from whichever
+    // tab is active then — but their sensitivity is a property of this tab's lists.
+    findbar::sync_history_buttons(st);
     let query = st.find_query.borrow().clone();
     chrome.find_entry.set_text(&query);
     chrome.match_count_label.set_visible(!query.is_empty());
@@ -291,6 +298,9 @@ fn resync_find_bar_for_tab(window: &ApplicationWindow, st: &Rc<TabState>) {
     for other in winstate::tabs_for_window(window) {
         if other.id != st.id {
             other.search_context.set_highlight(false);
+            // Same reason, one layer down: a scoped highlight is a tag on that tab's
+            // OWN buffer, so turning the engine's property off does not take it away.
+            crate::window::find::clear_editor_scope_highlight(&other);
         }
     }
 
@@ -304,22 +314,7 @@ fn resync_find_bar_for_tab(window: &ApplicationWindow, st: &Rc<TabState>) {
     // body (`window/findbar.rs`) instead of relying on that signal.
     if chrome.find_bar_revealer.reveals_child() {
         st.search_context.set_highlight(true);
-        let query = st.find_query.borrow().clone();
-        if !query.is_empty() {
-            match find_target(window) {
-                FindTarget::Preview(view) => {
-                    let total = highlight_preview_matches(&st.preview_find, &view, &query);
-                    st.find_cursor.set(FindCursor::None);
-                    set_match_label(&chrome.match_count_label, 0, total);
-                }
-                FindTarget::Editor => {
-                    update_match_count_label(&st.search_context, &chrome.match_count_label, 0);
-                }
-                // Not the editor arm — see findbar.rs: in pure-preview mode the
-                // editor's count describes a buffer the user cannot see.
-                FindTarget::PreviewUnresolved => set_match_label(&chrome.match_count_label, 0, 0),
-            }
-        }
+        findbar::refresh_find(window, st);
     } else {
         st.search_context.set_highlight(false);
     }

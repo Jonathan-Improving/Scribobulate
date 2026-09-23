@@ -140,3 +140,9 @@ else
 fi
 
 echo "built $deb"
+# POLICY "Artefact signing": no artefact carries a trusted identity yet, and the tool
+# that BUILDS one announces that on success rather than leaving it to be discovered at
+# install time. Remove this in the same change that introduces signing.
+echo "  Not signed. \`dpkg -i\` does not check signatures so a local install is"
+echo "  unaffected, but this .deb cannot be served from an apt repository without"
+echo "  \`[trusted=yes]\` or an \`--allow-unauthenticated\` on every client."

@@ -14,7 +14,7 @@ use super::*;
 /// effect. Collapses the create/seed/wire skeleton that was copy-pasted across
 /// this file. Returns the action so callers can do any extra one-off setup
 /// (e.g. `set_enabled(false)`).
-fn register_bool_action(
+pub(super) fn register_bool_action(
     window: &ApplicationWindow,
     name: &str,
     initial: bool,

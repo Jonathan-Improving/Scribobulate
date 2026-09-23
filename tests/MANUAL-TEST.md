@@ -1021,6 +1021,13 @@ gtk4-rs skill's dev-loop doc on why geometry/rendering bugs leave no warning.
 - [ ] **10.11** Insert Link/Image/Table with a selection → dialog pre-fills selection into caption/alt/first-cell; **Insert Link AND Insert Image with a selection → the URL field has initial focus (type immediately, no Tab); with NO selection → the first field (Text / Alt text) has focus; Insert Table always focuses Columns**; confirm → single-undo insertion, renders correctly; Cancel/Escape → no change; Browse… opens chooser rooted at doc folder, fills relative-or-absolute path; select exactly one existing link/image then Insert Link/Image → opens as Edit with fields pre-filled, replaces (not re-wraps) on confirm, surfaces relabel "Edit Link/Image" while held
 
 ### §11 Find & replace
+
+> **On macOS read every `Ctrl+F` below as `Cmd+F`, and every `Ctrl+H` as `Cmd+Option+F`**
+> — the remap is §9.36a/b's subject, and `Cmd+H` is reserved by the system to hide the
+> application. The note is here rather than repeated at each item on purpose: a mapping
+> restated at twenty sites goes stale at nineteen of them. Reported by the `mac` seat,
+> for whom the wrong key is the one thing in a rubric that stops a run outright.
+
 - [ ] **11.1** Ctrl+F → find bar slides in, search field focused; Ctrl+H → replace row also shown
 - [ ] **11.2** Type a search term → matches highlighted with "N of M" (or "No matches"); clear field → count hides
 - [ ] **11.3** Enter/Next and Shift+Enter/Prev → advances/retreats, wraps past either end, genuinely advances (not re-selecting current)
@@ -1030,10 +1037,23 @@ gtk4-rs skill's dev-loop doc on why geometry/rendering bugs leave no warning.
 - [ ] **11.9** **Find sees link text wherever it is rendered** (TDD 11.9; ScrAP-250; **Document Rendering CAM row 8 x row 2** — find parity in a container context, the cell this defect left unverified). Open `tests/fixtures/table-test.md` in **pure-preview** mode, Ctrl+F, search **`example`** → the count must include §3's "Links Table" cells, whose whole content is one link (`[example.com](…)`, `[example.org](…)`) — those captions are `GtkLinkButton` text, not buffer text and not a cell label, and they used to be counted as **nothing at all** while the mixed cell in §2 ("A [link to example] plus **bold**…") matched normally. Step Next/Prev onto a link-cell match → the caption's matched substring turns orange, the previous match reverts to amber, and the preview **scrolls that cell's own row** into view. Change the term so a link cell stops matching → its highlight clears with no stale ink; close the bar → every caption is clean. **Watch for the fix's own trap:** a caption containing `&` or `<` must still render its literal characters, never blank — add `| [R&D <draft> notes](https://example.com) |` to a scratch table and confirm the caption reads normally with the find bar open and closed (ScrAP-163). Then open `tests/fixtures/doc-links.md` and search **`sibling`** → the link captions in the body list items highlight too (ordinary buffer text, the path that always worked — the point is that both agree).
 - [ ] **11.4** Edit/split + replace row: Replace → changes current match + advances; Replace All → changes every match; preview mode → replace controls disabled with tooltip
 - [ ] **11.5** Find bar open, switch view mode → bar stays open; Escape/close → hides, clears highlights, focus returns to editor
+- [ ] **11.5a** **Escape closes the bar from anywhere in the window** (TDD 11.11). Ctrl+F, type a term. ⚠️ **Now MOVE THE FOCUS OUT OF THE BAR AND CONFIRM IT MOVED — do not assume Enter did it.** Where focus lands after Enter is **platform-dependent**: on Windows the caret returns to the document, on macOS the find entry **keeps** focus (measured, both seats). A tester who assumes Enter moved it is testing the *old* Escape path — the search entry's own `stop-search` — which passes on a build where this rubric's subject is completely broken. Click into the document and check the entry's focus ring is **gone**. Then press **Escape** → the bar closes. Then the half that matters more, because getting it wrong is worse than the bug this closes: with the bar **open**, stage each of these **separately**, confirming the thing is open *before* you press Escape → a **menu**, a **toolbar drop-down** (the theme or tab chooser), the **annotation card** (annotate a selection), and **Go To Line**. Each must take Escape #1 itself and leave the bar open; only Escape #2 reaches the bar. *(Go To Line needs **edit mode** — it is disabled in preview, so Cmd/Ctrl+G there does nothing and is not a defect.)* On macOS the **native menu bar** is a fifth surface and the expected result is that the menu consumes Escape and it never reaches the toolkit at all — same visible outcome, different mechanism. Finally close the bar and press Escape a few times with nothing open → nothing happens and **nothing is logged**; prove the log sink is live first (start it with `RUST_LOG=debug` and confirm bytes are being written), because an empty log that was empty all session proves nothing. ⚠️ Read §A.3 before judging "the popover did not open" from a screenshot on Windows — a popover is its own toplevel there and a window capture cannot see it
 - [ ] **11.9a** **A match inside annotated text is highlighted like any other, in the editor pane.** Fixture: a document with a plain `bodyneedle` in prose and an `annotneedle` wrapped in `{==annotneedle inside a claim==}{>>a note<<}`. In **Edit** and again in **Split**, Ctrl+F and type `needle` → **every** match carries the amber tint, the annotated one included, and the count agrees with what is tinted. The reported defect was the count being right while the annotated match showed no tint at all, which reads as "find ignores annotated text"; it did not reproduce on inspection, and the automated guard asserts the two tints are equal rather than merely that the match is found.
 - [ ] **11.10** **Find reaches a match inside a collapsed disclosure** (TDD 11.10). Open `disclosure.md` in Preview, Ctrl+F, search **`before the code`** — a phrase that appears only inside the first block's collapsed body (the summary line itself says "fallback", so searching for that would match visible text and prove nothing). The counter shows a match **while the body is still hidden**: that is the half that used to fail silently, reporting "No matches" for text plainly in the document. Press Enter → **the disclosure expands** and the match is scrolled to and highlighted exactly like any other. Then the nested case: search **`Inner body`** → one step opens **both** levels of the nested pair, not one level per press. Finally search **`hidden 12`** (inside the mid-document block) and confirm the count is right before you navigate and the highlight lands after you do
 - [ ] **11.12** **Find Next resumes in the list it is counting** (TDD 11.12; **Document-Reference CAM row 12**). Open a long document in **Split** mode, Ctrl+F for a word that occurs many times, and step forward until the counter reads something like "5 of 20". Now, without closing the find bar, type a paragraph containing **three more occurrences** at the very top of the editor and wait for the re-render. Press **Find Next** → it lands on the occurrence **after the one you were looking at**, not on the fifth hit of the new list, and the counter's total has grown to match. ⚠️ The stale form of this reads entirely correct on screen: "5 of 20" stays put and Find Next jumps backwards over matches you had already stepped through, or skips some — with nothing about the document to explain it. Then the harder half: put the caret on a match, delete **that occurrence** in the editor, wait for the re-render, and press Find Next → it lands on the first match **after where that one was**, never back at the top of the document
 - [ ] **11.8** **Highlights survive every preview-rebuild boundary** (Document Rendering CAM row 8; GTK4Rs/AP-47). In pure-preview (or split) mode with matches highlighted, exercise each boundary and confirm the amber match markers **stay visible** (not erased until the next Next/Prev): (a) **switch the reading theme** (View ▸ Theme); (b) **switch view mode** preview→edit→preview (and preview↔split); (c) **trigger an external reload** (edit the open file on disk / touch it so the file-monitor reloads). Pre-fix, each boundary blanked the markers until a match was cycled.
+- [ ] **11.13** **The match options reach both panes, and both surfaces of each option are one control** (TDD 11.13). Scratch fixture: a paragraph containing `note`, `Note`, `NOTE` and `notebook`, and a **table** whose cells contain the same four, and a **collapsed `<details>`** whose body contains them too. In **Edit** mode, Ctrl+F, search `note` → note the count. Tick **Case** in the bar → the count drops to the case-exact matches only, and the Edit ▸ **Matc_h Case** item is now ticked (it is the same action, not a second one — untick it *from the menu* and the bar's toggle must follow). Tick **Words** → `notebook` stops being a match. Now switch to **Preview** and repeat: the same two counts, including the table cells and the collapsed body (whose matches are counted before it is expanded, 11.10). ⚠️ The failure to watch for is the two panes disagreeing by exactly the number of table-cell or hidden matches — three matchers used to carry three hard-wired rules, so an option reaching one of them and not the others reads as a count that changes when you switch view mode.
+- [ ] **11.14** **A regular expression means the same thing in both panes** (TDD 11.14). Same fixture. Tick **Reg-Ex** and search `^note` → in **Edit** it matches at the start of every line, and in **Preview** it matches at the start of every line — not once, at the top of the document (that is what MULTILINE being set in one engine and not the other looks like). Then search `note|book` with **Words** also ticked → `notebook` must NOT match in either pane; a bare `\bnote|book\b` wrapper binds each anchor to one branch and would match it. Finally search `no.e` → the same count in both panes, and a *literal* search for `no.e` with **Reg-Ex** UNticked finds nothing, because a literal is a literal. ⚠️ **An ANCHORED pattern is expected to count differently in the two panes, and that is not the §11.13 divergence.** `^` and `$` anchor per SOURCE LINE in the editor and per RENDERED ELEMENT in the preview, so a table cell is its own anchoring context there: `^note` can be 2 in the editor and 7 in the preview over the same document, and `^lower` can be 0 in the editor (whose line reads `| lower | note |`) while being 1 in the preview. Compare anchored counts within a pane, never across — the cross-pane comparison §11.13 trains you to make applies to unanchored queries (found by the Windows seat, who isolated it with a one-word probe rather than filing it).
+- [ ] **11.15** **A malformed pattern says so rather than answering** (TDD 11.15). With **Reg-Ex** ticked, type `(note` — an unfinished group, which is what the field holds for most of the time anyone spends typing a pattern. The readout must read **`Invalid pattern`**, not `No matches`; hovering it shows GRegex's own message. Nothing is highlighted, and pressing **Enter / Next / Prev** does nothing at all — it must not step through the *previous* pattern's matches. Now finish it (`)`) → the count appears immediately, with no closing and reopening of the bar. Repeat in the other pane. `[a-` and `*note` are two more that must be refused. ⚠️ `No matches` here is the defect: it reports on the document when what happened is that nobody was able to ask. **Do NOT use an unterminated `{` as the example** — `^\s*#{1,3` looks malformed and is not: PCRE reads a `{` it cannot parse as a quantifier as a literal brace, so the app correctly answers "No matches" and a tester following the script files a defect against working code (found by the Windows seat, who did exactly that).
+- [ ] **11.16** **The find bar does not set the window's minimum width** (TDD 9.38). Open the bar with **Ctrl+H** so the replace row is shown too, with every option check box visible, then drag the window as narrow as it will go. **Do not count on the bar being two rows** — the option block is itself two columns and three rows tall, so at the floor the bar is four rows or more, and that is the expected shape rather than a defect. The bar's rows must **wrap** onto extra rows — reading order preserved, each row flush left — and the window must reach the same minimum width it reaches with the bar **closed** (check both). Neither text field may stretch or shrink: both are capped at a fixed width. ⚠️ On **macOS** this one is not cosmetic — a window there is not grown to meet a risen minimum, so an uncapped field shows up as controls that are simply not drawn.
+- [ ] **11.13a** **A tab keeps its own options, and a restart keeps them but not the search** (TDD 15.12). Open two tabs. In tab 1 tick **Case** and search a term; in tab 2 tick **Reg-Ex** and search another. Switch between them → each tab's bar shows **its own** query AND its own option boxes, and the Edit-menu ticks follow. Quit and reopen → each restored tab still has its own option boxes (open the bar to see them), **but the find bar is closed and no search is in force**. ⚠️ The half that fails quietly is the boxes reverting on a tab switch while the search still behaves the old way, or the reverse — behaviour and mirror must move together.
+
+- [ ] **11.17** **Search in selection confines the editor search, and Replace All with it** (TDD 11.16, 11.17). Scratch fixture: four lines each containing `target`. In **Edit** mode, Ctrl+H, search `target` → 4 matches. Now select the **first two lines** and tick **Search in selection** → the count drops to 2, **only those two are highlighted — check the last two lines have gone dark, because the highlight is deliberately the same colour as before and only its EXTENT changes** — and pressing Next repeatedly cycles **between those two only** — it must not walk out of the passage and must not wrap around the document. Type `TOKEN` in the replace field and press **Replace All** → the first two lines change, **the last two do not**, and the **footer status bar** reads **`2 replacements made`** — that is where this is reported, because the find bar's readout is repainted by the re-search the replacements themselves trigger, about 60 ms later. **There are two accepted forms and only one of them carries a number:** the counted `N replacements made` is the normal path, and a bare `Replacements made` is correct when the engine was still scanning and so had no total to report — reading the countless form as a defect is the trap here. Now search `TOKEN` without touching the box → **2**, because the passage still covers the same text even though the replacements changed its length. ⚠️ A bound held as plain offsets passes every step up to that last one and fails it silently.
+- [ ] **11.18** **Replace acts on the match you are looking at** (TDD 11.17; ScrAP-27). Fixture: one line with `target` three times. Ctrl+H, search `target`, press **Next twice** so the **second** occurrence is highlighted. Press **Replace** → the **second** one changes and the selection advances to the third. ⚠️ The failure is the FIRST one changing while the second is the one washed. Then click somewhere with no selection and press **Replace** → nothing is replaced; the search steps to a match instead, so you are shown what will change before it changes. Then tick **Reg-Ex**, search `(\w+) (\w+)`, put `\2 \1` in the replace field and press Replace → the two words swap. Try `\` alone as the replacement → nothing changes and the readout says the pattern is invalid.
+- [ ] **11.19** **A preview scope re-derives rather than lying** (TDD 11.16). In **Preview** mode with the find bar open and a term that matches throughout the document, **select a passage in the rendered preview** and tick **Search in selection** → the count drops to the occurrences inside it, including any in a table cell or a collapsed disclosure that falls inside. Now re-render the preview beneath it: **switch the reading theme** (View ▸ Theme). The **Search in selection** box must **clear itself** and the count must return to the whole pane's. ⚠️ The defect this replaces is the box staying ticked and the search confining itself to whatever text now happens to sit at those offsets — a confident answer about a passage you never chose, with nothing on screen to say so. Repeat with an **external reload** (touch the file on disk) and with a **fold splice** (expand a collapsed disclosure above the passage). ⚠️ **On the fold-splice leg, watch the BOX and the COUNT, not the highlight — and touch nothing afterwards.** The highlight goes on looking correct whether or not this works, because a text tag moves with an insertion on its own while the held bound does not; and searching again *repairs* the state, so a check that presses Next first will pass on a broken build. Make the fold body long (a dozen lines) so the splice is a large insertion. MEASURED: on first delivery this leg was reported as PASSING from a look at the pane, and was only caught because the tester escalated the discrepancy instead of filing a verdict. Then the pane-change leg: capture a preview passage and switch to **Side by Side** → **Search in selection** must **clear** and the count return to the whole pane, because in Split the editor is what the search acts on and a preview range is not a position in its source. *(There is deliberately no "live-preview re-render in Split" leg: in Split the find target is the editor, so a preview passage cannot be held there to be invalidated — the pane-change leg above is what happens instead.)* Finally: with nothing selected the **Search in selection** box must be **unavailable**; after capturing a scope it must stay **available** so you can let it go.
+
+- [ ] **11.20** **Each field offers that tab's own recent entries** (TDD 11.18). Ctrl+H. Both **history** buttons — the clock glyph beside each field — start **unavailable** — nothing has been committed. Type `alpha` and watch the count change **without** pressing Enter, then open the find **history** → still nothing, because typing is not committing. Now press **Enter** → the button becomes available and `alpha` is in the list. Commit `beta`, then `alpha` again → the list reads `alpha`, `beta`: most recent first, **one** `alpha`. Put a replacement in the replace field and press **Replace All** → the replacement appears in the replace **history** and the query in the find **history**. Choose an entry from the find **history** → the field fills **and the search runs** (the count appears without pressing Enter); choose one from the replace **history** → the field fills and nothing else happens. Commit more than a dozen distinct terms → the list stays capped and the **oldest** fall off. Open a **second tab** → its drop-downs are empty, not the first tab's. Finally **quit and reopen**: each tab's own list is back, in the same order, **with the find bar closed and no search in force**. ⚠️ The leg that fails quietly is the very first one — a history fed from the search-as-you-type signal records `a`, `al`, `alp`, `alph`, `alpha`, which looks fine on one search and is useless after five.
+
 
 ### §12 Document outline
 - [ ] **12.1** Doc with nested H1▸H2▸H3 → outline lists all, in order, indented by level, plain text
@@ -2002,6 +2022,18 @@ that token literally.
 
 ### A.2 macOS (Quartz)
 
+> ✅ **A screen-REGION capture here sees EVERYTHING — and that is a platform difference,
+> not a general truth.** `screencapture -R` photographs the display, so it shows
+> in-window overlays (the annotation card) and separate-toplevel surfaces (popovers, the
+> Go To Line dialog) alike; one instrument covers every surface and no window
+> enumeration is needed. MEASURED by the `mac` seat across five surfaces while verifying
+> §11.5a. **Do not carry that habit to Windows** — §A.3 records the opposite, where a
+> window capture cannot see a popover or a dialog at all and reading "it did not open"
+> from a clean capture is a confident falsehood. If you are reasoning about a popover
+> from a screenshot, check which platform's rule you are under first. The AX window
+> count remains a useful *second* reading for anything that is its own toplevel here
+> (Go To Line goes 2 → 1 on its Escape); popovers are judged by capture.
+
 > **Certification status: certified by the macOS operator**, with one exception
 > called out in place — *Reading the GTK log* is expected-but-unverified, because no
 > GTK warning was ever reproduced there to grep. Every other step below was either
@@ -2142,6 +2174,24 @@ Then two countermeasures, which are **continuous, not one-time setup**:
   Mac), so a requested size is not an achieved size even when everything is bound
   correctly. Where the target width is unreachable, say so and reason about what the check
   still covers rather than reporting the sweep as performed.
+- ⚠ **A COARSE DRAG STOPS SHORT — and it does so ONLY when the window has relayout work
+  to do, which is exactly the arm a narrow-window check is testing.** MEASURED by the
+  macOS seat over four occurrences: the same window, the same start point and the same
+  release point reached 360 first time with the find bar CLOSED, and stopped at 476 with
+  the find bar OPEN and its rows wrapping; ~20 pt waypoints then reached 360. AX reports
+  the stopped-short width *faithfully*, so nothing looks wrong — the reading is honest
+  about a drag that did not finish. The danger is the contrast: the artefact appears only
+  under the feature being checked and the control arm is clean, so it reads as evidence
+  about that feature rather than about the instrument.
+  **Procedure:** drag in waypoints of ≤20 pt, then repeat the whole drag until a drag
+  changes nothing, and only then take the reading. Convergence is the guard; a single
+  drag is never trustworthy. A scripted wrapper was attempted and abandoned — it wedged
+  on a stuck mouse-down whenever a run was killed, and a harness needing its own
+  debugging costs more than the recipe.
+  **This is not a Quartz quirk.** §A.3 records the same law on Win32 by a different
+  mechanism entirely — no pointer, a refused `SetWindowPos` rather than a short drag — so
+  converge-then-read is a property of measuring a window floor at all, and a result
+  quoted from one attempt is untrustworthy on every platform.
 - **Screenshot** — `screencapture -R<x>,<y>,<w>,<h>` for a window crop, `-C` to draw
   the cursor in. The image is in **pixels**; positions and clicks are in **points**.
   Every coordinate derived from a screenshot must be divided by the display's scale
@@ -2404,6 +2454,20 @@ pass, or a dead click primitive gives you "nothing happened" for free.
 > §22 recovery-on-relaunch, the recovered-content and notice checks, the two-instance
 > liveness degradation, and the snapshot-write-failure path.
 
+> ⚠️ **A window capture CANNOT SEE A POPOVER OR A DIALOG HERE, and a popover-open
+> check that relies on one will report a confident falsehood.** On GDK-Win32 every GTK
+> popover and every GTK dialog is its own `gdkSurfaceToplevel` — a separate HWND — so
+> `PrintWindow` on the main toplevel renders the window *without* them. MEASURED by the
+> Windows seat while verifying §11.5a: a first pass read "the popover did not open" from
+> a clean main-window capture while the File menu was demonstrably open beside it.
+> **Enumerate the process's visible HWNDs to detect a popover; do not look at the
+> window.** The inverse holds for anything drawn INSIDE the window — the annotation card
+> is an in-window overlay with no surface of its own, so an HWND count cannot see it and
+> only the capture can. Neither instrument is sufficient alone, and each one's blind spot
+> is the other's subject. A disabled menu item also leaves a GTK popover open here, so a
+> "did not close" reading can be the menu's own doing rather than anything about key
+> propagation — stage each popover kind separately rather than as one pass.
+
 **1. Session prerequisites.** An **interactive console session** — confirm with
 `query session` (look for `console … Active`). A service/session-0 context has no
 desktop and every step below silently addresses nothing. No idle-lock countermeasure
@@ -2436,6 +2500,38 @@ inset under test is never exercised — the check then passes without having bee
 toplevel (MEASURED: 3000px outer / 2984px client), after which the indicator group's right
 edge reads ~2554 window-relative (on-monitor) against ~2978 with no inset applied. Read the
 width back before trusting the result, exactly as §2.2e warns for the narrow direction.
+
+⚠️ **A SINGLE PROGRAMMATIC RESIZE REPORTS THE PRE-WRAP FLOOR, NOT THE REAL ONE — and the
+gap is widest exactly when the wrapping chrome under test is shown.** The window's minimum
+width depends on the width it is currently allocated: unwrapped, a row's minimum is its
+content on one line; once it wraps, the minimum falls to its widest single child. So one
+`SetWindowPos` to an absurd width is refused at the pre-wrap floor, the rows then wrap in
+response to the new allocation, and the NEXT attempt gets further. `GetWindowRect` reports
+the stopped-short width faithfully — the reading is honest about a resize that did not
+finish. MEASURED on Win10 19045, GTK 4.22.4, release, reading the rect back after every
+attempt:
+
+```
+bar closed  492, 376, 376        -> client 360
+bar open    622, 389, 376, 376   -> client 360   (before the find-field width caps)
+bar open    492, 376, 376        -> client 360   (after them; identical to closed)
+```
+
+Stopping at the first reading says the find bar raises the floor by 130px and fails the
+check. It does not — and the third row is the one that earns its place, because it shows a
+change that moved the PRE-WRAP floor while leaving the converged one alone, a distinction a
+single reading cannot express at all. Frame width is 16px more than client on this host and
+the floor a rubric names is a CLIENT width, so read `GetClientRect` too.
+
+**Procedure:** ask for the small width repeatedly — 8–10 attempts, ~450 ms apart — break
+when two consecutive reads agree, and quote the whole sequence rather than the final
+number. The sequence is what shows a reader the measurement converged instead of being
+taken mid-wrap. No pointer is involved here, so none of §A.2's drag mechanics apply; the
+convergence requirement is the same anyway, which is what makes it a property of **this
+check** rather than of either host. The danger is also the same one §A.2 names: the
+artefact appears only under the arm being tested — chrome shown, rows wrapping — while the
+control arm is comparatively clean, so it reads as evidence about the feature rather than
+about the instrument.
 
 *Activate — and gate everything else on its boolean:*
 
