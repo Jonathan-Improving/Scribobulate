@@ -44,7 +44,7 @@ described from a different vantage point.
 | M | Windows | Production | On a machine with no Visual C++ runtime the app installs and then fails to start; the installer's bootstrapper for it has landed but has never been verified against that condition | Medium |
 | U | Any | Production | The preview is drawn horizontally scrolled (~20px, its left padding gone, a horizontal scrollbar showing) after a mode switch or an explicit Reload rebuilds it — intermittent, pre-existing, seen on Linux and Windows | Low |
 | X | Mac | Test | The macOS integration suite hangs part-way through a run in roughly two to four runs in five. Independent of any one feature — it survives removing the surface it was first blamed on. **A stack now names the mechanism**: GDK's macOS event source drains an autorelease pool inside `prepare()`, a deferred `NSWindow` dealloc there tears down a text input context, and the IMK session's semaphore runs a nested `CFRunLoop` that re-enters `g_main_context_iteration` | High |
-| Y | Any | Test | A PDF blockquote-panel tiling assertion fails in the display-free suite about one run in four under pipeline load, and passes every time it is run directly. Observed once in four pipeline runs and never in eight direct runs of the same suite; **no root cause is recorded, deliberately** — the fixture's sprite path is a unique temp directory, so a key collision is ruled out, but the sprite cache it clears three times is process-global and at least ten test files mutate it from parallel libtest threads. Reproduce before theorising | Medium |
+| Y | Any | Test | A PDF blockquote-panel tiling assertion fails in the display-free suite intermittently under pipeline load, and passes every time it is run directly. **No root cause is recorded, and two suspicions have now been falsified** — a sprite-key collision (the fixture's path is a unique temp directory) and cross-thread mutation of the sprite cache (it is `thread_local!`, so there is no shared cache to race). The one captured failure is a single misplaced row, which rules out the oversize-lattice branch the assertion itself offers. Reproduce before theorising | Medium |
 
 ## Closed issues
 
@@ -855,6 +855,47 @@ treating either as understood.
   site is the one thing that has moved every time and it is being read as a clue.
 - **Accept slower macOS ratification** in the meantime: read a macOS result only from
   several runs, never from one, and never treat a hang as a verdict about the change.
+
+## Y. A PDF blockquote-panel tiling assertion fails intermittently in the display-free suite
+
+`export::pdf::measure::tests::a_blockquote_panel_sprite_tiles_across_the_page_and_keeps_one_grid`
+fails inside a full pipeline run and passes when run on its own. It has never been
+reproduced on demand.
+
+**Two suspicions are now falsified. Neither is a root cause; both are recorded so the
+next reader does not re-derive them.**
+
+1. *A sprite-key collision.* Ruled out when the entry was opened — the fixture writes its
+   sprite to a unique temp directory.
+2. *Parallel libtest threads mutating a shared sprite cache.* This is what the entry used
+   to assert, and it is **wrong**: the cache is `thread_local!` (`src/sprite.rs`, the
+   `NATURAL` / `RESAMPLED` / `SURFACES` triple), so each test thread holds its own and
+   there is nothing between them to race. At least ten test files do call
+   `sprite::clear_cache()`, which is what made the story plausible — but every one of
+   those calls clears only its own thread's copy.
+
+**What the one captured failure actually says.** The assertion collapses the marker rows
+to run starts and requires them to share one residue modulo the point pitch (12). The
+observed starts were `[60, 72, 81, 96, 108, 120, 132]`: every one is a multiple of 12
+except `81`, which should have been `84`. So the page was **not** drawn on the wrong
+lattice — a systematic error would move every start, and the assertion message's own
+second hypothesis ("the lattice is in PIXELS and the tile is printing 4/3 oversize")
+predicts exactly that. One start out of seven is off by three rows, which is a single
+row-gap inside one marker band, not a wrong grid.
+
+That reframes the search: the question is what makes **one row** of a band fail to match
+the marker colour exactly, not what would rescale the tile.
+
+**Negative controls, measured 2026-09-23 on Linux.** Five consecutive direct runs of the
+test alone: all pass. Three consecutive full `cargo test --lib` runs: all pass, 1,871
+cases each. The failure came from a pipeline run of the same code. Anything claiming a
+fix has to survive repeated pipeline runs, because every cheaper instrument here is green
+on a build that fails.
+
+**Do not chase this from the find-bar branch it was observed on.** It is unrelated to it:
+the branch touches the find bar, the toolbar wrap box and three packaging scripts, none
+of which reach PDF export, sprites or rasterisation, and an immediately preceding
+pipeline run of the same code passed.
 
 ## CLSD-04. In fullscreen on macOS, a click during the transition animation is never delivered
 

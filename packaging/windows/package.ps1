@@ -197,6 +197,14 @@ The staged tree at $StageDir is complete; only the installer step is missing.
 
     Write-Host "Inno Setup compiler: $script:IsccEngine" -ForegroundColor DarkGray
     Write-Host 'installer built.' -ForegroundColor Green
+    # POLICY "Artefact signing": no artefact carries a trusted identity yet, and the
+    # tool that BUILDS one announces that on success rather than leaving it to be
+    # discovered by whoever runs it. Remove this in the same change that introduces
+    # signing. Note the pipeline's own signing probe reports on the BOX (whether a
+    # certificate is installed); this reports on the ARTEFACT, which is what the policy
+    # asks for and is true regardless of what the box holds.
+    Write-Host '  Not Authenticode signed. SmartScreen treats an unsigned installer' -ForegroundColor Yellow
+    Write-Host '  as unrecognised, so a fresh download warns before it will run.' -ForegroundColor Yellow
 }
 finally {
     Pop-Location
