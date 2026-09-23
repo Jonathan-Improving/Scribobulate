@@ -482,15 +482,18 @@ pub(super) fn build_chrome(
     // the Edit menu's check item drives — so neither surface holds state of its own
     // (POLICY "One action per command").
     //
-    // The labels are ASCII and they are WORDS, not the find-bar's conventional glyphs.
-    // `Aa` is the one that survived, because it demonstrates the thing it names; `W`
-    // and `.*` did not, because they only stand for it — `W` is not narrower than
-    // "Words" by enough to buy the guess it demands, and `.*` is legible to somebody
-    // who already knows what regular expressions are and opaque to everybody else. A
-    // tooltip is not the answer to that: it is a second reading, and it is absent on a
-    // touch surface.
-    let find_option_btns: Vec<gtk::ToggleButton> = [
-        ("find-match-case", "Aa", "Match case", "Match case"),
+    // The labels are ASCII WORDS, not the find-bar's conventional glyphs (`Aa`, `W`,
+    // `.*`). A glyph only stands for the thing; `W` is not narrower than "Words" by
+    // enough to buy the guess it demands, and `.*` is legible to somebody who already
+    // knows what regular expressions are and opaque to everybody else. A tooltip is not
+    // the answer to that: it is a second reading, and it is absent on a touch surface.
+    //
+    // CHECK BOXES rather than toggle buttons, because that is what these are — four
+    // independent booleans, which is also exactly what the Edit menu shows for the same
+    // four actions. A toggle button says "pressed", which is a weaker claim and the
+    // reason three bare words in a toolbar read as stray text rather than as controls.
+    let find_option_btns: Vec<gtk::CheckButton> = [
+        ("find-match-case", "Case", "Match case", "Match case"),
         (
             "find-whole-word",
             "Words",
@@ -506,25 +509,17 @@ pub(super) fn build_chrome(
     ]
     .into_iter()
     .map(|(action, glyph, name, tooltip)| {
-        let btn = gtk::ToggleButton::with_label(glyph);
+        let btn = gtk::CheckButton::with_label(glyph);
         btn.set_action_name(Some(&format!("win.{action}")));
-        btn.add_css_class("flat");
         crate::a11y::name_with_tooltip(&btn, name, tooltip);
         btn
     })
     .collect();
 
-    // NOT a match option, and now not shaped like one either: it bounds WHERE matching
-    // is applied rather than what matches. A `GtkCheckButton` says that — the three
-    // toggles modify how the query is read, and a check box beside them reads as a
-    // condition on the search rather than a fourth reading of the query. It still rides
-    // the same `win.` action, so the Edit menu's check item and this one cannot
-    // disagree, and it is still a FIND control: replace acts on what finding produced.
-    //
-    // A check box carries its own visible label, so this one is the row's widest single
-    // control and therefore the row's whole contribution to the window's minimum width
-    // (TDD 9.38) — which is why the label is a short phrase and why
-    // `no_chrome_sets_the_windows_width_floor_above_the_backstop` is the gate on it.
+    // NOT a match option: it bounds WHERE matching is applied rather than what matches,
+    // and the column it sits in is what says so. It still rides the same `win.` action,
+    // so the Edit menu's check item and this one cannot disagree, and it is still a
+    // FIND control: replace acts on what finding produced.
     let find_in_selection_check = gtk::CheckButton::with_label("Search in selection");
     find_in_selection_check
         .set_action_name(Some(&format!("win.{}", super::findbar::FIND_IN_SELECTION)));
@@ -533,6 +528,35 @@ pub(super) fn build_chrome(
         "Search in selection",
         "Confine the search to the selected passage",
     );
+
+    // TWO COLUMNS, and the split carries the meaning the labels cannot: the left column
+    // is how the query is READ, the right is where it is APPLIED. Four check boxes in
+    // one line leave the reader to infer that from the wording; a column boundary
+    // states it. The cost is honest and was weighed — the bar goes from two rows to
+    // four, and that height comes out of the document view.
+    //
+    // A `GtkGrid` is ONE child of the wrap box, so the whole block wraps as a unit and
+    // the columns cannot be split across a row boundary (TDD 9.38's "closely related
+    // controls never split"). It also means the grid's natural width — not any single
+    // check box's — is what the row contributes to the window's minimum, which is why
+    // the labels stay short: at `MIN_WINDOW_WIDTH` of 360 the two columns together must
+    // stay under the capped find field beside them, and
+    // `no_chrome_sets_the_windows_width_floor_above_the_backstop` is the gate that says
+    // whether they did.
+    //
+    // `halign(Start)` on every cell: a grid stretches its children to the column width
+    // by default, which would leave each check box with a wide invisible click target
+    // running to the next column.
+    let find_option_grid = gtk::Grid::new();
+    find_option_grid.set_row_spacing(2);
+    find_option_grid.set_column_spacing(14);
+    for (row, btn) in find_option_btns.iter().enumerate() {
+        btn.set_halign(gtk::Align::Start);
+        find_option_grid.attach(btn, 0, row as i32, 1, 1);
+    }
+    find_in_selection_check.set_halign(gtk::Align::Start);
+    find_in_selection_check.set_valign(gtk::Align::Start);
+    find_option_grid.attach(&find_in_selection_check, 1, 0, 1, 1);
 
     // A WRAP box, not a `GtkBox`: with everything shown this row is wider than a narrow
     // window, and a `GtkBox` would answer the sum of its children as its minimum width
@@ -545,12 +569,17 @@ pub(super) fn build_chrome(
     find_row.set_margin_end(6);
     find_row.append(&find_entry);
     find_row.append(&find_history_btn);
-    for btn in &find_option_btns {
-        find_row.append(btn);
-    }
-    find_row.append(&find_in_selection_check);
-    find_row.append(&find_prev_btn);
-    find_row.append(&find_next_btn);
+    find_row.append(&find_option_grid);
+    // Previous/Next travel together. `ToolbarWrapBox` wraps per child, so two separate
+    // children may land on two rows — which is what happened the moment the option grid
+    // grew tall enough to push them to the row's end: Prev sat at the right of one row
+    // and Next opened the next. TDD 9.38 names a directional pair as a group that must
+    // never split, and the toolbar answers it the same way, with one small box standing
+    // as a single pack item (`toolbar::cluster`).
+    let find_nav_group = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+    find_nav_group.append(&find_prev_btn);
+    find_nav_group.append(&find_next_btn);
+    find_row.append(&find_nav_group);
     find_row.append(&match_count_label);
     find_row.append(&close_find_btn);
 

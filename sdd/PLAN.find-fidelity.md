@@ -37,9 +37,20 @@ never revisited. Two structural facts make the work larger than "set three prope
 
 ![Find bar layouts, before and after: today's bar with a search field, previous and next buttons, a match count and a close button over a replace row; the new bar adding a history drop-down to each field and four option toggles (match case, whole word, regular expression, search in selection); the same bar wrapped onto extra rows at the window's minimum width; and the history drop-down open beneath the search field.](find-bar-layouts.svg)
 
-The find bar is the only surface that changes shape. Each option toggle also gains an
+The find bar is the only surface that changes shape. Each option also gains an
 Edit-menu item, which is the second surface of the same action rather than a second
 piece of state.
+
+> ⚠️ **The diagram above is a DESIGN SKETCH and the delivered bar has moved past it.**
+> The four options are **check boxes**, not toggle buttons, and they are laid out in
+> **two columns** — `Case`/`Words`/`Reg-Ex` stacked in the left, `Search in selection`
+> alone in the right — so the column boundary carries the distinction between how the
+> query is read and where it is applied. The history buttons carry a bundled clock icon
+> and no chevron. **Redrawing it is deliberately deferred to plan retirement**, when the
+> file's fate has to be decided anyway; redrawing it per revision has already cost two
+> passes. Until then the running application is the authority on the bar's appearance,
+> and the diagram is authoritative only for what it was drawn to show — which surfaces
+> the work touches, and that the bar wraps rather than raising the window's minimum.
 
 ### The layouts, in words
 
@@ -125,7 +136,7 @@ wrong count TDD 11.8 exists to refuse.
 Approach 1, delivered in three batches. Each batch is a self-contained behaviour change
 that can be ratified by the Mac and Windows seats on its own.
 
-**Batch A — match options. LANDED.** Three toggles (`Aa`, `Words`, `Reg-Ex`) in the find bar and
+**Batch A — match options. LANDED.** Three check boxes (`Case`, `Words`, `Reg-Ex`) in the find bar and
 three check items in the Edit menu, one stateful `win.` action each, classified as
 **uncommon commands**. Per-tab state beside `find_query`, persisted in `TabSession`
 (additive, no version bump). The preview's three hard-wired matchers collapsed onto
