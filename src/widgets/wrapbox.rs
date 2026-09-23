@@ -18,6 +18,18 @@
 //! never squeezed to fit. Invisible children (`set_visible(false)`) are
 //! skipped entirely and take no space, exactly like a plain `GtkBox`, so
 //! hiding a toolbar section still costs it nothing here.
+//!
+//! A child SHORTER than its row is centred in it, and that is the one place
+//! this widget does something a caller cannot ask for with an alignment
+//! property. `gtk_widget_set_valign` needs slack to work in, and there is never
+//! any here: a child is allocated exactly its natural height, so a `valign` of
+//! `Center` on a short child is a no-op and the child rides at the row's TOP.
+//! Every toolbar row was uniform-height buttons for the life of this widget, so
+//! nothing revealed it until the find bar gained a `GtkCheckButton`, whose
+//! natural height is shorter than a button's — its label sat visibly above the
+//! toggle labels beside it. Centring is chosen over baseline alignment because
+//! the rows this widget lays out are not all text (icons, entries, a check
+//! indicator), and a row with no baseline to share still has a middle.
 
 use gtk::prelude::*;
 use gtk::{gdk, glib};
@@ -137,25 +149,41 @@ mod imp {
         col_spacing: i32,
         row_spacing: i32,
     ) -> (Vec<gdk::Rectangle>, i32) {
-        let mut rects = Vec::with_capacity(children.len());
+        let mut rects: Vec<gdk::Rectangle> = Vec::with_capacity(children.len());
         let mut x = 0;
         let mut y = 0;
         let mut row_h = 0;
+        // Where the row being built starts in `rects`. A row's height is only
+        // known once the row is closed, so the centring is applied then rather
+        // than as each child is placed.
+        let mut row_start = 0usize;
+
+        // Lift each child of a finished row to the vertical middle of it. A
+        // child exactly as tall as its row does not move, which is every child
+        // of a row of uniform buttons.
+        fn centre_row(rects: &mut [gdk::Rectangle], row_h: i32) {
+            for rect in rects {
+                rect.set_y(rect.y() + (row_h - rect.height()) / 2);
+            }
+        }
 
         for child in children {
             let (_, nat_w, _, _) = child.measure(gtk::Orientation::Horizontal, -1);
             let (_, nat_h, _, _) = child.measure(gtk::Orientation::Vertical, -1);
             let would_overflow = x > 0 && x + col_spacing + nat_w > avail_width;
             if would_overflow {
+                centre_row(&mut rects[row_start..], row_h);
                 y += row_h + row_spacing;
                 x = 0;
                 row_h = 0;
+                row_start = rects.len();
             }
             let cx = if x == 0 { 0 } else { x + col_spacing };
             rects.push(gdk::Rectangle::new(cx, y, nat_w, nat_h));
             x = cx + nat_w;
             row_h = row_h.max(nat_h);
         }
+        centre_row(&mut rects[row_start..], row_h);
         let total_h = if rects.is_empty() { 0 } else { y + row_h };
         (rects, total_h)
     }
@@ -271,6 +299,50 @@ mod gtk_integration_tests {
             a_alloc.x() + a_alloc.width() + 2,
             "the hidden middle child must not leave a gap or shift `b` further \
              than `a`'s own width plus spacing"
+        );
+    }
+
+    /// A child shorter than its row sits in the MIDDLE of it, not at the top.
+    ///
+    /// The subject is a `GtkCheckButton` rather than a contrived short widget,
+    /// because the check button is what revealed this: it is the first control
+    /// in any toolbar row here that is not a button, and its label rode above
+    /// the toggle labels beside it. Asserting on centres rather than on `y`
+    /// keeps the check passing if either control's natural height changes with
+    /// a theme — what must hold is that they agree, not what they measure.
+    #[gtktest::test]
+    fn a_short_child_is_centred_in_its_row_rather_than_riding_at_the_top() {
+        let wrap = ToolbarWrapBox::new(4, 4);
+        let tall = gtk::Button::with_label("Reg-Ex");
+        let short = gtk::CheckButton::with_label("Search in selection");
+        wrap.append(&tall);
+        wrap.append(&short);
+
+        let win = gtk::Window::new();
+        win.set_child(Some(&wrap));
+        win.present();
+        crate::testpump::drain_for(
+            crate::testpump::Clock::Frame,
+            std::time::Duration::from_millis(200),
+        );
+        let (_, nat_w, _, _) = wrap.measure(gtk::Orientation::Horizontal, -1);
+        wrap.size_allocate(&gtk::Allocation::new(0, 0, nat_w, 100), -1);
+
+        let tall_alloc = tall.allocation();
+        let short_alloc = short.allocation();
+        assert!(
+            short_alloc.height() < tall_alloc.height(),
+            "precondition: the check button must be the shorter of the two — \
+             if a theme ever makes them equal this test proves nothing, so it \
+             says so rather than passing vacuously"
+        );
+        let tall_centre = tall_alloc.y() + tall_alloc.height() / 2;
+        let short_centre = short_alloc.y() + short_alloc.height() / 2;
+        assert!(
+            (tall_centre - short_centre).abs() <= 1,
+            "the short child's centre ({short_centre}) must line up with the \
+             row's ({tall_centre}); off by more than rounding means it is \
+             riding at the row's top edge"
         );
     }
 }
