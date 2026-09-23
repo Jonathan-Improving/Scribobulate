@@ -2022,6 +2022,18 @@ that token literally.
 
 ### A.2 macOS (Quartz)
 
+> ✅ **A screen-REGION capture here sees EVERYTHING — and that is a platform difference,
+> not a general truth.** `screencapture -R` photographs the display, so it shows
+> in-window overlays (the annotation card) and separate-toplevel surfaces (popovers, the
+> Go To Line dialog) alike; one instrument covers every surface and no window
+> enumeration is needed. MEASURED by the `mac` seat across five surfaces while verifying
+> §11.5a. **Do not carry that habit to Windows** — §A.3 records the opposite, where a
+> window capture cannot see a popover or a dialog at all and reading "it did not open"
+> from a clean capture is a confident falsehood. If you are reasoning about a popover
+> from a screenshot, check which platform's rule you are under first. The AX window
+> count remains a useful *second* reading for anything that is its own toplevel here
+> (Go To Line goes 2 → 1 on its Escape); popovers are judged by capture.
+
 > **Certification status: certified by the macOS operator**, with one exception
 > called out in place — *Reading the GTK log* is expected-but-unverified, because no
 > GTK warning was ever reproduced there to grep. Every other step below was either
