@@ -1840,8 +1840,26 @@ fn a_blockquote_panel_sprite_tiles_across_the_page_and_keeps_one_grid() {
     );
 
     crate::sprite::clear_cache();
-    let marker_rows: Vec<usize> = colour_rows(drawn_page(md, &tiled, &p, MARGIN), MARK)
-        .into_iter()
+    // Kept row by row rather than collapsed to a list of y's, because WIDTH is the one
+    // measurement that tells the two remaining explanations apart when this fails, and
+    // a bare list of rows cannot carry it. A band row spans the whole panel — around
+    // 458 px of a 64..521 column, less whatever the quoted text overdraws. A handful of
+    // pixels on a row means the red did not come from the fill at all. Two failures
+    // have been captured in the wild and neither said which, which is why the panic
+    // below prints it.
+    let rows_with_x = colour_rows(drawn_page(md, &tiled, &p, MARGIN), MARK);
+    let widths = |ys: &[usize]| -> Vec<String> {
+        ys.iter()
+            .map(|y| match rows_with_x.get(*y) {
+                Some(xs) if !xs.is_empty() => {
+                    format!("{y}:n={},x={}..{}", xs.len(), xs[0], xs[xs.len() - 1])
+                }
+                _ => format!("{y}:none"),
+            })
+            .collect()
+    };
+    let marker_rows: Vec<usize> = rows_with_x
+        .iter()
         .enumerate()
         .filter(|(_, xs)| !xs.is_empty())
         .map(|(y, _)| y)
@@ -1874,13 +1892,28 @@ fn a_blockquote_panel_sprite_tiles_across_the_page_and_keeps_one_grid() {
          vacuous (marker rows {marker_rows:?}, run starts {starts:?})"
     );
     let residue = starts[0] % pitch;
+    let residues: Vec<usize> = starts.iter().map(|y| y % pitch).collect();
     assert!(
         starts.iter().all(|y| y % pitch == residue),
         "the tile's grid restarts inside the quote: the panel is drawn line by line, so \
          a grid anchored to each line's own rect cuts the pattern at every text row \
          (run starts {starts:?} do not share one residue mod {pitch}). If they instead \
          share a residue mod {TILE}, the lattice is in PIXELS and the tile is printing \
-         4/3 oversize."
+         4/3 oversize.\n\
+         \n\
+         residues mod {pitch}: {residues:?}\n\
+         every red row, with its pixel count and x extent:\n  {}\n\
+         \n\
+         ⚠️ READ THE WIDTHS BEFORE THEORISING. A start whose row carries a few pixels \
+         is not a displaced lattice — the fill cannot produce one, because the vertical \
+         anchor is `floor(y / pitch) * pitch` and a clipped rect can only ever expose \
+         the band's own first rows. A start whose row spans the panel IS the fill, and \
+         then the anchor is the subject. These have been measured NOT to cause it: \
+         line wrapping (30 widths, every one on the lattice), concurrent rendering \
+         (160,000 pages across 8 threads while the whole suite ran, none off it), \
+         cross-thread sprite decoding (122,880 pixels, no crosstalk) and any other red \
+         ink on the page (a tile with no red row at all leaves zero red pixels).",
+        widths(&marker_rows).join("\n  ")
     );
     crate::sprite::clear_cache();
 }

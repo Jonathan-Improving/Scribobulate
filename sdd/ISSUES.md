@@ -44,9 +44,8 @@ described from a different vantage point.
 | M | Windows | Production | On a machine with no Visual C++ runtime the app installs and then fails to start; the installer's bootstrapper for it has landed but has never been verified against that condition | Medium |
 | U | Any | Production | The preview is drawn horizontally scrolled (~20px, its left padding gone, a horizontal scrollbar showing) after a mode switch or an explicit Reload rebuilds it — intermittent, pre-existing, seen on Linux and Windows | Low |
 | X | Mac | Test | The macOS integration suite hangs part-way through a run in roughly two to four runs in five. Independent of any one feature — it survives removing the surface it was first blamed on. **A stack now names the mechanism**: GDK's macOS event source drains an autorelease pool inside `prepare()`, a deferred `NSWindow` dealloc there tears down a text input context, and the IMK session's semaphore runs a nested `CFRunLoop` that re-enters `g_main_context_iteration` | High |
-| Z | Any | Production | GTK logs `GtkText - unexpected blinking selection. Removing` once during find-bar use. Cosmetic — GTK detects its own inconsistent blink state and clears it, and nothing on screen changes. Reproduced once in a compound driven run and in **none** of five isolated legs (idle, open bar, open and type, open/type/Enter/Escape, menu open then Escape), so the trigger is a combination or a timing, not any one interaction. Not caused by the window-level Escape handler — the operator's sighting predates it | Low |
 | W | Mac | Production | Observed ONCE: after a compound find-bar run the Escape key stopped closing the find bar and then never worked again in that process — permanent, not transient, with the bar visibly open and the application otherwise responsive. Not reproduced in three isolated legs nor in a faithful replay of the whole compound sequence. The handler has since been hardened so that it declines the key when the bar did not actually close, which BOUNDS this rather than fixes it: the diagnosed cause is still unknown | High |
-| Y | Any | Test | A PDF blockquote-panel tiling assertion fails in the display-free suite intermittently under pipeline load, and passes every time it is run directly. **No root cause is recorded, and two suspicions have now been falsified** — a sprite-key collision (the fixture's path is a unique temp directory) and cross-thread mutation of the sprite cache (it is `thread_local!`, so there is no shared cache to race). The one captured failure is a single misplaced row, which rules out the oversize-lattice branch the assertion itself offers. Reproduce before theorising | Medium |
+| Y | Any | Test | A PDF blockquote-panel tiling assertion fails in the display-free suite intermittently under pipeline load, and passes every time it is run directly. **No root cause is recorded, and six suspicions have been falsified** — a sprite-key collision, cross-thread mutation of the sprite cache, line wrapping, concurrency during the render, cross-thread sprite decoding, and any non-tile red ink; the body carries each one's measurement. Two captures agree the anomalies sit INSIDE a band, which the fill cannot produce. The test now prints every red row's pixel count on failure, which is the one thing both captures lacked | Medium |
 
 ## Closed issues
 
@@ -953,48 +952,92 @@ row-gap inside one marker band, not a wrong grid.
 That reframes the search: the question is what makes **one row** of a band fail to match
 the marker colour exactly, not what would rescale the tile.
 
-**Negative controls, measured 2026-09-23 on Linux.** Five consecutive direct runs of the
-test alone: all pass. Three consecutive full `cargo test --lib` runs: all pass, 1,871
-cases each. The failure came from a pipeline run of the same code. Anything claiming a
-fix has to survive repeated pipeline runs, because every cheaper instrument here is green
-on a build that fails.
+**A second capture, and it says the same thing louder.** The GitHub Linux runner failed
+it on 2026-09-23 with starts `[60, 65, 72, 84, 96, 101, 108, 119]`. Six of the eight are
+multiples of 12; the odd ones are `65` (five rows into the band at 60), `101` (five rows
+into the band at 96) and `119` (one row *before* 120, which is itself absent). Modulo 16
+they share nothing either, so the oversize-lattice branch is falsified on this sample too.
+Across both captures every anomaly is **inside** a band — a band split in two, or its
+first matching row slipping one to three rows early — and never a band displaced as a
+whole. Two independent samples now agree on the shape.
+
+**The same tree passed and failed twelve minutes apart.** That CI failure was the merge
+commit, whose diff against the branch head it merged is EMPTY, and the branch head's own
+run on the same runner image had passed. Identical code, identical image, opposite
+verdicts — so nothing about the source decides this, and any bisect is wasted effort.
+It also moves the reproduction off this host for the first time: it is not a property of
+one machine's storage or CPU.
+
+**Four families are now measured out, on Linux on 2026-09-23. None of them is the
+cause; each cost a session's worth of guessing before, and the numbers are here so the
+next reader spends theirs elsewhere.**
+
+| Ruled out | How | Result |
+|---|---|---|
+| Line wrapping / font metrics moving the rects | the same fixture rendered at 30 different word counts, every resulting layout checked against the lattice | 0 off-lattice |
+| Concurrency during the render | 8 threads rendering this exact page 160,000 times **while the whole suite ran alongside it** | 0 off-lattice |
+| Low parallelism and slow timing, as on the runner | **the exact step-4 command** (`cargo test`, not `--lib`) pinned to two cores with `taskset`, 12 runs | 0 failures |
+| A test mutating the global font state under it | searched for `set_resolution`, `FontMap::set_default`, `set_font_options`, `FontOptions`, `set_antialias`, `set_hint` across `src/` | no such call exists in the tree |
+| Cross-thread sprite decoding | 8 threads decoding 8 distinct sprites in a loop, every pixel compared against its own thread's colour | 0 bad of 122,880 |
+| Some other red ink on the page (a glyph, the bar, a band) | the same fixture with a tile that has **no red row in it at all**, counting pure-red pixels | 0 |
+
+⚠️ **Read the concurrency row in the direction it was measured.** That stress pushed
+parallelism UP — 8 threads on a 32-core host — while the GitHub runner that failed this
+has 2 cores, so libtest runs it with 2 threads. It is therefore evidence against a
+cause that needs *contention*, and much weaker evidence against one that needs slow,
+serialised timing. The two-core row was added afterwards for exactly that reason, and
+it is the closer match to the environment that actually produces the failure.
+
+**And one thing the fill cannot do, by construction.** The vertical anchor is
+`floor(y / pitch) * pitch` (`export::pdf::ink::tile_origin`), so a repeat can only ever
+begin on the lattice; the one way a rect's own top can expose red earlier is if that top
+falls *inside* the band, which bounds the residue to 0..2. Both captured failures have
+residues outside that (`9`; and `5`, `5`, `11`). So either the red on those rows is not
+the fill at all, or something upstream of `tile_origin` is not what it appears to be.
+
+**Both captures look like TWO phases of the SAME pitch, which points at the transform.**
+Capture 2's gaps run `5, 7, 12, 12, 12, 5, 7, 11` — and `5 + 7 = 12`, so it reads as the
+expected lattice at phase 0 (`60, 72, 84, 96, 108`) with a second set at phase 5 (`65`,
+`101`) laid over it. Capture 1 is the same shape with one stray band, at phase 9. Two
+phases of pitch 12 cannot come from `tile_origin`, which only ever returns multiples of
+12 — but they are exactly what an extra translation in force for *some* of the rects
+would produce. Every `save`/`restore` on this path swallows its error (`cr.save().ok()`),
+so an unbalanced pair would leak a transform silently and only for the rest of that page.
+That was the obvious place to look, and it has now been looked at twice. Every
+`save`/`restore` pair in `export::pdf::ink` balances by inspection, including the two
+arms that `continue` out of the line loop — and, because those calls discard their
+errors and an imbalance would therefore be silent, the transform was also checked AT
+RUNTIME: the context's matrix was reported on entry to every quote-panel paint across a
+whole `cargo test --lib` run, and it was the identity every time, 0 exceptions. So the
+transform is not leaking on any path the suite exercises. The two-phase reading stands
+and is still unexplained, which is the most useful thing in this entry.
+
+**The test now says which.** Its panic prints every red row with its pixel count and x
+extent. A band row spans the panel — around 458 px of the 64..521 column, less the
+quoted text's overdraw. A handful of pixels on a row is not a displaced lattice and
+sends the search somewhere else entirely. Two failures have been captured in the wild
+and neither could answer this, which is the whole reason the message was rebuilt rather
+than another theory added.
+
+**Do not make the oracle ignore thin rows yet.** It is the obvious move once the panic
+starts printing pixel counts — discard any row carrying a handful of pixels, since the
+fill cannot draw one — and it would very likely turn this green. That is the objection
+to it: it would turn it green whether or not the thin rows are the cause, and nobody
+would ever find out, because the only evidence this defect produces is the failure
+itself. Wait for one real capture that shows the widths, then narrow the oracle to what
+that capture proves it should measure.
+
+**Repeated negative controls, same date.** Five direct runs of the test alone: pass.
+**Twenty-eight** full `cargo test --lib` runs: pass, 1,871 cases each. **Twelve** runs
+of the real step-4 command on two cores: pass. Every cheap
+instrument here is green on a build that fails, so anything claiming a fix has to
+survive repeated *pipeline* runs — and the next real failure is worth more than another
+local loop, because it will now arrive carrying its own evidence.
 
 **Do not chase this from the find-bar branch it was observed on.** It is unrelated to it:
 the branch touches the find bar, the toolbar wrap box and three packaging scripts, none
 of which reach PDF export, sprites or rasterisation, and an immediately preceding
 pipeline run of the same code passed.
-
-## Z. GTK logs "unexpected blinking selection" during find-bar use
-
-`[WARN Gtk] GtkText - unexpected blinking selection. Removing`, emitted once. `GtkText`
-is the inner text widget of a `GtkEntry`/`GtkSearchEntry`, so the subject is one of the
-find bar's two fields, not the document view. GTK raises this from its cursor-blink
-callback when it finds a selection present in a state where it does not expect one, and
-it then removes its own blink source — which is why nothing is visibly wrong.
-
-**What is measured.** Reproduced once, in a driven run that opened the bar, typed,
-pressed Enter, pressed Escape, reopened the bar, opened a menu and pressed Escape again.
-Then five legs were run one per fresh process, each with the app otherwise untouched:
-
-| Leg | Warnings |
-|---|---|
-| Idle, no interaction | 0 |
-| Open the bar and leave it | 0 |
-| Open the bar and type | 0 |
-| Open, type, Enter, Escape | 0 |
-| Menu open, then Escape | 0 |
-
-So no single interaction produces it and the compound sequence did. That is the whole
-finding; **the trigger is not known** and the obvious guess — that closing the bar moves
-focus to the editor while a field still holds a selection — is a guess, recorded here
-only so the next reader knows it was not tested.
-
-**It is not the window-level Escape handler.** That handler landed after the operator's
-sighting, which rules it out by timing rather than by argument.
-
-**Before theorising, reproduce.** One observation in a compound run and five clean
-negative controls is not enough to attribute this, and a fix aimed at the focus guess
-would be unfalsifiable at this rate — it would "pass" on a build where nothing changed.
 
 ## CLSD-04. In fullscreen on macOS, a click during the transition animation is never delivered
 

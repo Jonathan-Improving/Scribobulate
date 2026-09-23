@@ -65,9 +65,25 @@ pub(super) fn wire_find_bar(window: &ApplicationWindow, chrome: &Chrome) {
                     st.search_context.set_highlight(true);
                 }
                 fr.set_reveal_child(true);
-                fe.grab_focus();
                 // Select all text in the entry so the next keystroke replaces it.
+                //
+                // SELECT BEFORE FOCUSING, and do not reorder these two lines.
+                // `gtk_text_focus_changed` starts the cursor-blink tick callback
+                // whenever the entry takes focus with no selection, and NOTHING on
+                // the selection path stops it again: `gtk_text_set_selection_bounds`
+                // never calls `gtk_text_check_cursor_blink` (source-read at 4.6.9).
+                // So focusing first and selecting second leaves a blink tick running
+                // over a selection, and the next frame makes GTK notice its own
+                // inconsistent state and log `GtkText - unexpected blinking
+                // selection. Removing`. Selecting first means the focus-in check sees
+                // the selection and never arms the tick — including the identical
+                // select-all that `gtk_text_grab_focus` performs on our behalf when
+                // `gtk-entry-select-on-focus` is set, which is why this order matters
+                // even though the explicit call below looks redundant. Only a REOPEN
+                // over a non-empty entry can reach it, which is why every isolated
+                // leg of the first investigation came back clean.
                 fe.select_region(0, -1);
+                fe.grab_focus();
                 // In preview mode: re-apply highlights if the bar is reopened with
                 // existing text. `search-changed` only fires on a text *change*, so
                 // if the user dismisses and reopens without editing the search term
