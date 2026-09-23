@@ -896,9 +896,32 @@ deleted the wedged run's persistent log with it. stdout was empty, so that log w
 only place anything could have been recorded. **Copy the state directory aside before
 resetting anything, on any run that has already shown an anomaly.**
 
-**If this is chased**, the compound pass must be re-run against the hardened build with
-the state directory preserved, and the handler now logs a warning on the declining path —
-that line appearing is the first hard evidence anyone will have.
+**That re-run has now happened, and it did not reproduce.** Two full compound passes
+against the hardened build, identical sequence, state directory copied aside before each
+reset. Every leg correct both times, including the wedge probe (five further Escapes plus
+a focus-restoring click). **`find: Escape did not close the find bar` appeared zero
+times.**
+
+**Why that absence is worth something.** "The sink is live" was necessary and not
+sufficient: the line being watched for is WARN, and everything these runs emit on their
+own is info or debug, so *no warn line* and *warn cannot get through* would look
+identical. The `mac` seat forced one — a malformed `themes.toml` in the isolated config,
+producing a real `WARN scribobulate::theme::spec` line in the same persistent log, same
+binary, same `RUST_LOG` — then removed the control so it could not contaminate the run.
+The absence is therefore measured rather than inferred.
+
+**It does not clear the suspected path.** Two clean passes fail to catch the
+Stop-on-assumption mechanism; they do not exclude it. Nothing here upgrades this entry
+from suspicion to mechanism, and the hardening remains a bound on blast radius. What can
+be said is narrower and still useful: **whatever wedged did not announce itself on the
+path that is now instrumented.**
+
+**Where to look on the next sighting.** Not at the sequence — it now has four clean
+replays against it. The original wedge occurred in a *hand-paced* run with screenshots,
+accessibility-tree walks and menu enumerations interleaved; the replays are scripted with
+fixed two-second settles. Wall-clock timing and AX traffic are the two things that
+differed, and the accessibility bus is a plausible source of both extra main-loop work
+and extra focus churn.
 
 ## Y. A PDF blockquote-panel tiling assertion fails intermittently in the display-free suite
 
