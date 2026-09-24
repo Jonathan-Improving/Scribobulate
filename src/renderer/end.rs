@@ -238,6 +238,9 @@ impl Renderer {
                             label.set_valign(gtk::Align::Fill);
                             label.set_yalign(0.0);
                             label.set_selectable(true);
+                            // Selectable means copyable, and GTK's own Copy publishes a
+                            // pasteboard promise on macOS (livelock-prone on GTK 4.22).
+                            crate::clipboard::wire_eager_copy_for_label(&label);
                             label.set_wrap(true);
                             label.set_wrap_mode(gtk::pango::WrapMode::WordChar);
                             label.add_css_class("cell");

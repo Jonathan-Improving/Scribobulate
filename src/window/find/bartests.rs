@@ -956,3 +956,73 @@ fn each_field_offers_that_tabs_own_recent_entries() {
     assert!(!st2.chrome().find_history_btn.is_sensitive());
     win.destroy();
 }
+
+/// **The find field is selected BEFORE it is focused, never after** (TDD 11.1).
+///
+/// Not a style preference — it is a toolkit invariant. `gtk_text_focus_changed`
+/// arms the cursor-blink tick whenever the entry takes focus with no selection, and
+/// `gtk_text_set_selection_bounds` never calls `gtk_text_check_cursor_blink` to disarm
+/// it again (source-read at the 4.6.9 floor). Focus first and the entry spends the next
+/// frame blinking a cursor over a selection, which GTK notices about itself and reports
+/// as `GtkText - unexpected blinking selection. Removing`.
+///
+/// **Why it asserts at focus-in rather than afterwards**: both orders leave the same
+/// selection behind once `win.find` returns, so a check on the settled state passes on
+/// either build. The only moment the two differ is the instant focus arrives, so that is
+/// where the observation is taken. Swap the two lines in `findbar`'s open closure and
+/// this fails while every other find test stays green.
+///
+/// The precondition matters as much as the assertion: a term already in the field with
+/// the caret collapsed at its end is the state a REOPEN finds, and it is the only state
+/// that can reach the defect — which is why five isolated legs, each opening the bar
+/// over an empty field, all came back clean.
+#[gtktest::test]
+fn the_find_field_is_selected_before_it_takes_focus() {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    let app = test_app("com.extollit.scribobulate.integrationtest.findblink");
+    let win = crate::window::new_window(&app, "IT-findblink", MD, None);
+    let entry = state(&win)
+        .expect("the window has an active tab")
+        .chrome()
+        .find_entry
+        .clone();
+
+    entry.set_text("note");
+    assert!(
+        entry.selection_bounds().is_none(),
+        "precondition: a field filled programmatically holds no selection, so this \
+         test can only pass by the open path making one"
+    );
+
+    let at_focus_in: Rc<Cell<Option<(i32, i32)>>> = Rc::new(Cell::new(None));
+    let focus = gtk::EventControllerFocus::new();
+    {
+        let at_focus_in = Rc::clone(&at_focus_in);
+        let entry = entry.clone();
+        focus.connect_enter(move |_| at_focus_in.set(entry.selection_bounds()));
+    }
+    entry.add_controller(focus.clone());
+
+    crate::window::actions::simple_action(&win, "find")
+        .expect("win.find is registered")
+        .activate(None);
+    crate::testpump::drain_for(
+        crate::testpump::Clock::Frame,
+        std::time::Duration::from_millis(200),
+    );
+
+    assert_eq!(
+        at_focus_in.get(),
+        Some((0, 4)),
+        "the whole term is selected at the instant the field takes focus"
+    );
+    // Asked of the CONTROLLER, not of the widget: the focus lands on the `GtkText`
+    // inside the `GtkSearchEntry`, so the entry itself never reports `has-focus`.
+    assert!(
+        focus.contains_focus(),
+        "…and the field is the one focused, which is what made the moment observable"
+    );
+    win.destroy();
+}

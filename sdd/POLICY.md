@@ -149,6 +149,21 @@ project's reason to exist.
 - Group a platform's code by the cause it answers, not by the API it happens to call.
 - Prefer hand-rolled FFI over a new binding crate for a handful of calls.
 
+### Verifying on every platform: the pipeline first, a seat when it cannot answer
+
+- Verify a change on all three platforms by pushing its branch and reading the GitHub
+  pipeline. It runs every platform's runner whole, costs no seat's time, and a red run is
+  the cheapest way to catch a platform-specific break.
+- Hand a change to the macOS or Windows seat only when the pipeline cannot ratify it:
+  a check that needs a **real user desktop** rather than a display (other applications
+  running, real input devices and input methods, clipboard readers, focus and
+  fullscreen behaviour), a look at the rendered UI, interactive diagnosis (sampling,
+  bisecting, probes, many reruns), or timing on real hardware. The runners do have a
+  display and run real windows; what they lack is everything a person's machine has
+  around the application.
+- The pipeline is broad but slower per question; a seat is targeted but costs far more.
+  Judge which answers the question first.
+
 ### When a UI change needs a platform seat, and when it does not
 
 **Moving existing widgets around does not re-open a ratified feature.** The one thing a
@@ -292,6 +307,11 @@ functional modifications and/or feature additions.  Failure to do this can resul
   batch.
 - Platform seats push directly into the Linux seat's clone: push with an explicit
   refspec, never a bare `git push`. Verify an integration by diffing trees.
+- Work happens on a branch — `feature/<name>`, `bug/<name>`, or `mitigations` for
+  unrelated small tasks — never directly on `master`.
+- A branch merges to `master` only once the GitHub pipeline has passed on it in full.
+  Every push triggers it. When a commit needs fixing, amend it and force-push the branch
+  rather than stacking follow-up commits, so each commit on `master` is one that passed.
 
 ## SDD register writes
 

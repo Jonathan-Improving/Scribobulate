@@ -78,6 +78,85 @@
 use gtk::glib;
 use gtk::prelude::*;
 
+/// Put `text` on `clipboard`. **The one sanctioned writer of clipboard text in this
+/// application** — `clippy.toml` bans `gdk::Clipboard::set_text` everywhere else.
+///
+/// On macOS GTK 4.22's Quartz backend publishes text only as a lazy pasteboard
+/// promise, and answering a promise can livelock the process when the request lands
+/// inside GDK's own event source — which any eager clipboard reader (a
+/// clipboard-history or clipboard-sharing app) makes likely. `platform::mac::pasteboard`
+/// carries the mechanism. So on macOS this does two things, **in this order, with no
+/// main-loop turn between them**:
+///
+/// 1. GDK's own `set_text`, so GDK holds `text` as its local content. GDK notices an
+///    outside pasteboard change only when window focus changes, and until then serves
+///    in-application reads from its local provider — so a write that skipped GDK would
+///    leave in-application pastes returning the PREVIOUS copy, indefinitely in a
+///    session where focus never moves.
+/// 2. An eager pasteboard write of the same `text`, which replaces the promise GDK just
+///    registered before any run-loop turn could deliver a request for it.
+///
+/// Everywhere else it is GDK's `set_text` alone.
+pub(crate) fn set_text(clipboard: &gtk::gdk::Clipboard, text: &str) {
+    #[allow(clippy::disallowed_methods)] // the sanctioned writer; see clippy.toml
+    clipboard.set_text(text);
+    #[cfg(target_os = "macos")]
+    crate::platform::mac::pasteboard::write_text(text);
+}
+
+/// Make a text field's **built-in** Copy and Cut put their text on the macOS pasteboard
+/// as data, the way [`set_text`] does for the application's own copies.
+///
+/// A `GtkEntry`'s Copy is GTK's, not ours: its `GtkText` delegate's class handler writes
+/// the clipboard through GDK, which on macOS publishes a lazy promise (see
+/// `platform::mac::pasteboard` for why a promise can livelock GTK 4.22). This connects
+/// AFTER that handler — so GDK already holds the text locally and in-application pastes
+/// are unaffected — and replaces the promise with the data before the main loop turns.
+/// Wired by `widgets::textfield`, which builds every text field in the application.
+/// Does nothing off macOS.
+pub(crate) fn wire_eager_copy_for_field(field: &impl IsA<gtk::Editable>) {
+    #[cfg(target_os = "macos")]
+    if let Some(text) = field.delegate().and_downcast::<gtk::Text>() {
+        for signal in ["copy-clipboard", "cut-clipboard"] {
+            text.connect_closure(
+                signal,
+                true,
+                glib::closure_local!(|t: gtk::Text| republish_eagerly(&t)),
+            );
+        }
+    }
+    let _ = field;
+}
+
+/// [`wire_eager_copy_for_field`] for a selectable `GtkLabel`, which can copy but not cut.
+pub(crate) fn wire_eager_copy_for_label(label: &gtk::Label) {
+    #[cfg(target_os = "macos")]
+    label.connect_closure(
+        "copy-clipboard",
+        true,
+        glib::closure_local!(|l: gtk::Label| republish_eagerly(&l)),
+    );
+    let _ = label;
+}
+
+/// Re-publish whatever GDK now holds locally on `widget`'s clipboard as eager pasteboard
+/// data. Only a plain-text provider is handled — which is what GTK's `GtkText` and
+/// `GtkLabel` copies install (`gdk_clipboard_set_text`).
+#[cfg(target_os = "macos")]
+fn republish_eagerly(widget: &impl IsA<gtk::Widget>) {
+    let clipboard = widget.clipboard();
+    if !clipboard.is_local() {
+        return;
+    }
+    let text = clipboard
+        .content()
+        .and_then(|provider| provider.value(glib::Type::STRING).ok())
+        .and_then(|value| value.get::<String>().ok());
+    if let Some(text) = text {
+        crate::platform::mac::pasteboard::write_text(&text);
+    }
+}
+
 /// Publish **plain text** on the CLIPBOARD for copy and cut, instead of GTK's default
 /// rich `GtkTextBuffer`.
 ///
@@ -114,8 +193,10 @@ fn wire_plaintext_clipboard(view: &sourceview::View) {
     fn publish_selection(v: &sourceview::View) -> Option<gtk::TextBuffer> {
         let buf = v.buffer();
         let (start, end) = buf.selection_bounds()?;
-        v.clipboard()
-            .set_text(crate::saferizer::BufferText::of_range(&buf, &start, &end).as_str());
+        set_text(
+            &v.clipboard(),
+            crate::saferizer::BufferText::of_range(&buf, &start, &end).as_str(),
+        );
         Some(buf)
     }
 
@@ -614,8 +695,10 @@ mod gtk_integration_tests {
         let (win, ctx) = present(&view);
 
         // What a sharing tool's clipboard bridge actually delivers: a plain string.
-        view.clipboard()
-            .set_text("# Title\rProse.\r\r- alpha\r- beta\r\nkept\r\n");
+        super::set_text(
+            &view.clipboard(),
+            "# Title\rProse.\r\r- alpha\r- beta\r\nkept\r\n",
+        );
         pump(&ctx, SETTLE);
         view.emit_paste_clipboard();
         pump(&ctx, SETTLE);
@@ -684,6 +767,119 @@ mod gtk_integration_tests {
             "KEEP<CUTME>KEEP",
             "ONE undo must restore the whole cut, not half of it"
         );
+
+        win.destroy();
+    }
+
+    /// **An application copy replaces the previous one for in-application pastes too,
+    /// and on macOS lands on the pasteboard as data, not a promise.**
+    ///
+    /// The macOS half of [`set_text`] overwrites GDK's pasteboard promise with real
+    /// data (the promise's answer can livelock GTK 4.22). The first assertion pins the
+    /// ordering that makes that safe: GDK notices an outside pasteboard change only when
+    /// window focus changes, so a writer that skipped GDK would leave this read
+    /// returning "old" — the seeding copy below is made through GDK exactly as a
+    /// `GtkEntry`'s built-in Copy would make it.
+    #[gtktest::test]
+    fn an_application_copy_replaces_the_previous_one_and_is_written_as_data() {
+        let (_buf, view) = editor("");
+        let (win, _ctx) = present(&view);
+        let clipboard = view.clipboard();
+
+        #[allow(clippy::disallowed_methods)] // seeding a copy the way GTK's own widgets make one
+        clipboard.set_text("old");
+        set_text(&clipboard, "new");
+
+        let read: std::rc::Rc<std::cell::RefCell<Option<String>>> = Default::default();
+        clipboard.read_text_async(gtk::gio::Cancellable::NONE, {
+            let read = read.clone();
+            move |text| *read.borrow_mut() = text.ok().flatten().map(|s| s.to_string())
+        });
+        crate::testpump::until(
+            crate::testpump::Clock::Idle,
+            "the clipboard read to return",
+            || read.borrow().is_some(),
+        );
+        assert_eq!(
+            read.borrow().as_deref(),
+            Some("new"),
+            "an in-application read must see the latest copy, not the one GDK held before it"
+        );
+
+        if cfg!(target_os = "macos") {
+            // Read the pasteboard from OUTSIDE the process, as a clipboard manager would.
+            // A promise would make `pbpaste` ask this process for the data — and this
+            // thread is blocked in `output()`, so it would hang or come back empty.
+            let out = std::process::Command::new("pbpaste")
+                .output()
+                .expect("pbpaste is part of macOS");
+            assert_eq!(
+                String::from_utf8_lossy(&out.stdout),
+                "new",
+                "the general pasteboard must hold the text as data"
+            );
+        } else {
+            println!(
+                "    SKIPPED [macOS eager pasteboard write]: macOS only; the in-application \
+                 read above ran here"
+            );
+        }
+
+        win.destroy();
+    }
+
+    /// **A text field's built-in Copy lands on the macOS pasteboard as data too.**
+    ///
+    /// The field is built by `widgets::textfield` — the constructor every field in the
+    /// application goes through — and the copy is GTK's own (`copy-clipboard` on the
+    /// `GtkText` delegate, what Cmd+C and the context menu emit), so this pins that the
+    /// constructor wires [`wire_eager_copy_for_field`] and that the after-handler
+    /// republishes what GTK copied.
+    #[gtktest::test]
+    fn a_fields_built_in_copy_is_written_as_data() {
+        let entry = crate::widgets::textfield::named_entry("Replace with", "field text");
+        let win = gtk::Window::new();
+        win.set_child(Some(&entry));
+        win.present();
+        crate::testpump::until(crate::testpump::Clock::Idle, "the window to map", || {
+            win.is_mapped()
+        });
+
+        entry.select_region(0, -1);
+        let text = entry
+            .delegate()
+            .and_downcast::<gtk::Text>()
+            .expect("a GtkEntry delegates to a GtkText");
+        text.emit_by_name::<()>("copy-clipboard", &[]);
+
+        let clipboard = entry.clipboard();
+        let read: std::rc::Rc<std::cell::RefCell<Option<String>>> = Default::default();
+        clipboard.read_text_async(gtk::gio::Cancellable::NONE, {
+            let read = read.clone();
+            move |text| *read.borrow_mut() = text.ok().flatten().map(|s| s.to_string())
+        });
+        crate::testpump::until(
+            crate::testpump::Clock::Idle,
+            "the clipboard read to return",
+            || read.borrow().is_some(),
+        );
+        assert_eq!(read.borrow().as_deref(), Some("field text"));
+
+        if cfg!(target_os = "macos") {
+            let out = std::process::Command::new("pbpaste")
+                .output()
+                .expect("pbpaste is part of macOS");
+            assert_eq!(
+                String::from_utf8_lossy(&out.stdout),
+                "field text",
+                "a field's built-in Copy must leave the text on the pasteboard as data"
+            );
+        } else {
+            println!(
+                "    SKIPPED [macOS eager pasteboard write, field Copy]: macOS only; the \
+                 in-application read above ran here"
+            );
+        }
 
         win.destroy();
     }

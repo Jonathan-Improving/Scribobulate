@@ -579,7 +579,7 @@ pub(super) fn wire_copy_button_gesture(view: &CodePreviewView) {
                     let Some(code) = v.code_block_text(block) else {
                         return;
                     };
-                    v.clipboard().set_text(&code);
+                    crate::clipboard::set_text(&v.clipboard(), &code);
                     v.flash_copied(block);
                 }
             ),
@@ -613,7 +613,7 @@ pub(super) fn wire_copy_clipboard(
                 start_it.offset(),
                 end_it.offset(),
             );
-            view.clipboard().set_text(&md_slice);
+            crate::clipboard::set_text(&view.clipboard(), &md_slice);
             view.stop_signal_emission_by_name("copy-clipboard");
             return;
         }
@@ -639,7 +639,7 @@ pub(super) fn wire_copy_clipboard(
                     .take((end - start) as usize)
                     .collect()
             };
-            view.clipboard().set_text(&out);
+            crate::clipboard::set_text(&view.clipboard(), &out);
             view.stop_signal_emission_by_name("copy-clipboard");
             return;
         }

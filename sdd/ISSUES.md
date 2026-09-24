@@ -38,15 +38,12 @@ described from a different vantage point.
 | ID | Platform | Scope | Issue | Severity |
 |----|----------|-------|-------|----------|
 | D | Any | Production | A large document leaves the process spinning a CPU core at ~100% while idle — a GTK/Pango relayout pass that re-shapes text every main-loop iteration and never converges | High |
-| F | Mac | Upstream | A GTK4/Quartz autorelease-pool crash SIGABRTs the macOS integration suite in roughly one full run in four. The body names a dominant site and a stack; the site wanders when the suite's test set changes | Medium |
 | G | Linux | Test | A one-time ~12.6 MB allocation appears in step 5b's footprint samples on the GitHub Linux runner and on no development host, at a different sample each run. **Unattributed** — the runner logs `libEGL warning: DRI3 error: Could not get DRI3 device`, so a lazily created buffer in its software GL stack is a suspicion and nothing more. The growth gate tolerates one allocation by design (TDD 6.11), so this is not currently red; what is unknown is whether the sampler is measuring something the application does not own | Low |
 | I | Mac | Upstream | macOS only: every native file-chooser invocation (Open, Save, Export) grows RSS by ~1.1 MB and does not give it back. Roughly four fifths is AppKit's own price for presenting an `NSSavePanel` — reproduced with no GTK in the process — with about a fifth GTK-attributable. Caching the panel upstream would recover ~95% | Medium |
 | M | Windows | Production | On a machine with no Visual C++ runtime the app installs and then fails to start; the installer's bootstrapper for it has landed but has never been verified against that condition | Medium |
 | U | Any | Production | The preview is drawn horizontally scrolled (~20px, its left padding gone, a horizontal scrollbar showing) after a mode switch or an explicit Reload rebuilds it — intermittent, pre-existing, seen on Linux and Windows | Low |
-| X | Mac | Test | The macOS integration suite hangs part-way through a run in roughly two to four runs in five. Independent of any one feature — it survives removing the surface it was first blamed on. **A stack now names the mechanism**: GDK's macOS event source drains an autorelease pool inside `prepare()`, a deferred `NSWindow` dealloc there tears down a text input context, and the IMK session's semaphore runs a nested `CFRunLoop` that re-enters `g_main_context_iteration` | High |
-| Z | Any | Production | GTK logs `GtkText - unexpected blinking selection. Removing` once during find-bar use. Cosmetic — GTK detects its own inconsistent blink state and clears it, and nothing on screen changes. Reproduced once in a compound driven run and in **none** of five isolated legs (idle, open bar, open and type, open/type/Enter/Escape, menu open then Escape), so the trigger is a combination or a timing, not any one interaction. Not caused by the window-level Escape handler — the operator's sighting predates it | Low |
 | W | Mac | Production | Observed ONCE: after a compound find-bar run the Escape key stopped closing the find bar and then never worked again in that process — permanent, not transient, with the bar visibly open and the application otherwise responsive. Not reproduced in three isolated legs nor in a faithful replay of the whole compound sequence. The handler has since been hardened so that it declines the key when the bar did not actually close, which BOUNDS this rather than fixes it: the diagnosed cause is still unknown | High |
-| Y | Any | Test | A PDF blockquote-panel tiling assertion fails in the display-free suite intermittently under pipeline load, and passes every time it is run directly. **No root cause is recorded, and two suspicions have now been falsified** — a sprite-key collision (the fixture's path is a unique temp directory) and cross-thread mutation of the sprite cache (it is `thread_local!`, so there is no shared cache to race). The one captured failure is a single misplaced row, which rules out the oversize-lattice branch the assertion itself offers. Reproduce before theorising | Medium |
+| Y | Any | Test | A PDF blockquote-panel tiling assertion fails in the display-free suite intermittently under pipeline load, and passes every time it is run directly. **No root cause is recorded, and six suspicions have been falsified** — a sprite-key collision, cross-thread mutation of the sprite cache, line wrapping, concurrency during the render, cross-thread sprite decoding, and any non-tile red ink; the body carries each one's measurement. Two captures agree the anomalies sit INSIDE a band, which the fill cannot produce. The test now prints every red row's pixel count on failure, which is the one thing both captures lacked | Medium |
 
 ## Closed issues
 
@@ -296,146 +293,6 @@ midway through a bisect.
 - **Accept the limitation**: not viable long-term — an idle full-core spin on the product's own
   primary use case (large agent-generated documents) defeats the negligible-footprint thesis the
   project exists to honour.
-
-## F. A GTK4/Quartz autorelease-pool crash intermittently SIGABRTs the macOS integration suite
-
-**Re-measured 2026-09-14 by the macOS seat — consistent with the existing rate, NOT a measured
-increase** (entry content theirs, edited here for format). Full `gtk_suite` runs, same machine:
-0 aborts in 6 at one commit, then 3 in 6 and 3 in 7 on the next two — 6 in 13 (46%) once a test
-that wrote the system clipboard had been added. That reads like an increase and is not one: at
-this entry's 25–33% rate, six clean runs in a row happen 9–18% of the time, and the interval on
-6 in 13 spans roughly 19–75%, so the data cannot separate the two commits. An attribution to the
-new test was made and RETRACTED for exactly that reason, and because it contradicts the 93
-filtered runs below — the fault needs suite depth, not a particular body. The aborting body
-wandered across four tests, including this entry's dominant site.
-
-What IS new is the stderr text, where this entry records only the `.ips` termination — two
-libobjc messages of one fault class:
-`Invalid or prematurely-freed autorelease pool 0x… Invalid autorelease pools are a fatal error`,
-and `autorelease pool page 0x… corrupted / magic 0x0f9fdca3 … should be 0xa1a1a1a1 … / pthread
-0x1f6b22180 should be 0x1f6b22180`. In the page-corruption case the pthread values MATCH: the page
-was damaged in place on its own thread, not popped from a different one. That argues against a
-cross-thread pop and for an accumulating in-place imbalance, which agrees with the depth finding.
-
-**Removing that test's clipboard traffic did not make the suite complete.** On the next commit,
-where the test asserts the paste hand-off without touching the clipboard, two consecutive full
-runs still aborted — at an annotation-card body and a find body, neither of them clipboard work —
-while the clipboard-free test itself passed; the pthread values matched again. Two runs are not
-a rate and no change in rate is claimed either way; what they settle is that the abort is not
-this test's, so do not read the clipboard-free test as having addressed this entry.
-
-**Re-measured 2026-09-13 by the macOS seat (entry content theirs, edited here for format),
-and two claims further down were too narrow.** Same defect: the same OBJC termination
-(`namespace OBJC, flags 646, code 1`), `objc_autoreleasePoolPop` →
-`AutoreleasePoolPage::busted_die`, the nested `CFRunLoop` resolving `NSPasteboard` promised
-data, HIToolbox input-method session activation, and
-`+[NSTextInputContext currentInputContext_withFirstResponderSync:]` → `discard_preedit`; the
-same dominant site (`select_all_stands_down_for_every_text_entry_and_recovers_for_the_editor`)
-and rate (one in four full pipeline runs). But this report reaches `discard_preedit` through a
-**focus crossing**, not a mark-set — `gtk_text_view_mark_set_handler` appears nowhere in it:
-
-```
-gtk_widget_grab_focus_self
-  -> gtk_window_root_set_focus -> synthesize_focus_change_events
-  -> gtk_widget_handle_crossing -> gtk_event_controller_handle_crossing
-  -> gtk_event_controller_focus_handle_crossing -> g_signal_emit
-  -> discard_preedit -> (AppKit / HIToolbox / libobjc, as below)
-```
-
-And a Scribobulate frame IS on that thread, as the caller: `window::findbar::wire_find_bar`'s
-closure calling `WidgetExt::grab_focus` from a `SimpleAction` activation. Nothing of ours is
-faulting — every faulting frame is libobjc, AppKit or HIToolbox — so the entry stays
-`Upstream`; the sentences below are corrected to the claims that survive. Evidence:
-`~/Library/Logs/DiagnosticReports/gtk_suite-a0aba6a9f8498e0e-2026-09-13-115631.ips`, macOS
-26.6.2 (25G83), GTK 4.22.4.
-
-**Re-measured 2026-08-31 by the macOS seat, and the DISCRIMINATOR is now sharp.** 5 aborts
-in 15 full `gtk_suite` runs — **33%, one in three**, spread across two trees (3 on one, 2 on
-the other), so it is unmoved by the work that happened to be under test. Abort case indices
-234, 234, 235, 16, and one inside a pipeline run: clustered, with one far outlier. And the
-finding that narrows it most: **0 aborts in 93 FILTERED runs** of two cases per process. It
-needs suite DEPTH, not any particular body — consistent with an accumulating pool imbalance
-rather than one bad test, and it means a bisect-by-test cannot reach it.
-
-**Re-measured 2026-08-27, and the rate and shape are both narrower than first recorded.**
-Roughly **one abort in four FULL pipeline runs**, not two in three, and the abort site varies
-rather than concentrating on the focus-churning test — the observed one was a find-cursor
-test. The discriminator: `gtk_suite` run standalone, three times consecutively, passed clean
-every time (323 passed). So this is a property of the FULL run rather than of any one test,
-which is what a fix would have to account for and what a bisect-by-test would never find.
-
-**Severity**: Medium (the macOS GTK suite cannot be trusted to complete; no data at risk,
-and no Scribobulate code is faulting — but a red run there means nothing until re-run)
-
-`cargo test --features gtk-integration-tests --test gtk_suite` intermittently aborts the
-whole test process on macOS. Not one specific test — whichever happens to trigger a
-focus crossing or text-view mark-set at the wrong moment relative to macOS's input-method state.
-
-**Measured** via four independent **Apple crash reports** — the system crash reporter, not
-a Rust panic (`termination: {namespace: OBJC, flags: 646, code: 1}`) — across four separate
-runs. That distinction is the one that matters diagnostically: the Rust harness reports
-only that the process died, which is equally consistent with a defective test, and the
-discriminating evidence exists only at OS level. All four stacks are identical in
-signature:
-
-```
-gtk_text_view_mark_set_handler                                   (libgtk-4.1.dylib)
-  -> discard_preedit                                             (libgtk-4.1.dylib)
-  -> +[NSTextInputContext currentInputContext_withFirstResponderSync:]   (AppKit)
-  -> TSM input-method session (de)activation                     (HIToolbox)
-  -> nested CFRunLoop pump for NSPasteboard promised-data resolution
-  -> objc_autoreleasePoolPop -> AutoreleasePoolPage::busted_die() (libobjc.A.dylib)
-```
-
-**No Scribobulate frame is faulting.** Our code appears, when it appears at all, only as the
-caller that reaches the toolkit path (2026-09-13: the find bar's `grab_focus`). The cause is
-GTK4's Quartz backend firing `discard_preedit` on a `GtkTextView` focus crossing or mark-set —
-so on a focus change as well as on any caret or selection change — which activates/deactivates the macOS input-method bridge, which
-pumps a nested run loop for pasteboard-promise resolution and corrupts the autorelease
-pool stack. Not reachable from application code.
-
-**Rate and distribution** (n=6 full-suite runs, isolated): **4 crashed, 2 clean — about
-two in three.** Of the 4 crashes, **3 were on the same test**,
-`select_all_stands_down_for_every_text_entry_and_recovers_for_the_editor`; the single
-outlier was the first observation, which was also a contaminated run (a concurrent build
-on the same machine). All 4 crash reports carry a byte-identical stack signature.
-
-**Why this is still not filed against that test**, even though it is the dominant trigger
-— the argument is the stack, not the distribution. No application frame faults in it, so
-nothing in that test's *code* is faulting; what the test does is arrive at the toolkit
-path more often. It exists to verify select-all standing down across *every* text entry,
-so its body is mostly rapid focus-switching between entries — which is precisely what
-drives `discard_preedit` / `NSTextInputContext` activation churn. A test that exercises
-the mechanism hardest crashing most is consistent with the mechanism, not evidence of a
-defect in the test.
-
-> **An earlier version of this entry claimed the opposite and was wrong.** On n=3 it read
-> "2 crashed on *different* tests, so a defective test would fail on the same one every
-> time" — and offered that distribution as the load-bearing proof. A larger sample
-> inverted it: the spread was an artefact of a small n whose one cross-test data point
-> came from the contaminated run. The mechanism argument survived unchanged because it
-> never rested on the distribution; the distribution argument did not. Recorded because
-> the retracted reasoning is more instructive than the correction — a frequency pattern
-> read off three samples is a hypothesis, and it was stated here as evidence.
-
-**Unverified**: whether it reproduces on other macOS or GTK versions. Linux and Windows
-have no equivalent Quartz/AppKit/TSM path, so it is plausibly macOS-only *by
-construction* — but that is an argument, not a test result.
-
-**Mitigation options**
-- **Re-run and treat a single abort as inconclusive** — what the macOS seat does today.
-  Cheap, but it means the suite's silence is weaker evidence there than on Linux.
-- **Raise it upstream** with the two crash reports. The stack is specific enough to be
-  actionable and nothing about it is project-specific.
-- **Re-test on a newer GTK** when one is available; this is the kind of interaction an
-  upstream fix moves without anyone here doing anything.
-
-Measured on macOS 26.6.1 (25G76), GTK 4.22.4 (Homebrew), by the macOS seat. Primary
-evidence is machine-local and not transferable:
-`~/Library/Logs/DiagnosticReports/gtk_suite-9047c36e3af692e9-2026-08-07-232935.ips` and
-`…-2026-08-08-015722.ips`.
-
----
 
 ## I. Every native file chooser invocation grows RSS on macOS
 
@@ -706,158 +563,6 @@ these checks as "not observed" is reporting this gap, not a defect in the code u
   reopens at Low/Medium/High, since the names are already in place to be read.
 
 
-## X. The macOS integration suite hangs intermittently
-
-**Severity**: High (it is the reason a macOS ratification cannot be read at face value. A
-hung run produces no verdict, so every macOS result now costs several runs to interpret,
-and a real regression introduced on that platform would be indistinguishable from this.)
-
-A full macOS integration run stops part-way through and never finishes. The site moves
-between runs — `copy_full_path_for_tab` twice in the most recent set, elsewhere before
-that. Measured rates across one day of arms, five runs each: **3 in 5**, **4 in 5** and
-**2 in 5** under three different tree configurations.
-
-A later set, 2026-09-19 on the `mitigations` branch: **eleven runs across three
-successive tips — 6 clean, 5 failed (3 hangs, 2 aborts)**. Per tip, back to back on an
-otherwise idle machine: 1 in 5 on one tip and **3 in 5** on the very next. **That spread
-IS the finding.** Eleven runs establish that it is common and erratic and nothing more
-precise; five cannot separate 20% from 60%, which is this entry's own small-sample lesson
-turned on the entry itself. Treat any single-digit run count as unable to distinguish two
-builds here — that is what the first mitigation below is for, and it is still unmet.
-
-Two observations from that set, offered without investigation: the two hangs in one round
-were **sibling tests in the same module**, differing only in which tab command they drive,
-while an earlier hang was in an unrelated module — so "varying site" holds across rounds
-while two failures within a round may be adjacent. And the abort text differed between
-rounds (`autorelease pool page … corrupted` versus `Invalid or prematurely-freed
-autorelease pool`) — same family, different detection point.
-
-**It is NOT caused by the status bar, and the effort to prove otherwise is the useful part
-of this entry.** The hang first appeared alongside the status bar's arrival, so the surface
-was the obvious suspect. Four separate hypotheses were each armed and measured — destroy-time
-timers, the pooled counter's latch, the mark-set handler's attachment, and finally the
-status bar's mere *presence in the widget tree*, via a diagnostic environment flag that
-builds the window without it. **With the whole strip absent from the tree, 2 of 5 runs still
-hung.** No configuration tested has ever been hang-free.
-
-**THE MECHANISM, with a stack — measured 2026-09-22 by the macOS seat.** A full run with
-the per-case cap raised to 900 s, then `sample` of the process spinning at 100% CPU:
-**2,913 of 2,913 samples on the main thread, one path.**
-
-```
-g_main_context_iteration -> g_main_context_prepare_unlocked
-  -> gdk_macos_event_source_prepare
-    -> -[NSAutoreleasePool drain] -> objc_autoreleasePoolPop
-      -> AutoreleasePoolPage::releaseUntil -> NSKVODeallocate
-        -> -[NSWindow dealloc] -> -[NSView _setWindow:]
-          -> +[NSTextInputContext currentInputContext_withFirstResponderSync:]
-            -> -[NSTextInputContext deactivate] -> DeactivateTSMDocument
-              -> IMKInputSessionDeactivate -> -[IMKInputSession_Modern deactivate]
-                -> -[HIRunLoopSemaphore wait:]
-                  -> _CFRunLoopRunSpecificWithOptions          <- NESTED RUN LOOP
-                    -> __CFRunLoopDoBlocks -> ___CFPasteboardHandleFulfillMessage
-                      -> -[GdkMacosPasteboard ...]
-                        -> g_main_context_iteration ...        <- RE-ENTRY
-```
-
-GDK's macOS event source drains an autorelease pool **inside `prepare()`**. The drain
-deallocs a deferred `NSWindow`, which tears down its text input context, which deactivates
-an IMK session, which waits on a semaphore that runs a **nested `CFRunLoop`**, which
-services a pasteboard callback into `GdkMacosPasteboard`, which **re-enters
-`g_main_context_iteration` from inside `prepare()`** and never unwinds. One sampled stack
-held 23 `__CFRunLoopRun`, 18 `_CFRunLoopRunSpecificWithOptions` and 10
-`g_main_context_iterate_unlocked` frames. That is exactly the recursion the
-`g_main_context_prepare() called recursively` warning below reports, and it is why the
-site is a symptom rather than a subject. Every frame is libobjc, AppKit, HIToolbox or GDK.
-
-**TWO PRECONDITIONS, both measured, and the negative result is the load-bearing half.**
-The site is not arbitrary and it is not a depth marker — both readings were tested and
-falsified:
-
-- *Not depth.* Across two tips the hang held its test NAME while its ordinal moved
-  (613 cases / position 590, then 615 / 592, with two cases inserted ahead of it).
-  Whatever inherited the old position ran fine.
-- *Not "the first test of that shape".* `window/tabs/contextmenu.rs` holds four tests of
-  the form `<command>_for_tab_acts_on_the_clicked_tab_not_the_active_one`, each of which
-  builds a second window and focuses a background tab. The one that sorts FIRST passes —
-  logged `ok` immediately before the hang in 3 of 3 runs.
-- *The SECOND family member to run is the one that hangs.* Skipping the hanging test moved
-  the hang to its sibling, 3 of 3; skipping the test BEFORE it instead made the previously
-  100% site go clean and moved the hang one further along, 2 of 2. Nothing else predicts a
-  site that was 5-for-5 going green.
-- ⚠️ **But two family members alone are not enough.** Running just those two tests and
-  nothing else: **both pass, 1.4 s.** So the dose is *second family member* **and** a
-  process that has accumulated a full suite's worth of state. Depth is a precondition, not
-  the selector. Had the confirming experiment been the last one run, this entry would now
-  record a mechanism that is wrong in its second half.
-
-The preconditions follow from the stack without further assumption: the trigger is a
-**deferred window dealloc landing in a pool that is drained inside `prepare()`**, which
-needs both accumulated pool traffic (the suite) and tests that create and drop extra
-windows (the family).
-
-**Not reproduced off macOS.** Linux: zero hangs, whole-suite green. Windows: zero hangs
-and zero aborts in three full runs, with both named tests passing 6 of 6. Both hosts run
-these cases serially, so the comparison is like-for-like — `gtk_suite` runs every case on
-the process main thread by construction, which is why no `--test-threads` flag appears in
-its invocation and why one was wrongly cited as evidence once.
-
-⚠️ **The one application-visible lever, untested and NOT a recommendation.** Nothing here
-is ours to fix — every faulting frame is upstream. But the trigger is window destruction
-being deferred into a pool that GDK drains at the worst possible moment, so *when* a test's
-windows are deallocated is in principle reachable from `src/gtk_suite.rs`: draining a
-per-case autorelease pool at a controlled point, outside the GTK main loop, would move the
-dealloc off `prepare()`. That would mean an Objective-C runtime dependency on macOS and has
-not been prototyped, costed or approved. Recorded so the option is not re-derived from
-scratch; do not treat it as a plan.
-
-**The hang is NOT quiet, and that is new evidence: it has a SIGNATURE.** MEASURED
-2026-09-19 on the `mitigations` branch — three `poll(2) failed due to: Resource
-temporarily unavailable` warnings, then `g_main_context_prepare() called recursively from
-within a source's check() or prepare() member` paired with the same for
-`g_main_context_check()`, repeating at full speed until the per-case wall-clock cap killed
-it: **14,877,756 of each, a 4.0 GB log**. So the main context is re-entering
-prepare/check, spinning rather than blocking. **The site may vary while the mechanism does
-not** — which is the first thing said here that could distinguish one defect from several,
-and it means a run that dies at a new site is not automatically a new problem. A seat
-reproducing this must collapse the log, because 4 GB of one repeated pair is not evidence,
-it is the same evidence 15 million times — but ⚠️ **collapse a repeating CYCLE, not
-consecutive duplicates.** The spin alternates `prepare`/`check`, so no two adjacent lines
-match and a same-as-previous-line suppressor suppresses NOTHING while appearing to work
-(measured: 4.0 GB down to 1.4 GB, which reads as success). An alternation is the one thing
-a main LOOP is guaranteed to produce. Collapse a cycle of up to a few distinct lines,
-print the first occurrence of each verbatim, and print totals when the burst ends.
-
-⚠ **`poll(2)` returning EAGAIN immediately before it is a lead, not a cause** — nothing
-has tested whether it is on the path or beside it, and the register's own header warns
-what a recorded root cause is worth. It is noted because it is the same subsystem the
-autorelease-pool abort elsewhere in this register sits next to, which is the strongest
-version yet of the "possibly the same defect" note below.
-
-⚠ **The original attribution was a small-sample artefact, and this is the trap to avoid on
-the next one.** It rested on a parent commit going 3-for-3 green against a child going
-3-for-4 red. Against a background rate that varies between 40% and 80%, **neither result
-carried information** — a 3-run green streak is unremarkable when the true pass rate is
-one in two, and the whole investigation that followed was chasing a difference that was
-never measured to exist. Before attributing an intermittent to a change, establish the
-background rate FIRST, on enough runs to tell two rates apart; a clean baseline of three is
-not a baseline.
-
-**Possibly the same defect as the macOS autorelease-pool crash recorded elsewhere in this
-register** — both are macOS-only, both fire at a varying site, and both land in a similar
-fraction of runs. One kills the process and one stops it, which is a real difference, but
-the register's own warning about one defect filed twice applies: check them together before
-treating either as understood.
-
-**Mitigation options**:
-
-- **Establish the background rate properly** — a run of ten on an untouched tree, which is
-  the measurement every arm so far has been missing.
-- **Capture a stack from a hung run** rather than recording where the output stopped; the
-  site is the one thing that has moved every time and it is being read as a clue.
-- **Accept slower macOS ratification** in the meantime: read a macOS result only from
-  several runs, never from one, and never treat a hang as a verdict about the change.
-
 ## W. Escape stopped closing the find bar, permanently, once
 
 Reported by the `mac` seat while verifying the window-level Escape handler. After the
@@ -953,48 +658,92 @@ row-gap inside one marker band, not a wrong grid.
 That reframes the search: the question is what makes **one row** of a band fail to match
 the marker colour exactly, not what would rescale the tile.
 
-**Negative controls, measured 2026-09-23 on Linux.** Five consecutive direct runs of the
-test alone: all pass. Three consecutive full `cargo test --lib` runs: all pass, 1,871
-cases each. The failure came from a pipeline run of the same code. Anything claiming a
-fix has to survive repeated pipeline runs, because every cheaper instrument here is green
-on a build that fails.
+**A second capture, and it says the same thing louder.** The GitHub Linux runner failed
+it on 2026-09-23 with starts `[60, 65, 72, 84, 96, 101, 108, 119]`. Six of the eight are
+multiples of 12; the odd ones are `65` (five rows into the band at 60), `101` (five rows
+into the band at 96) and `119` (one row *before* 120, which is itself absent). Modulo 16
+they share nothing either, so the oversize-lattice branch is falsified on this sample too.
+Across both captures every anomaly is **inside** a band — a band split in two, or its
+first matching row slipping one to three rows early — and never a band displaced as a
+whole. Two independent samples now agree on the shape.
+
+**The same tree passed and failed twelve minutes apart.** That CI failure was the merge
+commit, whose diff against the branch head it merged is EMPTY, and the branch head's own
+run on the same runner image had passed. Identical code, identical image, opposite
+verdicts — so nothing about the source decides this, and any bisect is wasted effort.
+It also moves the reproduction off this host for the first time: it is not a property of
+one machine's storage or CPU.
+
+**Four families are now measured out, on Linux on 2026-09-23. None of them is the
+cause; each cost a session's worth of guessing before, and the numbers are here so the
+next reader spends theirs elsewhere.**
+
+| Ruled out | How | Result |
+|---|---|---|
+| Line wrapping / font metrics moving the rects | the same fixture rendered at 30 different word counts, every resulting layout checked against the lattice | 0 off-lattice |
+| Concurrency during the render | 8 threads rendering this exact page 160,000 times **while the whole suite ran alongside it** | 0 off-lattice |
+| Low parallelism and slow timing, as on the runner | **the exact step-4 command** (`cargo test`, not `--lib`) pinned to two cores with `taskset`, 12 runs | 0 failures |
+| A test mutating the global font state under it | searched for `set_resolution`, `FontMap::set_default`, `set_font_options`, `FontOptions`, `set_antialias`, `set_hint` across `src/` | no such call exists in the tree |
+| Cross-thread sprite decoding | 8 threads decoding 8 distinct sprites in a loop, every pixel compared against its own thread's colour | 0 bad of 122,880 |
+| Some other red ink on the page (a glyph, the bar, a band) | the same fixture with a tile that has **no red row in it at all**, counting pure-red pixels | 0 |
+
+⚠️ **Read the concurrency row in the direction it was measured.** That stress pushed
+parallelism UP — 8 threads on a 32-core host — while the GitHub runner that failed this
+has 2 cores, so libtest runs it with 2 threads. It is therefore evidence against a
+cause that needs *contention*, and much weaker evidence against one that needs slow,
+serialised timing. The two-core row was added afterwards for exactly that reason, and
+it is the closer match to the environment that actually produces the failure.
+
+**And one thing the fill cannot do, by construction.** The vertical anchor is
+`floor(y / pitch) * pitch` (`export::pdf::ink::tile_origin`), so a repeat can only ever
+begin on the lattice; the one way a rect's own top can expose red earlier is if that top
+falls *inside* the band, which bounds the residue to 0..2. Both captured failures have
+residues outside that (`9`; and `5`, `5`, `11`). So either the red on those rows is not
+the fill at all, or something upstream of `tile_origin` is not what it appears to be.
+
+**Both captures look like TWO phases of the SAME pitch, which points at the transform.**
+Capture 2's gaps run `5, 7, 12, 12, 12, 5, 7, 11` — and `5 + 7 = 12`, so it reads as the
+expected lattice at phase 0 (`60, 72, 84, 96, 108`) with a second set at phase 5 (`65`,
+`101`) laid over it. Capture 1 is the same shape with one stray band, at phase 9. Two
+phases of pitch 12 cannot come from `tile_origin`, which only ever returns multiples of
+12 — but they are exactly what an extra translation in force for *some* of the rects
+would produce. Every `save`/`restore` on this path swallows its error (`cr.save().ok()`),
+so an unbalanced pair would leak a transform silently and only for the rest of that page.
+That was the obvious place to look, and it has now been looked at twice. Every
+`save`/`restore` pair in `export::pdf::ink` balances by inspection, including the two
+arms that `continue` out of the line loop — and, because those calls discard their
+errors and an imbalance would therefore be silent, the transform was also checked AT
+RUNTIME: the context's matrix was reported on entry to every quote-panel paint across a
+whole `cargo test --lib` run, and it was the identity every time, 0 exceptions. So the
+transform is not leaking on any path the suite exercises. The two-phase reading stands
+and is still unexplained, which is the most useful thing in this entry.
+
+**The test now says which.** Its panic prints every red row with its pixel count and x
+extent. A band row spans the panel — around 458 px of the 64..521 column, less the
+quoted text's overdraw. A handful of pixels on a row is not a displaced lattice and
+sends the search somewhere else entirely. Two failures have been captured in the wild
+and neither could answer this, which is the whole reason the message was rebuilt rather
+than another theory added.
+
+**Do not make the oracle ignore thin rows yet.** It is the obvious move once the panic
+starts printing pixel counts — discard any row carrying a handful of pixels, since the
+fill cannot draw one — and it would very likely turn this green. That is the objection
+to it: it would turn it green whether or not the thin rows are the cause, and nobody
+would ever find out, because the only evidence this defect produces is the failure
+itself. Wait for one real capture that shows the widths, then narrow the oracle to what
+that capture proves it should measure.
+
+**Repeated negative controls, same date.** Five direct runs of the test alone: pass.
+**Twenty-eight** full `cargo test --lib` runs: pass, 1,871 cases each. **Twelve** runs
+of the real step-4 command on two cores: pass. Every cheap
+instrument here is green on a build that fails, so anything claiming a fix has to
+survive repeated *pipeline* runs — and the next real failure is worth more than another
+local loop, because it will now arrive carrying its own evidence.
 
 **Do not chase this from the find-bar branch it was observed on.** It is unrelated to it:
 the branch touches the find bar, the toolbar wrap box and three packaging scripts, none
 of which reach PDF export, sprites or rasterisation, and an immediately preceding
 pipeline run of the same code passed.
-
-## Z. GTK logs "unexpected blinking selection" during find-bar use
-
-`[WARN Gtk] GtkText - unexpected blinking selection. Removing`, emitted once. `GtkText`
-is the inner text widget of a `GtkEntry`/`GtkSearchEntry`, so the subject is one of the
-find bar's two fields, not the document view. GTK raises this from its cursor-blink
-callback when it finds a selection present in a state where it does not expect one, and
-it then removes its own blink source — which is why nothing is visibly wrong.
-
-**What is measured.** Reproduced once, in a driven run that opened the bar, typed,
-pressed Enter, pressed Escape, reopened the bar, opened a menu and pressed Escape again.
-Then five legs were run one per fresh process, each with the app otherwise untouched:
-
-| Leg | Warnings |
-|---|---|
-| Idle, no interaction | 0 |
-| Open the bar and leave it | 0 |
-| Open the bar and type | 0 |
-| Open, type, Enter, Escape | 0 |
-| Menu open, then Escape | 0 |
-
-So no single interaction produces it and the compound sequence did. That is the whole
-finding; **the trigger is not known** and the obvious guess — that closing the bar moves
-focus to the editor while a field still holds a selection — is a guess, recorded here
-only so the next reader knows it was not tested.
-
-**It is not the window-level Escape handler.** That handler landed after the operator's
-sighting, which rules it out by timing rather than by argument.
-
-**Before theorising, reproduce.** One observation in a compound run and five clean
-negative controls is not enough to attribute this, and a fix aimed at the focus guess
-would be unfalsifiable at this rate — it would "pass" on a build where nothing changed.
 
 ## CLSD-04. In fullscreen on macOS, a click during the transition animation is never delivered
 

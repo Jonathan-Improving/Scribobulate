@@ -47,7 +47,7 @@ pub(super) fn register_copy_link_action(window: &ApplicationWindow) {
         window,
         move |_, _| {
             let Some(url) = copy_target(&w) else { return };
-            w.clipboard().set_text(&url);
+            crate::clipboard::set_text(&w.clipboard(), &url);
             // A copy changes nothing on screen, so it is acknowledged (TDD 16.15).
             if let Some(chrome) = crate::winstate::chrome(&w) {
                 chrome.push_timed_notice(

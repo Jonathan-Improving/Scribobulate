@@ -1723,6 +1723,10 @@
 - **Given** a document window
 - **When** the user presses Ctrl+F (or Edit ▸ Find) or Ctrl+H (or Edit ▸ Find & Replace)
 - **Then** a find bar slides in at the bottom of the window with the search field focused; Ctrl+H additionally reveals the replace row
+- **And given** the field already holds the previous term — a reopen
+- **Then** the term is selected, so the next keystroke replaces it rather than extending it
+- **And** the selection is in place **before** the field takes focus, never after: `GtkText` arms its cursor-blink tick on a focus-in that finds no selection and has no path that disarms it when one appears, so the other order leaves the toolkit blinking a caret over a selection and logging `unexpected blinking selection` about itself. Both orders settle to the same selection, so only an observation taken at the instant of focus-in can tell them apart
+- **Coverage** `window::find::bartests::the_find_field_is_selected_before_it_takes_focus`; `tests/MANUAL-TEST.md` §11.1
 
 ### 11.2 Incremental search highlights matches with a count
 - **Given** the find bar is open

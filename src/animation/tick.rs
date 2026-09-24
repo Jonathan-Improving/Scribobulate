@@ -75,14 +75,13 @@ mod gtk_tests {
                 gtk::glib::ControlFlow::Continue
             }))
         };
-        crate::testpump::drain_for(
+        // Waited for, not slept for: the first window of a fresh process on Quartz
+        // can take longer than any fixed span to start its frame clock.
+        crate::testpump::until(
             crate::testpump::Clock::Frame,
-            std::time::Duration::from_millis(150),
-        );
-        let while_installed = ticks.get();
-        assert!(
-            while_installed > 0,
-            "precondition: the frame clock must be running, or this test asserts nothing"
+            "precondition: the frame clock ticks the installed callback, or this test \
+             asserts nothing",
+            || ticks.get() > 0,
         );
 
         drop(handle);
@@ -161,14 +160,11 @@ mod gtk_tests {
                 gtk::glib::ControlFlow::Continue
             }))
         };
-        crate::testpump::drain_for(
+        crate::testpump::until(
             crate::testpump::Clock::Frame,
-            std::time::Duration::from_millis(150),
-        );
-        assert!(
-            ticks.get() > 0,
-            "precondition: the frame clock must be running while mapped, or this \
-             test asserts nothing"
+            "precondition: the frame clock ticks while mapped, or this test asserts \
+             nothing",
+            || ticks.get() > 0,
         );
 
         stack.set_visible_child_name("o");

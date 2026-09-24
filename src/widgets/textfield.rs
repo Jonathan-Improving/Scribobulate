@@ -59,6 +59,9 @@ use gtk::prelude::*;
 /// everywhere except the one platform the call exists on. Do not loosen it back.
 fn wire_field(field: &(impl IsA<gtk::Widget> + IsA<gtk::Editable>), accessible_name: &str) {
     crate::a11y::name_field(field, accessible_name);
+    // GTK's built-in Copy/Cut on a field publishes a lazy pasteboard promise on macOS,
+    // which a clipboard reader can turn into a livelock on GTK 4.22.
+    crate::clipboard::wire_eager_copy_for_field(field);
     #[cfg(target_os = "macos")]
     crate::macwordnav::wire_field_word_navigation(field);
     // Referenced on every platform so the parameter is never "unused" off macOS.
