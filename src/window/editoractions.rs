@@ -433,7 +433,7 @@ pub(super) fn register_editor_actions(window: &ApplicationWindow, heading_btn: &
                 return;
             };
             let text = path.to_string_lossy();
-            window.clipboard().set_text(&text);
+            crate::clipboard::set_text(&window.clipboard(), &text);
         }
     ));
     window.add_action(&copy_path_action);
@@ -458,7 +458,7 @@ pub(super) fn register_editor_actions(window: &ApplicationWindow, heading_btn: &
         window,
         move |_, _| {
             let Some(st) = state(&window) else { return };
-            window.clipboard().set_text(&st.editor_text());
+            crate::clipboard::set_text(&window.clipboard(), &st.editor_text());
             // A copy changes nothing on screen, so it is acknowledged (TDD 16.15).
             st.chrome().push_timed_notice(
                 crate::winstate::statusbar::DOCUMENT_COPIED,
