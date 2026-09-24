@@ -23,7 +23,7 @@ layout, or scrolling code.
 
 Refer to it **by name only, never by a filesystem path** — it may not be installed
 on the machine this repo currently lives on, so a path would rot. If it is
-unavailable, the `sdd/ANTI-PATTERNS.md` stubs (implementation pointer + citation) plus
+unavailable, the `sdd/ANTI-PATTERNS.md` stubs (temporary implementation pointer + citation) plus
 this repo's git history (which holds the original self-contained essays) carry
 enough to proceed. The registers' citation convention (`ScrAP-N` here, `GTK4Rs/AP-N`
 in that skill, `GEP-N` in a third) is under **Task triggers** below.
@@ -32,10 +32,10 @@ in that skill, `GEP-N` in a third) is under **Task triggers** below.
 
 A lesson learned here lands in exactly one of three places, decided **when you mint it**:
 
-- **About gtk4-rs itself** → the `gtk4-rs` skill, stub here citing `GTK4Rs/AP-N`.
+- **About gtk4-rs itself** → the `gtk4-rs` skill, do not stub here citing `GTK4Rs/AP-N`.
 - **General engineering discipline** — verification and gate design, experiment method,
   claims and relay hygiene, cross-platform toolchain hazards, trust-boundary design →
-  the **`general-engineering-principles`** skill, stub here citing `GEP-N`. Route it via
+  the **`general-engineering-principles`** skill, do not stub here citing `GEP-N`. Route it via
   the `gep` member in the `skills` ToasterTalk room; **they allocate the number, never
   this seat.**
 - **Anything else** — this project's own internals, and every dependency that is not
@@ -46,6 +46,10 @@ consecutive entries. It is worth knowing *why*: the register's own routing note 
 destination was "under consideration but undecided" long after 59 entries were citing
 `GEP-N`, so agents who read the note and believed it filed general lessons as project
 entries. If a routing note and the practice disagree, the practice is the evidence.
+
+When submitting skill improvement submissions to the associated maintainer, ensure to include
+ a brief audit trail of the steps and inferences taken that warranted the submission. This will help
+the skill maintainer maximize skill routing and dynamic discoverability.
 
 ## Documentation
 
