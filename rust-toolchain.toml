@@ -3,7 +3,7 @@
 # Build-pipeline step 2 is `cargo clippy -- -D warnings`, and CLIPPY'S LINT SET IS A
 # FUNCTION OF THE TOOLCHAIN. Unpinned, step 2 asks a different question on every box, and
 # the answer it gives is a fact about which rustc that box happened to have rather than
-# about this tree. That is the same shape as ScrAP-279 (a version number is not a build)
+# about this tree. That is the same shape as GTK4Rs/AP-272 (a version number is not a build)
 # and as the coverage floor's host-dependence: a gate whose verdict moves with the machine
 # is not gating the commit.
 #

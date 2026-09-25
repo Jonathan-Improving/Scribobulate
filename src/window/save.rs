@@ -216,7 +216,7 @@ async fn save_window(
 ///
 /// The window is re-resolved weakly after the write: a save that takes real time is
 /// a window the user can close in the meantime, and a strong capture would keep the
-/// whole subtree alive past its teardown to show a toast in it (ScrAP-152).
+/// whole subtree alive past its teardown to show a toast in it (GTK4Rs/AP-128).
 ///
 /// `after`, when present, runs once the write attempt finishes (success or error) —
 /// used by Save All to advance to the next tab only after this one's write settles.

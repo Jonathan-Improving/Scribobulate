@@ -127,7 +127,7 @@ pub(super) fn preview_of(window: &ApplicationWindow) -> (gtk::ScrolledWindow, Co
 
 /// Put the reader at `line` the way a scroll does, so `preview_top_line`
 /// reports it — `scroll_to_buffer_offset` records its target as the view's
-/// tracked reading anchor synchronously (ScrAP-65), which is what makes this
+/// tracked reading anchor synchronously (GTK4Rs/AP-14), which is what makes this
 /// assertable without pumping to full allocation (the ScrAP-78 masking trap).
 pub(super) fn park_reader_at(view: &CodePreviewView, line: i32) {
     let offset = view

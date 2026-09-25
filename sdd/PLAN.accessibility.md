@@ -45,7 +45,7 @@ reasons are two, both **quantitative rather than categorical**:
 - **(a) Minimum-width floor, proportional to the child.** `gtk_text_view_measure` takes
   `min = MAX(min, child_min)` over every anchored child and does nothing else, so a
   child sets a floor under the view's own minimum equal to its own minimum. A table
-  contributes ~900px and re-arms the layout churn that blanks the view (ScrAP-23, and
+  contributes ~900px and re-arms the layout churn that blanks the view (GTK4Rs/AP-23, and
   the §23 viewport-column bound around it).
 - **(b) Offset shift at density.** Each anchor inserts a `U+FFFC` into the buffer, so
   converting per-item elements — list markers, task checkboxes, annotation chips, one
@@ -59,7 +59,7 @@ Both bite hard for Tier 3 content at its densities, and neither is reopenable fo
 than argued (`probes/textview-anchored-toggle.c`, GTK 4.6.9): eight anchored ~30px
 children leave the view's minimum width at **30** — `MAX`, not a sum — against **900**
 for a single table-sized child, and produce `hadjustment.upper − page_size` of **0.0**,
-so the ScrAP-23a overflow chain is not reachable through them. Such a child is also
+so the GTK4Rs/AP-139 overflow chain is not reachable through them. Such a child is also
 reachable by Tab and activates on both Space and Enter in a **non-editable** view.
 
 **Do not restate the old justification.** This rule previously read "an anchored child is
@@ -126,7 +126,7 @@ drawn affordances get.
 - **Read-back is limited.** `gtk_accessible_get_at_context` is 4.10, so a test cannot
   read an accessible property's *value* at this floor. `gtk_test_accessible_has_property`
   and `gtk_test_accessible_has_role`/`has_relation`/`has_state` *are* present in 4.6.9
-  (`nm -D`-confirmed — the ScrAP-83 discipline), which is enough to assert that
+  (`nm -D`-confirmed — the GTK4Rs/AP-114 discipline), which is enough to assert that
   something was set, and enough for role and relation assertions. Guards must be written
   against presence, not wording.
 
@@ -273,7 +273,7 @@ that seat's availability rather than on design.
 - **The method ban has a hole the walk covers.** `clippy.toml` can ban
   `WidgetExt::set_tooltip_text`, but the *builder* form (`MenuButton::builder()
   .tooltip_text(…)`) is a different path and slips through — three sites were found that
-  way, and only by the tree walk (ScrAP-230). Any future ban on an accessibility-relevant setter has
+  way, and only by the tree walk (GTK4Rs/AP-130). Any future ban on an accessibility-relevant setter has
   the same hole; pair every ban with a live assertion.
 - **A visible label is already an accessible name.** GTK derives one from the other, so
   only icon-only controls and label-less fields need explicit naming. But a *changing*

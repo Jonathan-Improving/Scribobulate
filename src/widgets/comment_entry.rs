@@ -63,7 +63,7 @@ impl CommentEntry {
         entry.connect_activate({
             let commit = commit.clone();
             // The handler's emitter argument, not a captured ref: a strong capture of the
-            // entry in a closure the entry itself owns is an uncollectable cycle (ScrAP-60).
+            // entry in a closure the entry itself owns is an uncollectable cycle (GTK4Rs/AP-63).
             move |e| commit(&e.text())
         });
         save.connect_clicked(glib::clone!(

@@ -91,7 +91,7 @@ struct Pending {
 thread_local! {
     /// Every installed scroller's pending travel, so a programmatic scroll can drop it
     /// (see [`cancel_pending`]). Weak, and pruned on every lookup: a strong reference
-    /// here would outlive the window and strand its whole subtree (ScrAP-60).
+    /// here would outlive the window and strand its whole subtree (GTK4Rs/AP-63).
     static PENDING: RefCell<Vec<(glib::WeakRef<gtk::ScrolledWindow>, Rc<Pending>)>> =
         const { RefCell::new(Vec::new()) };
 }

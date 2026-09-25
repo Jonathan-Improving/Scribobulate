@@ -25,7 +25,7 @@ use super::{action, choice_of, effective_play, enabled_of, reduced_motion_of};
 /// Dropping the [`PolicyWatch`] disconnects all three. A playing animation's lifetime
 /// is shorter than the application's or the desktop's settings object, so without
 /// this a subscriber outliving its own picture would be a leak (POLICY weak-capture
-/// rule, ScrAP-60/ScrAP-155) — every picture that calls [`watch`] holds the returned
+/// rule, GTK4Rs/AP-63/GTK4Rs/AP-63) — every picture that calls [`watch`] holds the returned
 /// guard for exactly as long as it needs the callback, and no longer.
 pub(crate) struct PolicyWatch {
     action: Option<gtk::gio::Action>,
@@ -308,7 +308,7 @@ mod gtk_tests {
 
     /// Dropping the [`PolicyWatch`] disconnects ALL THREE handlers — no further
     /// callbacks from any source. This is the leak guard itself (POLICY
-    /// weak-capture rule, ScrAP-60/ScrAP-155): a picture's watch must not keep
+    /// weak-capture rule, GTK4Rs/AP-63/GTK4Rs/AP-63): a picture's watch must not keep
     /// firing into a callback whose closure may capture that same picture, after
     /// the picture (and its `PolicyWatch`) are gone.
     #[gtktest::test]

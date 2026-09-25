@@ -64,7 +64,7 @@ pub(super) fn splice_markup(window: &ApplicationWindow, start: usize, end: usize
         sel_end: caret,
     };
     apply_edit(&st.editor_buf, &edit);
-    // Weak-capture the editor across the idle hop (ScrAP-60 convention parity; `grab_focus`
+    // Weak-capture the editor across the idle hop (GTK4Rs/AP-63 convention parity; `grab_focus`
     // is surface-independent so this is not a crash class, but a deferred idle should not
     // strong-hold a widget).
     let editor = &st.editor;

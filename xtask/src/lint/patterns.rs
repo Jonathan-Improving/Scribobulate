@@ -211,7 +211,7 @@ pub fn entry_heading_rx() -> &'static Regex {
 /// `ScrAP-N` and by the TOC-row check. The distinction is deliberate and load-bearing: a
 /// citation is always `ScrAP-<digits>`, so a lettered sub-entry defines no citable number
 /// and its TOC row (`| 23a |`) is not a row this gate can key on. Merging the two would
-/// silently make `## 23a.` answer for `ScrAP-23`.
+/// silently make a `## Na.` heading answer for `ScrAP-N`.
 pub fn entry_number_rx() -> &'static Regex {
     static RX: OnceLock<Regex> = OnceLock::new();
     rx(&RX, r"^##[[:space:]]+([0-9]+)\.")

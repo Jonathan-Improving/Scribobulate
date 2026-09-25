@@ -7,7 +7,7 @@
 #
 # Linux and Windows let Cargo choose: their step 5 runs every target, the library's own
 # `#[test]` bodies included. macOS must not, because the dual-harness library bodies abort
-# the process off the main thread on Quartz (ScrAP-171, measured on GTK 4.22.4), so this
+# the process off the main thread on Quartz (GTK4Rs/AP-159, measured on GTK 4.22.4), so this
 # port selects the integration targets BY NAME and leaves `--lib` out. That constraint is
 # real and is not what this script changes.
 #
@@ -49,7 +49,7 @@ die() {
     echo "  Step 5's target list could not be derived, so this is emitting a target name" >&2
     echo "  that does not exist rather than an empty list. An empty list would silently" >&2
     echo "  widen the run to every target, library bodies included, which aborts on" >&2
-    echo "  Quartz (ScrAP-171)." >&2
+    echo "  Quartz (GTK4Rs/AP-159)." >&2
     printf '%s' "$POISON"
     exit 0   # The poison IS the report; a non-zero exit here would be swallowed by $( ).
 }

@@ -6,7 +6,7 @@
 //! switch, a view-mode switch, a reload, and every debounced keystroke in live preview. The
 //! `GtkTreeListModel` and every `GtkTreeListRow` in it are destroyed with it, and GTK caches
 //! nothing: collapsing a row *frees* its subtree rather than remembering it was open
-//! (ScrAP-84). So expansion cannot be recovered from the widgets after the fact. It has to be
+//! (GTK4Rs/AP-111). So expansion cannot be recovered from the widgets after the fact. It has to be
 //! recorded as data while the reader is acting, and re-applied to the rows the next build
 //! produces.
 //!

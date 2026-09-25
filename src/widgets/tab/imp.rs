@@ -186,7 +186,7 @@ impl ObjectImpl for TabBar {
         // bar` cycle. Do NOT be tempted to "also break the cycle here" — in
         // GTK4 `dispose` runs at *finalize* (refcount 0), which a cycle would
         // prevent, so clearing the cells here could never rescue a strong
-        // capture (that trap is ScrAP-60). The cells drop with the imp
+        // capture (that trap is GTK4Rs/AP-63). The cells drop with the imp
         // struct at finalize; nothing to sever.
         crate::widgets::unparent_all_children(&*self.obj());
     }

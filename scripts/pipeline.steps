@@ -177,7 +177,7 @@ cmd.windows fmt  cargo fmt --check
 # The feature flag is not optional. Without it the gtk-integration-tests modules are not
 # compiled at all, so neither clippy nor cargo test sees them and they rot unnoticed —
 # they reached the point of NOT COMPILING while every gate stayed green, because a suite
-# outside the gate protects nothing (ScrAP-124).
+# outside the gate protects nothing (GTK4Rs/AP-98).
 # ---------------------------------------------------------------------------
 step   2  clippy
 intent clippy  The tree lints clean with zero warnings, with the GTK integration suite and the memory-gates class compiled in
@@ -239,7 +239,7 @@ cmd.windows skipreport  cargo test -- --nocapture
 # The per-platform difference here is genuine and the contract expresses it rather than
 # papering over it. Linux has no display in a headless run and supplies one with xvfb-run.
 # macOS cannot use the `--lib` target at all: its dual-harness bodies abort the process
-# off the main thread (ScrAP-171; measured 2026-07-30, GTK 4.22.4/Quartz — SIGABRT after
+# off the main thread (GTK4Rs/AP-159; measured 2026-07-30, GTK 4.22.4/Quartz — SIGABRT after
 # ~95 non-GTK tests), so it runs the main-thread suite plus the standalone targets.
 # Windows runs against the real windowing system.
 #
@@ -271,7 +271,7 @@ cmd.windows skipreport  cargo test -- --nocapture
 # with the flag off and die with it on. macOS CANNOT carry it — an upstream GDK assertion
 # fires on every popover open, with no application-side fix because the freeze/thaw calls
 # are private and unbound, and masking that domain would also silence a latent defect in the
-# same file at the version macOS ships (ScrAP-318).
+# same file at the version macOS ships (GTK4Rs/AP-305).
 #
 # LINUX DELEGATES TO `scripts/run-integration.sh`, for the same reason step 6 delegates to
 # `scripts/coverage.sh`: the step owns several things a command line cannot carry, and the
@@ -293,7 +293,7 @@ cmd.windows skipreport  cargo test -- --nocapture
 #
 # MACOS SELECTS ITS TARGETS BY NAME, AND DERIVES THE NAMES RATHER THAN LISTING THEM.
 # Linux and Windows let Cargo pick every target; macOS must not, because the library's
-# dual-harness bodies abort off the main thread on Quartz (ScrAP-171), so `--lib` is left
+# dual-harness bodies abort off the main thread on Quartz (GTK4Rs/AP-159), so `--lib` is left
 # out and the integration targets are named. The names used to be WRITTEN OUT on the
 # `cmd.macos` line below, which made this the one port whose target set could fall behind
 # Cargo.toml — and it did once, caught by a person rather than by anything here. The
@@ -307,7 +307,7 @@ cmd.windows skipreport  cargo test -- --nocapture
 # kills the process via `G_BREAKPOINT()`, which is `SIGTRAP` (exit 133) on Linux and
 # `0xC0000409 STATUS_STACK_BUFFER_OVERRUN` — Windows' fast-fail — under MSVC, where the
 # harness reports only "test exited abnormally". Anyone matching on `SIGTRAP` will misread a
-# Windows failure as something else entirely (ScrAP-268 records the Linux half).
+# Windows failure as something else entirely (GTK4Rs/AP-268 records the Linux half).
 # ---------------------------------------------------------------------------
 step   5  integration
 intent integration  The GTK integration suite passes against a real display, through Cargo so the [env] pins apply
@@ -317,7 +317,7 @@ surface integration  SKIPPED [
 cmd.linux   integration  scripts/run-integration.sh
 cmd.macos   integration  cargo test --features gtk-integration-tests $(scripts/macos-integration-targets.sh)
 cmd.windows integration  G_DEBUG=fatal-criticals cargo test --features gtk-integration-tests -- --test-threads=1
-disarm.macos integration  permanent  G_DEBUG=fatal-criticals is absent from the macOS command above, and this line is why: GDK's Quartz backend freezes a surface once per CONSTRUCTION and thaws once per MAP, and gdk_macos_surface_hide never freezes, so the second map thaws at zero and the suite emits gdk_surface_thaw_updates assertions on every popover open or dismiss. Present 4.22.4 through main; the freeze/thaw pair is private and absent from the gdk4 bindings, so no application-side fix exists. Do NOT arm it by masking Gdk-CRITICAL: that would also silence ScrAP-318, a leaked update-freeze that stops a surface repainting, which is the only signal anybody would get if it happened. See also ScrAP-268 before reaching for a g_log_set_writer_func allowlist.
+disarm.macos integration  permanent  G_DEBUG=fatal-criticals is absent from the macOS command above, and this line is why: GDK's Quartz backend freezes a surface once per CONSTRUCTION and thaws once per MAP, and gdk_macos_surface_hide never freezes, so the second map thaws at zero and the suite emits gdk_surface_thaw_updates assertions on every popover open or dismiss. Present 4.22.4 through main; the freeze/thaw pair is private and absent from the gdk4 bindings, so no application-side fix exists. Do NOT arm it by masking Gdk-CRITICAL: that would also silence GTK4Rs/AP-305, a leaked update-freeze that stops a surface repainting, which is the only signal anybody would get if it happened. See also GTK4Rs/AP-268 before reaching for a g_log_set_writer_func allowlist.
 
 # ---------------------------------------------------------------------------
 # Step 5b — per-render memory-growth class

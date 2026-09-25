@@ -71,7 +71,7 @@ mod imp {
     #[derive(Default)]
     pub(crate) struct AnimatedPaintable {
         /// The `GtkPicture` this paintable is set on. Held WEAKLY (POLICY
-        /// weak-capture rule, ScrAP-60/ScrAP-155): an animation must not keep
+        /// weak-capture rule, GTK4Rs/AP-63/GTK4Rs/AP-63): an animation must not keep
         /// its own picture alive, and the tick callback is installed/removed
         /// on this widget, never on the paintable itself (`GdkPaintable` has
         /// no frame clock of its own).

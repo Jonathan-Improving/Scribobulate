@@ -259,7 +259,7 @@ fn a_plain_still_texture_never_shows_the_badge() {
     );
 }
 
-/// GTK4Rs/AP-48 / ScrAP-169: `has_icon` proves a name resolves, never that
+/// GTK4Rs/AP-48 / GTK4Rs/AP-174: `has_icon` proves a name resolves, never that
 /// it renders real symbolic art. This checks the SAME live `IconTheme` the
 /// app uses, resolves through it, and requires an actual backing file —
 /// then separately proves something bright (the glyph) was actually drawn

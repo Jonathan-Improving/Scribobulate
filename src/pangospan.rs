@@ -3,7 +3,7 @@
 //! Pango markup is the project's *third* representation of a themed inline style,
 //! beside the preview's `GtkTextTag`s and the HTML sink's CSS — and it is reached from
 //! two unrelated directions. A table cell is a `GtkLabel` outside the buffer, so no
-//! `GtkTextTag` can style it (ScrAP-36/ScrAP-110) and the preview builds markup for it;
+//! `GtkTextTag` can style it (ScrAP-36/GTK4Rs/AP-28) and the preview builds markup for it;
 //! the PDF sink lays every run out through Pango and builds markup for that. Both were
 //! building the same five spans, independently.
 //!

@@ -307,7 +307,7 @@ impl Default for ChromeSession {
 /// the parse path alone would leave the arithmetic below trusting its input.
 ///
 /// GTK clamps the result again to the two children's minimums (`shrink=false`), so
-/// this function is not where the section floor is enforced — ScrAP-336 is.
+/// this function is not where the section floor is enforced — GTK4Rs/AP-317 is.
 pub(crate) fn sidebar_divider_position(fraction: f64, height: i32) -> Option<i32> {
     if height <= 0 {
         return None;

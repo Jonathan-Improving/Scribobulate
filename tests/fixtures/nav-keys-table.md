@@ -2,7 +2,7 @@
 
 A table sits between two long runs of filler, so a reader who clicks into a
 cell is nowhere near either end of the document. Ctrl+Home and Ctrl+End must
-still reach those ends from there (TDD 9.33, ScrAP-264).
+still reach those ends from there (TDD 9.33, GTK4Rs/AP-264).
 
 Filler paragraph 0 — lorem ipsum dolor sit amet, consectetur adipiscing elit.
 

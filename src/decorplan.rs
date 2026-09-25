@@ -110,7 +110,7 @@ pub(crate) const PAINT_ORDER: &[PaintStep] = &[
 /// The straddle clamp every per-row decoration applies after refining its y: an
 /// annotation chip on a table row, or a list marker whose height was clamped to its
 /// first display line, can leave the viewport while the offset it was found by is
-/// still inside it. Reading an off-screen line's geometry is the ScrAP-22 hazard the
+/// still inside it. Reading an off-screen line's geometry is the GTK4Rs/AP-22 hazard the
 /// whole paint is arranged to avoid, so the gate is not an optimisation.
 pub(crate) fn row_on_screen(y: f32, h: f32, vtop: f32, vbot: f32) -> bool {
     y + h >= vtop && y <= vbot
@@ -200,7 +200,7 @@ pub(crate) enum PendingOpenGate {
 ///   whatever partial position revealed it (measured on GDK-Win32: left at 103 against
 ///   a reachable 263). Requiring the scroll to have landed first is what closes that,
 ///   and it is a test about the state already in front of us rather than a flag some
-///   future tick must set — ScrAP-202, where gating on the converge loop's own
+///   future tick must set — GTK4Rs/AP-202, where gating on the converge loop's own
 ///   completion silenced the very paint the dispatch rides on.
 ///
 /// `landed` is a closure rather than a `bool` so the precedence stays a property of

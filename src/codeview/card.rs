@@ -41,7 +41,7 @@
 //!    GTK4Rs/AP-124/GTK4Rs/AP-23a → GTK4Rs/AP-22 churn-blank chain. There is no opt-out. And it would behave
 //!    *differently* on our macOS build (4.22.4, where the scroll bug is fixed) than on our
 //!    4.6.9 floor — the exact cross-platform divergence this rebuild exists to end.
-//!    Full write-up: ScrAP-189.
+//!    Full write-up: GTK4Rs/AP-189.
 //!  * A **popover parented with `set_parent` is in neither list** (`center_child` nor
 //!    `anchored_children`), so it contributes nothing to the view's size request. The route
 //!    we are on is structurally immune to the constraint that disqualified the other one.
@@ -67,7 +67,7 @@
 //!
 //! Point 2 is not redundant. `set_visible(true)` on an **already-visible** widget is a
 //! no-op — it does not run the `show` vfunc — and "already visible" is precisely the state
-//! ScrAP-190 describes: activating a different annotation while the card is up re-points the
+//! GTK4Rs/AP-190 describes: activating a different annotation while the card is up re-points the
 //! existing card rather than building a new one (which is correct, and is why the popover
 //! is reused). So a version that relies on the vfunc alone passes every open-from-closed
 //! test and silently fails the one case the issue is about. That is not hypothetical; it is
@@ -127,7 +127,7 @@ mod imp {
 
         /// The vadjustment we track for scroll re-anchoring, and our handler on it. Re-resolved at each
         /// presentation rather than wired once, so a replaced adjustment cannot leave us
-        /// "connected" to an orphan (ScrAP-52); disconnected at teardown so a per-render
+        /// "connected" to an orphan (GTK4Rs/AP-55); disconnected at teardown so a per-render
         /// card never accumulates handlers on a longer-lived adjustment.
         pub(super) vadj: RefCell<Option<(gtk::Adjustment, glib::SignalHandlerId)>>,
 
@@ -185,7 +185,7 @@ impl AnnotationCard {
     ///
     /// `set_parent` (not a container `append`): a popover is a native child, which also
     /// means GTK will NOT unparent it for us — [`teardown`](Self::teardown) must, from the
-    /// view's `dispose` (GTK4Rs/AP-80/GTK4Rs/AP-80), popping it down first (ScrAP-144).
+    /// view's `dispose` (GTK4Rs/AP-80/GTK4Rs/AP-80), popping it down first (GTK4Rs/AP-123).
     pub(crate) fn new(view: &CodePreviewView) -> Self {
         let card: Self = glib::Object::builder().build();
         // Non-autohide, like every other popover in this app and like BOTH of
@@ -420,7 +420,7 @@ impl AnnotationCard {
 
     /// Track the view's vadjustment, re-resolving it each time rather than wiring once: a
     /// replaced adjustment would otherwise leave us "connected" to an orphan while
-    /// appearing wired (ScrAP-52).
+    /// appearing wired (GTK4Rs/AP-55).
     fn arm_scroll_tracking(&self) {
         let Some(view) = self.view() else { return };
         let Some(vadj) = view.vadjustment() else {
@@ -433,7 +433,7 @@ impl AnnotationCard {
         }
         self.disarm_scroll_tracking();
         // WEAK: the adjustment outlives the card, and a strong capture here would make
-        // the card uncollectable for as long as the scroller lives (ScrAP-60/ScrAP-155).
+        // the card uncollectable for as long as the scroller lives (GTK4Rs/AP-63/GTK4Rs/AP-63).
         let id = vadj.connect_value_changed(glib::clone!(
             #[weak(rename_to = card)]
             self,
@@ -559,7 +559,7 @@ impl AnnotationCard {
     ///    scroller's adjustment and the toplevel. Nothing else will; a card per render
     ///    that left them behind would accumulate one of each on a longer-lived object.
     ///  * **Not ours** — the parenting teardown, which must be **popdown before unparent**
-    ///    (ScrAP-144), with the unparent mandatory because GTK does not unparent a
+    ///    (GTK4Rs/AP-123), with the unparent mandatory because GTK does not unparent a
     ///    `set_parent`-attached popover for us (GTK4Rs/AP-80/GTK4Rs/AP-80). That order already has a
     ///    seal — [`PersistentPopover`](crate::saferizer::PersistentPopover) exists so it
     ///    cannot be written wrongly — so it is **delegated**, not re-implemented here. Two
@@ -583,7 +583,7 @@ impl AnnotationCard {
 /// A `GtkShortcutController` re-offering every application accelerator locally, so the
 /// app's keyboard stays alive while this card holds the focus.
 ///
-/// **Why a focused popover needs its own copy at all** (ScrAP-266). This card is `set_parent`ed and
+/// **Why a focused popover needs its own copy at all** (GTK4Rs/AP-266). This card is `set_parent`ed and
 /// therefore its own `GtkNative` — a widget-tree descendant of the view, but a separate
 /// GDK surface. A key pressed while it has focus is delivered to *that* surface and never
 /// reaches the window surface's handling, where `gtk_application_set_accels_for_action`'s
@@ -594,7 +594,7 @@ impl AnnotationCard {
 /// a reader walking annotations keeps it open.
 ///
 /// **BUBBLE phase, deliberately.** The application's own accelerators are effectively
-/// global-scope and beat a focused `GtkText`'s bindings (ScrAP-137) — which is a hazard
+/// global-scope and beat a focused `GtkText`'s bindings (GTK4Rs/AP-121) — which is a hazard
 /// this controller must not re-import from the other side, because the card hosts a real
 /// text entry while its comment is being edited. A bubble-phase controller is offered the
 /// key only after the focused widget has declined it, so `Ctrl+A` in the comment entry
@@ -965,7 +965,7 @@ mod gtk_integration_tests {
         win.destroy();
     }
 
-    /// **A presentation cannot use the rectangle it happens to be holding (ScrAP-190).**
+    /// **A presentation cannot use the rectangle it happens to be holding (GTK4Rs/AP-190).**
     ///
     /// The defect was that a rect read from the painted hit-boxes was carried across a
     /// navigation's converge-scroll and then handed to `set_pointing_to`, so the card
@@ -983,7 +983,7 @@ mod gtk_integration_tests {
     /// does — a flaky measurement of the wrong thing. Injecting states the property
     /// directly: *whatever* the card is holding, presenting replaces it with the truth.
     ///
-    /// The card stays VISIBLE throughout, also on purpose: that is the case ScrAP-190 is
+    /// The card stays VISIBLE throughout, also on purpose: that is the case GTK4Rs/AP-190 is
     /// actually about (activating another annotation re-points a card that is already up),
     /// and it is the case a `set_visible(true)`-based fix silently misses, because showing
     /// an already-visible widget does not run the `show` vfunc at all. Mutation guards:
@@ -1259,7 +1259,7 @@ mod gtk_integration_tests {
     /// Asserted against `accelerator_bindings()` rather than a hand-listed set, because a
     /// hand-listed one is a second copy of the accel SSOT and would pass while the real
     /// answer drifted. The phase assertion is the other half: BUBBLE is what keeps a
-    /// focused comment entry's own `Ctrl+A` its own (ScrAP-137 from the other side), and
+    /// focused comment entry's own `Ctrl+A` its own (GTK4Rs/AP-121 from the other side), and
     /// nothing about the visible result would reveal it had been changed.
     #[gtktest::test]
     fn the_card_re_offers_every_application_accelerator_locally() {
@@ -1310,7 +1310,7 @@ mod gtk_integration_tests {
             gtk::PropagationPhase::Bubble,
             "BUBBLE, so a focused comment entry keeps the keys it binds itself — a \
              capture-phase copy would re-import the window-accel-beats-GtkText hole \
-             (ScrAP-137) inside the card"
+             (GTK4Rs/AP-121) inside the card"
         );
         for (action, accel) in bindings {
             // A detailed name (`win.format::bold`) is bound as a whole by GtkNamedAction.

@@ -311,7 +311,7 @@ pub(crate) fn theme_css(theme: &Theme, palette: &Palette) -> String {
             to_hex_opaque(palette.selection_bg),
             to_hex_opaque(palette.selection_fg)
         ));
-        // Table cells are separate `GtkLabel`s outside the buffer (ScrAP-36/ScrAP-110), so
+        // Table cells are separate `GtkLabel`s outside the buffer (ScrAP-36/GTK4Rs/AP-28), so
         // the `> text selection` rule above cannot reach them — each cell label draws
         // its own `selection` node, which otherwise falls back to the base GTK theme
         // (the desktop's blue on a sepia page). Style it from the SAME `selection_bg`
@@ -333,7 +333,7 @@ pub(crate) fn theme_css(theme: &Theme, palette: &Palette) -> String {
     // ── table cells ───────────────────────────────────────────────────────────
     //
     // Cells are `GtkLabel`s outside the buffer, so no GtkTextTag can reach them
-    // (ScrAP-36/ScrAP-110) — CSS is their only path. These rules are ALWAYS generated (they
+    // (ScrAP-36/GTK4Rs/AP-28) — CSS is their only path. These rules are ALWAYS generated (they
     // moved out of the static sheet entirely, so only one provider writes them). The
     // colours are the alpha()/mix() the static rules used to ask GTK for, computed
     // here instead: `alpha(fg, 0.25)` over the page is EXACTLY `mix(bg, fg, 0.25)`,
@@ -344,7 +344,7 @@ pub(crate) fn theme_css(theme: &Theme, palette: &Palette) -> String {
     // NOT put through `theme::px(n, zoom)`, unlike every metric applied via a widget
     // or Pango property. This sheet is the theme's provider, which is APP-WIDE, while
     // zoom's is per-window; the two are collision-free only because their property
-    // sets are disjoint (ScrAP-127 — a cross-provider conflict is arbitrated by
+    // sets are disjoint (GTK4Rs/AP-101 — a cross-provider conflict is arbitrated by
     // add-order, not specificity). A zoom factor here would make one app-wide sheet
     // carry a per-window value. Documented as the standing exception in
     // THEMING.md § Pixel metrics and zoom, so the rule and the code agree.
@@ -353,7 +353,7 @@ pub(crate) fn theme_css(theme: &Theme, palette: &Palette) -> String {
     // styles that node in the backdrop state: Breeze ships
     // `label:backdrop { color: @theme_unfocused_text_color }`. An INHERITED value loses
     // to any declaration that MATCHES the node, whatever provider it came from — the
-    // priority ladder (GTK4Rs/AP-101, ScrAP-127) arbitrates between rules that match, and
+    // priority ladder (GTK4Rs/AP-101, GTK4Rs/AP-101) arbitrates between rules that match, and
     // never rescues one that does not — so on a themed page every cell flipped to the
     // desktop's grey the moment the window went to the back, while the paragraph above it
     // (styled on the `textview` node this app's provider DOES match) kept the theme's ink.

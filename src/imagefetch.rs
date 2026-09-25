@@ -11,7 +11,7 @@
 //! on Linux answers `Operation not supported` on macOS, for every remote image,
 //! with no log line (measured with GLib's own `gio info https://…`, i.e. with
 //! this application out of the picture). It is not fixable by installing
-//! anything (ScrAP-292).
+//! anything (GTK4Rs/AP-292).
 //!
 //! The scheme's availability is therefore a property of the *host's desktop
 //! stack*, not of the toolkit the project depends on — the same class of hidden
@@ -19,12 +19,12 @@
 //! activation, and answered the same way: supply the transport ourselves and
 //! hand off to the machinery every platform already shares. An explicit HTTP GET
 //! into a byte buffer plus `GdkTexture::from_bytes` reaches the identical
-//! `GdkPixbuf` loader chain the file path would have (GTK4Rs/AP-66, ScrAP-146),
+//! `GdkPixbuf` loader chain the file path would have (GTK4Rs/AP-66, GTK4Rs/AP-66),
 //! so *what decodes* is unchanged; only *who fetched the bytes* is.
 //!
 //! ## What this module does not change
 //!
-//! The fetch still runs synchronously on the GTK main thread, which is ScrAP-34's 34a half
+//! The fetch still runs synchronously on the GTK main thread, which is GTK4Rs/AP-44's 34a half
 //! and remains accepted for this opt-in path — but it is now **bounded**, where
 //! GVfs offered no timeout at all: [`CONNECT_TIMEOUT`] and [`GLOBAL_TIMEOUT`]
 //! cap the freeze, and [`limits::MAX_REMOTE_IMAGE_BYTES`] caps the allocation.
@@ -42,7 +42,7 @@ use std::time::Duration;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// How long the whole request may take, connection included. This is the number
-/// that bounds the main-thread freeze (ScrAP-34, its 34a half), so it is deliberately short
+/// that bounds the main-thread freeze (GTK4Rs/AP-44, its 34a half), so it is deliberately short
 /// enough to be survivable rather than generous enough for a large download over
 /// a bad link — an image that cannot arrive in this long renders as the ordinary
 /// "Could not load image" placeholder, which is a better outcome than a window
@@ -195,7 +195,7 @@ mod imagefetch_tests {
     ///
     /// A real server rather than a mock because the thing worth testing is that
     /// *this application's own HTTP client* reaches an image, which is the whole
-    /// point of ScrAP-292 — a mock would re-test the mock. Loopback keeps it
+    /// point of GTK4Rs/AP-292 — a mock would re-test the mock. Loopback keeps it
     /// deterministic and offline: the suite must never depend on a host being up.
     fn serve_once(status_line: &str, body: Vec<u8>) -> String {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");

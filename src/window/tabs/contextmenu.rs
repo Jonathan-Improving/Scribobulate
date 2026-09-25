@@ -123,10 +123,10 @@ fn show_tab_context_menu(
     popover.set_pointing_to(Some(&gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
 
     // `marked` is a `_`-marked label; `access_markup` renders it with the access
-    // char underlined (a plain popover never gets mnemonics-visible — ScrAP-70). "Close Tab" reuses the File-menu mark so its `C` matches; the other two
+    // char underlined (a plain popover never gets mnemonics-visible — GTK4Rs/T-1). "Close Tab" reuses the File-menu mark so its `C` matches; the other two
     // are context-only but keep the menu-bar letters (Close Other = O, Move = M).
     // Bare-letter access keys (single flat page, so an always-true gate) — the same
-    // Capture/Local ShortcutController recipe as the pane context menu (ScrAP-70).
+    // Capture/Local ShortcutController recipe as the pane context menu (GTK4Rs/T-1).
     let key_controller = gtk::ShortcutController::new();
     key_controller.set_propagation_phase(gtk::PropagationPhase::Capture);
     key_controller.set_scope(gtk::ShortcutScope::Local);

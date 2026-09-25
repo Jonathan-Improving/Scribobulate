@@ -317,7 +317,7 @@ pub(super) fn splice_toggle(rig: &Rig, folds: &FoldState, key: FoldKey, md: &str
     .expect("the toggled block was drawn in the starting render");
 
     // Prove the parenting really happened before anything downstream grades a number
-    // against it (ScrAP-252's family: a SETUP step that silently fails to take effect
+    // against it (GTK4Rs/AP-252's family: a SETUP step that silently fails to take effect
     // makes the next assertion answer for the previous state).
     //
     // **Vacuous when the region drew no child at all**, and deliberately left that way:

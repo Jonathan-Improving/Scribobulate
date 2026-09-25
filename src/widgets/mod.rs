@@ -93,7 +93,7 @@ pub(crate) mod wrapbox;
 ///
 /// Grid alignment to each decoration's own top is deliberately NOT offered: it needs
 /// `decoration_top % tile_h`, and for a viewport-clamped span that remainder is exactly
-/// the off-screen unvalidated-iter read ScrAP-22 bans. A grid line is a coordinate, not
+/// the off-screen unvalidated-iter read GTK4Rs/AP-22 bans. A grid line is a coordinate, not
 /// an iter, so this anchor needs no such read.
 ///
 /// **Why the anchor is the nearest grid line and not the literal `0`.** The phase half of
@@ -246,7 +246,7 @@ pub(crate) fn draw_scene_into(
 /// Paint-path extents
 /// in this project are viewport-clamped (GTK4Rs/AP-22 — never measure an off-screen,
 /// unvalidated iter), so a rect whose bottom was clamped would anchor this to the
-/// viewport and slide it as the reader scrolls, which is ScrAP-333's shape. See
+/// viewport and slide it as the reader scrolls, which is GTK4Rs/AP-315's shape. See
 /// `codeview::quotes::draw_panel_scene`.
 ///
 /// `frames` supplies the pixels — an animated scene's current frame (TDD 27.9).

@@ -29,7 +29,7 @@
 //!
 //! ⚠ `gtk_text_view_value_changed` **destroys `first_validate_idle`** (:8437-8443),
 //! which is the only thing that ever consumes a `GtkTextView`'s pending scroll
-//! (ScrAP-260). Every one of those compensating passes calls `set_value`, so every one
+//! (GTK4Rs/AP-260). Every one of those compensating passes calls `set_value`, so every one
 //! of them orphans a scroll queued while the settle is running: **a restore issued
 //! during the settle is silently eaten.** It must land strictly after the last write.
 //!
@@ -230,7 +230,7 @@ fn arm_settle<F>(
 ///   against a `line_yrange` that has not been computed yet;
 /// * dropping the quiet window fires while GTK is still compensating, and the restore
 ///   is then simply overwritten (or, if it went through `scroll_to_mark`, destroyed
-///   outright — ScrAP-260).
+///   outright — GTK4Rs/AP-260).
 fn settle_should_fire(layout_valid: bool, quiet_ticks: u32, ticks: u32) -> bool {
     (layout_valid && quiet_ticks >= SETTLE_QUIET_TICKS) || ticks >= SETTLE_MAX_TICKS
 }
@@ -401,7 +401,7 @@ mod gtk_integration_tests {
             move |v| {
                 at_fire.set(writes.get());
                 let adj = v.vadjustment().expect("still has a vadjustment");
-                // Through the seam, like every production write (ScrAP-260) — the
+                // Through the seam, like every production write (GTK4Rs/AP-260) — the
                 // point of the write here is that it lands on the adjustment at all.
                 crate::saferizer::scrollpos::jump(&adj, adj.value() + 1.0);
                 arm_settle(
@@ -556,7 +556,7 @@ mod gtk_integration_tests {
     /// Recorded rather than left to be rediscovered, because a guard that cannot fail on
     /// the canonical platform is indistinguishable from one that is working, and the next
     /// person to "simplify" this will run it on Linux and see green either way. This is
-    /// ScrAP-157's shape pointed the other way — there a Linux-era guard was inert on
+    /// GTK4Rs/AP-143's shape pointed the other way — there a Linux-era guard was inert on
     /// macOS; here a macOS-found guard is inert on Linux.
     #[gtktest::test]
     fn the_fixture_has_a_scrollable_range_that_survives_layout() {

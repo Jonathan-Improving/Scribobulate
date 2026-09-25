@@ -1,4 +1,4 @@
-//! `PersistentPopover` — own a `GtkPopover`'s parenting lifecycle so the ScrAP-144
+//! `PersistentPopover` — own a `GtkPopover`'s parenting lifecycle so the GTK4Rs/AP-123
 //! order bug (unparent-while-open) is unrepresentable through the handle.
 
 use gtk::prelude::*;
@@ -6,7 +6,7 @@ use gtk::prelude::*;
 /// A `GtkPopover` whose *parenting* is yours to manage (GTK4Rs/AP-80): GTK does not
 /// auto-unparent a `set_parent`-attached popover, so its owner must — and teardown
 /// of a *possibly-open* popover must run the close path first, i.e. `popdown()`
-/// **before** `unparent()` (ScrAP-144). `unparent()` unrealizes the popover's surface;
+/// **before** `unparent()` (GTK4Rs/AP-123). `unparent()` unrealizes the popover's surface;
 /// doing that while the popover still holds its (autohide) seat grab strands the
 /// grab, leaving the app dead to clicks and keys while hover still works (GTK4Rs/AP-83,
 /// real-compositor-only). Reuse the instance — never destroy per use (GTK4Rs/AP-117).
@@ -37,7 +37,7 @@ impl PersistentPopover {
 
     /// The wrapped popover, for content / pointing-to / signal wiring. Use the
     /// handle's lifecycle methods rather than raw `set_parent`/`unparent` on this —
-    /// those carry the ScrAP-144 order.
+    /// those carry the GTK4Rs/AP-123 order.
     pub(crate) fn popover(&self) -> &gtk::Popover {
         &self.popover
     }
@@ -58,7 +58,7 @@ impl PersistentPopover {
     /// `is_visible()` trailed the close; measured against 4.6.9 that is false —
     /// `gtk_popover_popdown()` is `gtk_widget_hide()` plus a cascade that early-returns
     /// for a non-autohide popover, there is no transition, and the flag flips
-    /// synchronously (ScrAP-192).
+    /// synchronously (GTK4Rs/AP-192).
     ///
     /// A caller may still want its own flag, for a reason that survives the correction:
     /// *visible* and *open* are different questions once a popover hides itself while its
@@ -74,7 +74,7 @@ impl PersistentPopover {
     }
 
     /// Tear the popover down for its owner's `dispose`/teardown: **`popdown()` then
-    /// `unparent()`** (ScrAP-144 order), the unparent guarded on an actual parent
+    /// `unparent()`** (GTK4Rs/AP-123 order), the unparent guarded on an actual parent
     /// (GTK4Rs/AP-80 — a `set_parent`'d popover left parented at teardown floods
     /// "not a child of" warnings). Idempotent: `popdown` no-ops when closed, the
     /// unparent is skipped when already unparented.
@@ -86,7 +86,7 @@ impl PersistentPopover {
     }
 
     /// Re-target the popover onto `new_parent`: **popdown → unparent → set_parent**,
-    /// so a mapped popover is never structurally moved (ScrAP-144). Idempotent — a
+    /// so a mapped popover is never structurally moved (GTK4Rs/AP-123). Idempotent — a
     /// no-op when already parented to `new_parent`, so it never needlessly pops down
     /// a popover already on the right parent.
     pub(crate) fn reparent(&self, new_parent: &impl IsA<gtk::Widget>) {
@@ -164,7 +164,7 @@ mod gtk_integration_tests {
         assert!(
             closed.get(),
             "teardown must popdown (close path) before unparenting — `closed` fires \
-             on a real popdown, never on unparent-while-open (ScrAP-144)"
+             on a real popdown, never on unparent-while-open (GTK4Rs/AP-123)"
         );
         assert!(
             handle.parent().is_none(),

@@ -98,7 +98,7 @@ pub(crate) enum Icon {
 
     // ── command-descriptor-table icons (crate::app::commands) ─────────────────
     // Toolbar/menu buttons built from FILE_CMDS / EDIT_CMDS / VIEW_CMDS /
-    // FORMAT_CMDS. All SYMBOLIC on purpose (ScrAP-169: a symbolic icon recolours to
+    // FORMAT_CMDS. All SYMBOLIC on purpose (GTK4Rs/AP-174: a symbolic icon recolours to
     // the theme foreground, so it stays visible on a dark variant). The nine
     // former full-colour names — document-new/open/save/save-as, edit-copy/cut/
     // delete/select-all, application-exit — were swapped to their `-symbolic`
@@ -168,7 +168,7 @@ pub(crate) enum Icon {
     /// STATE glyph, never `media-playback-start-symbolic` — that is the
     /// click-to-play idiom, and this paint-only badge offers no interaction
     /// to promise. Both names ship in GTK's own icon set; verified by
-    /// render, not `has_icon` (GTK4Rs/AP-48; ScrAP-169 is this project's own
+    /// render, not `has_icon` (GTK4Rs/AP-48; GTK4Rs/AP-174 is this project's own
     /// instance of the same lesson). Painted directly by
     /// `animation::paintable::badge`, never through `format_button`'s
     /// glyph-fallback path, so this is `MustResolve` below.

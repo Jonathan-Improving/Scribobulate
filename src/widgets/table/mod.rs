@@ -426,7 +426,7 @@ mod gtk_integration_tests {
     /// `label:backdrop { color: @theme_unfocused_text_color }`), and an INHERITED value
     /// — which is all the page's `textview` rule gave a cell — loses to any declaration
     /// that MATCHES the node, from any provider. Provider priority arbitrates rules that
-    /// match; it cannot rescue one that does not (GTK4Rs/AP-101, ScrAP-127).
+    /// match; it cannot rescue one that does not (GTK4Rs/AP-101, GTK4Rs/AP-101).
     ///
     /// So the hostile rule here sits *below* this test's own sheet and still wins until
     /// the cell's ink is stated. The control cell is the discriminator: it proves the

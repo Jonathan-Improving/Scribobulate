@@ -70,7 +70,7 @@ pub(crate) use segments::{is_inline_tag, is_inline_tag_end, segments_of, BlockSc
 /// Opening Pango span for a CriticMarkup claim highlight inside a table-cell label.
 ///
 /// GENERATED from the active theme's `annotation_hl`, not a literal: a table cell is a
-/// `GtkLabel` outside the buffer, so no `GtkTextTag` can reach it (ScrAP-36/ScrAP-110) and the
+/// `GtkLabel` outside the buffer, so no `GtkTextTag` can reach it (ScrAP-36/GTK4Rs/AP-28) and the
 /// highlight needs a SECOND application path in a different representation. That copy
 /// used to be an independent literal, free to drift from its body twin — and a warm
 /// reading page makes the old fixed amber a near-invisible wash, so the two had to
@@ -317,7 +317,7 @@ pub(crate) struct TableState {
 /// left gutter. Approach-independent data seam: the render walk populates it, and
 /// `codeview::gutter::draw_list_marker` and the checkbox hit-boxes beside it consume
 /// it. No marker is inserted into the buffer at all — moving it out is what makes
-/// selection and copy skip it (ScrAP-118).
+/// selection and copy skip it (GTK4Rs/AP-95).
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum ListMarkerKind {
     /// Unordered bullet.
@@ -571,7 +571,7 @@ pub(crate) struct Renderer {
     /// toggle needs: clearing and refilling the whole buffer discards every line's
     /// height validation, which collapses the vadjustment and throws the reader to the
     /// top for the ~17 idle passes it takes to measure the document again (MEASURED,
-    /// ScrAP-339), while an edit confined to one region leaves every
+    /// GTK4Rs/AP-321), while an edit confined to one region leaves every
     /// untouched line validated and the reader where they were.
     ///
     /// The mark is **right-gravity**, so text inserted at it lands BEFORE it and the
@@ -928,7 +928,7 @@ impl Renderer {
     /// the two timings are identical to the pixel, with the eager arm's children
     /// asserted to have been parented. (The experiment that established it has since
     /// been deleted along with the rest of the GTK-characterization arms — `git log --
-    /// src/preview/splice/excursion/`; the conclusion is ScrAP-339.) The seam is kept
+    /// src/preview/splice/excursion/`; the conclusion is GTK4Rs/AP-321.) The seam is kept
     /// because a live region render is the production path and parenting as it goes is
     /// the simpler shape there — not as a fix, and not as a thing to re-derive.
     pub(super) fn push_anchored(&mut self, anchor: TextChildAnchor, widget: gtk::Widget) {

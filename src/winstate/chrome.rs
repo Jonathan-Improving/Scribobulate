@@ -144,7 +144,7 @@ pub(crate) struct WindowChrome {
     ///
     /// Held as a [`PersistentPopover`](crate::saferizer::PersistentPopover): its
     /// tab-switch reparent and window-destroy teardown go through that handle's
-    /// `reparent`/`teardown`, which always `popdown()` before `unparent()` (ScrAP-144),
+    /// `reparent`/`teardown`, which always `popdown()` before `unparent()` (GTK4Rs/AP-123),
     /// so the mapped-popover-move / unparent-while-open order-bug is unrepresentable
     /// at those call sites.
     pub(crate) format_overlay: crate::saferizer::PersistentPopover,

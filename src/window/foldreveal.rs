@@ -15,7 +15,7 @@ use crate::fold::FoldKey;
 /// has gone by the time the idle fires.
 ///
 /// **The capture is WEAK, and that is the whole point of the helper.** POLICY's
-/// "widget-owned closures capture weakly" rule (ScrAP-60) is easy to satisfy at the site
+/// "widget-owned closures capture weakly" rule (GTK4Rs/AP-63) is easy to satisfy at the site
 /// you are looking at and easy to miss at the next one: these deferrals are armed from
 /// inside a widget's own signal handler, so a strong `ApplicationWindow` in the closure
 /// keeps the whole window tree alive for as long as the idle is pending. Two call sites

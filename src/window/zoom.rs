@@ -131,7 +131,7 @@ fn rerender_and_restore_scroll(
     // zoom), so an exact line anchor lands the same line back at the top, with
     // none of the upward drift a pixel fraction suffers here (a fraction mixes
     // tall heading lines and short blank lines, so `fraction × line_count` ≠ the
-    // captured line). ScrAP-65.
+    // captured line). GTK4Rs/AP-14.
     //
     // **That premise is a real precondition, not a description.** A re-render that
     // adds or removes lines — a disclosure opening or closing — makes the captured
@@ -145,7 +145,7 @@ fn rerender_and_restore_scroll(
     // the restore idle (`gtk_text_view_get_line_yrange` validates nothing on any
     // GTK 4.6.9 path — the former pre-read primer was vestigial and is gone;
     // ANTI-PATTERNS deferred-work meta-pattern, myth-bust #1)
-    // (ScrAP-14/GTK4Rs/AP-15/ScrAP-65).
+    // (ScrAP-14/GTK4Rs/AP-15/GTK4Rs/AP-14).
     restore_preview_scroll_to_line(preview_sw, top_line);
 }
 
@@ -194,7 +194,7 @@ pub(crate) enum RenderShape {
     /// The rendered CONTENT is identical; only its scale or styling changed — a
     /// zoom step, a theme switch, an image that resolved differently. A buffer line
     /// names the same place before and after, so the exact line anchor is the most
-    /// precise restore available and has no map to round through (ScrAP-65).
+    /// precise restore available and has no map to round through (GTK4Rs/AP-14).
     SameContent,
     /// The rendered content itself changed — a disclosure opened or closed, so
     /// lines appeared or vanished. A line number now names a different place, so the

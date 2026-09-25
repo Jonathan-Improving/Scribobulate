@@ -94,7 +94,7 @@ fn point_at_cell_selection(
     true
 }
 
-/// CHOKE-POINT crash guard (ScrAP-152, GTK4Rs/AP-128; sibling of
+/// CHOKE-POINT crash guard (GTK4Rs/AP-128, GTK4Rs/AP-128; sibling of
 /// `codeview::markers::open_marker_popover`). `popup()` realizes the selection-action
 /// popover's surface against `view`'s surface; on an UNREALIZED view that parent surface
 /// is NULL → `gdk_surface_new_popup` `GDK_IS_SURFACE` assert → NULL-deref SIGSEGV
@@ -398,7 +398,7 @@ pub(crate) fn wire_annotation_overlay(
     // choke-point `popup_selection_action` (a `mark-set` during teardown could re-arm a
     // timer AFTER this fires) — the two are defense-in-depth, either alone prevents the
     // crash. Captures only the `timer` Rc, never the view, so it adds no reference cycle
-    // (ScrAP-60). `take()` no-ops if the timer already fired (the slot is cleared on fire), so
+    // (GTK4Rs/AP-63). `take()` no-ops if the timer already fired (the slot is cleared on fire), so
     // this never double-removes a stale SourceId.
     view.connect_unrealize({
         let timer = timer.clone();
@@ -418,7 +418,7 @@ pub(crate) fn wire_annotation_overlay(
         // comment card every render — the `GtkEntry` and its internal `GtkText`
         // gestures/controllers (`GtkGestureClick`/`GtkGestureDrag`/`GtkEventControllerKey`),
         // each holding a GHashTable — leaking RSS unbounded per live-reload
-        // (ScrAP-155; the weak-capture idiom it enforces is ScrAP-60). Upgrading is
+        // (GTK4Rs/AP-63; the weak-capture idiom it enforces is GTK4Rs/AP-63). Upgrading is
         // a no-op once the card is gone: nothing to hide.
         let bar = bar.downgrade();
         let entry_open = entry_open.clone();
@@ -471,7 +471,7 @@ pub(crate) fn wire_annotation_overlay(
                 if let Some((_, end)) = buf.selection_bounds() {
                     buf.place_cursor(&end);
                 }
-                // Weak-capture the view across the idle hop (ScrAP-60 parity; the sink edits
+                // Weak-capture the view across the idle hop (GTK4Rs/AP-63 parity; the sink edits
                 // the editor buffer + re-tags the preview, all surface-independent, so this
                 // is not a crash class).
                 glib::idle_add_local_once(glib::clone!(
@@ -497,7 +497,7 @@ pub(crate) fn wire_annotation_overlay(
     // button, so the `win.annotate` action (keyboard/menu/toolbar) and the button share
     // one code path (SSOT). View + overlay are captured WEAK (the
     // view OWNS this closure via `set_annotate_trigger`, so a strong self/ancestor
-    // capture would be an uncollectable cycle — ScrAP-60); pop/bar/entry are captured weak
+    // capture would be an uncollectable cycle — GTK4Rs/AP-63); pop/bar/entry are captured weak
     // too and upgraded inside.
     let show_entry: Rc<dyn Fn()> = Rc::new({
         let view = view.downgrade();
@@ -599,7 +599,7 @@ pub(crate) fn wire_annotation_overlay(
             // LEFT edge (not its centre) lands on the midpoint (it sits to the right,
             // "not aligned at all"). Measure needs visibility, not allocation, so
             // set_visible(true) first gives a real natural size to centre against (GTK4Rs/AP-85 /
-            // ScrAP-68 family). The selection is intact and on-screen (the popover was
+            // GTK4Rs/T-2 family). The selection is intact and on-screen (the popover was
             // showing), so position_card succeeds; show regardless of its return.
             bar.set_visible(true);
             position_card(&v, &ov, bar.upcast_ref());
@@ -761,7 +761,7 @@ pub(crate) fn wire_annotation_overlay(
                     crate::window::update_annotate_action_state(&win);
                     // The same selection change re-derives the status bar's selection
                     // word count, including a table cell's, which no buffer signal
-                    // reports (TDD 16.11, ScrAP-110).
+                    // reports (TDD 16.11, GTK4Rs/AP-28).
                     crate::window::note_selection_changed(&win);
                 }
                 // Marker popover open (table-cell annotation): a table-cell selection stays
@@ -933,7 +933,7 @@ pub(crate) fn wire_annotation_overlay(
     // is mid-comment). The popover's pointing-to rect is in widget coords and goes stale
     // on scroll, so pop it down. The scroller's OWN vadjustment is the live one here —
     // the view's is not yet propagated at wire time (same rationale as
-    // wire_scroll_position_tracking / ScrAP-52), so drive off the scroller's.
+    // wire_scroll_position_tracking / GTK4Rs/AP-55), so drive off the scroller's.
     {
         let vadj = scroller.vadjustment();
         vadj.connect_value_changed(glib::clone!(
@@ -1071,7 +1071,7 @@ mod jjj_tests {
     /// keyboard, gated only on the widget being realized (gtktext.c:3477, reached from
     /// `gtk_text_set_selection_bounds`; Shift+Home arrives via `move_cursor` at :3935-3938
     /// with `extend_selection`, Ctrl+A via `gtk_text_select_all` at :1401-1404). Our own
-    /// ScrAP-110 cell-selection listener watches that clipboard's `::changed` and routes it to
+    /// GTK4Rs/AP-28 cell-selection listener watches that clipboard's `::changed` and routes it to
     /// `schedule()`, which dismisses the card. The card's entry was tripping our own
     /// listener.
     ///
@@ -1107,7 +1107,7 @@ mod jjj_tests {
 
     /// The dismissal the card DOES owe: a selection change in the preview itself (the user
     /// went back to the document) still dismisses. The fix must not buy card stability
-    /// by breaking the legitimate dismissal — nor by breaking the ScrAP-110 table-cell
+    /// by breaking the legitimate dismissal — nor by breaking the GTK4Rs/AP-28 table-cell
     /// tracking the PRIMARY listener exists for.
     #[gtktest::test]
     fn a_preview_selection_change_still_dismisses_the_card() {
@@ -1230,7 +1230,7 @@ mod jjj_tests {
         win.destroy();
     }
 
-    /// The `popup_selection_action` choke-point crash guard (ScrAP-152/GTK4Rs/AP-128).
+    /// The `popup_selection_action` choke-point crash guard (GTK4Rs/AP-128/GTK4Rs/AP-128).
     /// The selection-action popover is armed by a deferred ~40 ms timer; if it fires after
     /// the view is torn down, `popup()` realizes the popover against a NULL parent surface
     /// → `GDK_IS_SURFACE` assert → SIGSEGV — the GTK4Rs/AP-128/152 shape Section A fixed in

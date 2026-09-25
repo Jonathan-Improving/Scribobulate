@@ -146,26 +146,26 @@ pub(crate) fn preview_heading_slugs(sw: &ScrolledWindow) -> Option<HashSet<Strin
 /// same-buffer restore lands the exact same line back at the top — unlike a
 /// `value/(upper−page_size)` fraction, which mixes tall (heading) and short
 /// (blank) line heights and therefore drifts upward on a zoom re-render
-/// (ScrAP-65). Capture BEFORE mutating the buffer,
+/// (GTK4Rs/AP-14). Capture BEFORE mutating the buffer,
 /// while the old layout is still valid. `None` when the scroller does not wrap a
 /// `GtkTextView`.
 pub(crate) fn preview_top_line(sw: &ScrolledWindow) -> Option<i32> {
     let child = sw.child()?;
     // The preview is a CodePreviewView, which tracks a rapid-zoom-robust reading
     // anchor (its live top line, or the target of a still-settling programmatic
-    // scroll) — ScrAP-65.
+    // scroll) — GTK4Rs/AP-14.
     if let Ok(cpv) = child.clone().downcast::<CodePreviewView>() {
         return Some(cpv.reading_line());
     }
     let view = child.downcast::<TextView>().ok()?;
     // Same seam the `CodePreviewView` arm reaches through `reading_line` — a
     // hand-rolled `vadjustment().value()` + `line_at_y` answers with the buffer's
-    // LAST line on a view that has not been allocated (ScrAP-263).
+    // LAST line on a view that has not been allocated (GTK4Rs/AP-263).
     Some(crate::saferizer::viewport::ViewportTopIter::of(&view).line())
 }
 
 /// Restore a `GtkTextView` scroller to an exact buffer `line`, validation-safe
-/// and input-wedge-proof (ScrAP-65 — researcher-sourced from
+/// and input-wedge-proof (GTK4Rs/AP-14 — researcher-sourced from
 /// gtktextview.c 4.6.9). Deferred to an idle where it:
 ///   1. scrolls to a left-gravity mark at `line` (yalign 0 = top). The
 ///      vadjustment's `upper` is finalised by `scroll_to_mark`'s internal
@@ -188,7 +188,7 @@ pub(crate) fn preview_top_line(sw: &ScrolledWindow) -> Option<i32> {
 /// This is the exact pattern `CodePreviewView::scroll_to_buffer_offset` already
 /// proved for outline navigation (GTK4Rs/AP-22).
 ///
-/// **Deferred-idle discipline (ScrAP-152).** The idle must WEAK-capture the view
+/// **Deferred-idle discipline (GTK4Rs/AP-128).** The idle must WEAK-capture the view
 /// and the scroller, and re-check `is_realized()` after upgrading. A strong
 /// capture pins the widget alive as an *unrooted zombie* past `window.destroy()`
 /// — unrealize is synchronous, finalize is not — and this idle then drives
@@ -203,7 +203,7 @@ fn restore_textview_scroll_to_line(sw: &ScrolledWindow, view: &TextView, line: i
     let view_weak = view.downgrade();
     gtk::glib::idle_add_local_once(move || {
         // Liveness (upgrade) and rootedness (is_realized) are DIFFERENT questions
-        // and both must be asked — ScrAP-152's whole point.
+        // and both must be asked — GTK4Rs/AP-128's whole point.
         let (Some(view), Some(sw)) = (view_weak.upgrade(), sw_weak.upgrade()) else {
             return; // widget dropped before the idle ran
         };
@@ -321,7 +321,7 @@ fn restore_textview_scroll_to_line_progressive(sw: &ScrolledWindow, view: &TextV
     let mark = crate::codeview::move_or_create_mark(&buffer, "scrib-scroll-restore", &iter);
     // Pair the persisted mark with its owning buffer: this closure fires across many
     // `notify::upper` passes and a `re_render` (`set_buffer`) in between can orphan the
-    // mark, so resolution must be membership-gated (ScrAP-104) via the one safe path.
+    // mark, so resolution must be membership-gated (GTK4Rs/AP-89) via the one safe path.
     let bmark = crate::saferizer::buffer_mark::BufferMark::new(mark, &buffer);
 
     // `apply` tracks the target line's top-y DOWN as heights validate top→down;
@@ -343,7 +343,7 @@ fn restore_textview_scroll_to_line_progressive(sw: &ScrolledWindow, view: &TextV
         if max <= 0.0 {
             return false; // range not established yet (page_size 0 pre-allocate)
         }
-        // Cross-buffer guard (ScrAP-104). The mark was created on the buffer
+        // Cross-buffer guard (GTK4Rs/AP-89). The mark was created on the buffer
         // that was live when this restore was scheduled; this closure fires across
         // MANY `notify::upper` passes, and a `re_render` (`set_buffer`) in between
         // finalizes that old buffer, ORPHANING the mark. `iter_at_mark` has NO
@@ -512,7 +512,7 @@ mod gtk_integration_tests {
         assert!(value > 0.0, "viewport moved off the top");
     }
 
-    /// ScrAP-152 regression, asserted on the STATE rather than the symptom.
+    /// GTK4Rs/AP-128 regression, asserted on the STATE rather than the symptom.
     ///
     /// `restore_textview_scroll_to_line` defers its work to an idle. If that idle
     /// STRONG-captures the view, the view cannot finalize while the idle is
@@ -547,11 +547,11 @@ mod gtk_integration_tests {
             weak.upgrade().is_none(),
             "the pending restore idle is still holding a strong reference to the \
              view — it will fire against an unrooted zombie after the window is \
-             destroyed (ScrAP-152). Capture weakly."
+             destroyed (GTK4Rs/AP-128). Capture weakly."
         );
     }
 
-    /// ScrAP-152's second half: `upgrade()` succeeding is NOT the guard.
+    /// GTK4Rs/AP-128's second half: `upgrade()` succeeding is NOT the guard.
     ///
     /// A zombie upgrades fine — a co-pending strong reference elsewhere keeps it
     /// upgradable — so the idle must ALSO ask whether the view is still realized
@@ -663,7 +663,7 @@ mod gtk_integration_tests {
         );
     }
 
-    /// ScrAP-104 regression — the FATAL cross-buffer path. The
+    /// GTK4Rs/AP-89 regression — the FATAL cross-buffer path. The
     /// progressive far-restore persists a mark on the buffer live at schedule time,
     /// then re-resolves it across many `notify::upper` passes via
     /// `view.buffer().iter_at_mark(&mark)` + `line_yrange`. If a `re_render`

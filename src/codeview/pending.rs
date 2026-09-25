@@ -43,7 +43,7 @@ pub(super) fn fire(ctx: &PaintCtx) {
                 // deliberately NOT against a "has the loop converged?" flag: convergence
                 // is observable only through further frame-clock ticks, and under a
                 // non-blocking pump the clock can go idle after a single one, leaving a
-                // gate that never opens and a request that never dispatches (ScrAP-202,
+                // gate that never opens and a request that never dispatches (GTK4Rs/AP-202,
                 // which also records the half-fix this replaced — gating on convergence
                 // silenced the very paint the dispatch rides on, because the final
                 // `set_value` of a converged loop writes the value already held and so
@@ -97,7 +97,7 @@ pub(super) fn fire(ctx: &PaintCtx) {
     // rebuilds widgets mid-emission (GTK4Rs/AP-30 — "broken accounting of active
     // state"). The idle runs after this frame is on screen.
     //
-    // WEAK capture, not a strong clone (ScrAP-152/GTK4Rs/AP-128/GTK4Rs/AP-63): a strong
+    // WEAK capture, not a strong clone (GTK4Rs/AP-128/GTK4Rs/AP-128/GTK4Rs/AP-63): a strong
     // clone would pin this view alive as an unrooted zombie if its window is destroyed
     // between this paint and the idle firing, and the idle would then drive
     // `open_marker_popover` → `popup()` a popover on an unrealized view (NULL parent

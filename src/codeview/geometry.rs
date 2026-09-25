@@ -1,5 +1,5 @@
 //! Geometry & scrolling helpers for [`CodePreviewView`]: cache-free line/cell
-//! buffer-Y reads (GTK4Rs/AP-22/ScrAP-105), the shared persistent-mark helper, and the
+//! buffer-Y reads (GTK4Rs/AP-22/GTK4Rs/AP-89), the shared persistent-mark helper, and the
 //! validation-safe scroll-to-offset / scroll-to-cell entry points. Split out of
 //! the former monolithic `codeview.rs` (F-AP-002).
 
@@ -11,7 +11,7 @@ use gtk::prelude::*;
 /// it (left-gravity) on first use. Reusing ONE persistent mark — never a
 /// create-then-delete each call — is a documented correctness rule: a
 /// create+delete each scroll races GtkTextView's first-paragraph pinning and
-/// leaves the view snapped to the top (GTK4Rs/AP-22/ScrAP-65). Shared by every
+/// leaves the view snapped to the top (GTK4Rs/AP-22/GTK4Rs/AP-14). Shared by every
 /// validation-safe scroll restore (`preview::scroll`'s one-shot and progressive
 /// restores, and this view's own `scroll_to_buffer_offset`) so the idiom stays
 /// byte-for-byte identical across all of them (QA M-5).
@@ -36,7 +36,7 @@ pub(crate) fn move_or_create_mark(
 /// immediately after a `set_buffer` swap that cache still holds displays whose
 /// `GtkTextLine`s were freed with the old buffer, so the insert's comparator calls
 /// `_gtk_text_line_get_number` on a freed line → SIGSEGV / `gtk_text_btree_line_number
-/// couldn't find line` (ScrAP-105). `line_yrange` touches no display cache, so
+/// couldn't find line` (GTK4Rs/AP-89). `line_yrange` touches no display cache, so
 /// it is immune, and on a validated on-screen line returns the same top-y as
 /// `iter_location`.
 pub(crate) fn line_top_y(
@@ -48,7 +48,7 @@ pub(crate) fn line_top_y(
 }
 
 /// Buffer-y of the BOTTOM (top + height) of the line containing char `offset`,
-/// cache-free — see [`line_top_y`] (ScrAP-105).
+/// cache-free — see [`line_top_y`] (GTK4Rs/AP-89).
 pub(crate) fn line_bottom_y(
     view: &impl IsA<gtk::TextView>,
     buffer: &gtk::TextBuffer,
@@ -149,7 +149,7 @@ pub(crate) fn cell_row_y_h(
 /// [`span_card_y_extent`] (GTK4Rs/AP-78/GTK4Rs/AP-127) — one formula, two callers, one test.
 ///
 /// Cache-free by construction: the base row is [`gtk::prelude::TextViewExt::line_yrange`]
-/// (a btree height read that touches no line-display cache — GTK4Rs/AP-22/ScrAP-105), never
+/// (a btree height read that touches no line-display cache — GTK4Rs/AP-22/GTK4Rs/AP-89), never
 /// `iter_location`. The cell refinement delegates to the placeholder-immune
 /// [`cell_row_y_h`] (GTK4Rs/AP-91); while a table's cells have not allocated it falls back
 /// to the table's own top, so the chip stays visible and snaps to the exact row on a
@@ -219,7 +219,7 @@ fn refine_scroll_to_cell(
 
 impl CodePreviewView {
     /// Schedule `work` on the next main-loop idle, guarded against the
-    /// deferred-idle-outlives-the-view SIGSEGV class (ScrAP-152 / GTK4Rs/AP-63).
+    /// deferred-idle-outlives-the-view SIGSEGV class (GTK4Rs/AP-128 / GTK4Rs/AP-63).
     /// This is the ONE place the discipline every deferred view-scroll needs is
     /// spelled out, so a new call site cannot silently omit a facet of it:
     ///
@@ -282,17 +282,17 @@ impl CodePreviewView {
         let it = buffer.iter_at_offset(offset);
         // A programmatic scroll takes over from any hand-scrolling: record the
         // target as the cached anchor and stop tracking value-changed, so this
-        // scroll's own animation cannot overwrite the anchor mid-burst (ScrAP-65).
+        // scroll's own animation cannot overwrite the anchor mid-burst (GTK4Rs/AP-14).
         self.imp().user_scrolling.set(false);
         self.imp().restore_target_line.set(Some(it.line()));
         let mark = move_or_create_mark(&buffer, "scrib-outline-target", &it);
         // Pair the persisted mark with its owning buffer so the deferred idle can
-        // gate resolution on membership (ScrAP-104) via the one safe path.
+        // gate resolution on membership (GTK4Rs/AP-89) via the one safe path.
         let bmark = crate::saferizer::buffer_mark::BufferMark::new(mark, &buffer);
         // The deferred-idle discipline (coalesce + weak capture + slot-clear-first +
-        // is_realized gate — ScrAP-152) lives in `schedule_scroll_idle`.
+        // is_realized gate — GTK4Rs/AP-128) lives in `schedule_scroll_idle`.
         self.schedule_scroll_idle(move |view| {
-            // Cross-buffer guard (ScrAP-104): if a `set_buffer` (zoom / live-edit
+            // Cross-buffer guard (GTK4Rs/AP-89): if a `set_buffer` (zoom / live-edit
             // re_render) swapped this view's buffer between scheduling and now, the old
             // buffer may have finalized and orphaned the mark. `scroll_to_mark` resolves
             // the mark against the view's CURRENT buffer via the same unchecked
@@ -373,19 +373,19 @@ impl CodePreviewView {
             return;
         };
         // Step 1: mirror scroll_to_buffer_offset's coalesced, validation-safe
-        // scroll_to_mark (GTK4Rs/AP-22/ScrAP-65/ScrAP-104), then refine to the exact cell row.
+        // scroll_to_mark (GTK4Rs/AP-22/GTK4Rs/AP-14/GTK4Rs/AP-89), then refine to the exact cell row.
         self.imp().user_scrolling.set(false);
         self.imp().restore_target_line.set(Some(it.line()));
         let mark = move_or_create_mark(&buffer, "scrib-outline-target", &it);
-        // Pair with the owning buffer for the membership-gated resolve (ScrAP-104).
+        // Pair with the owning buffer for the membership-gated resolve (GTK4Rs/AP-89).
         let bmark = crate::saferizer::buffer_mark::BufferMark::new(mark, &buffer);
         // Both the outer idle and the nested inner one below carry the ANTI-PATTERNS
-        // ScrAP-152 discipline (coalesce + weak + slot-clear-first + is_realized) via
+        // GTK4Rs/AP-128 discipline (coalesce + weak + slot-clear-first + is_realized) via
         // `schedule_scroll_idle` — the inner re-uses the same slot, and the outer's
         // step-3 slot-clear makes that chained re-schedule safe.
         let label = label.clone();
         self.schedule_scroll_idle(move |view| {
-            // Cross-buffer guard (ScrAP-104): a set_buffer between scheduling and now
+            // Cross-buffer guard (GTK4Rs/AP-89): a set_buffer between scheduling and now
             // orphans the mark; scroll_to_mark on a foreign mark aborts fatally. The
             // seam withholds the mark unless it still belongs to the live buffer.
             let Some(mark) = bmark.scroll_mark(&view.buffer()) else {
@@ -406,7 +406,7 @@ impl CodePreviewView {
     }
 }
 
-/// Regression coverage for ScrAP-152 — a deferred scroll idle outliving the view it
+/// Regression coverage for GTK4Rs/AP-128 — a deferred scroll idle outliving the view it
 /// scrolls (a measured, deterministic SIGSEGV). Both tests need a real `#[gtktest::test]`
 /// main loop (GTK4Rs/AP-71), so they live behind `gtk-integration-tests`.
 #[cfg(all(test, feature = "gtk-integration-tests"))]
@@ -452,14 +452,14 @@ mod gtk_integration_tests {
         (view, sw, window, ctx)
     }
 
-    /// The crash guard (ScrAP-152). A scroll is requested, then the view is DESTROYED
+    /// The crash guard (GTK4Rs/AP-128). A scroll is requested, then the view is DESTROYED
     /// before the idle fires — the exact rapid schedule-then-close shape. Pre-fix, the
     /// strong-capturing idle pins the view alive as an unrooted zombie and fires
     /// `scroll_to_mark` against it → the popover-realize SIGSEGV. Post-fix, `unrealize`
     /// cancels the pending source synchronously at `destroy()` AND the closure
     /// weak-captures + `is_realized()`-gates — so the pump completes cleanly. Reaching
     /// the end without aborting IS the pass. Mutation note: this aborts only when the
-    /// whole ScrAP-152 fix is reverted (either facet alone still prevents the crash —
+    /// whole GTK4Rs/AP-128 fix is reverted (either facet alone still prevents the crash —
     /// that is the intended defense-in-depth, per the sourced verdict).
     #[gtktest::test]
     fn a_pending_scroll_idle_does_not_crash_after_the_view_is_destroyed() {

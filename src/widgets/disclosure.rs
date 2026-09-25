@@ -50,7 +50,7 @@ const ICON_EXPANDED: &str = "pan-down-symbolic";
 ///
 /// Named rather than written out twice: it marks the widget for styling AND is what
 /// the view's line-wide click hit-test resolves a press against, so a press that
-/// landed on the control is left to the control (ScrAP-79). Two spellings of it would
+/// landed on the control is left to the control (GTK4Rs/AP-109). Two spellings of it would
 /// mean a click that toggles twice, which looks exactly like a click that does
 /// nothing.
 pub(crate) const CSS_CLASS: &str = "scrib-disclosure";

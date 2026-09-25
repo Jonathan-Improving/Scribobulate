@@ -2,7 +2,7 @@
  * textbuffer-selection-leak.c — does a GtkTextBuffer leak a reference per
  * select-then-deselect, and does taking PRIMARY over change that?
  *
- * SUBJECT: ScrAP-313. `update_selection_clipboards` builds
+ * SUBJECT: GTK4Rs/AP-318. `update_selection_clipboards` builds
  * `selection_content = gtk_text_buffer_content_new (buffer)`, which takes `g_object_ref
  * (buffer)`; on deselect it nulls that content's `text_buffer` WITHOUT unreffing and
  * `g_clear_object`s the content, which implements neither finalize nor dispose. The
@@ -10,7 +10,7 @@
  *
  * WHY MEASURE IT AGAIN. Two reasons, and the second is the one that matters.
  *   1. The entry's refcount table was measured in plain C on another stack; it records a
- *      SOURCE read at 4.22.4, not a RUN. ScrAP-157 is this project's standing example of a
+ *      SOURCE read at 4.22.4, not a RUN. GTK4Rs/AP-143 is this project's standing example of a
  *      Linux-era defect that is simply absent on this GTK, so "still true here" is a
  *      question rather than an assumption.
  *   2. It was cited against a proposed change with the claim that the application's PRIMARY
@@ -29,12 +29,12 @@
  *   select/deselect --takeover         3     10     +7   <- IDENTICAL
  *
  * 1. THE LEAK REPRODUCES HERE. One reference per select-then-deselect, +1 per cycle, which
- *    is ScrAP-313's recorded rate exactly (its table starts from a fresh count of 1 and
+ *    is GTK4Rs/AP-318's recorded rate exactly (its table starts from a fresh count of 1 and
  *    reaches 8 after seven; this rig starts at 3 because the view and window hold refs, and
  *    reaches 10 — the same +7). The control is flat, so the growth is attributable to
  *    selecting rather than to the loop.
  * 2. THE TAKE-OVER DOES NOT AVOID IT. Removing GTK's selection-clipboard registration — what
- *    `wire_primary_selection` does — changes the number not at all. This is what ScrAP-313
+ *    `wire_primary_selection` does — changes the number not at all. This is what GTK4Rs/AP-318
  *    already says in terms: `update_selection_clipboards` builds `selection_content` whether
  *    or not any selection clipboard is registered, so no application change makes it better
  *    or worse; a custom provider only avoids ADDING a second strong reference.
@@ -56,7 +56,7 @@
  *                  is not attributable to selecting (ScrAP-322).
  *   --takeover     remove GTK's selection-clipboard registration first, i.e. what
  *                  `wire_primary_selection` does. If the leak is application-avoidable, this
- *                  arm holds the refcount flat. If ScrAP-313 is right, it changes nothing.
+ *                  arm holds the refcount flat. If GTK4Rs/AP-318 is right, it changes nothing.
  *
  * The refcount is read with GObject's own `ref_count` field — the same instrument the entry
  * used, so the numbers are comparable to its table by construction.
@@ -137,7 +137,7 @@ static void on_activate(GtkApplication *app, gpointer data)
     } else if ((int)final - (int)fresh >= cycles) {
         printf("  LEAK REPRODUCED: one reference per select-then-deselect\n");
     } else if (final == fresh) {
-        printf("  NO LEAK on this stack — ScrAP-313 does not reproduce here as written\n");
+        printf("  NO LEAK on this stack — GTK4Rs/AP-318 does not reproduce here as written\n");
     } else {
         printf("  PARTIAL: grew, but not one per cycle; the mechanism is not what was recorded\n");
     }

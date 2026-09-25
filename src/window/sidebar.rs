@@ -132,7 +132,7 @@ pub(crate) fn list_view_of(scroller: &gtk::ScrolledWindow) -> Option<gtk::ListVi
 ///
 /// Deferred because the pane became visible in this same turn and its list has no
 /// allocation yet, and because a toggle activated from the menu bar is racing that
-/// menu's pop-down focus-restore (ScrAP-107). A no-op on the empty-state placeholder,
+/// menu's pop-down focus-restore (GTK4Rs/AP-116). A no-op on the empty-state placeholder,
 /// which is a plain label and takes no focus.
 pub(crate) fn focus_list_deferred(scroller: &gtk::ScrolledWindow) {
     let scroller = scroller.clone();
@@ -154,7 +154,7 @@ pub(crate) fn focus_list_deferred(scroller: &gtk::ScrolledWindow) {
 /// the scroller's vadjustment. When the scroller is not yet laid out
 /// (`page_size == 0`), retries on subsequent idles (bounded) so a tab-switch
 /// reveal that races the first allocate still lands. `ListView::scroll_to` is
-/// 4.12+ only (ScrAP-157 / GTK4Rs/AP-114). Does not change the selection, so
+/// 4.12+ only (GTK4Rs/AP-143 / GTK4Rs/AP-114). Does not change the selection, so
 /// outline spy guards (GTK4Rs/AP-112) stay quiet.
 pub(crate) fn reveal_selected_row(scroller: &gtk::ScrolledWindow) {
     reveal_selected_row_attempt(scroller, 0);

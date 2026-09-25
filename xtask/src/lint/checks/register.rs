@@ -13,8 +13,10 @@ use std::collections::{BTreeMap, BTreeSet};
 const REGISTER: &str = "sdd/ANTI-PATTERNS.md";
 const MANIFEST: &str = "sdd/scrap-numbers.manifest";
 
-/// Check 9 — ScrAP numbers are frozen IDs: never renumbered, never reused, and a deleted or
-/// merged entry keeps a landing-spot stub under its heading forever.
+/// Check 9 — ScrAP numbers are frozen IDs: never renumbered, never reused. A deleted or
+/// merged entry keeps a landing-spot stub under its heading forever; an entry RETIRED to a
+/// skill (manifest line `N -> GTK4Rs/AP-M`) has no heading and may be cited nowhere, since
+/// the citation that resolves is the skill's.
 ///
 /// Until this existed the rule was enforced by a person hand-diffing the heading set against
 /// the shared branch through a migration that rewrote 80% of the file — which worked, and is
@@ -33,7 +35,7 @@ const MANIFEST: &str = "sdd/scrap-numbers.manifest";
 ///
 /// **Second occurrence of this class in two review rounds, which makes it a mechanism.**
 /// Round 2 found ScrAP-343 prescribing the call that walked the next agent into a
-/// TOCTOU; round 3 found ScrAP-146 prescribing `Texture::from_file`, which `clippy.toml`
+/// TOCTOU; round 3 found GTK4Rs/AP-66 prescribing `Texture::from_file`, which `clippy.toml`
 /// bans by name and cites that very entry while banning it. An entry outlives the
 /// decision it records, and nothing re-checks a prescription when its subject is later
 /// forbidden.
@@ -183,11 +185,26 @@ pub fn number_immutability(tree: &Tree) -> bool {
             &[],
         );
     };
-    let allocated: BTreeSet<&str> = manifest
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty() && !line.starts_with('#'))
-        .collect();
+    // Two line forms. `N` — allocated, must have a heading. `N -> <skill citation>` —
+    // retired 2026-09-24 when the gtk4-rs stubs left this file: the number stays
+    // frozen so it can never be reused, but it must have NO heading and be cited
+    // NOWHERE as `ScrAP-N`, because the citation that would resolve is the one after
+    // the arrow.
+    let mut allocated: BTreeSet<&str> = BTreeSet::new();
+    let mut retired: BTreeMap<&str, &str> = BTreeMap::new();
+    for line in manifest.lines().map(str::trim) {
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        match line.split_once("->") {
+            Some((number, target)) => {
+                retired.insert(number.trim(), target.trim());
+            }
+            None => {
+                allocated.insert(line);
+            }
+        }
+    }
 
     let mut present: Vec<String> = Vec::new();
     for line in tree.text(REGISTER).unwrap_or_default().lines() {
@@ -212,11 +229,50 @@ pub fn number_immutability(tree: &Tree) -> bool {
         .collect();
     let added: Vec<&str> = unique
         .iter()
-        .filter(|id| !allocated.contains(*id))
+        .filter(|id| !allocated.contains(*id) && !retired.contains_key(*id))
         .copied()
         .collect();
+    let resurrected: Vec<String> = retired
+        .keys()
+        .filter(|id| unique.contains(*id))
+        .map(|id| format!("ScrAP-{id} (retired to {})", retired[id]))
+        .collect();
+    // A retired number cited anywhere in the scan set is a dead pointer: nothing in this
+    // tree resolves it. Corpus fixtures are excluded because they cite numbers as test
+    // material, not as references.
+    let mut cited_retired: Vec<String> = Vec::new();
+    for (name, text) in tree.texts() {
+        if name == crate::lint::CORPUS_FILE {
+            continue;
+        }
+        for (index, line) in text.lines().enumerate() {
+            for caps in rx::scrap_rx().captures_iter(line) {
+                let id = &caps[1];
+                if let Some(target) = retired.get(id) {
+                    cited_retired.push(format!(
+                        "{name}:{}: ScrAP-{id} — cite {target} instead",
+                        index + 1
+                    ));
+                }
+            }
+        }
+    }
 
     let mut ok = true;
+    if !resurrected.is_empty() {
+        ok = fail(
+            "retired number(s) have a '## N.' heading again:",
+            &resurrected,
+            &["A retired number is frozen forever; mint a new one from the header's next free."],
+        );
+    }
+    if !cited_retired.is_empty() {
+        ok = fail(
+            "retired ScrAP number(s) cited (nothing in this tree resolves them):",
+            &cited_retired,
+            &[],
+        );
+    }
     if !missing.is_empty() {
         ok = fail(
             "allocated number(s) no longer have a '## N.' heading:",
@@ -360,7 +416,7 @@ pub fn stub_keeps_implementation_line(tree: &Tree) -> bool {
 /// happen before it is.** MEASURED 2026-08-27: 29 entries tagged `A` in the index carry
 /// ~150_000B of full essays that are migration backlog — their canonical text already lives
 /// in the `gtk4-rs` skill, and the routing rule says the body here should be a four-line
-/// stub. Six of the largest (ScrAP-193, 238, 252, 258, 259, 268) were spot-checked against
+/// stub. Six of the largest were spot-checked against
 /// the installed skill and confirmed carried there; stubbing just those reclaims ~45_000B.
 /// The reason that was not simply done here is that it deletes prose from a tracked register
 /// whose only fallback is git history plus a skill that is not installed on every machine
@@ -395,8 +451,14 @@ pub fn stub_keeps_implementation_line(tree: &Tree) -> bool {
 /// come up empty. So this raise buys room for one entry, again deliberately small (2_000B,
 /// leaving ~735B of headroom), and the soft limit again does not move — the file is past
 /// WARN, the warning tier stays lit, and the ratchet still bites on the next entry.
-const REGISTER_WARN: u64 = 240_000;
-const REGISTER_FAIL: u64 = 267_000;
+/// **Lowered 2026-09-24 by operator decision — 240_000/267_000 -> 150_000/160_000.** The
+/// 188 gtk4-rs stubs (every `A`-tagged row, plus sub-entry 23a) were retired outright: their numbers are frozen
+/// in the manifest as `N -> GTK4Rs/AP-M`, every citation was re-pointed per number, and the
+/// file fell from ~267 KB to ~150 KB. The ratchet moved down with it, as on 2026-08-29:
+/// the file sits within a few hundred bytes of WARN by design, so the next resident entry re-opens the
+/// question rather than sliding under it.
+const REGISTER_WARN: u64 = 150_000;
+const REGISTER_FAIL: u64 = 160_000;
 const ENTRY_WARN: u64 = 3_000;
 const ENTRY_FAIL: u64 = 4_000;
 

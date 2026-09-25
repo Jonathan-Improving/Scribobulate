@@ -15,7 +15,7 @@ and neither has an oracle:
   render, parse and highlight runs on the GTK main thread; a turn that takes too
   long *is* a frozen window. This has already happened once in a shipped path — a
   synchronous startup burst of menu-model construction froze the UI for seconds
-  (ScrAP-61) — and the general shape is a known GTK trap (GTK4Rs/AP-148: a
+  (GTK4Rs/AP-106) — and the general shape is a known GTK trap (GTK4Rs/AP-148: a
   ~150 ms synchronous render leaves even a spinner frozen, because the frame clock
   is a main-loop source a blocked turn never lets dispatch). TDD 1.7 and 1.4c
   encode the contract as *"does not freeze"*, which is a judgement a human makes by
@@ -45,7 +45,7 @@ regression that makes the application feel broken. Ceilings answer *viability*;
 budgets and slopes answer *regression*. Only the first was ever written.
 
 **2. The toolkit's own introspection is compiled out of a distribution GTK**
-(ScrAP-251, measured on the reference host). Every informational `GTK_DEBUG` /
+(GTK4Rs/AP-251, measured on the reference host). Every informational `GTK_DEBUG` /
 `GDK_DEBUG` / `GSK_DEBUG` key reports `[unavailable]`; `g_type_get_instance_count()`
 is exported and silently returns 0 forever; neither `libgtk-4` nor `libglib-2.0`
 links `libsysprof-capture`. So the instruments a GTK profiling plan would naturally
@@ -83,10 +83,10 @@ produces a gate. Everything below is organised by what can go wrong.
 
 | | Class | What it looks like | Existing evidence |
 |---|---|---|---|
-| **C1** | **Stall** — a single main-loop turn overruns | The window freezes, a spinner stops, input queues | ScrAP-61; GTK4Rs/AP-148; TDD 1.7, 1.4c |
+| **C1** | **Stall** — a single main-loop turn overruns | The window freezes, a spinner stops, input queues | GTK4Rs/AP-106; GTK4Rs/AP-148; TDD 1.7, 1.4c |
 | **C2** | **Spin** — non-zero CPU with no work to do | A core pegged at idle; battery drain | The open large-document spin |
 | **C3** | **Throughput** — a core path got slower | Everything feels heavier; no single freeze | Nothing today |
-| **C4** | **Growth** — RSS climbs per cycle | Long sessions bloat; eventual OOM | ScrAP-60, ScrAP-155; TDD 6.3; manual §6.3, §8.6 |
+| **C4** | **Growth** — RSS climbs per cycle | Long sessions bloat; eventual OOM | GTK4Rs/AP-63, GTK4Rs/AP-63; TDD 6.3; manual §6.3, §8.6 |
 
 C1 and C2 are the classes this architecture is *structurally* prone to, because it is
 single-threaded by design. They are also the two with no oracle at all.
@@ -139,7 +139,7 @@ a tier of a standing strategy.
 **Pros**: honest if the conclusion is that a document viewer's performance is
 self-evident from using it.
 **Cons**: leaves a high-severity defect without an instrument, and leaves C1/C3
-regressions to be discovered by users. The freeze that already shipped (ScrAP-61) is
+regressions to be discovered by users. The freeze that already shipped (GTK4Rs/AP-106) is
 the counter-example.
 
 ## Recommendation
@@ -193,9 +193,9 @@ Phase 0 depends on it being accurate.
 | RSS slope across scaled cycle counts | C4 | None — purely external; already the shape of manual §6.3 and §8.6 |
 | `perf` against the **release** binary | C1–C3, coarsely | Library-level attribution only (`lib+offset`); this is how the spin's existing stack sample was taken |
 | `perf` against the existing **debug** binary | C1–C3, structurally | Named app frames, but unoptimized — answers *what* is looping, never *how fast* anything is |
-| `valgrind` / massif | C4 | Run on demand, outside the pipeline; filter every stack for an application frame first (ScrAP-49) |
-| GtkInspector (`GTK_DEBUG=interactive`) | widget tree, CSS, actions | The one surviving toolkit channel. **Its Statistics tab is dead** (ScrAP-251) — never read object counts from it |
-| The `LD_PRELOAD` GType interposer (ScrAP-155) | C4, by GType and callsite | No application change, but it is a tool to write. Now the *primary* attribution route, since instance counting is dark |
+| `valgrind` / massif | C4 | Run on demand, outside the pipeline; filter every stack for an application frame first (GTK4Rs/AP-59) |
+| GtkInspector (`GTK_DEBUG=interactive`) | widget tree, CSS, actions | The one surviving toolkit channel. **Its Statistics tab is dead** (GTK4Rs/AP-251) — never read object counts from it |
+| The `LD_PRELOAD` GType interposer (GTK4Rs/AP-63) | C4, by GType and callsite | No application change, but it is a tool to write. Now the *primary* attribution route, since instance counting is dark |
 
 The split is not tier-by-tier: **the diagnostic rungs are largely change-free, and
 every regression-gate rung is code.** That follows from what each is for — an
@@ -215,18 +215,18 @@ something.
 - **Comparability rules are part of the gate, not hygiene.** A pinned fixture corpus
   and a scripted scenario; a release-derived build only; **scale the cycle count and
   read the slope — never trust an absolute** (one-time initialisation noise is flat
-  across counts while a real leak grows with them, ScrAP-155); one variable per run;
+  across counts while a real leak grows with them, GTK4Rs/AP-63); one variable per run;
   never compare across renderer or feature flags.
 - **Xvfb versus the real session.** Slopes, allocation counts and structural
   sampling are sound under Xvfb. Anything paint-, compositor- or GPU-dependent is
   not — `presentation_time` reads 0 there, and the footprint gate already requires
   the real session. `tests/MANUAL-TEST.md` §1.10 governs the choice.
-- **Prove an instrument emits before trusting its silence** (ScrAP-251). Every
+- **Prove an instrument emits before trusting its silence** (GTK4Rs/AP-251). Every
   channel added or relied on gets one positive-control run against a condition known
   to be present.
 - **Where this lands in the documents:** POLICY gains *when profiling is owed, the
   tiers, and the escalation order*; TDD gains the C1/C2 rubrics; `tests/MANUAL-TEST.md`
-  gains the runbook; ANTI-PATTERNS already carries ScrAP-251.
+  gains the runbook; ANTI-PATTERNS already carries GTK4Rs/AP-251.
 
 ## Open decisions
 
@@ -257,7 +257,7 @@ something.
 - **Confirmed dead ends — do not re-walk.** Distribution debug symbols for this
   exact GTK/GLib version from either official source (ScrAP-141, ~72 minutes lost);
   `g_type_get_instance_count()` and the Inspector Statistics tab; sysprof marks; any
-  informational `GTK_DEBUG`/`GDK_DEBUG`/`GSK_DEBUG` key (ScrAP-251).
+  informational `GTK_DEBUG`/`GDK_DEBUG`/`GSK_DEBUG` key (GTK4Rs/AP-251).
 - **The stripping consequence is exact.** The release binary has no symbol table and
   no `.debug` sections, and no separate debuginfo file is retained, so there is
   nothing for a sampler to resolve against — not merely inconvenient, *impossible*
@@ -267,8 +267,8 @@ something.
 - **The allocation ladder's order, and why.** RSS slope first (free, and decides
   whether anything is wrong); then a weak-reference finalization test (turns a found
   leak into a permanent guard, and must hold **no** strong reference to the subtree
-  itself or it masks the very leak it checks — ScrAP-155); then massif with the
-  application-frame filter (ScrAP-49); then the interposer, which tags each
+  itself or it masks the very leak it checks — GTK4Rs/AP-63); then massif with the
+  application-frame filter (GTK4Rs/AP-59); then the interposer, which tags each
   allocation with the GType under construction and its creation backtrace, keys on
   `lib+offset` because address-space randomisation makes absolute frames
   incomparable across runs, and confirms a leak by scaling the cycle count rather
@@ -279,7 +279,7 @@ something.
   on every platform, which is why T0 travels where `perf` does not.
 - **Contention is a profiling subject too.** Document I/O shares one process-wide
   ten-thread GLib pool with the crash-recovery snapshot writer, and the application
-  caps its own use of it for that reason (ScrAP-243). A profiling run that saturates
+  caps its own use of it for that reason (GTK4Rs/AP-243). A profiling run that saturates
   that pool is measuring the cap, not the code — hold the scenario's I/O
   concurrency fixed, and treat a latency change there as a pool-occupancy question
   before treating it as a code regression.

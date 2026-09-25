@@ -72,7 +72,7 @@ impl Rig {
     /// experiment that turned it** (the dose-response sweep — `git log --
     /// src/preview/splice/excursion/`). What it protected is worth keeping in view: a
     /// margin knob that silently did not apply would make every reading answer for the
-    /// configured margin while being reported against another one, which is ScrAP-252's
+    /// configured margin while being reported against another one, which is GTK4Rs/AP-252's
     /// family and looks exactly like the null result such an experiment tests for.
     pub(super) fn new(md: &str, folds: &FoldState) -> Self {
         let RenderProducts {
@@ -86,7 +86,7 @@ impl Rig {
 
         let view = CodePreviewView::new();
         view.add_css_class("scrib-preview");
-        // Before the view is realized, so this is not the ScrAP-104 buffer swap.
+        // Before the view is realized, so this is not the GTK4Rs/AP-89 buffer swap.
         view.set_buffer(Some(&buf));
         view.set_editable(false);
         view.set_wrap_mode(gtk::WrapMode::Char);
@@ -280,7 +280,7 @@ fn stabilise(
 
 /// The text of the line at the top of `view`'s viewport — the reader's actual place,
 /// which a buffer OFFSET cannot express across a toggle that inserts text above it.
-/// Read through the `saferizer` seam rather than a hand-rolled `line_at_y` (ScrAP-263).
+/// Read through the `saferizer` seam rather than a hand-rolled `line_at_y` (GTK4Rs/AP-263).
 pub(super) fn top_line_text(view: &CodePreviewView) -> String {
     let start = crate::saferizer::viewport::ViewportTopIter::of(view);
     let mut end = start;

@@ -459,7 +459,7 @@ fn announce_recovery(window: &ApplicationWindow, count: usize) {
     let ctx = chrome.status.borrow_mut().push(&msg);
     // Popped on the first interaction with the window, so it does not become permanent
     // furniture. Weak-captured and self-disconnecting: a handler holding the window it
-    // is attached to would keep the whole subtree alive past close (ScrAP-60).
+    // is attached to would keep the whole subtree alive past close (GTK4Rs/AP-63).
     let handler: Rc<std::cell::Cell<Option<glib::SignalHandlerId>>> =
         Rc::new(std::cell::Cell::new(None));
     let handler_c = Rc::clone(&handler);

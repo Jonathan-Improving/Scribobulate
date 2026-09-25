@@ -5,7 +5,7 @@
  * -------
  * PLAN.accessibility.md states that making a self-drawn preview element into a real
  * widget at a GtkTextChildAnchor is "architecturally forbidden here", justifying it by
- * height-for-width re-measurement and the layout churn that blanks the view (ScrAP-23).
+ * height-for-width re-measurement and the layout churn that blanks the view (GTK4Rs/AP-23).
  *
  * That justification is an EMPIRICAL claim, and the mechanism it names —
  * gtk_text_view_measure doing `min = MAX(min, child_min)` over every anchored child —
@@ -14,7 +14,7 @@
  *
  * This probe answers that with numbers instead of argument. It does not argue about
  * height-for-width; it measures minimum width directly, in four configurations, and
- * then checks whether the ScrAP-23a horizontal-overflow chain is reachable through a
+ * then checks whether the GTK4Rs/AP-139 horizontal-overflow chain is reachable through a
  * small child.
  *
  * WHY C, AND WHY IT MATTERS HERE
@@ -168,9 +168,9 @@ static void mode_minwidth(void) {
 }
 
 /* ── mode: overflow ────────────────────────────────────────────────────────────
- * ScrAP-23a's chain: an anchored child that overflows the content column by even a
+ * GTK4Rs/AP-139's chain: an anchored child that overflows the content column by even a
  * few px arms the Automatic h-scrollbar, whose appear/disappear re-enters the
- * ScrAP-22/23 validation churn that blanks the view. This asks whether a small child
+ * GTK4Rs/AP-22/23 validation churn that blanks the view. This asks whether a small child
  * can reach that chain at all.
  *
  * Uses a real toplevel and real frame ticks — NOT a tight g_main_context_iteration

@@ -8,7 +8,7 @@
 //! the line that merely *starts* the viewport. `line_at_y` maps a y-coordinate to
 //! the line occupying it with no glyph requirement — correct at the margins — and
 //! without touching the line-display cache, so it is also safe to call mid-paint
-//! (cf. ScrAP-105). Reserve `iter_at_location` for genuine pointer hit-tests.
+//! (cf. GTK4Rs/AP-89). Reserve `iter_at_location` for genuine pointer hit-tests.
 //!
 //! Coordinates are BUFFER coordinates — the space `visible_rect` and
 //! `snapshot_layer` already work in; no window-coordinate translation is applied.
@@ -23,7 +23,7 @@
 //! document*, it is silent, and it is not confined to the y = 0 top-of-viewport
 //! read. Every read below therefore gates on the view having a real allocation and
 //! answers "the top of the buffer" when it does not, which is what a view with no
-//! layout is showing. ScrAP-263.
+//! layout is showing. GTK4Rs/AP-263.
 //!
 //! Two things that trap a reader who tries to shortcut this:
 //!
@@ -38,7 +38,7 @@
 //!   That is fine here — the dangerous window is strictly *before* the first
 //!   allocation, and a torn-down view's cached layout answers merely stale rather
 //!   than far-end wrong. But anything acting on this read *after a deferral* needs
-//!   `is_realized()` as well (ScrAP-152's weak-capture + realize gate).
+//!   `is_realized()` as well (GTK4Rs/AP-128's weak-capture + realize gate).
 //!
 //! `visible_rect().height()` is the signal used rather than the vadjustment's
 //! `page_size`: the two were measured moving in lockstep across all six
@@ -60,7 +60,7 @@ pub(crate) struct ViewportTopIter;
 
 impl ViewportTopIter {
     /// The iter at the line occupying the top of `view`'s viewport — or the start
-    /// of the buffer when `view` has no viewport yet (module contract, ScrAP-263).
+    /// of the buffer when `view` has no viewport yet (module contract, GTK4Rs/AP-263).
     pub(crate) fn of(view: &impl IsA<gtk::TextView>) -> gtk::TextIter {
         let view: &gtk::TextView = view.as_ref();
         if !has_viewport(view) {
@@ -99,7 +99,7 @@ impl ViewportRange {
     ///
     /// A view with no viewport yet reports an empty range at the top of the
     /// buffer rather than `line_at_y`'s last-line answer — the same gate
-    /// [`ViewportTopIter::of`] takes, for the same measured reason (ScrAP-263).
+    /// [`ViewportTopIter::of`] takes, for the same measured reason (GTK4Rs/AP-263).
     /// An empty range is the honest description: nothing is visible.
     pub(crate) fn of(view: &impl IsA<gtk::TextView>) -> Self {
         let view: &gtk::TextView = view.as_ref();
@@ -130,7 +130,7 @@ impl ViewportRange {
 mod tests {
     use super::*;
 
-    /// ScrAP-263 — a view with no allocation must report the TOP of the buffer,
+    /// GTK4Rs/AP-263 — a view with no allocation must report the TOP of the buffer,
     /// and the raw call it replaces must be shown reporting the BOTTOM, in the
     /// same body.
     ///

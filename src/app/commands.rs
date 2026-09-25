@@ -71,7 +71,7 @@ pub(crate) struct Cmd {
     /// a keystroke macOS reserves for itself is handled in `accel::MAC_RESERVED`,
     /// not by a second field and never by a per-surface special case.
     pub(crate) accel: &'static str,
-    /// The toolbar/menu icon for this command (all symbolic — ScrAP-169).
+    /// The toolbar/menu icon for this command (all symbolic — GTK4Rs/AP-174).
     pub(crate) icon: Icon,
     /// When true, insert a section separator before this item in both the menu
     /// bar model and the context-menu popup box.

@@ -205,7 +205,7 @@ pub(super) fn build_toolbar() -> BuiltToolbar {
     // already used by the find bar's match steppers, so they are known present in
     // the themes this app is verified against, and both are SYMBOLIC (a
     // non-symbolic icon's baked colour goes invisible on a dark-variant resolve —
-    // ScrAP-169). They are direction glyphs rather than history glyphs by design:
+    // GTK4Rs/AP-174). They are direction glyphs rather than history glyphs by design:
     // no common theme ships a distinct "browser back" icon, and the arrows are the
     // convention every browser and file manager uses.
     let nav_cluster = cluster(

@@ -231,7 +231,7 @@ impl Renderer {
             //
             // This holds INSIDE list items too: the
             // old flow-to-spaces workaround — which joined an item's source lines into one
-            // paragraph so the fragile `indent` hanging-indent stayed reliable (ScrAP-118) —
+            // paragraph so the fragile `indent` hanging-indent stayed reliable (GTK4Rs/AP-95) —
             // is retired now that items carry a uniform per-level `left_margin` with NO
             // `indent`. Every line of an item (first, soft wrap, hard break, continuation
             // paragraph) left-justifies to the same content margin, so an in-item break can

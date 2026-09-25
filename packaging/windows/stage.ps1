@@ -124,7 +124,7 @@ Copy-Item $exeSrc "$OutDir\bin\"
 # from beside the loaded GLib DLL. No gdbus.exe means no bus; no bus means
 # g_application_register() still succeeds, still reports is_remote() == false,
 # and every launch elects itself primary -- the same silent degradation macOS
-# showed in ScrAP-174, reached by a different route.
+# showed in GTK4Rs/AP-157, reached by a different route.
 #
 # Measured on this staged layout: without gdbus.exe, two launches on one
 # document give two processes and two windows; with it, one. Both copies of the

@@ -20,7 +20,7 @@
 # This runner's per-platform command bodies (cmd.macos.* in the contract) are what differ
 # from Linux, not the parsing/execution logic:
 #   - Step 5 names its integration targets and never `--lib` — the dual-harness bodies
-#     abort the process off the main thread on Quartz (ScrAP-171; measured GTK 4.22.4).
+#     abort the process off the main thread on Quartz (GTK4Rs/AP-159; measured GTK 4.22.4).
 #     The names are DERIVED from the manifest by scripts/macos-integration-targets.sh
 #     rather than written out, so a target added later cannot be absent from this port
 #     while the step still prints PASS. That difference lives in the contract, not here.

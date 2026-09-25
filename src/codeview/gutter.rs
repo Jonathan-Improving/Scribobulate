@@ -13,7 +13,7 @@
 //!    lazily-validated layout read — safe in a snapshot (GTK4Rs/AP-22 applies to the y, not x).
 //!  * **y comes from the caller's cache-free `line_yrange` read** (research §4 —
 //!    never `iter_location`, which validates/caches a line display mid-snapshot →
-//!    GTK4Rs/AP-22 blank view / ScrAP-105 btree abort). The caller paints VISIBLE lines only, so
+//!    GTK4Rs/AP-22 blank view / GTK4Rs/AP-89 btree abort). The caller paints VISIBLE lines only, so
 //!    `line_yrange` is on a validated line (its 0/stale hazard doesn't bite here).
 //!
 //! Shapes draw via Cairo (`snapshot.append_cairo`): `Snapshot::append_stroke` /

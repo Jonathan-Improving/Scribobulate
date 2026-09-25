@@ -184,7 +184,7 @@ pub(in crate::window) fn input_form(
             };
             apply(&entry.text());
             // The entry owns this handler, so the closure must not hold the entry
-            // strongly — the handler's own emitter argument is the entry (ScrAP-60).
+            // strongly — the handler's own emitter argument is the entry (GTK4Rs/AP-63).
             entry.connect_changed(move |e| apply(&e.text()));
         }
     }

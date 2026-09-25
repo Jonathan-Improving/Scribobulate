@@ -13,7 +13,7 @@
 //! (1) GTK4Rs/AP-22 — a geometry read that *validates* a line's layout on demand, forced on
 //! an OFF-SCREEN line during a draw/size-allocate, sets `alloc_needed` mid-cycle and
 //! blanks the view. So we measure **live in `snapshot_layer`, visible blocks only**,
-//! clamping each rectangle to the viewport. (2) ScrAP-105 — `iter_location` also builds
+//! clamping each rectangle to the viewport. (2) GTK4Rs/AP-89 — `iter_location` also builds
 //! and *caches* a line DISPLAY, inserting it into the view's line-display GSequence
 //! (kept sorted by line number); right after a `set_buffer` swap that cache still
 //! holds displays whose `GtkTextLine`s were freed with the old buffer, and the
@@ -171,7 +171,7 @@ mod imp {
         /// mid-restore — the restore idle + `scroll_to_mark` animation cannot
         /// settle between fast successive zooms, so the live top line briefly
         /// reads ≈ 0 and the preview drifts to the top (ANTI-PATTERNS
-        /// ScrAP-65). Tracks the user's settled top line while `user_scrolling`, and a
+        /// GTK4Rs/AP-14). Tracks the user's settled top line while `user_scrolling`, and a
         /// programmatic scroll's target otherwise; `None` only before any scroll,
         /// where the live top line (line 0) is trustworthy.
         pub(crate) restore_target_line: Cell<Option<i32>>,
@@ -179,7 +179,7 @@ mod imp {
         /// until the next programmatic scroll takes over. While set, `value-changed`
         /// records the settled top line into `restore_target_line`, so a following
         /// zoom re-anchors to where the user actually left off rather than a live,
-        /// mid-scroll-animation value (ScrAP-65).
+        /// mid-scroll-animation value (GTK4Rs/AP-14).
         pub(crate) user_scrolling: Cell<bool>,
         /// CriticMarkup comment markers drawn in the right margin.
         pub(crate) markers: RefCell<Vec<MarkerData>>,
@@ -279,7 +279,7 @@ mod imp {
         /// the BUFFER coordinates the card was painted in — the same convention
         /// `checkbox_hitboxes` uses, and read back through GTK's own
         /// `window_to_buffer_coords` so no hand-rolled scroll/margin math can drift
-        /// (ScrAP-91's lesson). Cleared and repopulated on every
+        /// (GTK4Rs/AP-81's lesson). Cleared and repopulated on every
         /// `snapshot_layer(BelowText)` paint. It exists so the pointer can be mapped to
         /// the block it is over, which is what reveals that block's copy button.
         pub(crate) code_block_rects: RefCell<Vec<(graphene::Rect, usize)>>,
@@ -357,7 +357,7 @@ mod imp {
         pub(crate) marker_popover_warmed: Cell<bool>,
         /// The `changed` handler the create overlay connects on the DISPLAY-level
         /// primary clipboard to detect table-cell `GtkLabel` selections (table-cell annotation):
-        /// a cell selection fires no buffer signal (selection island — ScrAP-110), so the
+        /// a cell selection fires no buffer signal (selection island — GTK4Rs/AP-28), so the
         /// only cross-environment signal is the primary clipboard's `changed`. The
         /// primary clipboard is long-lived (outlives the view), so we keep the id +
         /// clipboard here and disconnect in `dispose` — otherwise every fresh render's
@@ -441,7 +441,7 @@ mod imp {
             if let Some(p) = self.overlay_popover.borrow_mut().take() {
                 // `PersistentPopover::teardown()` releases any seat grab BEFORE
                 // unrealizing the surface that holds it: it is `popdown()` THEN
-                // `unparent()`, the one order that is safe here (ScrAP-144). `unparent()`
+                // `unparent()`, the one order that is safe here (GTK4Rs/AP-123). `unparent()`
                 // unrealizes the surface; doing that while a grab is live strands it —
                 // and a stranded grab is not a dead app: button/key events keep routing
                 // to the destroyed holder while motion/crossing still reach widgets, so
@@ -570,7 +570,7 @@ mod imp {
         }
 
         /// Cancel any pending deferred-scroll idle before this view leaves the tree
-        /// (ScrAP-152 / GTK4Rs/AP-63). `window.destroy()` unrealizes the subtree
+        /// (GTK4Rs/AP-128 / GTK4Rs/AP-63). `window.destroy()` unrealizes the subtree
         /// SYNCHRONOUSLY (gtkwindow.c:6717-6744), which runs BEFORE the pending
         /// `DEFAULT_IDLE`-priority scroll idle can dispatch — so cancelling here
         /// deterministically beats the idle and prevents it firing `scroll_to_mark`
@@ -826,13 +826,13 @@ impl CodePreviewView {
         // Ctrl+Home / Ctrl+End. Read-only does not exempt this view: GTK's
         // buffer-ends key bindings are on GtkTextView, not on editability, and a
         // rendered document is exactly the kind that is still being laid out when
-        // the key arrives (ScrAP-260). Wired here, at the one place a preview view is
+        // the key arrives (GTK4Rs/AP-260). Wired here, at the one place a preview view is
         // constructed, so it cannot be missed by a later render path.
         crate::farscroll::wire_buffer_ends_scroll(obj.upcast_ref());
         // …and keep those bindings reachable when an anchored table cell holds the
         // focus: a selectable cell label consumes the horizontal and buffer-ends keys
         // with its own bindings, so they never reach the view and the document does
-        // not move (ScrAP-264). Wired at the same one place, for the same reason.
+        // not move (GTK4Rs/AP-264). Wired at the same one place, for the same reason.
         navkeys::wire_document_navigation_keys(&obj);
         // A genuine user scroll supersedes any cached programmatic reading anchor,
         // so a subsequent zoom re-captures the live position rather than snapping
@@ -919,7 +919,7 @@ impl CodePreviewView {
     /// scroll event, so `user_scrolling` stayed false, `value-changed` ignored the
     /// move, and `restore_target_line` kept a stale (near-top) line — a later zoom
     /// re-render or reload then re-anchored there instead of where the user left off
-    /// (ScrAP-80; MANUAL-TEST 13.7 / 3.2). So hook the scrollbar and the
+    /// (GTK4Rs/AP-14; MANUAL-TEST 13.7 / 3.2). So hook the scrollbar and the
     /// scroll keys too. Setting `user_scrolling` liberally is safe for the
     /// rapid-zoom-burst path: `scroll_to_buffer_offset` resets it to
     /// false at the start of every programmatic scroll, so a burst's own animation
@@ -980,7 +980,7 @@ impl CodePreviewView {
     /// anchor (the user's settled top line, or a programmatic scroll's target) when
     /// set — never the transient, mid-animation adjustment value; the live top line
     /// only before any scroll. Used to re-anchor a zoom re-render so successive fast
-    /// zooms hold position (ScrAP-65).
+    /// zooms hold position (GTK4Rs/AP-14).
     pub(crate) fn reading_line(&self) -> i32 {
         use gtk::subclass::prelude::*;
         if let Some(l) = self.imp().restore_target_line.get() {
@@ -989,7 +989,7 @@ impl CodePreviewView {
         // Through the seam, not a hand-rolled `vadjustment().value()` +
         // `line_at_y`: that pair is answerable only once the view has been
         // allocated, and before then `line_at_y` returns the buffer's LAST line
-        // rather than declining (ScrAP-263). This is read on paths that run in the
+        // rather than declining (GTK4Rs/AP-263). This is read on paths that run in the
         // same synchronous turn a view is built in — the cross-document
         // fragment-link arrival stamps a Back/Forward departure from it — so the
         // unallocated case is reached in production, not just in tests.
@@ -1122,7 +1122,7 @@ impl CodePreviewView {
     /// **A change of `block` schedules a hover re-derivation, and that is a correctness
     /// requirement rather than a refinement.** Revealing a block's copy button is what
     /// CREATES that button's hit-box, and hit-boxes are written by the paint
-    /// (ScrAP-125) — so the very motion event that reveals the button hit-tested against
+    /// (GTK4Rs/AP-97) — so the very motion event that reveals the button hit-tested against
     /// a list that did not contain it yet, and decided `copy_button: None`. Nothing
     /// re-asks unless something makes it: MEASURED, a single move from outside a code
     /// block straight onto its copy button leaves the I-beam in place indefinitely (still
@@ -1195,7 +1195,7 @@ impl CodePreviewView {
     /// feature's best case.
     ///
     /// **Deferred to a DEFAULT_IDLE, and that is the whole correctness argument.** Every
-    /// rectangle this reads is written by the paint (ScrAP-125), so running it inline on
+    /// rectangle this reads is written by the paint (GTK4Rs/AP-97), so running it inline on
     /// `value-changed` would hit-test against the frame BEFORE the scroll — right for a
     /// block that was already visible (the rects are buffer-space and the widget→buffer
     /// conversion uses the live offset) and wrong for one that has just scrolled in,
@@ -2221,7 +2221,7 @@ mod gtk_integration_tests {
         );
     }
 
-    /// TDD 13.7 / ScrAP-65 regression (area-1 automated test): a
+    /// TDD 13.7 / GTK4Rs/AP-14 regression (area-1 automated test): a
     /// programmatic scroll RECORDS its target line as the cached reading anchor, so
     /// a following zoom re-render re-anchors to the intended reading position
     /// instead of drifting to the top. `reading_line()` must therefore report the
@@ -2258,7 +2258,7 @@ mod gtk_integration_tests {
         );
     }
 
-    /// ScrAP-104 regression: a persisted scroll mark must never
+    /// GTK4Rs/AP-89 regression: a persisted scroll mark must never
     /// be resolved after a `set_buffer` orphaned it. `scroll_to_buffer_offset`
     /// schedules an idle that calls `scroll_to_mark(&mark)`; if a buffer swap
     /// finalizes the mark's owning buffer before the idle fires, resolving it would
@@ -2333,7 +2333,7 @@ mod gtk_integration_tests {
         );
     }
 
-    /// ScrAP-105 regression: after a `set_buffer` swap warms then
+    /// GTK4Rs/AP-89 regression: after a `set_buffer` swap warms then
     /// invalidates the line-display cache, resolving a geometry read must not touch the
     /// stale cache. `iter_location` (which inserts into the line-display GSequence,
     /// comparing against entries from the freed old buffer) SIGSEGVs here — that was the
@@ -2365,7 +2365,7 @@ mod gtk_integration_tests {
         assert!(
             view.is_mapped() && view.height() > 0,
             "the view must be realized, or there is no line-display cache to warm and \
-             this test cannot reproduce ScrAP-105's precondition"
+             this test cannot reproduce GTK4Rs/AP-89's precondition"
         );
 
         let a: String = (0..200).map(|n| format!("alpha {n}\n")).collect();
@@ -2385,7 +2385,7 @@ mod gtk_integration_tests {
         assert!(
             warm.y() > 0,
             "the line-display cache must actually be warm against buffer A before the \
-             swap, or this test cannot reproduce ScrAP-105 (got y {})",
+             swap, or this test cannot reproduce GTK4Rs/AP-89 (got y {})",
             warm.y()
         );
         // Swap to a shorter buffer B, finalizing A and freeing its lines.

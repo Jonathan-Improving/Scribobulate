@@ -74,7 +74,7 @@ pub(super) fn traverse(window: &ApplicationWindow, dir: NavDir) {
 ///
 /// Both restores are the seams the forward navigation already uses, so a
 /// traversal is exactly as validation-safe as the click that recorded it
-/// (GTK4Rs/AP-22 / ScrAP-260 are handled inside them) — never a hand-rolled
+/// (GTK4Rs/AP-22 / GTK4Rs/AP-260 are handled inside them) — never a hand-rolled
 /// adjustment write.
 pub(super) fn restore_place(tab: &Rc<TabState>, spot: Option<&NavSpot>) {
     let Some(spot) = spot else {

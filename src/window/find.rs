@@ -213,7 +213,7 @@ impl FindScope {
     ///
     /// **The buffer check is not defensive padding.** Resolving a mark against a buffer
     /// it does not belong to is a process ABORT inside GTK's btree, not an error
-    /// (ScrAP-104), and the editor buffer is swapped on a reload-from-disk. Every
+    /// (GTK4Rs/AP-89), and the editor buffer is swapped on a reload-from-disk. Every
     /// resolution site in this project carries the same guard.
     fn editor_bounds(&self, buf: &gtk::TextBuffer) -> Option<(i32, i32)> {
         let FindScope::Editor { start, end } = self else {
@@ -804,7 +804,7 @@ fn preview_scope_for(
         generation: view.render_generation(),
     };
     // Cloned out of the cell before anything else, so no borrow is alive across the
-    // action-state write below (ScrAP-53).
+    // action-state write below (GTK4Rs/AP-61).
     let resolved = st
         .find_scope
         .borrow()
@@ -946,7 +946,7 @@ fn scroll_to_preview_hit(view: &CodePreviewView, hit: &PreviewHit) {
 ///
 /// The borrow is dropped before returning, and nothing between taking it and dropping
 /// it calls a GTK setter — `iter_at_mark` is a read. A setter here would be the
-/// re-entrant `RefCell` abort ScrAP-53 records.
+/// re-entrant `RefCell` abort GTK4Rs/AP-61 records.
 fn editor_scope_bounds(st: &Rc<TabState>) -> Option<(i32, i32)> {
     let buf: gtk::TextBuffer = st.editor_buf.clone().upcast();
     let scope = st.find_scope.borrow();

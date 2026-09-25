@@ -138,7 +138,7 @@ crosses cells and **dragging does not** is less coherent than today's honest dea
 *(Related GTK facts established during this investigation, in case they're wanted
 elsewhere: `GtkLabel` exposes no cursor position — the public getter normalises
 `anchor`/`end` away, `:2118-2120` — and the PRIMARY-clipboard "hole" GTK4Rs/AP-28 once alleged
-**does not exist**; see GTK4Rs/AP-28 / ScrAP-135.)*
+**does not exist**; see GTK4Rs/AP-28 / GTK4Rs/AP-120.)*
 
 **The limitation is accepted, and the impact is small.** In-cell selection is already
 char-precise (TDD 2.8f); a buffer selection over the table anchor already copies the whole
@@ -174,7 +174,7 @@ size.
 **Second consequence, established 2026-08-07.** While the layout is invalid, GTK keeps its
 incremental line-height validation idle permanently ready, and that starves anything the app
 schedules below it. Far navigation (Ctrl+Home/End, Go To Line, find, outline) is deferred until
-validation completes for correctness reasons (ScrAP-260), so on a document caught in this spin
+validation completes for correctness reasons (GTK4Rs/AP-260), so on a document caught in this spin
 that navigation would never arrive at all. It is bounded rather than exposed — the deferral
 carries a timer-based deadline above the validate idle's priority, which degrades to a partial
 landing instead of hanging — but that mitigation exists *because of this issue* and would be
@@ -264,7 +264,7 @@ recoverable blank** from a `GtkOverlay` snapshotted without an allocation; this 
 host, and its silence is not evidence.** Measured 2026-08-04: a distribution GTK is built
 without debug support, so every informational `GTK_DEBUG`/`GDK_DEBUG`/`GSK_DEBUG` key reports
 `[unavailable]` and emits nothing — an empty log therefore means *the instrument is dark*, not
-*no widget re-queued a resize* (ScrAP-251). Restoring that key requires a locally built,
+*no widget re-queued a resize* (GTK4Rs/AP-251). Restoring that key requires a locally built,
 debug-enabled GTK loaded ahead of the distribution one; `sdd/PLAN.profiling.md` records the
 cost and the alternatives.
 
@@ -354,7 +354,7 @@ therefore stays, sitting a few pixels past the wrap width, and `GtkTextLayout` r
 line's LOGICAL extent — hanging space included — as the layout width. That becomes
 `hadjustment.upper`, which exceeds `page_size`, which summons the Automatic horizontal
 scrollbar, whose appearance and disappearance re-arms the width↔height-for-width churn that
-leaves the preview stuck blank until a manual resize (ScrAP-22, ScrAP-23).
+leaves the preview stuck blank until a manual resize (GTK4Rs/AP-22, GTK4Rs/AP-23).
 
 MEASURED (GTK 4.6.9, gtk4-rs 0.10, X11/Xvfb, `#[gtktest::test]`, this repository's own
 `sdd/ANTI-PATTERNS.md` as the corpus): a sweep of 41 window widths (600–1000 step 10) at zoom
@@ -392,7 +392,7 @@ scrolling. It is invisible at every other width.
   reader sees.
 - **`hscrollbar_policy = Never`** — banned outright and independently of this entry: it makes
   `GtkScrolledWindow` adopt the child's minimum width and ratchet, so the window can no longer
-  shrink to fit (ScrAP-23a).
+  shrink to fit (GTK4Rs/AP-139).
 
 **Mitigation options**:
 - Accept the limitation (chosen). A reader who hits it can resize the window a little; the

@@ -343,7 +343,7 @@ Detailed documentation lives in the `sdd/` directory:
 - `sdd/TECH.md` — Technical architecture and system diagram
 - `sdd/TDD.md` — Test specifications (Given/When/Then rubrics)
 - `sdd/POLICY.md` — Development rules and constraints
-- `sdd/ANTI-PATTERNS.md` — Why the native-widget stack was chosen
+- `sdd/ANTI-PATTERNS.md` — Register of this project's own costly dead ends
 - `sdd/ISSUES.md` — Known issues
 
 ## How this project is built

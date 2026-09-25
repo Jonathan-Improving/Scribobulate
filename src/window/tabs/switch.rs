@@ -329,7 +329,7 @@ fn resync_find_bar_for_tab(window: &ApplicationWindow, st: &Rc<TabState>) {
 /// already parented to this editor.
 pub(crate) fn retarget_format_overlay(st: &Rc<TabState>) {
     // `reparent` is popdown→unparent→set_parent, idempotent when already on this
-    // editor — the ScrAP-144 order (and the prior idempotence no-op) live in the handle.
+    // editor — the GTK4Rs/AP-123 order (and the prior idempotence no-op) live in the handle.
     st.chrome().format_overlay.reparent(&st.editor);
 }
 
@@ -343,7 +343,7 @@ pub(crate) fn retarget_format_overlay(st: &Rc<TabState>) {
 pub(super) fn detach_overlay_from(chrome: &winstate::WindowChrome, editor: &sourceview::View) {
     let editor_w: &gtk::Widget = editor.upcast_ref();
     if chrome.format_overlay.parent().as_ref() == Some(editor_w) {
-        // Only when THIS editor hosts it; `teardown` is popdown→unparent (ScrAP-144).
+        // Only when THIS editor hosts it; `teardown` is popdown→unparent (GTK4Rs/AP-123).
         chrome.format_overlay.teardown();
     }
 }

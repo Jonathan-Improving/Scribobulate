@@ -161,7 +161,7 @@ cd "$(dirname "$0")/.."
 #   DOWN — it added GTK-wired code this unit-only run cannot reach, exactly the
 #     farscroll/scrollpos situation above: ~49 lines across `preview/*` and
 #     `winstate/registry.rs` for the feature (-0.26pt on their own), and 13 lines in
-#     `src/saferizer/viewport.rs` for the ScrAP-263 allocation gate (-0.06pt), a file that
+#     `src/saferizer/viewport.rs` for the GTK4Rs/AP-263 allocation gate (-0.06pt), a file that
 #     reads 0.00% here (37 lines, 37 missed) while being covered in the integration suite.
 #     The gate adds no decision core that could offset itself: the whole of its new logic
 #     is one predicate over a GTK rectangle.
@@ -176,7 +176,7 @@ cd "$(dirname "$0")/.."
 # The exclusion route is NOT taken for any of it, for the reason it was declined above: it
 # was offered and refused once, and reversing that quietly inside a feature change would
 # make the scope drift on a maintainer's convenience rather than on a decision. The honest
-# alternative for the ScrAP-263 gate specifically — contorting its predicate into a pure
+# alternative for the GTK4Rs/AP-263 gate specifically — contorting its predicate into a pure
 # function over an integer so a unit test could reach it — was rejected as writing code to
 # satisfy the metric rather than the reader.
 #
@@ -188,7 +188,7 @@ cd "$(dirname "$0")/.."
 # file-size soft limit before splitting a test module out; `preview/scroll.rs` and
 # `window/outline_nav.rs` both keep theirs inline for this reason.
 #
-# RAISED 76.61 -> 76.77 by the ScrAP-264 anchored-child navigation-key repair. 76.78
+# RAISED 76.61 -> 76.77 by the GTK4Rs/AP-264 anchored-child navigation-key repair. 76.78
 # printed, rounded DOWN to 76.77 per the rule above — the printed figure is already
 # rounded, so 76.78 fails its own measurement. The arithmetic is the shape the note
 # above predicts, in the favourable direction for once: the GTK half (`codeview/navkeys.rs`) lands in an
@@ -214,7 +214,7 @@ cd "$(dirname "$0")/.."
 # marker layer is exactly the move the scope rule asks for, so the ratchet moving is
 # the mechanism working.
 #
-# RAISED 76.96 -> 77.01 by the ScrAP-268 SIGTRAP fix. 77.02 printed, rounded DOWN per
+# RAISED 76.96 -> 77.01 by the GTK4Rs/AP-268 SIGTRAP fix. 77.02 printed, rounded DOWN per
 # the rule above. Test-weighted again, and for the ScrAP-265 reason two notes up:
 # `forensics/` is in scope, the product change is two lines (`SIGTRAP` in the const, its
 # name in `signal_name`), and everything else is test bodies landing in the numerator.
@@ -317,7 +317,7 @@ cd "$(dirname "$0")/.."
 # precisely because it tracked the host; 77 is the largest whole number the merged
 # measurement supports. Nothing that was covered has become uncovered -- 77.60 measured
 # now is ABOVE the 77.42 that note banked.
-# 2026-08-17: 77.53 → 77.72, banked by the remote-image HTTP fetch (ScrAP-292). The run
+# 2026-08-17: 77.53 → 77.72, banked by the remote-image HTTP fetch (GTK4Rs/AP-292). The run
 # PRINTS 77.73 and a floor of 77.73 FAILS it — the printed figure is rounded up from
 # something a hair under, so the rule above ("round down") is not a style preference, it
 # is the difference between a gate that passes and one that fails on the very run that
@@ -349,7 +349,7 @@ cd "$(dirname "$0")/.."
 # manufacture one. Do not "tidy" this up to the measured value.
 #
 # ratchet 2026-08-18b (77.78 -> 77.85), measurement 77.88, same deliberate margin. The
-# gain is the DocMonitor seam (ScrAP-297) arriving with its own unit tests rather than
+# gain is the DocMonitor seam (GTK4Rs/AP-340) arriving with its own unit tests rather than
 # with an IGNORE entry: the seam is thin GIO wiring and would have been excludable on
 # the scope rule, which is exactly the reasoning ScrAP-294 warns produces a number that
 # measures less code every time it moves.

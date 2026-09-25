@@ -83,7 +83,7 @@ impl Renderer {
         // `px(a) + px(b)` and `n * px(a)` is not `px(n * a)`), leaving the inset up to a
         // pixel short per level. One pixel is enough — the Automatic h-scrollbar appears
         // on `upper > page_size`, at any magnitude — so the child overflowed the viewport
-        // and re-armed the GTK4Rs/AP-22/23 churn (ScrAP-23a, through the rounding rather
+        // and re-armed the GTK4Rs/AP-22/23 churn (GTK4Rs/AP-139, through the rounding rather
         // than through the indent).
         //
         // A list adds only a LEFT margin; a blockquote sets BOTH, so it costs twice.
@@ -148,7 +148,7 @@ impl Renderer {
     /// (`gtk_text_layout_get_line_display`, `size_only=TRUE`) is not merely private but
     /// absent from `libgtk-4.so.1`'s dynamic symbol table, so no binding or shim reaches
     /// it, and every public path that yields an x inserts into the display cache —
-    /// ScrAP-105's use-after-free. Researcher-verified against 4.6.9 source and
+    /// GTK4Rs/AP-89's use-after-free. Researcher-verified against 4.6.9 source and
     /// reproduced here with `nm -D`.
     ///
     /// **Inserted BEFORE the caller records the heading's span**, so the band covers the
@@ -246,7 +246,7 @@ impl Renderer {
     }
 
     /// Apply a list item's uniform per-level content-margin tags over `[start, end)`,
-    /// PER logical line with the terminating `\n`s left untagged (ScrAP-72/GTK4Rs/AP-72).
+    /// PER logical line with the terminating `\n`s left untagged (GTK4Rs/AP-70/GTK4Rs/AP-72).
     /// The item's FIRST logical line gets `li-{depth}` (carries the small inter-item
     /// `pixels_above_lines` gap); every LATER logical line gets `li-{depth}-cont` (no
     /// gap). Both variants carry the SAME `left_margin` and `indent = 0` — the marker is

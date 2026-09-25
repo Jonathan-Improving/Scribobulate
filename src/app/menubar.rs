@@ -93,7 +93,7 @@ fn make_format_item(label: &str, target: &str) -> MenuItem {
 /// `scheduled` selects that menu's own coalescing flag, so the two submenus queue
 /// independently. The closure re-resolves the chrome rather than capturing it: a window
 /// can be gone by the time the idle fires, and a strong capture would keep it alive
-/// (ScrAP-60 / GTK4Rs/AP-128).
+/// (GTK4Rs/AP-63 / GTK4Rs/AP-128).
 pub(crate) fn defer_live_menu_mutation(
     window: &gtk::ApplicationWindow,
     scheduled: fn(&crate::winstate::WindowChrome) -> &std::cell::Cell<bool>,

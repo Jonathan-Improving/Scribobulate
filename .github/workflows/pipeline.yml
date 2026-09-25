@@ -306,7 +306,7 @@ jobs:
   # BSD-versus-GNU divergence can hide in it — the scan-set comparison covers the
   # cross-reference gate on this platform, but that is a Rust binary with no shell in it,
   # so it says nothing about this port's `awk`/`sed`/`sort`. It is also the
-  # first automated evidence for ScrAP-171's dual-harness split, which until now was
+  # first automated evidence for GTK4Rs/AP-159's dual-harness split, which until now was
   # measured only by hand on the operator's own machine.
   #
   # STEP 6 IS DECLARED NON-APPLICABLE HERE by the contract itself (`na.macos coverage`,

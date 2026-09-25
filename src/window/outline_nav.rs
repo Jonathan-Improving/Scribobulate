@@ -395,7 +395,7 @@ pub(crate) fn wire_scroll_spy(window: &ApplicationWindow) {
             // off-screen (or the previous tab's vadjustment left the viewport
             // mid-list). Only this post-wire idle — not every document
             // `value-changed` — so a user who scrolled the outline by hand is not
-            // fought while reading. Uses `list.scroll-to-item` (4.6-safe; ScrAP-157).
+            // fought while reading. Uses `list.scroll-to-item` (4.6-safe; GTK4Rs/AP-143).
             if let Some(st) = state(&w) {
                 super::sidebar::reveal_selected_row(&st.chrome().outline_scroller);
             }
@@ -527,7 +527,7 @@ pub(crate) fn outline_collapse_all(window: &ApplicationWindow) {
         return;
     };
 
-    // Re-anchor the outline ListView to the TOP before collapsing (ScrAP-157).
+    // Re-anchor the outline ListView to the TOP before collapsing (GTK4Rs/AP-143).
     // A `GtkListView` keeps a scroll-stability ANCHOR row across a model change,
     // chosen from the scroll position at `items-changed` time. When the outline is
     // scrolled to the bottom, that anchor is a deep `###` row — which the collapse
@@ -897,7 +897,7 @@ mod collapse_all_tests {
             .expect("outline scroller holds a ListView")
     }
 
-    /// Repro of ScrAP-157: after Collapse-all on a deeply nested single-root
+    /// Repro of GTK4Rs/AP-143: after Collapse-all on a deeply nested single-root
     /// document, the outline must show ONLY the root row (doc_index 0), not a
     /// far-end leaf. The whole document has one `#` root, so a correct true-
     /// recursive collapse leaves exactly that row.
@@ -969,7 +969,7 @@ mod collapse_all_tests {
             row_doc_indices(&model),
             vec![0],
             "Collapse-all must leave ONLY the depth-0 root row (doc_index 0) in the \
-             model, not a far-end leaf (ScrAP-157)"
+             model, not a far-end leaf (GTK4Rs/AP-143)"
         );
 
         // The DISPLAY layer must AGREE with the model: the only materialised row is
@@ -981,7 +981,7 @@ mod collapse_all_tests {
             shown,
             vec!["Title".to_string()],
             "the ListView must show exactly the root row after collapse \
-             (ScrAP-157); saw: {shown:?}"
+             (GTK4Rs/AP-143); saw: {shown:?}"
         );
 
         window.destroy();

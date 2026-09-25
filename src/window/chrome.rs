@@ -120,7 +120,7 @@ fn cap_field_width(field: &impl IsA<gtk::Editable>) {
 /// `GtkEntryCompletion` are both deprecated as of GTK 4.10 and the gtk4-rs bindings
 /// mark them `#[deprecated]`, which fails the zero-warning clippy gate; and the find
 /// field has to stay a `GtkSearchEntry` for the `stop-search` binding that closes the
-/// bar on Escape (ScrAP-48). A sibling button leaves the entry exactly as it is.
+/// bar on Escape (GTK4Rs/AP-53). A sibling button leaves the entry exactly as it is.
 ///
 /// **An icon and NO arrow — and the absence is chosen, not defaulted.** At this GTK
 /// floor a `GtkMenuButton`'s child *type* decides whether it gets a down-indicator: the
@@ -138,7 +138,7 @@ fn cap_field_width(field: &impl IsA<gtk::Editable>) {
 /// This button was an EMPTY label before it carried an icon, and the reason it was
 /// empty is the reason it is not a `set_label` now. It began as `set_label("▾")` — a
 /// glyph rather than an icon name, deliberately, because an icon name is one more thing
-/// to be missing from a host icon theme (ScrAP-169, GTK4Rs/AP-48) — and it drew TWO
+/// to be missing from a host icon theme (GTK4Rs/AP-174, GTK4Rs/AP-48) — and it drew TWO
 /// arrows on Windows, the application's chevron beside the toolkit's. `set_child` does
 /// not avoid it either: a custom child is wrapped in the same `box[child, arrow]`. Note
 /// what the pair of measurements says together: the toolkit's arrow is drawn on Windows
@@ -164,7 +164,7 @@ fn history_button(accessible_name: &str) -> gtk::MenuButton {
 fn restore_sidebar_split(paned: &gtk::Paned, fraction: f64) {
     // The handler disconnects itself, so it needs its own id — which `connect` only
     // returns after the closure has been built. The shared cell is the handover. It
-    // holds no widget, so it closes no reference cycle (ScrAP-60); the closure reaches
+    // holds no widget, so it closes no reference cycle (GTK4Rs/AP-63); the closure reaches
     // the paned through the emitter argument, never a captured clone.
     let handler: std::rc::Rc<std::cell::RefCell<Option<gtk::glib::SignalHandlerId>>> =
         std::rc::Rc::new(std::cell::RefCell::new(None));
@@ -196,7 +196,7 @@ fn track_sidebar_split(paned: &gtk::Paned) {
             return;
         };
         // Resolve the host window at emission time rather than capturing one: this
-        // widget outlives nothing here, but a captured window would be the ScrAP-60
+        // widget outlives nothing here, but a captured window would be the GTK4Rs/AP-63
         // cycle and a stale one after a cross-window move (GTK4Rs/AP-52).
         if let Some(chrome) = paned
             .root()
@@ -376,7 +376,7 @@ pub(super) fn build_chrome(
     // more here: the narrow handle's hit-area is inflated 6px on EACH side and its drag
     // gesture runs in CAPTURE phase on the Paned, so a narrow handle would swallow
     // presses on the outline's bottom row and the annotations list's top row — both of
-    // them navigation targets (ScrAP-119).
+    // them navigation targets (GTK4Rs/AP-93).
     sidebar_paned.set_wide_handle(true);
     // Neither section may be dragged away to nothing: `shrink=false` floors the divider
     // at each child's own minimum, which keeps the pane's action the only thing that can

@@ -151,7 +151,7 @@ fn wire_mouse_buttons(window: &ApplicationWindow) {
 /// `re_render` — but in Preview mode an external reload rebuilds the preview by a
 /// **fresh `render()`** into a brand-new widget, not `re_render`, so the one path
 /// the rubric is actually about never reconciled. That is this file's second
-/// instance of the same trap (ScrAP-52: the scroll-spy stayed wired to the
+/// instance of the same trap (GTK4Rs/AP-55: the scroll-spy stayed wired to the
 /// orphaned adjustment for exactly the same reason), and "hook every render site"
 /// answers it only until someone adds a fourth.
 ///
@@ -292,7 +292,7 @@ mod gtk_integration_tests {
     /// Note what this body deliberately does NOT do: drive `re_render` and stop
     /// there. An earlier version did, and passed, while the live reload path —
     /// which rebuilds by a fresh `render()` into a new widget — reconciled
-    /// nothing (found on the operator's display, ScrAP-52's shape). The
+    /// nothing (found on the operator's display, GTK4Rs/AP-55's shape). The
     /// reconciliation now happens in front of the sensitivity read instead of at
     /// any render site, so this body exercises the same code either rebuild takes.
     #[gtktest::test]

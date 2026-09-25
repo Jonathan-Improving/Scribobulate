@@ -22,7 +22,7 @@
 //! make it a one-liner. The ban alone is NOT sufficient — it matches a path, so the
 //! builder spelling (`MenuButton::builder().tooltip_text(…)`) slips through it; the
 //! tree-walk guard at the foot of this file is the other half of one mechanism, and is
-//! what actually caught three unnamed controls (ScrAP-230).
+//! what actually caught three unnamed controls (GTK4Rs/AP-130).
 //!
 //! Picking an entry point:
 //!
@@ -317,8 +317,8 @@ mod gtk_integration_tests {
     /// `change_action_state` on it is a silent no-op that emits `GLib-GIO-CRITICAL
     /// g_action_change_state: assertion 'state_type != NULL'`, which went unread until
     /// the suite ran under `G_DEBUG=fatal-criticals` and it became a SIGTRAP
-    /// (ScrAP-277). The two sidebars ARE stateful toggles, so they keep the state route
-    /// (ScrAP-252).
+    /// (GTK4Rs/AP-319). The two sidebars ARE stateful toggles, so they keep the state route
+    /// (GTK4Rs/AP-252).
     fn walkable_window(app_id: &str) -> (gtk::Application, gtk::ApplicationWindow) {
         let app = gtk::Application::new(Some(app_id), gtk::gio::ApplicationFlags::NON_UNIQUE);
         app.register(gtk::gio::Cancellable::NONE)

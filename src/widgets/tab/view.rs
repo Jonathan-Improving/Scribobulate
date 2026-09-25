@@ -52,7 +52,7 @@ pub(crate) struct TabView {
 /// `TabBar::dispose` cannot rescue it, because the cycle is exactly what stops
 /// `dispose` from ever being called (empirically confirmed: on window destroy
 /// `winstate::unregister` runs but the TabBar's dispose/finalize never does — see
-/// ScrAP-60). Capturing weak and upgrading at fire time means the cycle
+/// GTK4Rs/AP-63). Capturing weak and upgrading at fire time means the cycle
 /// never forms, so the TabBar finalizes normally when the window is destroyed.
 #[derive(Clone)]
 pub(crate) struct WeakTabView {

@@ -518,7 +518,7 @@ impl ReaderAnchor {
         }
         // Through the seam, never a hand-rolled `line_at_y`: on a view with no
         // allocation that call answers the buffer's LAST line rather than declining
-        // (ScrAP-263), and the answer is not distinguishable from a real one.
+        // (GTK4Rs/AP-263), and the answer is not distinguishable from a real one.
         let iter = crate::saferizer::viewport::ViewportTopIter::of(view);
         let (y, _height) = view.line_yrange(&iter);
         // Left gravity. The splice inserts strictly ABOVE this position, so gravity

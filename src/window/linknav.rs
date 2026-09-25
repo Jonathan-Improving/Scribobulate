@@ -143,7 +143,7 @@ fn open_doc_link_target(window: &ApplicationWindow, path: &Path, fragment: Optio
     // The window is re-resolved through a weak reference afterwards: a read that
     // takes any real time is a window the user can close in the meantime, and a
     // strong capture here would keep the whole widget subtree alive past its own
-    // teardown and then build a tab into it (ScrAP-152 / GTK4Rs/AP-161).
+    // teardown and then build a tab into it (GTK4Rs/AP-128 / GTK4Rs/AP-161).
     let win_weak = window.downgrade();
     let path = path.to_path_buf();
     let fragment = fragment.map(str::to_owned);
@@ -549,7 +549,7 @@ mod gtk_integration_tests {
     /// fresh document starts. But that position is read in the same synchronous
     /// turn the tab is built in, before GTK has allocated the view, and
     /// `line_at_y` answers an unallocated view with the buffer's **last** line
-    /// (ScrAP-263) — so the stamp was the end of the document, and one Back threw
+    /// (GTK4Rs/AP-263) — so the stamp was the end of the document, and one Back threw
     /// the reader there.
     ///
     /// Mutation-checked against both mechanisms, which fail with different

@@ -101,7 +101,7 @@ pub(crate) struct TabState {
     ///
     /// Beside `outline_selected` for the same reason it exists — `refresh_outline` destroys
     /// the tree widget on every rebuild, and GTK remembers no expansion of its own
-    /// (ScrAP-84), so anything the reader folded is lost unless it is held here. Per tab,
+    /// (GTK4Rs/AP-111), so anything the reader folded is lost unless it is held here. Per tab,
     /// which is the whole point: the outline scroller is window chrome shared by every
     /// document, so this state cannot live on the widget without one document's folds
     /// following the reader into another's.
@@ -224,7 +224,7 @@ pub(crate) struct TabState {
     /// True while live reload could not watch this document's file — GIO refused the
     /// monitor — so the status bar says so for as long as it holds (TDD 16.16). Set and
     /// cleared by `app::open::attach_file_backing`, the one place a monitor attaches.
-    /// It cannot see a monitor that attaches and then never fires (ScrAP-275).
+    /// It cannot see a monitor that attaches and then never fires (GTK4Rs/AP-275).
     pub(crate) live_reload_off: Cell<bool>,
     /// Bumped on every change to the editor buffer, so a word count computed off the
     /// main thread can tell whether it still describes the buffer (TDD 16.11).
@@ -307,7 +307,7 @@ pub(crate) struct TabState {
     /// Held as a [`DocMonitor`](crate::saferizer::DocMonitor) rather than a raw
     /// `gio::FileMonitor` so that cancelling one necessarily consumes it: a
     /// cancelled monitor released after a main-loop dispatch aborts the process on
-    /// Windows (ScrAP-297).
+    /// Windows (GTK4Rs/AP-340).
     pub(crate) file_monitor: RefCell<Option<crate::saferizer::DocMonitor>>,
     /// Whether "Show Unsafe Images" is on for this window. When true, remote
     /// (http/https) image URLs and local images outside the document folder are
@@ -379,7 +379,7 @@ pub(crate) struct TabState {
     /// and a `GtkTextMark` is not `Copy`. Read it with the same discipline every other
     /// `RefCell` here takes: clone out before calling into GTK, because a setter that
     /// re-enters and borrows this again is a process abort rather than an error
-    /// (ScrAP-53).
+    /// (GTK4Rs/AP-61).
     pub(crate) find_scope: RefCell<Option<crate::window::FindScope>>,
     /// This tab's committed search terms and replacement texts, most recent first.
     ///

@@ -80,7 +80,7 @@ fn apply_reload_from_disk(window: &ApplicationWindow, st: &Rc<TabState>, content
     // editor's `changed` signal, which schedules a debounced `re_render` that then
     // `set_buffer`s the preview view the view-mode re-issue below just rebuilt —
     // leaving a stale line-display cache whose freed lines abort GTK's next paint
-    // (`g_sequence_insert_sorted` → freed GtkTextLine → SIGSEGV; ScrAP-105).
+    // (`g_sequence_insert_sorted` → freed GtkTextLine → SIGSEGV; GTK4Rs/AP-89).
     // The view-mode re-issue already renders the preview fresh from the reloaded
     // source, so the debounced re-render is both redundant and the crash trigger.
     // The captured find-in-selection passage named text in the buffer that was just
@@ -435,7 +435,7 @@ pub(crate) fn apply_external_reload(window: &ApplicationWindow, content: &str) {
             // any scroll), so it is clamp-robust — the resize re-anchor and this reload
             // both key off the same tracked line and converge (Reading-Position
             // Preservation CAM; the resize idle itself is separately cancelled when
-            // `set_preview` unrealizes the old view — ScrAP-152).
+            // `set_preview` unrealizes the old view — GTK4Rs/AP-128).
             let top_line = st
                 .split
                 .preview_scroller()
@@ -554,7 +554,7 @@ pub(crate) fn apply_external_reload(window: &ApplicationWindow, content: &str) {
 mod gtk_integration_tests {
     use super::*;
 
-    /// Regression test for ScrAP-52 / GTK4Rs/AP-55: an
+    /// Regression test for GTK4Rs/AP-55 / GTK4Rs/AP-55: an
     /// external auto-reload in Preview mode rebuilds the preview via a fresh
     /// `render()` (new ScrolledWindow + new GtkAdjustment), not an in-place
     /// `re_render()` — so the scroll-spy signal wired to the OLD adjustment
@@ -599,7 +599,7 @@ mod gtk_integration_tests {
         assert_eq!(
             wired_after_ptr,
             sw_after.as_ptr(),
-            "ScrAP-52 regression: scroll-spy must be wired to the SW actually on \
+            "GTK4Rs/AP-55 regression: scroll-spy must be wired to the SW actually on \
              screen after an external reload, not an orphaned old one"
         );
 
@@ -952,7 +952,7 @@ mod gtk_integration_tests {
                 ORIGINAL,
             );
             crate::app::attach_file_backing(&window, &tab, path.clone());
-            // A freshly attached monitor is not yet watching (ScrAP-269).
+            // A freshly attached monitor is not yet watching (GTK4Rs/AP-269).
             drain(std::time::Duration::from_millis(200));
 
             // What every atomic external writer does.
@@ -994,7 +994,7 @@ mod gtk_integration_tests {
                 ORIGINAL,
             );
             crate::app::attach_file_backing(&window, &tab, path.clone());
-            // A freshly attached monitor is not yet watching (ScrAP-269).
+            // A freshly attached monitor is not yet watching (GTK4Rs/AP-269).
             drain(std::time::Duration::from_millis(200));
 
             std::fs::remove_file(&path).expect("delete");
@@ -1156,7 +1156,7 @@ mod gtk_integration_tests {
         None
     }
 
-    /// ScrAP-155 regression: the annotation "comment card" (`GtkEntry` +
+    /// GTK4Rs/AP-63 regression: the annotation "comment card" (`GtkEntry` +
     /// Save button in an overlay child) is rebuilt inside `wire_annotation_overlay` on
     /// EVERY preview render. Its `hide_entry` closure once strong-captured the card's
     /// container `bar`, and that closure is held by controllers added to `bar` itself
@@ -1194,7 +1194,7 @@ mod gtk_integration_tests {
 
         // Each reload rebuilds the preview subtree, dropping the previous overlay + card.
         // Drive a few bounded cycles and stop the moment the captured entry finalizes — a
-        // stranded (ScrAP-60-cycled) entry never will, so the loop exhausts and the assert
+        // stranded (GTK4Rs/AP-63-cycled) entry never will, so the loop exhausts and the assert
         // fires. Frame-count pumped, never a wall-clock sleep (GTK4Rs/AP-122).
         for n in 0..8 {
             apply_external_reload(&window, &format!("# One\n\n# Two {n}\n\nbody {n}"));
@@ -1214,7 +1214,7 @@ mod gtk_integration_tests {
 
         assert!(
             weak.upgrade().is_none(),
-            "ScrAP-155: the previous render's annotation-card GtkEntry must \
+            "GTK4Rs/AP-63: the previous render's annotation-card GtkEntry must \
              finalize when the preview is rebuilt. A strong `bar` capture in `hide_entry` \
              (held by controllers on `bar`) forms an uncollectable cycle that strands the \
              card and leaks RSS unbounded per reload."

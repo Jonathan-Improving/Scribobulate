@@ -5,7 +5,7 @@
 //! **Word counting leaves the main thread.** Counting the 3 MB `large-doc.md` fixture
 //! measured 22–34 ms in a release build — more than a frame. It runs on GLib's pool
 //! with owned text in and counts out, at most one job application-wide (POLICY § all
-//! GTK on the main thread; ScrAP-243) with the rest queued one deep per tab, and a
+//! GTK on the main thread; GTK4Rs/AP-243) with the rest queued one deep per tab, and a
 //! result is applied only if the buffer generation it was computed from is still
 //! current — discard, never merge (Deferred-operation CAM).
 
@@ -365,7 +365,7 @@ impl SelectionText {
 /// Editor: the source slice, counted as Markdown (approximate where the slice cuts a
 /// construct). Preview: the buffer's rendered text — which omits anchored children
 /// (ScrAP-74) — or, failing that, a table cell's own label selection, which no buffer
-/// signal reports (ScrAP-110) and which the preview's selection driver re-schedules
+/// signal reports (GTK4Rs/AP-28) and which the preview's selection driver re-schedules
 /// this count for.
 fn selected_text(window: &ApplicationWindow, st: &TabState) -> Option<SelectionText> {
     let view = focused_text_view(window)?;
@@ -481,7 +481,7 @@ const _: () = assert!(
 );
 
 thread_local! {
-    /// The application-wide bound: one count on the pool at a time (ScrAP-243), the
+    /// The application-wide bound: one count on the pool at a time (GTK4Rs/AP-243), the
     /// rest queued one deep per tab. The number is `docio::budget`'s.
     static COUNTER: RefCell<Counter> = RefCell::default();
 }

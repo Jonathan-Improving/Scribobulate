@@ -6,7 +6,7 @@
 //! widget, it takes focus when the reader clicks or tabs into it, and a focused
 //! **selectable `GtkLabel`** answers `Home`, `End`, `Ctrl+Home`, `Ctrl+End`, `Left`
 //! and `Right` with its own `move-cursor` bindings, consuming them where the reader
-//! can see no effect at all — the document simply does not move (ScrAP-264).
+//! can see no effect at all — the document simply does not move (GTK4Rs/AP-264).
 //!
 //! Measured, GTK 4.6.9 / X11, with capture- and bubble-phase controllers on the view:
 //! with a selectable cell label focused those six keys reach the view's **capture**
@@ -76,7 +76,7 @@ pub(crate) fn wire_document_navigation_keys(view: &CodePreviewView) {
 /// Split out from the controller closure because a synthetic key event is not
 /// available to a headless test: the integration test below calls this directly, so
 /// everything except GDK's delivery of the event is covered by the suite (and the
-/// delivery half is what the probe behind ScrAP-264 measured).
+/// delivery half is what the probe behind GTK4Rs/AP-264 measured).
 pub(crate) fn redirect_navigation_key(
     view: &CodePreviewView,
     key: Key,
@@ -91,7 +91,7 @@ pub(crate) fn redirect_navigation_key(
     // Exactly what GTK's own binding does — including waking the far-scroll re-issue
     // that `farscroll::wire_buffer_ends_scroll` hangs off this same signal, so
     // Ctrl+End from a cell reaches the end of a document still being laid out just as
-    // it does from the view (ScrAP-260).
+    // it does from the view (GTK4Rs/AP-260).
     view.emit_move_cursor(step, count, false);
     glib::Propagation::Stop
 }

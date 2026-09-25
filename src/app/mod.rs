@@ -44,7 +44,7 @@ pub(crate) use shortcuts::make_shortcuts_window;
 /// The `--new-instance` / `-n` decision, and the argv it leaves behind.
 ///
 /// Pure, and extracted for that reason: it is the whole of a decision with a
-/// recorded past failure (ScrAP-17 — a uniqueness flag parsed after
+/// recorded past failure (GTK4Rs/AP-17 — a uniqueness flag parsed after
 /// `g_application_register()` is parsed in the wrong process, so it is forwarded and
 /// never spawns anything), and it sat inline in `run()`, which the coverage gate
 /// cannot see. The caller does the two GTK-shaped things — set `NON_UNIQUE`, hand the

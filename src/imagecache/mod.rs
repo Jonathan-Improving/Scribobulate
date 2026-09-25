@@ -4,7 +4,7 @@
 //!
 //! A render is no longer a rare event — a disclosure fold-toggle, a theme
 //! switch, or a live reload re-walks every image tag. Remote images would be
-//! re-fetched synchronously on the main thread (ScrAP-34a). Local images would
+//! re-fetched synchronously on the main thread (GTK4Rs/AP-44). Local images would
 //! be re-decoded, and on an animated WebP that decode leaks (~12 MB per call
 //! through the gdk-pixbuf incremental path). This module is the fix for both:
 //! a hit returns the already-decoded texture with no network call and no
