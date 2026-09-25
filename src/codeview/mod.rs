@@ -124,6 +124,13 @@ mod imp {
         /// Replaceable idle for a pending scroll-to-heading, so rapid outline
         /// re-targeting collapses to a single scroll of the latest target.
         pub(crate) scroll_idle: RefCell<Option<glib::SourceId>>,
+        /// A scroll whose idle fired before this view had ever been allocated, held
+        /// until the first `size_allocate` re-schedules it. `scroll_to_mark` on a view
+        /// with no allocation aligns against a zero-sized viewport and animates BOTH
+        /// axes to the margins (a horizontally shifted preview) — see
+        /// `schedule_scroll_idle`. Shares `scroll_idle`'s coalescing and `unrealize`
+        /// cancel, so only the latest target ever waits here.
+        pub(crate) scroll_await_alloc: RefCell<Option<ScrollWork>>,
         /// Anchored children that must be bounded to the live content-column width
         /// (tables, rules, blockquotes), each with the fixed chrome to its left
         /// (`inset`). Bound on every `size_allocate` — see [`super::CodePreviewView::set_width_bounded`].
@@ -386,6 +393,7 @@ mod imp {
                 heading_spans: RefCell::new(Vec::new()),
                 disclosure_bands: RefCell::new(Vec::new()),
                 scroll_idle: RefCell::new(None),
+                scroll_await_alloc: RefCell::new(None),
                 width_bounded: RefCell::new(Vec::new()),
                 tables: RefCell::new(Vec::new()),
                 image_bounded: RefCell::new(Vec::new()),
@@ -474,6 +482,9 @@ mod imp {
         }
     }
 
+    /// A deferred scroll body, run against the live view.
+    pub(crate) type ScrollWork = Box<dyn FnOnce(&super::CodePreviewView)>;
+
     impl WidgetImpl for CodePreviewView {
         fn size_allocate(&self, width: i32, height: i32, baseline: i32) {
             // Re-bound the anchored block children BEFORE chaining up — using the
@@ -542,6 +553,15 @@ mod imp {
             }
             self.parent_size_allocate(width, height, baseline);
 
+            // A scroll that fired before the first allocation waited for this one; it
+            // only re-schedules (an idle), so nothing scrolls inside the allocate pass.
+            if width > 0 && height > 0 {
+                let pending = self.scroll_await_alloc.borrow_mut().take();
+                if let Some(work) = pending {
+                    view.schedule_scroll_idle(work);
+                }
+            }
+
             // Reading-Position Preservation CAM (row 7 — geometry change). A
             // horizontal resize changes the text-wrap width, so the preview re-wraps
             // and GtkTextView re-validates line heights lazily; during that
@@ -590,6 +610,7 @@ mod imp {
             if let Some(id) = self.scroll_idle.borrow_mut().take() {
                 id.remove();
             }
+            self.scroll_await_alloc.borrow_mut().take();
             // Same rule for the copy button's confirmation timeout: a pending source
             // outliving the view would fire against an unrooted zombie (GTK4Rs/AP-128).
             // Taking it is what makes the `.remove()` safe — a fired one-shot's id must

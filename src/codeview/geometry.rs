@@ -244,6 +244,20 @@ impl CodePreviewView {
     ///    realized-but-unmapped fresh tab (fragment-link scroll) is still realized
     ///    and must NOT be skipped.
     ///
+    /// 5. **Allocation gate** — `work` runs ONLY once the view has been allocated.
+    ///    A freshly mounted preview is realized and mapped a frame before its first
+    ///    `size_allocate`, and this idle (DEFAULT_IDLE) can win that race. Every `work`
+    ///    here is a `scroll_to_mark(…, use_align = true, xalign 0, yalign 0)`, which
+    ///    against a zero-sized viewport targets the mark's own position — the left and
+    ///    top margins, (20, 16) — and animates BOTH adjustments there. Nothing clamps
+    ///    it back once the allocation lands, so the preview is drawn scrolled right by
+    ///    its left padding under a horizontal scrollbar. MEASURED 2026-09-25 on Linux
+    ///    in the real app: every shifted rebuild's hadjustment animated to 20.0 at
+    ///    `page_size` 0; every clean one had been allocated first. So an unallocated
+    ///    fire parks `work` in `scroll_await_alloc` and the first `size_allocate`
+    ///    re-schedules it. "Allocated" is `visible_rect().height() > 0`, the gate
+    ///    GTK4Rs/AP-263 prescribes for the same "no layout yet" question.
+    ///
     /// `work` may itself call `schedule_scroll_idle` (same slot) to chain a follow-up
     /// pass (the cell-scroll two-step) — the step-3 slot-clear makes that re-entry
     /// safe. Pairs with the synchronous cancel in `unrealize` (codeview/mod.rs):
@@ -254,18 +268,34 @@ impl CodePreviewView {
         if let Some(id) = self.imp().scroll_idle.borrow_mut().take() {
             id.remove();
         }
+        // A newer target supersedes one still waiting for the first allocation.
+        self.imp().scroll_await_alloc.borrow_mut().take();
         let id = glib::idle_add_local_once(glib::clone!(
             #[weak(rename_to = view)]
             self,
             move || {
                 view.imp().scroll_idle.replace(None);
-                if !view.is_realized() {
-                    return;
-                }
-                work(&view);
+                view.run_scroll_work(Box::new(work));
             }
         ));
         self.imp().scroll_idle.replace(Some(id));
+    }
+
+    /// The body of a fired scroll idle: facets 4 and 5 of
+    /// [`schedule_scroll_idle`](Self::schedule_scroll_idle). Separate so a test can put
+    /// the view in the mapped-but-unallocated state and run it there directly — which
+    /// ordinary main-loop pumping cannot reliably arrange, because whether the idle or
+    /// the first layout pass dispatches first is the race the defect lives in.
+    pub(crate) fn run_scroll_work(&self, work: super::imp::ScrollWork) {
+        use gtk::subclass::prelude::*;
+        if !self.is_realized() {
+            return;
+        }
+        if self.visible_rect().height() <= 0 {
+            self.imp().scroll_await_alloc.replace(Some(work));
+            return;
+        }
+        work(self);
     }
 
     /// Scroll so the buffer position `offset` is at the top of the viewport,
@@ -571,6 +601,81 @@ mod gtk_integration_tests {
             &*ran.borrow(),
             &[2],
             "only the latest-scheduled work runs — the earlier idle was coalesced away"
+        );
+    }
+
+    /// A deferred scroll must never run against a view that has no allocation yet.
+    /// The view-mode rebuild mounts a FRESH preview into a window already on screen,
+    /// so the view is mapped at once and allocated only by a later layout pass; the
+    /// scroll idle can fire in between. Its `scroll_to_mark(…, use_align, xalign 0,
+    /// yalign 0)` then aligns against a zero-sized viewport and animates both
+    /// adjustments to the margins, and nothing clamps them back — the preview is drawn
+    /// shifted by its left padding under a horizontal scrollbar. MEASURED in the real
+    /// app on Linux, 43 of 69 rebuilds before the gate and 0 of 69 after.
+    ///
+    /// This asserts the contract on STATE rather than on the pixel outcome: the work
+    /// records the allocation it ran under. A headless run cannot reliably reproduce
+    /// the shifted outcome itself — the real mount's first allocation is a transient
+    /// 0x0 that a test can neither pump into nor fake with a manual `size_allocate`
+    /// (both tried) — so a "hadjustment stays 0" assertion passes with the gate
+    /// deleted. This one fails then: the work runs at once, at height 0. The pixel
+    /// check is `tests/MANUAL-TEST.md` §7.5a.
+    #[gtktest::test]
+    fn a_deferred_scroll_waits_for_the_first_allocation() {
+        use crate::testpump::{until, Clock};
+        use gtk::subclass::prelude::*;
+        let window = gtk::Window::new();
+        window.set_default_size(600, 400);
+        window.set_child(Some(&gtk::Label::new(Some("placeholder"))));
+        window.present();
+        {
+            let window = window.clone();
+            until(Clock::Idle, "placeholder window never mapped", move || {
+                window.is_mapped()
+            });
+        }
+
+        let view = CodePreviewView::new();
+        view.buffer()
+            .set_text("# Swap check\n\nOne sentence of body text.\n");
+        let sw = ScrolledWindow::new();
+        sw.set_child(Some(&view));
+        window.set_child(Some(&sw));
+        let mapped_unallocated = view.is_mapped() && view.visible_rect().height() <= 0;
+
+        // What a fired scroll idle does when it wins the race against the first layout.
+        let ran_at: std::rc::Rc<std::cell::Cell<Option<i32>>> = std::rc::Rc::default();
+        {
+            let ran_at = ran_at.clone();
+            view.run_scroll_work(Box::new(move |view| {
+                ran_at.set(Some(view.visible_rect().height()));
+            }));
+        }
+        let ran_immediately = ran_at.get();
+        let parked = view.imp().scroll_await_alloc.borrow().is_some();
+        {
+            let ran_at = ran_at.clone();
+            until(Clock::Frame, "the parked scroll never ran", move || {
+                ran_at.get().is_some()
+            });
+        }
+        let ran_height = ran_at.get();
+        window.destroy();
+        assert!(
+            mapped_unallocated,
+            "precondition: the fresh view must be mapped before its first allocation"
+        );
+        assert_eq!(
+            ran_immediately, None,
+            "the scroll ran before the view had an allocation"
+        );
+        assert!(
+            parked,
+            "an unallocated fire must park the scroll until size_allocate"
+        );
+        assert!(
+            ran_height.is_some_and(|h| h > 0),
+            "the released scroll must run against a real allocation, ran at {ran_height:?}"
         );
     }
 }

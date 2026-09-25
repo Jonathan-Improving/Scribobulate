@@ -989,6 +989,8 @@
 - **When** the user scrolls either pane
 - **Then** the other follows so the **same document position** stays aligned across both panes (the heading/line at the top of one is at the top of the other) — **line-accurate**, not merely the same 0–1 fraction, which drifts when a source line renders taller than the next; typing (which re-renders the preview) neither breaks the alignment nor blanks the preview
 - **And** in edit/split the outline highlights the heading at the **caret** (the working position), tracked live as the caret moves
+- **And given** a mode switch or an explicit Reload rebuilds the preview
+- **Then** the rebuilt preview is never scrolled sideways — its content starts at the pane's left padding with no horizontal scrollbar, on every rebuild and not merely on most of them
 
 ### 7.6 A tab dragged into another window moves there
 - **Given** two Scribobulate windows are open

@@ -41,7 +41,6 @@ described from a different vantage point.
 | G | Linux | Test | A one-time ~12.6 MB allocation appears in step 5b's footprint samples on the GitHub Linux runner and on no development host, at a different sample each run. **Unattributed** — the runner logs `libEGL warning: DRI3 error: Could not get DRI3 device`, so a lazily created buffer in its software GL stack is a suspicion and nothing more. The growth gate tolerates one allocation by design (TDD 6.11), so this is not currently red; what is unknown is whether the sampler is measuring something the application does not own | Low |
 | I | Mac | Upstream | macOS only: every native file-chooser invocation (Open, Save, Export) grows RSS by ~1.1 MB and does not give it back. Roughly four fifths is AppKit's own price for presenting an `NSSavePanel` — reproduced with no GTK in the process — with about a fifth GTK-attributable. Caching the panel upstream would recover ~95% | Medium |
 | M | Windows | Production | On a machine with no Visual C++ runtime the app installs and then fails to start; the installer's bootstrapper for it has landed but has never been verified against that condition | Medium |
-| U | Any | Production | The preview is drawn horizontally scrolled (~20px, its left padding gone, a horizontal scrollbar showing) after a mode switch or an explicit Reload rebuilds it — intermittent, pre-existing, seen on Linux and Windows | Low |
 | W | Mac | Production | Observed ONCE: after a compound find-bar run the Escape key stopped closing the find bar and then never worked again in that process — permanent, not transient, with the bar visibly open and the application otherwise responsive. Not reproduced in three isolated legs nor in a faithful replay of the whole compound sequence. The handler has since been hardened so that it declines the key when the bar did not actually close, which BOUNDS this rather than fixes it: the diagnosed cause is still unknown | High |
 | Y | Any | Test | A PDF blockquote-panel tiling assertion fails in the display-free suite intermittently under pipeline load, and passes every time it is run directly. **No root cause is recorded, and six suspicions have been falsified** — a sprite-key collision, cross-thread mutation of the sprite cache, line wrapping, concurrency during the render, cross-thread sprite decoding, and any non-tile red ink; the body carries each one's measurement. Two captures agree the anomalies sit INSIDE a band, which the fill cannot produce. The test now prints every red row's pixel count on failure, which is the one thing both captures lacked | Medium |
 
@@ -465,66 +464,6 @@ floor) rather than in its absence.
 `notices/*.md` at build time, and `notices/20-msvc.md` covers the embedded
 `vc_redist.x64.exe`. That was the other obligation this entry was carrying; only the
 verification remains.
-
----
-
-## U. The preview is drawn horizontally scrolled after a mode switch or an explicit Reload rebuilds it
-
-**Severity**: Low (cosmetic: the content is shifted about 20px left — the pane's left padding —
-and a horizontal scrollbar shows; nothing is lost, and a width change corrects it)
-
-First reported by the Windows seat (GTK 4.22.4 gvsbuild, release build, 2026-09-13) on the
-first entry into Split after launch. **Now measured on Linux and Windows, and pre-existing**:
-the Windows seat reproduced it identically across two successive builds (2026-09-14), and
-Linux (Xvfb, the later of the two) shows both triggers below. **macOS not yet checked.**
-
-**Measured**:
-
-- **The first entry into Split after launch.** A plain document, `# Swap check` and one
-  sentence — no inline code, no line near the wrap width. Fresh launch with the file as an
-  argument, Preview, then Split: the preview's heading is drawn flush at the pane's left edge,
-  about 20px left of the unscrolled layout, with a horizontal scrollbar showing. Windows
-  (PrintWindow, 1336x759) and Linux (Xvfb). The built-in welcome document after a session
-  restore did the same on Windows, with its code block's box shifted by the same 20px.
-- **The toolbar's Reload** (`win.reload`) in Preview, even over an unchanged file, and **the
-  toolbar's Edit-then-Preview toggle**. Frequent but **not deterministic per gesture**: the first
-  Reload after launch shifted it 8 of 8 in earlier Windows sessions, yet a later session's
-  alternating Reload/toggle runs went normal five times, shifted four, then normal; either
-  gesture can cause it and either can clear it. Linux shifted on its one Reload. A second
-  Reload never corrected it on Windows; an auto-reload from an external write corrected it 5
-  of 5; widening the window corrects it and restoring the width does not bring it back.
-  Parking the pointer over the button without clicking does not cause it, so it is not a
-  hover-revealed scrollbar.
-- **Windows' Split in a later session stayed normal** 4 of 4, including three Reloads, so the
-  first-entry trigger above is not reliable either.
-- Windows used two detectors per capture, each validated on known-normal and known-shifted
-  frames: the scrollbar row's pixel, and the heading's leftmost ink x (≈275 normal, ≈255
-  shifted, in a pane starting at ≈253). **Not seen** on Windows: the same document after Swap
-  Panes in the same process.
-
-**Not issue J**, on all three of J's axes: no paragraph mixes fonts, no line sits at a wrap
-point, and the symptom is a nonzero horizontal adjustment VALUE (content displaced by about
-the left padding) with the pane drawn, not blanked.
-
-**Inferred, not probed**: every gesture that can shift it rebuilds the preview through the
-view-mode handler — a mode switch, and the explicit Reload, which re-issues the current mode —
-while both things that reliably correct it do not: the auto-reload builds a fresh preview and
-installs it with its reading line restored, and a width change forces a fresh allocation. So
-the likely shape is a race in the view-mode rebuild's first allocation, where the horizontal
-adjustment's `upper` briefly exceeds `page_size`, `value` lands near the padding width, and
-nothing clamps it back when `upper` shrinks.
-
-**Mitigation options**:
-
-- **Treat the adjustment's settling as a dark pattern**: how and when GTK clamps an
-  adjustment's value when `upper` shrinks during a first allocation is not documented, so the
-  researcher should establish that before a fix is written, rather than resetting `value` by
-  guesswork. Alternating toolbar Reload and Edit-then-Preview about ten times in Preview gives
-  a reproduction within a session.
-- **Compare the rebuild paths**: the auto-reload's rebuild has not been seen to shift, so
-  building the preview the same way from the view-mode handler might remove it without
-  touching adjustments — to be established by that research, not assumed.
-- **Accept it** while it stays cosmetic.
 
 ---
 
