@@ -27,6 +27,17 @@
 //!   already convey origin and severity. That prefix is only for throwaway
 //!   `eprintln!` during active debugging.
 //!
+//! Repeat collapse: every record passes through `logrepeat`'s `RepeatCollapse`
+//! before it reaches the breadcrumb ring or the persistent log, so a run of
+//! identical records costs the same handful of lines whether it repeats ten times
+//! or a hundred million (TDD 21.13/21.14) — the first occurrence passes untouched,
+//! repeats are reported only at bounded milestones (10, 100, 1000, …) and once more
+//! with the true final count when the run breaks. The recorded case was a widget-
+//! dispose loop emitting one `Gtk-WARNING` ~99 million times (4.2 GB in ~2 minutes).
+//! Output *volume* is deliberately not capped with a pipe: a body that out-writes an
+//! undrained pipe blocks, trading a real failure mode for a worse one; a genuinely
+//! hung case is ended by `gtk_suite.rs`'s per-case wall-clock cap instead.
+//!
 //! Runtime control (one knob for the whole process, app + GTK):
 //!
 //! ```text
