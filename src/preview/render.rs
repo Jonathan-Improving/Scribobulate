@@ -204,7 +204,7 @@ pub(crate) fn render(
         .build();
     // Track the user's settled reading line (on the scroller's own vadjustment,
     // which — unlike the view's, not yet propagated — exists now) so a later zoom
-    // re-anchors there (ScrAP-65).
+    // re-anchors there (GTK4Rs/AP-14).
     view.wire_scroll_position_tracking(&scroller);
     // Ctrl+wheel (Cmd+wheel on macOS) steps the zoom ladder instead of scrolling.
     // Wired HERE, at the one place a preview scroller is built, so no render path
@@ -780,7 +780,7 @@ mod gtk_integration_tests {
     /// **No TEXT construct produces an over-wide line, at any pane width** — the
     /// second half of TDD 2.2·a11y, which asserts that `WrapMode::Char` "also never
     /// produces an over-wide line, preserving the no-horizontal-overflow invariant
-    /// §2.2 / ScrAP-22 depends on (regression test in `preview::render`)".
+    /// §2.2 / GTK4Rs/AP-22 depends on (regression test in `preview::render`)".
     ///
     /// **That claimed regression test did not exist.** Its sibling
     /// [`indented_wide_table_does_not_force_a_horizontal_scrollbar`] covers the
@@ -892,8 +892,8 @@ mod gtk_integration_tests {
             offenders.is_empty(),
             "TDD 2.2·a11y: the preview must never produce an over-wide line — one \
              summons the Automatic h-scrollbar, whose appear/disappear re-arms the \
-             width↔height-for-width churn that leaves the pane blank (ScrAP-22, \
-             ScrAP-23). Offenders:\n  {}",
+             width↔height-for-width churn that leaves the pane blank (GTK4Rs/AP-22, \
+             GTK4Rs/AP-23). Offenders:\n  {}",
             offenders.join("\n  ")
         );
     }
@@ -1112,7 +1112,7 @@ pub(super) fn remint_disclosure_references(render_data: &Rc<RefCell<RenderData>>
 /// wrong. **Only `fresh` is connected** — a survivor still carries the handler it was
 /// built with, and a second one would fold twice per click, which reads as a click
 /// that does nothing (the exact report this construct has already produced by another
-/// route, ScrAP-79). And the LINE index is rebuilt from the live anchors rather than
+/// route, GTK4Rs/AP-109). And the LINE index is rebuilt from the live anchors rather than
 /// from `summary_offset`: a splice moves every line below its region, so the offsets
 /// the surviving controls were emitted with named the previous render's buffer.
 pub(super) fn wire_spliced_disclosure_toggles(
@@ -1223,7 +1223,7 @@ fn connect_disclosure_toggle(view: &CodePreviewView, toggle: &gtk::ToggleButton)
             st.folds.borrow_mut().toggle(key);
             // Through the shared deferral, which holds the window WEAKLY — a strong
             // capture here kept the whole window tree alive for as long as the idle was
-            // pending (POLICY "widget-owned closures capture weakly", ScrAP-60), and its
+            // pending (POLICY "widget-owned closures capture weakly", GTK4Rs/AP-63), and its
             // sibling in `foldreveal` had always done it correctly.
             crate::window::defer_with_window(&window, move |window| {
                 // Anything but a landed splice falls back to a full re-render — which

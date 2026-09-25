@@ -11,7 +11,7 @@
 //! 2. **The widget tree is only correct where it is visible.** Off-screen anchored
 //!    children are parked at negative coordinates and painted that way
 //!    (GTK4Rs/AP-166); line heights validate lazily with no completion signal
-//!    (ScrAP-260); a geometry read taken before allocation answers the buffer's
+//!    (GTK4Rs/AP-260); a geometry read taken before allocation answers the buffer's
 //!    *last* line, silently (GTK4Rs/AP-263).
 //! 3. **Only a display-free pipeline is inside the coverage gate** (POLICY § Build
 //!    pipeline step 6). The suite runs without a display, so a widget-reading

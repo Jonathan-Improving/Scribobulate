@@ -19,7 +19,7 @@ use super::*;
 /// the window fresh from its current root self-heals across the move with no
 /// explicit rewire — the same "don't cache a reparent-able context" idiom
 /// already used for the per-tab file monitor (`app.rs::attach_file_backing`,
-/// GTK4Rs/AP-52/ScrAP-52).
+/// GTK4Rs/AP-52/GTK4Rs/AP-55).
 pub(crate) fn resolve_tab_window(
     content_box: &gtk::glib::WeakRef<gtk::Box>,
 ) -> Option<ApplicationWindow> {
@@ -29,7 +29,7 @@ pub(crate) fn resolve_tab_window(
 /// The single self-healing root-walk: the `ApplicationWindow` currently hosting
 /// `widget`, from its live widget-tree root. A widget reparented to a DIFFERENT
 /// window by a cross-window tab move resolves fresh to its new window, so a handler
-/// that calls this never caches a stale window (GTK4Rs/AP-52/ScrAP-52/GTK4Rs/AP-52). Everything that
+/// that calls this never caches a stale window (GTK4Rs/AP-52/GTK4Rs/AP-55/GTK4Rs/AP-52). Everything that
 /// needs "which window hosts this widget" funnels here (QA L-3): the tab machinery's
 /// [`window_of_content_box`]/[`resolve_tab_window`], the split-sync + scroll-spy
 /// handlers, and the editor-overlay adapter — each was previously an independent
@@ -194,7 +194,7 @@ pub(crate) fn build_tab_editor(md: &str) -> (sourceview::Buffer, sourceview::Vie
     crate::clipboard::wire_editor_clipboards(&sv_view);
 
     // Ctrl+Home / Ctrl+End aim past the part of the document GTK has laid out, so
-    // they need re-issuing once it has (ScrAP-260). Wired here because this is the
+    // they need re-issuing once it has (GTK4Rs/AP-260). Wired here because this is the
     // one place every editor view is built.
     crate::farscroll::wire_buffer_ends_scroll(sv_view.upcast_ref());
 

@@ -332,7 +332,7 @@ fn is_relative_reference(href: &str) -> bool {
 /// engine applying RFC 3986 §3.1, where a colon alone makes a scheme, and `javascript:`
 /// executes. This comment previously closed on the unqualified claim, and it is the
 /// comment a maintainer reads before touching the parser; the register entry that had
-/// the lesson right (ScrAP-247, *"no handler is registered for this scheme" is not a
+/// the lesson right (GTK4Rs/AP-247, *"no handler is registered for this scheme" is not a
 /// safety property*) is not what gets read at the moment of the edit.
 ///
 /// So anything bound for serialisation asks [`is_exportable_href`], which does NOT
@@ -502,7 +502,7 @@ pub(crate) fn resolve_contained_image(src: &str, doc_dir: Option<&Path>) -> Opti
 /// file that escapes the document folder and for a path with no file behind it at
 /// all, and those two are opposite things to tell the reader.
 ///
-/// This is the enum split ScrAP-34's 34b half names, applied to the whole gate rather than to
+/// This is the enum split GTK4Rs/AP-44's 34b half names, applied to the whole gate rather than to
 /// one corner of it. That entry's fix reached only the untitled-buffer case (no
 /// `doc_dir`, relative `src`), so a **contained** reference whose file was simply
 /// absent at render time still read as `Escapes` — an image sitting safely beside
@@ -561,7 +561,7 @@ pub(crate) enum ImageResolution {
     /// A remote http/https URI. Only produced when `allow_unsafe_images` is true.
     /// Fetched by `crate::imagefetch` and decoded with `gdk::Texture::from_bytes`
     /// — *not* through `gio::File::for_uri`, which needs a GVfs http backend that
-    /// only the Linux desktop has (ScrAP-292).
+    /// only the Linux desktop has (GTK4Rs/AP-292).
     Remote(String),
     /// Blocked by the safety policy: a remote URL with `allow_unsafe_images`
     /// false, or a local path that **exists** and escapes the document folder. The
@@ -598,7 +598,7 @@ pub(crate) enum ImageResolution {
 /// containment gate is enforced: local paths must stay at or beneath the document
 /// folder (`containment_of`), and remote http/https URLs are `Refused`. A local path
 /// the gate turns down is `Refused` only when a file is really there to refuse;
-/// otherwise it is `Missing` (ScrAP-34, its 34b half).
+/// otherwise it is `Missing` (GTK4Rs/AP-44, its 34b half).
 ///
 /// When `allow_unsafe_images` is **true**, the containment gate is lifted for
 /// local paths (still canonicalized so symlinks resolve to their real target)
@@ -650,7 +650,7 @@ pub(crate) fn resolve_image(
         // first says the safety policy stopped this, the second says there is
         // nothing here — and the distinction drives the tooltip, not whether an icon
         // appears (§14.9). `containment_of` owns it for both content types; see its
-        // doc comment for what collapsing them cost (ScrAP-34, its 34b half).
+        // doc comment for what collapsing them cost (GTK4Rs/AP-44, its 34b half).
         //
         // Every case the old special-casing here handled falls out of that verdict:
         // an untitled buffer (no `doc_dir`) has nothing to resolve a relative `src`
@@ -1196,7 +1196,7 @@ mod tests {
         ));
     }
 
-    /// ScrAP-34's 34b half, the part its original fix did not reach: with the containment gate
+    /// GTK4Rs/AP-44's 34b half, the part its original fix did not reach: with the containment gate
     /// ON, a reference that is perfectly *contained* but has no file behind it yet
     /// must read as **not found**, never as blocked by the safety policy.
     ///

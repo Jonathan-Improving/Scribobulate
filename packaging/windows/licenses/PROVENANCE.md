@@ -164,7 +164,7 @@ unclaimed the gate would have said so.
 >    axis.** meson `debugoptimized` is `-O2 -g` against the **release** CRT, so both
 >    configurations import `VCRUNTIME140.dll`. The test ruled out a debug-CRT build,
 >    which nobody had proposed.
-> 2. **The `\release\` in the embedded PDB path is the exact string ScrAP-279 warns is
+> 2. **The `\release\` in the embedded PDB path is the exact string GTK4Rs/AP-272 warns is
 >    not evidence** — gvsbuild rewrites the config string to `release` for install
 >    pathing, so both configurations land there. It is the trap, not the discriminator.
 > 3. **"A release build that retains debug info" is the definition of
@@ -185,7 +185,7 @@ established.**
 The reason this mattered beyond provenance is that `debugoptimized` vs `release`
 can change **assertion enforcement**, and if the shipped GTK enforced `g_assert`
 differently from the one we test against, every assertion-backed contract in GTK
-would behave differently for users than for whoever tested it. That is ScrAP-279's
+would behave differently for users than for whoever tested it. That is GTK4Rs/AP-272's
 originating symptom. So it was tested, on both prefixes, by the paired-literal
 probe (`assertion failed: (` plus the stringified expression sitting beside its
 `G_STRFUNC` name in the string table):
@@ -208,7 +208,7 @@ a different assertion policy. Do not read one literal as a wholesale difference.
 
 **Still open, and needing the one test neither seat has run:** what buildtype
 gvsbuild's published zip is actually produced with. Nothing on disk answers it —
-that is ScrAP-279's whole point. The runtime oracle if it is ever worth settling:
+that is GTK4Rs/AP-272's whole point. The runtime oracle if it is ever worth settling:
 realize a `gsk::CairoRenderer`, `render_texture`, then drop it **still realized**;
 an assertion-enforcing build aborts at `gskrenderer.c:130`.
 

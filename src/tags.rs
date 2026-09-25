@@ -53,7 +53,7 @@ const LI_NAMES: [&str; MAX_LIST_DEPTH as usize] = ["li-1", "li-2", "li-3", "li-4
 /// narrows the reading column twice as fast as nesting deepens and would eventually
 /// collapse it to nothing — or, worse, push the preview over-wide and re-arm the
 /// h-scrollbar churn that the no-over-wide invariant exists to prevent (TDD 2.2·a11y,
-/// ScrAP-22/ScrAP-23). Past the cap a level renders at the cap's indent, which is what
+/// GTK4Rs/AP-22/GTK4Rs/AP-23). Past the cap a level renders at the cap's indent, which is what
 /// keeps a pathologically nested document (TDD 1.4b: thousands of levels) merely
 /// unusual-looking rather than broken.
 pub(crate) const MAX_QUOTE_DEPTH: u8 = 6;
@@ -713,7 +713,7 @@ pub(crate) fn setup_tags_with_theme(buf: &TextBuffer, palette: &Palette, zoom: f
     // task checkbox) is drawn in a left gutter in Phase 2 and occupies ZERO buffer
     // chars, so the fragile first-line `indent` the old inline marker forced — which
     // GtkTextView resolved through a per-line style cache that intermittently dropped
-    // it across paragraphs, re-outdenting continuations (ScrAP-118) —
+    // it across paragraphs, re-outdenting continuations (GTK4Rs/AP-95) —
     // is retired entirely.
     //
     //   li-{depth}       — the item's FIRST logical line. pixels_above_lines opens a small
@@ -729,7 +729,7 @@ pub(crate) fn setup_tags_with_theme(buf: &TextBuffer, palette: &Palette, zoom: f
     // identical in both variants, so it cannot change — only the inter-item gap could.
     // Applying per-line (content only, '\n's untagged) still gives every line its own
     // margin toggle, which is what prevents a uniform multi-line margin from being
-    // dropped on toggle-free middle lines (ScrAP-72/GTK4Rs/AP-72; research §5a). Both keep
+    // dropped on toggle-free middle lines (GTK4Rs/AP-70/GTK4Rs/AP-72; research §5a). Both keep
     // pixels_inside_wrap at 0 so a line's own soft wraps stay tight.
     //
     // ACCUMULATIVE margin (GTK4Rs/AP-96): `left_margin` here is the item's indent

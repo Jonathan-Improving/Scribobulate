@@ -152,7 +152,7 @@ pub(crate) fn go_to_line(window: &ApplicationWindow) {
             // A left-gravity mark, never `scroll_to_iter` (GTK4Rs/AP-22). GTK does NOT
             // "defer the scroll until line validation and retry it" — the comment
             // that used to stand here said so and it is false: on a document GTK
-            // is still laying out, the request is DISCARDED (ScrAP-260), which on a
+            // is still laying out, the request is DISCARDED (GTK4Rs/AP-260), which on a
             // cold 40 000-line file left Go To Line 30 000 showing line 177. The
             // seam re-issues it once the layout can answer.
             let mark = buf.create_mark(None, &iter, true);

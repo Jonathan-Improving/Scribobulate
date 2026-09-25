@@ -32,7 +32,7 @@
 //! actually resolved to: `has_icon` proves only that a name RESOLVES, and it is
 //! *stricter* than the render path, which strips the `-symbolic` suffix and can
 //! land on a legacy raster that renders but no longer recolours
-//! (ScrAP-169). The rendered PNG plus the resolved source is the evidence; the
+//! (GTK4Rs/AP-174). The rendered PNG plus the resolved source is the evidence; the
 //! boolean is only the cheap screen.
 
 // The icon-name table is the single source of truth in `src/icons.rs`, pulled in as a

@@ -67,7 +67,7 @@
 //! `a_preview_selection_pastes_into_the_editor_as_one_plain_text_emission` in this module's
 //! tests, alongside `a_preview_selection_still_publishes_gtks_default_rich_content_to_primary`
 //! pinning that the preview really does still publish the rich content the fix has to
-//! tolerate. What the consumer-side fix does *not* reach is ScrAP-313's per-select-then-
+//! tolerate. What the consumer-side fix does *not* reach is GTK4Rs/AP-318's per-select-then-
 //! deselect `GtkTextBufferContent` leak — that is a GTK-core defect independent of who
 //! publishes, present with or without a takeover on either pane, so it is out of scope here
 //! and stays recorded there. PRIMARY is **not** an X11-only concern regardless: MEASURED on

@@ -34,7 +34,7 @@ use gtk::TextViewLayer;
 /// validating read sets `alloc_needed` mid-cycle and blanks the view (GTK4Rs/AP-22),
 /// avoided by clamping every rectangle to the viewport; and `iter_location` builds and
 /// CACHES a line display, whose insert dereferences lines freed with the old buffer
-/// when a paint lands right after a `set_buffer` swap (ScrAP-105), avoided by using
+/// when a paint lands right after a `set_buffer` swap (GTK4Rs/AP-89), avoided by using
 /// `line_yrange` — a cache-free btree read — for every extent. The seam's `line_at_y`
 /// only maps a y to a line and caches nothing, so it is safe.
 pub(super) struct PaintCtx<'a> {

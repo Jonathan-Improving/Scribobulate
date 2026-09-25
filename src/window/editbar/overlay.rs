@@ -67,7 +67,7 @@ fn schedule_format_overlay(window: &ApplicationWindow) {
                 // preview; and only when the selection is actually on-screen (an off-screen
                 // anchor breaks GtkPopover sizing — see point_format_overlay).
                 //
-                // CRASH GATE (GTK4Rs/AP-128/ScrAP-152, kin to the preview RISK-1 fix): the overlay is
+                // CRASH GATE (GTK4Rs/AP-128/GTK4Rs/AP-128, kin to the preview RISK-1 fix): the overlay is
                 // `set_parent`'d to `st.editor`, so `popup()` realizes its surface against
                 // the editor's. If the editor is unrealized (mid mode-/tab-switch reparent,
                 // or a torn-down zombie held alive by a co-pending ref) that parent surface

@@ -55,12 +55,12 @@ use super::ring::Ring;
 /// The other four are hardware faults or `abort()`. `SIGTRAP` is how a **GLib fatal
 /// log message** dies on unix, and that is the death this application has actually
 /// produced: `g_error` — GTK's `gtk_text_btree_line_number couldn't find line` among
-/// them (ScrAP-258) — plus **any** level promoted to fatal, by `G_DEBUG=fatal-warnings`,
+/// them (GTK4Rs/AP-258) — plus **any** level promoted to fatal, by `G_DEBUG=fatal-warnings`,
 /// `G_DEBUG=fatal-criticals` or a programmatic `g_log_set_always_fatal`.
 /// `_g_log_abort` assumes a debugger is attached on every non-Windows target and
 /// executes `G_BREAKPOINT()` (`int $03` on x86) instead of `g_abort()`, so the process
 /// dies of a breakpoint trap whose default disposition terminates it with no handler
-/// having run. Enumerating only the four left that whole class silent (ScrAP-268).
+/// having run. Enumerating only the four left that whole class silent (GTK4Rs/AP-268).
 ///
 /// MEASURED, GLib 2.72.4 on this machine: `g_error`, a `G_DEBUG=fatal-warnings`
 /// warning, a `G_DEBUG=fatal-criticals` critical and a `g_log_set_always_fatal`
@@ -1204,7 +1204,7 @@ mod tests {
     /// message dies of a fifth (`SIGTRAP`), so that entire class of death — `g_error`,
     /// and every level a `G_DEBUG=fatal-*` or `g_log_set_always_fatal` promotes — left
     /// no report at all
-    /// (ScrAP-268). A list nothing ranges over is a list that silently stops matching
+    /// (GTK4Rs/AP-268). A list nothing ranges over is a list that silently stops matching
     /// what the process can die of, so adding a signal here now costs a line and
     /// removing one fails loudly.
     ///

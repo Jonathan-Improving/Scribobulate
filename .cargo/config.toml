@@ -1,15 +1,15 @@
 # Force the GSK Cairo software renderer for everything Cargo runs (test binaries,
 # `cargo run`). This mirrors the in-process override in `scribobulate::run`
 # (`src/lib.rs`; `src/main.rs` is argument-free delegation into it) so the test
-# harness renders on exactly the stack the app ships on (ScrAP-1/ScrAP-2: 0-VRAM Cairo
+# harness renders on exactly the stack the app ships on (GTK4Rs/AP-1/GTK4Rs/AP-2: 0-VRAM Cairo
 # software renderer, never GL/GLES).
 #
 # Why here and not per-test: `#[gtk::test]` bodies never route through `main.rs`,
 # so without this they realize surfaces under the default GskGLRenderer. That
 # renderer's texture-cache teardown intermittently SIGABRTs at process exit under
-# the headless Xvfb display (ScrAP-153).
+# the headless Xvfb display (GTK4Rs/AP-129).
 # Setting it in each test would be a forgettable per-call-site workaround the
-# happy-path assertions can't catch (the ScrAP-116 shape); the `[env]` table is one
+# happy-path assertions can't catch (the GTK4Rs/AP-108 shape); the `[env]` table is one
 # enforced choke point every `cargo` invocation inherits automatically.
 #
 # `cargo run` also inherits it, which is harmless and correct — main.rs already
@@ -34,7 +34,7 @@ GSK_RENDERER = "cairo"
 # `with_state_home_for_test`, and the window tests bypass that guard entirely by
 # going through the real lifecycle path. A per-test override would therefore have to
 # be remembered by every future window test, and forgetting it fails silently and
-# destructively (the ScrAP-116 shape, same reasoning as GSK_RENDERER above).
+# destructively (the GTK4Rs/AP-108 shape, same reasoning as GSK_RENDERER above).
 #
 # NOT `force = true`: an explicitly exported `XDG_STATE_HOME` must still win, so a
 # harness or a session-restore test can point the suite at its own scratch directory.
@@ -68,7 +68,7 @@ XDG_STATE_HOME = { value = "target/test-state", relative = true }
 #
 # A second effect, deliberate and worth knowing: GTK reads
 # `$XDG_CONFIG_HOME/gtk-4.0/settings.ini`, and under Xvfb — with no XSettings manager —
-# that file is what supplies the theme (ScrAP-152). Pinning this means the integration
+# that file is what supplies the theme (GTK4Rs/AP-128). Pinning this means the integration
 # suite stops inheriting the tester's own GTK settings, so a theme-sensitive test now
 # behaves the same here as on a runner instead of quietly depending on the desktop.
 #

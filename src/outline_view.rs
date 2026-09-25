@@ -158,7 +158,7 @@ pub(crate) fn expand_all_rows(model: &gtk::TreeListModel) {
 /// walk serve both cases: a row left collapsed simply never inserts its children, so the
 /// walk continues with whatever the model does hold, and everything below that node keeps
 /// the default. That is also why the remembered state cannot describe a node underneath a
-/// collapsed one — GTK frees that subtree (ScrAP-84), so there is nothing there to be in
+/// collapsed one — GTK frees that subtree (GTK4Rs/AP-111), so there is nothing there to be in
 /// any state. Re-opening the parent reveals its children collapsed, which is the behaviour
 /// TDD 12.17 already pins.
 ///
@@ -184,7 +184,7 @@ pub(crate) fn expand_rows_except(model: &gtk::TreeListModel, keep_collapsed: &BT
 /// Every currently-materialised row's `(doc_index, expanded)`, in model order.
 ///
 /// The read side of expansion persistence: taken while the reader's outline is still on
-/// screen, because after a rebuild there is nothing left to ask (ScrAP-84). Rows under a
+/// screen, because after a rebuild there is nothing left to ask (GTK4Rs/AP-111). Rows under a
 /// collapsed node are absent by construction — GTK freed them — and their absence is
 /// correct, not a gap: nothing under a closed node has a state to report.
 ///

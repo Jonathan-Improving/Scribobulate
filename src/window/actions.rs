@@ -139,7 +139,7 @@ pub(crate) const ANNOTATION_CARD_CLASS: &str = "annotation-entry";
 /// `GtkEntry`/`GtkSearchEntry` (the annotation comment card's entry, the find bar,
 /// the Find & Replace replace entry, and any future entry in the window chrome)?
 ///
-/// The established window-level focus test (GTK4Rs/AP-20/ScrAP-72) — walk from the focused widget to
+/// The established window-level focus test (GTK4Rs/AP-20/GTK4Rs/AP-70) — walk from the focused widget to
 /// the root rather than trust any single widget's `has_focus`. Used to stand `win.*`
 /// actions down while such an entry owns the keyboard, so the key reaches the entry's
 /// own binding instead (see `register_editor_actions`'s `select-all` wiring for the
@@ -211,7 +211,7 @@ pub(crate) fn connect_buf_to_copy_action(window: &ApplicationWindow) {
         window,
         move |_| {
             recompute_copy_enabled(&w);
-            // Table-cell annotation: cell-label selection also gates win.annotate (same ScrAP-110 signal).
+            // Table-cell annotation: cell-label selection also gates win.annotate (same GTK4Rs/AP-28 signal).
             update_annotate_action_state(&w);
             // A PREVIEW selection is what "search in selection" captures in preview
             // mode, and the preview buffer's own selection reaches here too.
@@ -564,7 +564,7 @@ pub(crate) fn update_save_action_state(window: &ApplicationWindow) {
     // its triggers are exactly this function's: the active tab changed, the buffer
     // went dirty or clean, or the backing file appeared or vanished. A second list of
     // call sites is how one action gets refreshed and its neighbour forgotten — the
-    // ScrAP-38 shape. TDD 24.6.
+    // GTK4Rs/AP-47 shape. TDD 24.6.
     crate::window::update_rename_action_state(window);
 }
 /// Recompute `win.undo` / `win.redo` enabled state: enabled iff the editor buffer
@@ -738,7 +738,7 @@ mod gtk_integration_tests {
     /// tracking was the `connect_buf_to_copy_action` call in
     /// `register_editor_actions` — which ran BEFORE `assemble_tab_core` mounted the
     /// split, so `content_box` was empty, `active_text_view` was `None`, and it
-    /// early-returned without wiring the `has-selection` (and ScrAP-110 table-cell
+    /// early-returned without wiring the `has-selection` (and GTK4Rs/AP-28 table-cell
     /// primary-clipboard) handlers. A preview selection therefore could not enable
     /// Copy until a mode/tab switch happened to re-bind it. `build_window` now
     /// re-binds once the split is mounted; this asserts a preview selection enables
@@ -782,7 +782,7 @@ mod gtk_integration_tests {
     /// runs its handler (with the activation parameter) AND, without any per-call
     /// wiring, routes through the stray-popover dismissal. Dismissal itself is
     /// idle-scheduled and a no-op with no stray popover (a menubar popover cannot be
-    /// opened by a synthetic click under Xvfb — ScrAP-101), so this proves the enforced path is present and panic-safe and
+    /// opened by a synthetic click under Xvfb — GTK4Rs/AP-175), so this proves the enforced path is present and panic-safe and
     /// that the handler receives its parameter; the routing guarantee (that every
     /// nested-submenu action is built here rather than dismissing by hand) is
     /// covered by construction — the four call sites carry no manual dismiss call.

@@ -10,7 +10,7 @@
 //!
 //! WebP, GIF and APNG go to [`richimg`], which has no GTK in it and cannot enter the
 //! leaking gdk-pixbuf incremental-WebP path this module exists to make unreachable
-//! (ScrAP-146). Everything else — a still PNG, JPEG, BMP, … — goes to GTK's own
+//! (GTK4Rs/AP-66). Everything else — a still PNG, JPEG, BMP, … — goes to GTK's own
 //! decoder, [`gtk::gdk::Texture::from_bytes`]. The SVG path (`imagecache::loader`'s
 //! vector branch, `rasterize_vector`) is a different question — a **re-render at a
 //! target size**, not a format this module routes — and stays on GTK/gdk-pixbuf

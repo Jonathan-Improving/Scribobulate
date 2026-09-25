@@ -67,7 +67,7 @@ pub(crate) fn attach_context_menu(container: &gtk::Widget) {
         // `_`-marked label; `access_markup` renders it as Pango markup with the
         // access char underlined — a plain popover never gets mnemonics-visible, so
         // we draw the underline ourselves rather than via use-underline
-        // (ScrAP-70).  Text-only matches the menu bar (icons ignored —
+        // (GTK4Rs/T-1).  Text-only matches the menu bar (icons ignored —
         // GTK4Rs/AP-11); GtkPopoverMenu has a spurious scrollbar on 4.6, so this stays plain
         // GtkPopover + GtkButton (ScrAP-9), and Change Case is a GtkStack page rather
         // than a nested popover surface (GTK4Rs/AP-69).
@@ -98,7 +98,7 @@ pub(crate) fn attach_context_menu(container: &gtk::Widget) {
 
         // Single-surface two-page GtkStack (flat menu + Change Case submenu) and one
         // Capture/Local ShortcutController delivering bare-letter access keys — the
-        // researcher-confirmed public recipe for a non-model popover (ScrAP-70/GTK4Rs/AP-69).
+        // researcher-confirmed public recipe for a non-model popover (GTK4Rs/T-1/GTK4Rs/AP-69).
         let stack = gtk::Stack::new();
         stack.set_vhomogeneous(false);
         stack.set_interpolate_size(true);
@@ -349,7 +349,7 @@ pub(crate) fn attach_context_menu(container: &gtk::Widget) {
         popover.set_pointing_to(Some(&gdk::Rectangle::new(px as i32, py as i32, 1, 1)));
         // Weak (never a strong clone): this closure is owned by the popover, which
         // lives in the window's widget tree — a strong capture would be the
-        // uncollectable cycle ScrAP-60 is about.
+        // uncollectable cycle GTK4Rs/AP-63 is about.
         let win_weak = win_ref.as_ref().map(|w| w.downgrade());
         popover.connect_closed(move |p| {
             // Disarm the right-clicked link with the popover it belongs to, so the

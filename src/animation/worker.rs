@@ -47,7 +47,7 @@ use std::task::{Context, Poll, Waker};
 /// How many animation decodes may occupy GLib's shared I/O thread pool at once,
 /// process-wide.
 ///
-/// The pool is shared with the crash-recovery snapshot writer (ScrAP-243) —
+/// The pool is shared with the crash-recovery snapshot writer (GTK4Rs/AP-243) —
 /// occupying too much of it does not fail a snapshot, it makes it *late*, which for a
 /// mechanism protecting unsaved work is the same problem. Requests over the cap wait
 /// **here**, in-process, where waiting costs nothing; they never reach the pool.

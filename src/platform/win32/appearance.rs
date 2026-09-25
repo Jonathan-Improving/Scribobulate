@@ -303,7 +303,7 @@ mod gtk_integration_tests {
             // `gsk_renderer_dispose` fires `assertion failed: (!priv->is_realized)` and
             // takes the whole process with it -- a fatal GLib assertion, so SIGABRT, which
             // on Windows surfaces as the __fastfail code 0xC0000409 and reads as
-            // STATUS_STACK_BUFFER_OVERRUN rather than as anything about GSK (ScrAP-268 on
+            // STATUS_STACK_BUFFER_OVERRUN rather than as anything about GSK (GTK4Rs/AP-268 on
             // how that family dies). This omission shipped and stayed invisible: it is
             // measured green on the operator's own Windows host and aborted on the very
             // first hosted-runner execution of this suite, which is the whole argument for
@@ -318,7 +318,7 @@ mod gtk_integration_tests {
             // suite, on the SAME GTK 4.22.4 the CI runner pins. So "measured on a real
             // Windows host" is true and is NOT assurance about the renderer contract, and
             // a reader will take it as coverage unless told otherwise. A non-observation
-            // is not immunity (ScrAP-80's shape). The mechanism behind the split is still
+            // is not immunity (GTK4Rs/AP-14's shape). The mechanism behind the split is still
             // unexplained and deliberately not guessed at; the fix stands on GSK's
             // documented contract, not on a theory of the difference.
             renderer.unrealize();

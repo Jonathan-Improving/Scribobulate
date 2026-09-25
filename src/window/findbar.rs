@@ -470,7 +470,7 @@ impl HistoryField {
     }
 
     /// This field's history on `st`, cloned out — never borrowed across a caller that
-    /// then touches GTK (ScrAP-53).
+    /// then touches GTK (GTK4Rs/AP-61).
     fn history(self, st: &Rc<TabState>) -> crate::window::FindHistory {
         match self {
             HistoryField::Find => st.find_history.borrow().clone(),
@@ -633,7 +633,7 @@ pub(super) fn refresh_find(window: &ApplicationWindow, st: &Rc<TabState>) {
     // that reads as broken. Raised HERE rather than in `find::update_editor_readout`,
     // which also runs from the engine's own asynchronous count notification and so can
     // fire after the bar has closed and deliberately turned the highlight off.
-    // Computed out of the borrow first: the setter can re-enter (ScrAP-53).
+    // Computed out of the borrow first: the setter can re-enter (GTK4Rs/AP-61).
     let unscoped = st.find_scope.borrow().is_none();
     st.search_context.set_highlight(unscoped);
     // **The query the editor's engine is given is not always the query the reader
@@ -680,7 +680,7 @@ pub(super) fn refresh_find(window: &ApplicationWindow, st: &Rc<TabState>) {
 /// case already gives (CAM § Document-Reference row 16).
 fn reconcile_find_scope(window: &ApplicationWindow, st: &Rc<TabState>) {
     // Decided under the borrow, acted on outside it: `release_find_scope` writes the
-    // same cell and moves an action's state (ScrAP-53).
+    // same cell and moves an action's state (GTK4Rs/AP-61).
     let usable = matches!(
         (find_target(window), st.find_scope.borrow().as_ref()),
         (_, None)

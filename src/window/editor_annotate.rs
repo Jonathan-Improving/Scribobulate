@@ -31,7 +31,7 @@ use std::rc::Rc;
 /// selection. Wired once per tab in `SplitView::new` (the editor is persistent — never
 /// rebuilt), so the trigger survives every mode switch. The returned closure captures
 /// only weak widget refs, so storing it on the SplitView creates no reference cycle
-/// (ScrAP-60).
+/// (GTK4Rs/AP-63).
 pub(crate) fn wire_editor_annotate_card(
     overlay: &gtk::Overlay,
     editor: &sourceview::View,

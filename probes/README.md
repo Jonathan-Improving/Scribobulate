@@ -832,10 +832,10 @@ turning the setting off is required or merely tidy.
 ## `textbuffer-selection-leak.c` — a leak that no application change reaches
 
 **Question.** Does a `GtkTextBuffer` leak a reference per select-then-deselect, and does
-taking PRIMARY over change that? (ScrAP-313.)
+taking PRIMARY over change that? (GTK4Rs/AP-318.)
 
 **Why measure it again.** The register's refcount table records a SOURCE read, not a run —
-and ScrAP-157 is this project's standing example of a Linux-era defect simply absent on a
+and GTK4Rs/AP-143 is this project's standing example of a Linux-era defect simply absent on a
 later GTK. More importantly, the entry had been cited *against* a proposed change, with the
 claim that the take-over avoids the leak.
 

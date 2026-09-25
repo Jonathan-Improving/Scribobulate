@@ -359,7 +359,7 @@ fn is_clickable_at(
 ///
 /// Two things this must get right:
 ///
-/// * **A press that landed on the toggle WIDGET is not ours** (ScrAP-79). The button
+/// * **A press that landed on the toggle WIDGET is not ours** (GTK4Rs/AP-109). The button
 ///   handles its own click and emits `toggled`; a view-level gesture that also fired
 ///   would flip the fold twice and leave the block exactly as it was, which reads as
 ///   "clicking the arrow does nothing" — the same report the indicator swap was
@@ -393,7 +393,7 @@ fn disclosure_toggle_at(
         .find(|(l, _)| *l == line)
         .map(|(_, toggle)| toggle.clone())?;
 
-    // ScrAP-79: the control itself, or anything inside it, belongs to the control.
+    // GTK4Rs/AP-109: the control itself, or anything inside it, belongs to the control.
     // Asked LAST, and only for a point already on a summary line — this runs on every
     // motion event for the hover cursor, and `pick` walks the widget tree while the
     // line lookup above is a comparison against a short list.
@@ -548,7 +548,7 @@ pub(super) fn wire_checkbox_toggle_gesture(
 /// selection in the block underneath, and the **complete-click rule** from
 /// `saferizer::ClickActivation`, so the release that ends a swipe-selection across a
 /// code block is not mistaken for a click on the button it happens to end over
-/// (ScrAP-238). No release slop: the button is a full text row plus its padding
+/// (GTK4Rs/AP-169). No release slop: the button is a full text row plus its padding
 /// square, far larger than the checkbox the slop exists for, so a release that drifted
 /// off it genuinely left it.
 ///
@@ -719,7 +719,7 @@ mod disclosure_click_tests {
         window.destroy();
     }
 
-    /// **A press on the control itself is the control's** (ScrAP-79). A view-level
+    /// **A press on the control itself is the control's** (GTK4Rs/AP-109). A view-level
     /// gesture that also fired would flip the fold twice and leave the block exactly
     /// as it was — which reads as "clicking the arrow does nothing", the very report
     /// this construct has already produced once by another route.
@@ -848,7 +848,7 @@ mod disclosure_click_tests {
     /// **Rubric 2.26f — a collapsed body claims no space in the pane.**
     ///
     /// A table wider than the pane is the shape that matters: an anchored child sets a
-    /// floor under the view's minimum width, and an over-wide one arms the ScrAP-23a
+    /// floor under the view's minimum width, and an over-wide one arms the GTK4Rs/AP-139
     /// overflow chain. A collapsed body must not be able to reach that chain at all,
     /// which it cannot if it builds no widgets — so this asserts the horizontal
     /// scroll range stays empty, and then that OPENING the block is what changes it.

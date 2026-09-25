@@ -570,7 +570,7 @@ impl CodePreviewView {
     pub(crate) fn store_overlay_popover(&self, pop: &gtk::Popover) {
         use gtk::subclass::prelude::*;
         // Held as a PersistentPopover so `dispose` tears it down through the one
-        // popdown→unparent order (ScrAP-144); the create overlay is non-autohide.
+        // popdown→unparent order (GTK4Rs/AP-123); the create overlay is non-autohide.
         self.imp()
             .overlay_popover
             .replace(Some(crate::saferizer::PersistentPopover::adopt(
@@ -900,7 +900,7 @@ impl CodePreviewView {
     fn converge_and_scroll_to_offset(&self, offset: i32, deadline: Deadline, generation: u64) {
         use gtk::subclass::prelude::*;
         // A programmatic scroll takes over from any hand-scrolling, and caches the target
-        // as the re-anchor line (ScrAP-65 bookkeeping, matching `scroll_to_buffer_offset`).
+        // as the re-anchor line (GTK4Rs/AP-14 bookkeeping, matching `scroll_to_buffer_offset`).
         self.imp().user_scrolling.set(false);
         self.imp()
             .restore_target_line
@@ -908,7 +908,7 @@ impl CodePreviewView {
 
         // `add_tick_callback` takes an `Fn`, not an `FnMut`, so the convergence state
         // needs interior mutability (Cell — GTK main thread only). The callback's first
-        // argument IS the widget, so nothing is captured strongly (ScrAP-60: a tick callback
+        // argument IS the widget, so nothing is captured strongly (GTK4Rs/AP-63: a tick callback
         // strong-capturing its own widget is an uncollectable cycle).
         let last_upper = std::cell::Cell::new(f64::NAN);
         let stable = std::cell::Cell::new(0u32);
@@ -996,7 +996,7 @@ impl CodePreviewView {
     /// to position rather than to a command).
     pub(super) fn open_marker_popover(&self, idxs: &[usize], focus: CardFocus) {
         use gtk::subclass::prelude::*;
-        // CHOKE-POINT crash guard (ScrAP-152/GTK4Rs/AP-128/GTK4Rs/AP-63). Every path that opens
+        // CHOKE-POINT crash guard (GTK4Rs/AP-128/GTK4Rs/AP-128/GTK4Rs/AP-63). Every path that opens
         // a marker popover funnels through here, and it ends in `popup()`, which realizes
         // the popover's surface. On an UNREALIZED view that surface's parent is NULL →
         // `gdk_surface_new_popup` `GDK_IS_SURFACE` assert → NULL deref SIGSEGV
@@ -1246,7 +1246,7 @@ impl CodePreviewView {
     /// later click hits a warm, already-validated popover. Researcher-sourced (GTK 4.6.9).
     pub(crate) fn prewarm_marker_popover(&self) {
         use gtk::subclass::prelude::*;
-        // Crash guard (ScrAP-152/GTK4Rs/AP-128): pre-warm ends in `popup()`, which
+        // Crash guard (GTK4Rs/AP-128/GTK4Rs/AP-128): pre-warm ends in `popup()`, which
         // realizes the popover surface — fatal on an unrealized view (NULL parent
         // surface). Checked BEFORE the one-shot flag is consumed, so an (unexpected)
         // unrealized call is retried on the next `map`, not silently burned.
@@ -1935,12 +1935,12 @@ mod a11y_integration_tests {
         win.destroy();
     }
 
-    /// The `open_marker_popover` choke-point crash guard (ScrAP-152/GTK4Rs/AP-128).
+    /// The `open_marker_popover` choke-point crash guard (GTK4Rs/AP-128/GTK4Rs/AP-128).
     /// Opening a marker popover ends in `popup()`, which realizes the popover surface;
     /// on an UNREALIZED view that surface's parent is NULL → `GDK_IS_SURFACE` assert →
     /// SIGSEGV. A view that is rendered but NEVER presented is unrealized, so a direct
     /// open here must be a clean no-op — reaching the assertion without aborting IS the
-    /// pass (mirrors the ScrAP-152 scroll-idle crash test). Mutation note: remove the
+    /// pass (mirrors the GTK4Rs/AP-128 scroll-idle crash test). Mutation note: remove the
     /// `is_realized()` guard at the top of `open_marker_popover` and this aborts (the
     /// `popup()` fires against a NULL parent surface). This is the choke-point half of
     /// the fix; the deferred `snapshot_layer` dispatch also weak-captures to de-pin a

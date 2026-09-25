@@ -989,7 +989,7 @@ fn code_block_node(
 /// standing for a whole widget, whose text is not in this buffer at all.
 /// Blockquotes AND list items — including nested and loose items — are instead
 /// char-precise (leading-marker gap-gated; markers live out of the buffer in the
-/// gutter, ScrAP-118), so they recurse rather than skip. A **code block** is
+/// gutter, GTK4Rs/AP-95), so they recurse rather than skip. A **code block** is
 /// char-precise too, but by a path of its own ([`Builder::code_block`]): its
 /// interior IS in the buffer, just flushed in one go at its `End` event.
 fn is_opaque(c: Construct) -> bool {

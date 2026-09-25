@@ -11,7 +11,7 @@
 //! A rename removes the old name from the directory, and the tab's live-reload
 //! monitor is watching exactly that name. Save already has this problem for its own
 //! write-temp-then-rename and solves it with `expect_self_delete` — a flag armed
-//! before the rename and consumed by the one `Deleted` that follows (ScrAP-54).
+//! before the rename and consumed by the one `Deleted` that follows (GTK4Rs/AP-62).
 //!
 //! **That mechanism does not work here, and it is worth stating why rather than
 //! leaving the next reader to wonder why it was not reused.** A rename of a watched
@@ -56,7 +56,7 @@ use crate::docio::{host_rules, validate_new_name, RenameError};
 /// rather than from its own set of call sites: rename's triggers are exactly save's
 /// (dirty changed, backing-file presence changed, the active tab changed) plus the
 /// write gate, which only closes and opens around a save. Sharing the choke point is
-/// what stops a future event refreshing one and forgetting the other — the ScrAP-38
+/// what stops a future event refreshing one and forgetting the other — the GTK4Rs/AP-47
 /// shape this codebase keeps re-learning.
 pub(crate) fn update_rename_action_state(window: &ApplicationWindow) {
     let enabled = state(window).is_some_and(|st| rename_enabled_for(&st));
@@ -492,7 +492,7 @@ mod gtk_integration_tests {
         // away: on Windows, releasing a CANCELLED `GFileMonitor` after the main context
         // has dispatched aborts the process with `STATUS_HEAP_CORRUPTION` inside
         // `g_object_unref`, and by the time this assertion can run the context
-        // necessarily has (ScrAP-297). Production never writes that ordering —
+        // necessarily has (GTK4Rs/AP-340). Production never writes that ordering —
         // `DocMonitor::cancel_and_release` consumes the monitor, so the cancel and the
         // final unref cannot be separated by a main-loop turn.
 

@@ -552,7 +552,7 @@ fn list_whole_document_preserves_markers_numbers_and_task_boxes() {
 #[test]
 fn nested_list_item_is_char_precise() {
     // A nested list item reconstructs char-precisely (formerly deferred L3, now
-    // viable since markers moved to the gutter — ScrAP-118): its marker/indent live
+    // viable since markers moved to the gutter — GTK4Rs/AP-95): its marker/indent live
     // in inter-sibling source gaps and are gap-gated exactly like a blockquote's.
     let md = "x\n\n- a\n  - nested\n- b";
     assert_eq!(pick(md, "nested"), "nested"); // within nested item → no marker

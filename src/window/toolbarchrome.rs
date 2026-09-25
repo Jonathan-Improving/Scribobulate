@@ -287,7 +287,7 @@ fn apply_everywhere(app: &Application) {
 /// purpose. Note: a synchronous `toolbar.measure(Horizontal, -1)` right after
 /// `set_visible(false)` would in fact be *fresh*, not stale — `gtk_widget_hide`
 /// completes the `queue_resize` cache-clear before returning, so it is NOT the
-/// GTK4Rs/AP-13/GTK4Rs/AP-15 lazy-validation family (see ScrAP-68). We simply don't
+/// GTK4Rs/AP-13/GTK4Rs/AP-15 lazy-validation family (see GTK4Rs/T-2). We simply don't
 /// need the measure.
 fn apply_to(
     layout: &ToolbarLayout,

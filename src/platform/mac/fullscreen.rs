@@ -190,7 +190,7 @@ const FULLSCREEN_NONE: usize = 1 << 9;
 /// whose slot this is — `GtkApplicationWindow` holds a strong reference to its help
 /// overlay — so a strong parent here would close `parent -> overlay -> handler ->
 /// slot -> parent`, an uncollectable cycle that strands both windows on close
-/// (ScrAP-60). The slot is normally emptied at realize; weakness is what keeps the
+/// (GTK4Rs/AP-63). The slot is normally emptied at realize; weakness is what keeps the
 /// window that is *never* presented from leaking its parent anyway.
 type HeldParent = Rc<RefCell<Option<WeakRef<gtk::Window>>>>;
 
@@ -271,7 +271,7 @@ fn detach(window: &gtk::Window, held: &HeldParent) {
         return;
     };
     // Written and dropped before the setter below, which re-enters this function
-    // synchronously — a borrow still live across it aborts the process (ScrAP-53).
+    // synchronously — a borrow still live across it aborts the process (GTK4Rs/AP-61).
     held.replace(Some(parent.downgrade()));
     window.set_transient_for(None::<&gtk::Window>);
 }

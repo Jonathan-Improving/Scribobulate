@@ -55,7 +55,7 @@ pub(super) fn paint_band(
     // `span_card_y_extent`, whose ends are `line_yrange` reads, and `line_yrange`
     // spans every display row of the logical line. No display-line X is needed at
     // all, which matters because at GTK 4.6 there is no way to obtain one on the
-    // paint path without a line-display cache insert (ScrAP-105).
+    // paint path without a line-display cache insert (GTK4Rs/AP-89).
     let (top, bottom) = span_card_y_extent(
         ctx.view,
         &ctx.buffer,

@@ -3,7 +3,7 @@
 //! `format::code_fence_close` decisions to buffer edits inside one undo step, driven
 //! by a **keystroke**.
 //!
-//! # Why a key controller and not an `insert-text` hook (ScrAP-199 — silent paste loss)
+//! # Why a key controller and not an `insert-text` hook (GTK4Rs/AP-73 — silent paste loss)
 //!
 //! The obvious implementation — hook `GtkTextBuffer::insert-text` and treat an
 //! inserted `"\n"` as "the user pressed Enter" — is **unsound**, and it silently ate
@@ -245,7 +245,7 @@ mod gtk_integration_tests {
         crate::saferizer::BufferText::of(buf).into_string()
     }
 
-    /// ScrAP-199 — cut/copy a run of list lines, paste it back, and the last line
+    /// GTK4Rs/AP-73 — cut/copy a run of list lines, paste it back, and the last line
     /// silently vanished. The clipboard was never at fault: the paste of same-app
     /// content is a rich-text `insert_range` that emits ONE `insert-text` per
     /// tag-delimited run, so a list line ending in a highlighted span (`` `code` ``)

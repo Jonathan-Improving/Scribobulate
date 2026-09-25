@@ -18,7 +18,7 @@ pub(crate) struct Extent {
 ///
 /// `i64` throughout: the product overflows `i32` at around 46k×46k, which is inside
 /// what `limits::MAX_IMAGE_PIXELS` admits for a wide-and-short image. Never zero — a
-/// `GtkPicture` measured at height 0 short-circuits to a blank (ScrAP-32).
+/// `GtkPicture` measured at height 0 short-circuits to a blank (GTK4Rs/AP-58).
 fn keep_aspect(nat_w: i32, nat_h: i32, w: i32) -> i32 {
     if nat_w <= 0 {
         return 1;
@@ -81,7 +81,7 @@ pub(crate) fn cap_raster(extent: Extent) -> Extent {
 /// The `max-width: 100%` half of the display policy (TDD 2.21): an image never grows to
 /// fill the column and never exceeds it. Exceeding it is not merely untidy — an anchored
 /// child wider than the content column re-arms the Automatic h-scrollbar churn that
-/// blanks the pane (ScrAP-23).
+/// blanks the pane (GTK4Rs/AP-23).
 pub(crate) fn fit_within(extent: Extent, bound: i32) -> Extent {
     if bound <= 0 || extent.w <= bound {
         return extent;
@@ -106,7 +106,7 @@ pub(crate) fn fit_within(extent: Extent, bound: i32) -> Extent {
 /// only a reader who has deliberately zoomed in can produce an image wider than the
 /// column.
 ///
-/// **It produces an anchored child wider than the content column, which ScrAP-23 warns
+/// **It produces an anchored child wider than the content column, which GTK4Rs/AP-23 warns
 /// about.** That was measured rather than assumed before it landed: the whole zoom ladder
 /// plus an eight-width resize sweep at 300%, on the `image-test.md` corpus, left the pane
 /// drawn at every step with no `Gtk-CRITICAL` and no blank (Xvfb, GTK 4.6.9 — which does
@@ -267,7 +267,7 @@ mod extent_tests {
     #[test]
     fn a_degenerate_intrinsic_size_still_yields_a_drawable_extent() {
         // A zero dimension reaching a GtkPicture is a blank picture, not a small one
-        // (ScrAP-32), and zoom-out is a second way to reach zero.
+        // (GTK4Rs/AP-58), and zoom-out is a second way to reach zero.
         assert_eq!(zoomed_extent(0, 0, 1.0), Extent { w: 1, h: 1 });
         let tiny = zoomed_extent(1, 1, 0.5);
         assert!(tiny.w >= 1 && tiny.h >= 1, "{tiny:?}");
@@ -352,7 +352,7 @@ mod extent_tests {
     fn at_the_default_zoom_the_scaled_fit_is_exactly_the_clamp() {
         // The default view must be byte-identical to the behaviour that shipped before
         // an image could overflow at all — only a reader who deliberately zoomed in can
-        // produce an over-wide anchored child (ScrAP-23's shape).
+        // produce an over-wide anchored child (GTK4Rs/AP-23's shape).
         use crate::renderer::image::{fit_scaled, fit_within};
         for (w, h) in [(220, 140), (1600, 900), (100, 3000)] {
             let e = Extent { w, h };
@@ -419,7 +419,7 @@ mod extent_tests {
     #[test]
     fn an_unknown_column_does_not_collapse_a_zoomed_image() {
         // `size_allocate` can ask before the view has a content column. Answering 0 there
-        // would set a zero width request and blank the picture permanently (ScrAP-32).
+        // would set a zero width request and blank the picture permanently (GTK4Rs/AP-58).
         use crate::renderer::image::{fit_scaled, zoomed_extent};
         let zoomed = zoomed_extent(1600, 900, 2.0);
         assert_eq!(fit_scaled(zoomed, 2.0, 0), zoomed);

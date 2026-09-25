@@ -98,7 +98,7 @@ fn priorities(t: &Theme) -> std::collections::HashMap<String, i32> {
 ///
 /// Read TYPED rather than through `Value`'s `Debug`: a boxed `GdkRGBA` formats as a
 /// POINTER, which differs between two resolutions of the same theme and would make
-/// this answer "yes" for every theme (ScrAP-327).
+/// this answer "yes" for every theme (GTK4Rs/AP-310).
 #[cfg(feature = "gtk-integration-tests")]
 fn disclosure_ink_of(t: &Theme) -> Option<gtk::gdk::RGBA> {
     use gtk::prelude::*;

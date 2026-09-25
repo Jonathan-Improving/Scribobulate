@@ -63,7 +63,7 @@ platform-side pool) rather than unreachable memory.
 `window/export.rs`'s `choose_destination` and `app/appactions.rs`'s open action — go
 through `saferizer::native_dialog::NativeDialogHolder`, which takes exactly one
 external strong reference and drops it once when `response` fires, and both call
-`destroy()` on the dialog in the response handler. That is the shape ScrAP-41
+`destroy()` on the dialog in the response handler. That is the shape GTK4Rs/AP-41
 prescribes, and it is the same code on every platform.
 
 **Linux does not reproduce it — with an important caveat about what was measured.**

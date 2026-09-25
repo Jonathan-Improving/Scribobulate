@@ -7,7 +7,7 @@
 //! it, and a focused **selectable `GtkLabel`** consumes the horizontal and
 //! buffer-ends keys with its own `move-cursor` bindings — they never bubble to the
 //! host view, so the document does not move and nothing at all appears to happen
-//! (ScrAP-264).
+//! (GTK4Rs/AP-264).
 //!
 //! This module owns the two decisions the repair turns on, both as pure functions
 //! over plain data so they are settled without a display:

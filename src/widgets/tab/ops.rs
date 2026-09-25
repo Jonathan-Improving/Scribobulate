@@ -303,7 +303,7 @@ impl TabBar {
     /// Every mutation that can change a handle's width therefore routes through
     /// here — `TabBar::with_entry_width_change` is the single funnel — so the
     /// strip's positions can never be stale with respect to its widths
-    /// (ScrAP-290).
+    /// (GTK4Rs/AP-290).
     ///
     /// **Known residue:** a width change this widget is never told about — a
     /// restyle altering the handles' font, say — leaves the strip stale until
@@ -390,7 +390,7 @@ impl TabBar {
         // correct it: the next `size_allocate` publishes the true range but
         // never re-reveals, and no later event does either — which is why
         // "the document I just opened has no visible tab" survived a resize
-        // (ScrAP-291).
+        // (GTK4Rs/AP-291).
         //
         // `viewport` is the width available to tab handles (post-gutter
         // reservation) as of the last `size_allocate` — NOT the adjustment's own

@@ -36,7 +36,7 @@
 //! legacy path ever stops working, they fail loudly instead of quietly painting light.
 //!
 //! Why the two builds differ at one version, and why neither platform's result may be
-//! inferred from the other's: **ScrAP-205**.
+//! inferred from the other's: **GTK4Rs/AP-205**.
 //!
 //! Deliberately a **leaf**: it references nothing else in the crate. That is what
 //! lets `tests/macos_dark_mode.rs` pull it in by `#[path]` alongside the module it

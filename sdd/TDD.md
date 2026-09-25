@@ -142,7 +142,7 @@
 - **And** the bytes arrive unchanged: a selection containing `\r\n` inserts `\r\n`, because a rich buffer-to-buffer transfer is what used to split a paste into one edit per syntax-highlight tag and corrupt line endings across the split (ScrAP-312)
 - **And** a middle-click in the **preview** does nothing — it is not an editable surface, and it must not paste, scroll or move the caret
 - **And** every other text field in the application keeps the platform's own middle-click paste; this changes one view, not the process
-- *(Not verified on every platform: PRIMARY middle-click is an X11 convention that Quartz and Win32 do not share, so this rubric is exercised on Linux. The unaffected memory behaviour of selecting is ScrAP-313's, not this rubric's.)*
+- *(Not verified on every platform: PRIMARY middle-click is an X11 convention that Quartz and Win32 do not share, so this rubric is exercised on Linux. The unaffected memory behaviour of selecting is GTK4Rs/AP-318's, not this rubric's.)*
 
 ---
 
@@ -179,7 +179,7 @@
 - **Given** GTK 4.6 with a screen reader (Orca/AT-SPI) reading the preview
 - **When** AT-SPI requests the text-run attributes of the preview view or a run under the inline-code tag
 - **Then** the app does **not** abort: the preview view and the CodeInline tag use a `GtkWrapMode` in `PangoWrapMode`'s range (`Char`, never `WordChar`), because GTK 4.6's AT-SPI path casts the raw `GtkWrapMode` to `PangoWrapMode` untranslated and `WordChar`(3) is out of range → `pango_wrap_mode_to_string`'s `g_assert_not_reached()` (GTK4Rs/AP-136; 4.6-only, fixed 4.8+, restore `WordChar` at floor ≥4.8)
-- **And** `Char` also never produces an over-wide line, preserving the no-horizontal-overflow invariant §2.2 / ScrAP-22 depends on (regression test in `preview::render`)
+- **And** `Char` also never produces an over-wide line, preserving the no-horizontal-overflow invariant §2.2 / GTK4Rs/AP-22 depends on (regression test in `preview::render`)
 
 ### 2.2a Table header row is visually distinguished
 - **Given** a GFM table (the header row is the row above the `---` delimiter row)
@@ -228,7 +228,7 @@
 ### 2.11a Multi-line blockquote body is uniformly indented
 - **Given** a multi-line blockquote (several `>` source lines in one quoted paragraph) that wraps at the current viewport width
 - **When** it is rendered
-- **Then** **every** line of the quote — first, middle, last, and every wrapped continuation — sits at the same left inset past the accent bar, at any window width; no line collapses toward the bar (regression guard for the GtkTextView `one_style_cache` dropped-margin artifact — the tag is applied per line, content-only, ScrAP-76)
+- **Then** **every** line of the quote — first, middle, last, and every wrapped continuation — sits at the same left inset past the accent bar, at any window width; no line collapses toward the bar (regression guard for the GtkTextView `one_style_cache` dropped-margin artifact — the tag is applied per line, content-only, GTK4Rs/AP-72)
 
 ### 2.11b A nested blockquote gets its own bar and its own indent
 - **Given** a blockquote containing a further `>` level (and a third below that), including one whose inner quote is followed by more outer-level content
@@ -236,7 +236,7 @@
 - **Then** **each nesting level draws its own accent bar** at its own left offset, and every level's bar is visible **simultaneously** — the outer bar runs the full height of the outer quote, past the inner region rather than stopping where the inner one begins
 - **And** each level's bar **starts and ends on that level's own text** — a nested bar begins level with the first line the nested level itself contributes, never reaching up over the parent's preceding line or the blank line separating them
 - **And** the quoted text steps in by exactly one level's worth per depth, on **both** sides (a blockquote sets a left *and* a right margin), with every wrapped continuation line at its own level's inset — 2.11a holds per level, not only at depth 1
-- **And** the per-level indent is carried by the **depth's own tag**, exactly as `li-{depth}` carries `depth · list_step`: one quote tag per logical line, holding that line's full depth, rather than one tag per level accumulating onto each other. That keeps the quote's margin out-prioritising a code block's inside it, which is why the quote tag is registered where it is and must stay non-accumulative (ScrAP-121, GTK4Rs/AP-96) — and a **list inside a quote** still nests correctly, because `li-{depth}` is accumulative and adds onto whichever quote depth is the line's base
+- **And** the per-level indent is carried by the **depth's own tag**, exactly as `li-{depth}` carries `depth · list_step`: one quote tag per logical line, holding that line's full depth, rather than one tag per level accumulating onto each other. That keeps the quote's margin out-prioritising a code block's inside it, which is why the quote tag is registered where it is and must stay non-accumulative (GTK4Rs/AP-96, GTK4Rs/AP-96) — and a **list inside a quote** still nests correctly, because `li-{depth}` is accumulative and adds onto whichever quote depth is the line's base
 - **And** the **background does not nest**: `blockquote_bg` paints ONE continuous panel over the outermost quote and every level inside it inherits that fill (operator, 2026-08-28). Depth is carried by the bars alone, so 18.29's single-panel contract is unchanged and an inner level never paints a second fill over its parent's
 - **And** depth is **clamped at `MAX_QUOTE_DEPTH`** (6, mirroring `MAX_LIST_DEPTH`): past the cap a level renders at the cap's indent and bar rather than stepping further, so a pathologically nested document still opens and stays responsive (1.4b) and can never narrow the content column to nothing nor push the preview over-wide (2.2·a11y)
 - **And** a **sprite-tiled** bar (18.28) tiles per level, each keeping the document-anchored phase, so the levels cannot drift against one another while scrolling
@@ -255,7 +255,7 @@
 ### 2.3a Code-block card stays within its own lines
 - **Given** a fenced code block immediately followed by text with no blank line between them — e.g. a hard-broken loose continuation paragraph wedged under a code block inside a nested list item
 - **When** it is rendered
-- **Then** the code block's coloured card wraps only its own lines (its uniform inner padding above and below the code) and does **not** paint over the following line's text — the abutting paragraph reads on its own clear line below the card (regression guard for the self-drawn decoration re-adding the tag-supplied line padding, ScrAP-150)
+- **Then** the code block's coloured card wraps only its own lines (its uniform inner padding above and below the code) and does **not** paint over the following line's text — the abutting paragraph reads on its own clear line below the card (regression guard for the self-drawn decoration re-adding the tag-supplied line padding, GTK4Rs/AP-127)
 
 ### 2.3b A code block offers a one-gesture copy button
 - **Given** a rendered fenced (or indented) code block
@@ -280,11 +280,11 @@
 ### 2.4a List content margin and inter-item spacing (drawn gutter)
 - **Given** a bulleted, ordered, **or** task list whose items span more than one visual line — a long item that soft-wraps, or an item written across several source lines — at any nesting depth
 - **When** it is rendered
-- **Then** the marker sits alone in a left **gutter** (drawn, not buffer text) and **every** line of the item's text — the first line, every soft wrap, and every hard-broken source line — left-justifies to the item's uniform content margin, never re-outdenting to the marker column or left of it (every content line carries the same `left_margin` with `indent=0`, so no line can outdent — ScrAP-118)
+- **Then** the marker sits alone in a left **gutter** (drawn, not buffer text) and **every** line of the item's text — the first line, every soft wrap, and every hard-broken source line — left-justifies to the item's uniform content margin, never re-outdenting to the marker column or left of it (every content line carries the same `left_margin` with `indent=0`, so no line can outdent — GTK4Rs/AP-95)
 - **And** a **loose** item — paragraphs separated by a blank line — renders its later paragraphs at that same content margin too, not outdented (fixed by the uniform margin; the former per-line-style-cache outdent is gone)
 - **And** a gap separates adjacent items (spacing appears **between** items, not within an item — the item's first line opens the gap above), applied identically to bulleted, ordered, and task lists
-- **And** an item inside a **container** — a blockquote, or an enclosing list item — indents relative to *that container's* content margin, **marker included**: a quoted list sits wholly inside the quote (never crossing to or left of the quote's accent bar, and never lopsided — indented on one side only), and each nesting level steps in by exactly one level's worth from the level above it, no more (POLICY Document Rendering CAM row 2; ScrAP-121)
-- **And** the **marker itself** (bullet dot, ordered number, or task checkbox) stays **top-aligned on the item's first visual line** — level with the first line of the item's text — no matter how many lines the item wraps to, and never drifts toward the vertical middle of a multi-line item; a single-line item is unaffected (the gutter clamps the item's whole-logical-line height, which spans every soft-wrapped display row, down to its first display row before centering the marker — ScrAP-159)
+- **And** an item inside a **container** — a blockquote, or an enclosing list item — indents relative to *that container's* content margin, **marker included**: a quoted list sits wholly inside the quote (never crossing to or left of the quote's accent bar, and never lopsided — indented on one side only), and each nesting level steps in by exactly one level's worth from the level above it, no more (POLICY Document Rendering CAM row 2; GTK4Rs/AP-96)
+- **And** the **marker itself** (bullet dot, ordered number, or task checkbox) stays **top-aligned on the item's first visual line** — level with the first line of the item's text — no matter how many lines the item wraps to, and never drifts toward the vertical middle of a multi-line item; a single-line item is unaffected (the gutter clamps the item's whole-logical-line height, which spans every soft-wrapped display row, down to its first display row before centering the marker — GTK4Rs/AP-145)
 
 ### 2.4b Empty list items draw no marker
 - **Given** a list item with **no content** after its marker — an empty bullet (`- `), an empty number (`1. `), or an empty task (`- [ ]` on its own line)
@@ -392,7 +392,7 @@
 ### 2.26f A collapsed body claims no space in the pane
 - **Given** a collapsed disclosure whose body contains a table or image wider than the preview pane
 - **When** the document is displayed
-- **Then** no horizontal scrollbar appears and the preview does not blank — content inside a collapsed block imposes no width on the pane (the ScrAP-23a over-wide chain must not be reachable through collapsed content)
+- **Then** no horizontal scrollbar appears and the preview does not blank — content inside a collapsed block imposes no width on the pane (the GTK4Rs/AP-139 over-wide chain must not be reachable through collapsed content)
 
 ### 2.26g A disclosure exports as it renders
 - **Given** a document containing disclosure blocks, both collapsed and `open`
@@ -489,7 +489,7 @@
 ### 2.6 External links
 - **Given** a rendered document containing a hyperlink to an external URL
 - **When** the user activates that link
-- **Then** it opens in the system default browser rather than navigating the preview pane away from the document, and the browser's window is **raised to the front** — the launch carries an activation token, so a window manager's focus-stealing prevention permits the raise even when the browser was already running (a tokenless launch opens the tab silently behind the app, which is indistinguishable from the link doing nothing; ScrAP-129)
+- **Then** it opens in the system default browser rather than navigating the preview pane away from the document, and the browser's window is **raised to the front** — the launch carries an activation token, so a window manager's focus-stealing prevention permits the raise even when the browser was already running (a tokenless launch opens the tab silently behind the app, which is indistinguishable from the link doing nothing; GTK4Rs/AP-99)
 
 ### 2.24 A click affordance activates only on a complete click
 - **Given** a rendered document containing hyperlinks, and the reader using the mouse to select text
@@ -503,7 +503,7 @@
 - **Given** a selection in the preview that covers a pointer affordance — a link, a right-margin comment marker, a gutter task checkbox, or a code block's copy button
 - **When** the reader presses inside that selection, on the affordance
 - **Then** the affordance does **not** activate: the click clears the selection instead, and the next click on it behaves normally (2.24). One wasted click, self-correcting, nothing at risk
-- **And** this is **GTK's behaviour, deliberately left in place, not a defect of this application**: `gtk_text_view_click_gesture_pressed` claims the sequence for its own drag gesture on any single non-touch press whose iter lies inside the selection, in order to start a drag-and-drop, and it does so unconditionally rather than gated on the view being editable. A claim sets `DENIED` on every other gesture handling that sequence, `DENIED` is terminal, and it is **not** a cancellation — so the application's gesture receives `pressed` and then neither `released` nor `cancel`, which is why the click cannot be observed at all rather than merely arriving late (the same arbitration wall as ScrAP-142; measured on an instrumented build against GTK 4.6.9)
+- **And** this is **GTK's behaviour, deliberately left in place, not a defect of this application**: `gtk_text_view_click_gesture_pressed` claims the sequence for its own drag gesture on any single non-touch press whose iter lies inside the selection, in order to start a drag-and-drop, and it does so unconditionally rather than gated on the view being editable. A claim sets `DENIED` on every other gesture handling that sequence, `DENIED` is terminal, and it is **not** a cancellation — so the application's gesture receives `pressed` and then neither `released` nor `cancel`, which is why the click cannot be observed at all rather than merely arriving late (the same arbitration wall as GTK4Rs/AP-171; measured on an instrumented build against GTK 4.6.9)
 - **And** it is **priced and deliberately not worked around**: claiming the sequence ourselves is the only way to out-rank GTK's claim, and it would buy this one self-correcting click at the cost of the case it steals — a press over an affordance would no longer be available to begin a selection drag, and because intent is unknowable at the moment the claim must be made, a press that *did* become a drag would end in nothing happening at all. A silent no-op that fixes itself is the better of the two silences
 - **And** the rule does not reach a press **outside** the selection: that press is the application's as usual, and 2.24's complete-click contract governs it
 
@@ -515,7 +515,7 @@
 ### 2.17 Same-document anchor links scroll to their heading
 - **Given** a rendered document with a link whose target is a bare fragment (e.g. `[Skill loading](#2-skill-loading)`) and a heading whose GitHub-style slug matches
 - **When** the user activates that link
-- **Then** the preview scrolls to that heading rather than handing the fragment to an external opener; duplicate headings disambiguate as `slug`, `slug-1`, `slug-2` — including a heading far below the current viewport (a `scroll_to_iter` unvalidated-region hazard; see ScrAP-22)
+- **Then** the preview scrolls to that heading rather than handing the fragment to an external opener; duplicate headings disambiguate as `slug`, `slug-1`, `slug-2` — including a heading far below the current viewport (a `scroll_to_iter` unvalidated-region hazard; see GTK4Rs/AP-22)
 
 ### 2.7 Untrusted content is contained
 - **Given** a document containing embedded HTML or script
@@ -675,7 +675,7 @@
   content of the buffer the view already holds. Handing a live `GtkTextView` a
   different buffer leaves the layout's cached line displays pointing at the freed one,
   and the next thing to touch that cache — GTK's own paint, or its input-method
-  position update inside a scroll — kills the process (ScrAP-258; unfixed in every GTK
+  position update inside a scroll — kills the process (GTK4Rs/AP-258; unfixed in every GTK
   4 through 4.23, so it is avoided rather than waited out)
 
 ### 4.2 Source syntax highlighting
@@ -719,7 +719,7 @@
 - **Given** the editor pane has unsaved edits and the document has a file path
 - **When** the user saves
 - **Then** the on-disk file updates and the editor keeps its exact content, cursor position, and focus — the view does not flicker, reload, or reset from the save round-tripping through the file watcher
-- **And** no false "File deleted on disk" notice appears — the atomic save's own write-temp-then-rename must not be misread as an external deletion by the file monitor (ScrAP-54)
+- **And** no false "File deleted on disk" notice appears — the atomic save's own write-temp-then-rename must not be misread as an external deletion by the file monitor (GTK4Rs/AP-62)
 
 ### 4.7 Save As names an untitled document and can relocate a titled one
 - **Given** a new/untitled document (no backing file) with content entered
@@ -730,7 +730,7 @@
 - **Then** the file is saved with that single `.md` extension, never a doubled `notes.md.md`
 - **And given** the document has just been Save-As'd (or is a first save of a previously-untitled document)
 - **When** another process later deletes that file for real
-- **Then** the "File deleted on disk" notice still appears — the self-save round-trip guard (TDD 4.6, ScrAP-54) must not stay stuck armed from the Save As's own rename and swallow this later, genuine deletion (QA round-1 M1)
+- **Then** the "File deleted on disk" notice still appears — the self-save round-trip guard (TDD 4.6, GTK4Rs/AP-62) must not stay stuck armed from the Save As's own rename and swallow this later, genuine deletion (QA round-1 M1)
 - **And given** a titled document
 - **When** the user invokes Save As and picks a different file
 - **Then** the content is written there and the window switches to backing the new file — the live-reload watcher now monitors the new file and no longer reacts to changes on the previous one
@@ -1001,7 +1001,7 @@
 > Formerly required holding Shift to cross a window boundary (a plain drag
 > reordered in-window only); widgets/tab's custom tab strip retired
 > that gate — it existed only to keep a hand-rolled `GtkDragSource` from
-> racing `GtkNotebook`'s own private reorder gesture (ScrAP-50), and
+> racing `GtkNotebook`'s own private reorder gesture (GTK4Rs/AP-60), and
 > a fully-owned strip has no second gesture to race. A plain drag now
 > reorders, escalates to cross-window, or drops to the desktop based purely
 > on where it ends up — matching ordinary browser tab-strip behavior.
@@ -1131,7 +1131,7 @@
 - **When** the application is launched again with that same file's path from a source that carries a desktop activation token (a file manager, "Open With", `gtk-launch`, `gio open`, or equivalent)
 - **Then** the window containing that tab is focused and that tab becomes the active one, rather than a duplicate window opening
 - **And given** the second launch instead comes from a bare shell command with no activation token (e.g. `scribobulate path` typed directly into a terminal)
-- **Then** the window-manager's focus-stealing prevention may legitimately substitute a taskbar/demands-attention flash for an actual raise-and-focus — this is desktop-level behavior common to virtually every application, not an app bug, and is not something `gtk_window_present()` can or should override (researcher-verified, ScrAP-47); verify this rubric via a tokened launch method, not a bare terminal command
+- **Then** the window-manager's focus-stealing prevention may legitimately substitute a taskbar/demands-attention flash for an actual raise-and-focus — this is desktop-level behavior common to virtually every application, not an app bug, and is not something `gtk_window_present()` can or should override (researcher-verified, GTK4Rs/AP-54); verify this rubric via a tokened launch method, not a bare terminal command
 
 ### 8.2a A launch arriving during startup is never a second startup
 - **Given** the process has been launched once and is still starting up — session restore reads each tab's document one at a time, so for the whole of that interval no window exists yet
@@ -1357,7 +1357,7 @@
 - **And given** the read-only preview pane rather than the editor
 - **Then** the same keys behave the same way — read-only does not exempt a pane from carrying GTK's buffer-ends bindings
 - **And given** the focus sits on a **table cell** in the preview (the reader clicked into one, or tabbed to it) rather than on the pane itself
-- **Then** these keys — and the rest of the document-navigation set: Home, End, ←, →, ↑, ↓, PageUp, PageDown, and their Ctrl forms — still move the *document*, exactly as they do with the pane focused; a cell is part of the document the reader is navigating, not a place navigation stops working (ScrAP-264)
+- **Then** these keys — and the rest of the document-navigation set: Home, End, ←, →, ↑, ↓, PageUp, PageDown, and their Ctrl forms — still move the *document*, exactly as they do with the pane focused; a cell is part of the document the reader is navigating, not a place navigation stops working (GTK4Rs/AP-264)
 - **And** a **selection-extending** key (any Shift form) still acts on the cell's own text, which is the only selection a table cell can hold, so keyboard selection inside a cell is not taken away to buy the above
 
 ### 9.34 Every far navigation arrives, however large the document
@@ -1665,7 +1665,7 @@
 - **Then** if the line has content, a new line begins carrying the same continuation: the blockquote prefix repeated verbatim, the same bullet, the number incremented by one (same `.`/`)` delimiter), or a **fresh unchecked** task box `- [ ] ` (continuing a `- [x] ` item still starts unchecked) — with leading indentation preserved and the caret placed after the new marker
 - **And** if the line is empty (only whitespace after the marker(s)), the marker is removed from the current line and **no** new line is added (the list/quote ends)
 - **And** each such Enter is a **single** undoable edit — one Ctrl+Z removes the whole inserted `\n<marker>` (or restores the cleared marker), and redo mirrors it
-- **And** a newline the user did **not** type never triggers any of this: a paste (Ctrl+V or middle-click PRIMARY), a drag-and-drop of text, an undo/redo replay and every programmatic edit are left to GTK untouched, landing **verbatim and complete** — every line of a pasted block arrives, including the last, whether or not the copied region carried syntax highlighting, and whether or not the destination line is itself a list item (ScrAP-199: a same-app paste arrives as several `insert-text` emissions, one of which is a bare `\n`, so "the inserted text is a newline" is not a test for "the user pressed Enter")
+- **And** a newline the user did **not** type never triggers any of this: a paste (Ctrl+V or middle-click PRIMARY), a drag-and-drop of text, an undo/redo replay and every programmatic edit are left to GTK untouched, landing **verbatim and complete** — every line of a pasted block arrives, including the last, whether or not the copied region carried syntax highlighting, and whether or not the destination line is itself a list item (GTK4Rs/AP-73: a same-app paste arrives as several `insert-text` emissions, one of which is a bare `\n`, so "the inserted text is a newline" is not a test for "the user pressed Enter")
 
 ### 10.14 A lone *opening* code fence auto-closes on Enter
 - **Given** the caret at or past a line that is a lone opening code fence — leading indentation, a run of three or more backticks, and nothing else (no language/info string) — where the document above is **not** already inside an open fenced block
@@ -1758,7 +1758,7 @@
 - **Given** the find bar is open
 - **When** the user switches view mode
 - **Then** the bar stays open (it is not part of the swappable content area)
-- **And** the preview find-match highlights **survive every boundary that rebuilds the preview buffer** — view-mode switch, runtime theme switch, and external reload — re-applied for the active tab rather than left bare until the next match is cycled (Document Rendering CAM row 8; ScrAP-38)
+- **And** the preview find-match highlights **survive every boundary that rebuilds the preview buffer** — view-mode switch, runtime theme switch, and external reload — re-applied for the active tab rather than left bare until the next match is cycled (Document Rendering CAM row 8; GTK4Rs/AP-47)
 - **And** a match position is never carried from one pane's occurrence list into the other's: the editor's list and the preview's unified body+cell list are numbered independently, so after a mode switch the counter and the next Next/Prev either resume in the list the visible pane actually owns or start from the top — never at a number that was a position in the *other* list
 - **And when** the user presses Escape or the close button
 - **Then** the bar hides, match highlighting clears (both body text and inside table cells), and focus returns to the editor
@@ -1780,7 +1780,7 @@
 ### 11.7 Find scrolls to a match inside a table cell
 - **Given** pure-preview mode showing a **tall** table (taller than the viewport) whose cells contain the search term, with the find bar open
 - **When** the user navigates (Next/Prev) onto a cell match, then onto a further cell match in the **same** table
-- **Then** the preview scrolls so each matched **cell's own row** is brought into view — not merely the table's top — so consecutive in-cell matches each move the viewport rather than appearing "stuck" at the first table's top (the cell→table two-step `scroll_to_cell_offset`/`cell_row_y_h`, ScrAP-109)
+- **Then** the preview scrolls so each matched **cell's own row** is brought into view — not merely the table's top — so consecutive in-cell matches each move the viewport rather than appearing "stuck" at the first table's top (the cell→table two-step `scroll_to_cell_offset`/`cell_row_y_h`, GTK4Rs/AP-91)
 
 ### 11.9 Find matches every piece of text the reader can see, links included
 - **Given** pure-preview mode showing a document whose link text appears in each context it can — a body paragraph, a heading, a list item, a blockquote, a table cell **alongside other text**, and a table cell that is **nothing but the link**
@@ -1927,8 +1927,8 @@
 ### 12.8 Navigating a long document never blanks the preview
 - **Given** a long document containing blockquotes, horizontal rules, code blocks, and/or tables, shown in **preview OR split** mode
 - **When** the user rapidly clicks outline entries to jump around (incl. far top↔bottom jumps and fast window/splitter resizes)
-- **Then** the preview always stays rendered — it never goes blank, never spams "snapshot … without a current allocation", and shows no spurious horizontal scrollbar (regression guard for the child-anchor reflow blank, ScrAP-23)
-- **And** this holds even when a table or rule is nested inside a **list item or blockquote**: an indented anchored child is bounded to `content − 1 − inset`, where `inset` is the horizontal margin its enclosing block steals (list = left-only `depth·list_step`; blockquote = both sides `2·(bar+gap)`), so it never extends past the viewport and never summons the Automatic h-scrollbar (ScrAP-23a)
+- **Then** the preview always stays rendered — it never goes blank, never spams "snapshot … without a current allocation", and shows no spurious horizontal scrollbar (regression guard for the child-anchor reflow blank, GTK4Rs/AP-23)
+- **And** this holds even when a table or rule is nested inside a **list item or blockquote**: an indented anchored child is bounded to `content − 1 − inset`, where `inset` is the horizontal margin its enclosing block steals (list = left-only `depth·list_step`; blockquote = both sides `2·(bar+gap)`), so it never extends past the viewport and never summons the Automatic h-scrollbar (GTK4Rs/AP-139)
 - *(Met for blockquotes/rules/code blocks — buffer text + `snapshot_layer` chrome — and for tables, which use the custom measure-stable `ScribTableWidget` bounded to `content − 1` (the `SPACE_FOR_CURSOR` reservation), minus the enclosing block's indent inset for a nested table/rule. No content type embeds a churning anchored widget.)*
 
 ### 12.9 Outline navigation in split mode drives the preview
@@ -1974,7 +1974,7 @@
 - **Given** a document with nested headings (three or more levels deep) shown in the outline
 - **When** the user clicks the **Collapse all** button in the outline header
 - **Then** only the top-level (root) headings remain visible, each collapsed, and they stay collapsed (no automatic re-expansion)
-- **And even when** the outline was **scrolled to the bottom** before collapsing (so the list view was showing deep leaf rows), the result is still the root rows at the top — never a stale far-end leaf row stranded alone with no expander (ScrAP-157)
+- **And even when** the outline was **scrolled to the bottom** before collapsing (so the list view was showing deep leaf rows), the result is still the root rows at the top — never a stale far-end leaf row stranded alone with no expander (GTK4Rs/AP-143)
 - **And** every nested node is collapsed too — not merely hidden: expanding a single root afterward reveals its direct children *in a collapsed state* (the user descends one level at a time), rather than the whole subtree springing open at once
 - **And when** the user clicks **Expand all**
 - **Then** every heading is revealed, down to the deepest level
@@ -1986,7 +1986,7 @@
 - **Then** the highlight **rises to the nearest still-visible ancestor** heading — it is never left stale on a now-hidden row — and the document does **not** scroll or move the caret
 - **And when** the user re-expands toward that heading (Expand all, or expanding an ancestor node one level at a time)
 - **Then** the highlight **descends back toward the exact heading**, reaching it once it is fully visible again — following the visible frontier, still without scrolling the document
-- **And** these expand/collapse-driven highlight moves are purely visual: expanding or collapsing a node must **never** scroll the preview or move the caret. Only a genuine outline click / keyboard-select on a *different* heading navigates (ScrAP-89)
+- **And** these expand/collapse-driven highlight moves are purely visual: expanding or collapsing a node must **never** scroll the preview or move the caret. Only a genuine outline click / keyboard-select on a *different* heading navigates (GTK4Rs/AP-112)
 
 ### 12.19 Closing a tab mid-navigation aborts the pending scroll gracefully
 - **Given** a preview tab with a navigation scroll still in flight (from an outline click, find-in-preview, or a cross-document fragment link)
@@ -2004,7 +2004,7 @@
 - **When** the user switches to tab A
 - **Then** the outline still highlights the correct section for tab A (12.16) **and** that selected row is scrolled into view in the outline list — the highlight is never left correct-but-off-screen under a stale scroller position from the previous tab
 - **And** this reveal runs only after the scroll-spy has settled the selection for the newly active tab (not on every document `value-changed`), so a user who scrolled the outline by hand while reading is not fought mid-scroll
-- **And** the reveal does not re-fire outline navigation (spy guards stay quiet — ScrAP-89)
+- **And** the reveal does not re-fire outline navigation (spy guards stay quiet — GTK4Rs/AP-112)
 
 ### 12.24 Collapsed outline sections stay collapsed across tabs and edits
 
@@ -2025,7 +2025,7 @@
 > one window). Implemented via **two halves that must stay in lock-step**: a CSS
 > `font-size: {zoom}em` rule scoped to a per-window class
 > (`.scrib-win-<id> textview.scrib-preview`, so a process-global provider cannot
-> collide across windows — ScrAP-64) plus explicit pixel-margin scaling
+> collide across windows — GTK4Rs/AP-77) plus explicit pixel-margin scaling
 > in `setup_tags` and `preview.rs` (both must scale; neither alone is sufficient).
 
 ### 13.1 Zoom In enlarges preview text proportionally
@@ -2068,12 +2068,12 @@
 ### 13.8 Zoom is isolated per window (multi-window)
 - **Given** two or more windows are open in the same process, each showing a preview
 - **When** the user zooms one window (or opens a new window)
-- **Then** only that window's preview changes size; every other window keeps its own zoom level — text *and* geometry (headings, spacing, table cells) — with no shift, collapse, or garble in any other window, and opening a later window never resets an earlier window's zoom (ScrAP-64)
+- **Then** only that window's preview changes size; every other window keeps its own zoom level — text *and* geometry (headings, spacing, table cells) — with no shift, collapse, or garble in any other window, and opening a later window never resets an earlier window's zoom (GTK4Rs/AP-77)
 
 ### 13.9 A tab moved between windows adopts the destination window's zoom
 - **Given** a preview- or split-mode tab in a window at one zoom level (e.g. 100%) and a destination window at a different zoom level (e.g. 300%)
 - **When** the tab is moved into the destination window (cross-window drag or View ▸ Move Tab to New Window)
-- **Then** the moved preview re-renders fully at the destination window's zoom — **both** the font and the pixel geometry (heading scale, spacing, and especially table-cell layout) scale together, with no residual garble from the source zoom — and the source window is otherwise unaffected (ScrAP-64)
+- **Then** the moved preview re-renders fully at the destination window's zoom — **both** the font and the pixel geometry (heading scale, spacing, and especially table-cell layout) scale together, with no residual garble from the source zoom — and the source window is otherwise unaffected (GTK4Rs/AP-77)
 
 ### 13.10 The editor stays responsive after switching out of a zoomed preview
 - **Given** the user changed the zoom level while in preview mode
@@ -2086,7 +2086,7 @@
 - **Then** the image's on-screen size scales with the zoom factor, alongside the text around it (at 200% it is twice its 100% size), with its aspect ratio preserved at every step on the ladder
 - **And** this holds for an image that was **already too wide for the pane at 100%** — the case the report came from. Its fit to the column is decided at 100% and that fitted size is what scales, so zooming in enlarges it past the column and the preview scrolls horizontally to reach the rest. An image already at the pane's width is exactly the one a reader most needs the zoom control to act on, so leaving it fixed would answer the complaint in name only
 - **And** at 100% and below, nothing changes: every image still fits the pane per 2.21 and no horizontal scrollbar appears in the default view
-- **And** the pane keeps drawing throughout — stepping the whole ladder and resizing the window at maximum zoom never leaves the preview blank or empty (the anchored-child width churn of ScrAP-23, which an over-wide image is the shape of)
+- **And** the pane keeps drawing throughout — stepping the whole ladder and resizing the window at maximum zoom never leaves the preview blank or empty (the anchored-child width churn of GTK4Rs/AP-23, which an over-wide image is the shape of)
 - **And** a **vector** source (SVG) held on disk is re-rasterised at the scaled size rather than upscaled from its natural-size raster, so text drawn inside the image stays sharp at every zoom step — the reader's remedy for small diagram text is the zoom control, and it has to work on the diagram, not only on the prose around it. A **remote** vector image keeps its natural-size decode and softens as it grows: the remote cache is keyed by URL and holds decoded textures, so re-rendering per zoom step would turn each step into a fresh network fetch, which is a worse defect than a soft image on a path the reader has to opt into
 - **And** zooming in never makes an image disappear or shrink. Where the scaled size would cost more to rasterise than `limits::MAX_VECTOR_RASTER_PIXELS` allows, the image is still **drawn at the size zoom asked for** and only its raster is bounded — so it goes soft rather than small, and the reader who zoomed in is never answered with less than they had. (Distinct from §14's `MAX_IMAGE_PIXELS`, which refuses a hostile *input* outright; this one bounds an allocation the application chooses on the reader's behalf.)
 - **And** the broken-image placeholder (2.5) scales on the same terms, so a document of blocked images does not stop responding to zoom
@@ -2141,7 +2141,7 @@
 - **Given** a document containing a remote http/https image URL
 - **When** "Show Unsafe Images" is toggled **on** (View menu checkbox or toolbar button)
 - **Then** the image is fetched from the network and displayed inline in the preview
-- **And** this holds on **every supported platform**, and on a host with no desktop VFS layer installed at all — the fetch is the application's own HTTP client, never a URI handed to GIO, whose `http`/`https` support is a separate Linux-desktop daemon (ScrAP-292)
+- **And** this holds on **every supported platform**, and on a host with no desktop VFS layer installed at all — the fetch is the application's own HTTP client, never a URI handed to GIO, whose `http`/`https` support is a separate Linux-desktop daemon (GTK4Rs/AP-292)
 - **And** a fetch that does not produce an image — no network, a non-success status, or a response past the remote-image size limit — leaves the "Could not load image" placeholder **and** records the reason at `warn` naming the URL, so the failure is diagnosable from the log rather than only from a tooltip
 
 ### 14.3 Out-of-folder local images are blocked by default
@@ -2269,7 +2269,7 @@
 - **Given** the user has searched for a term in one tab
 - **When** they switch to a different tab and back
 - **Then** the find bar shows the same query and match state it had when they left that tab, not the other tab's query
-- **And** switching tabs while a find query is active in the tab being left — to a tab with a different (including empty) query of its own — never crashes or aborts the process, regardless of how many times it's repeated (a `RefCell` double-borrow that produced a non-catchable process abort — ScrAP-53)
+- **And** switching tabs while a find query is active in the tab being left — to a tab with a different (including empty) query of its own — never crashes or aborts the process, regardless of how many times it's repeated (a `RefCell` double-borrow that produced a non-catchable process abort — GTK4Rs/AP-61)
 - **And** the tab's **match options** (§11.13) come back with its query — both the search's own behaviour and every control that shows it, the find-bar toggles and the Edit-menu ticks alike, because a mirror that lags is the `show-unsafe-images` defect in a second place
 - **And given** the session is saved and the application restarted
 - **Then** each restored tab has its own options back, while the find bar restores **closed** and no search is in force — a committed query survives as history, but restoring a search the reader did not just ask for is a different thing from restoring how they read
@@ -2592,7 +2592,7 @@
 ### 17.28 Annotating a table-cell selection creates CriticMarkup in the source
 - **Given** a document open in preview (or split) containing a table with selectable cell text
 - **When** the user selects text inside a table cell
-- **Then** the 💬 Annotate create pop-up appears over the cell selection on its own AND the `win.annotate` command is enabled on every surface — full parity with a body-text selection (§17.5, §17.23) — even though a cell selection is a selection island that fires no buffer signal (it is tracked via the primary clipboard's `changed`, ScrAP-110)
+- **Then** the 💬 Annotate create pop-up appears over the cell selection on its own AND the `win.annotate` command is enabled on every surface — full parity with a body-text selection (§17.5, §17.23) — even though a cell selection is a selection island that fires no buffer signal (it is tracked via the primary clipboard's `changed`, GTK4Rs/AP-28)
 - **And when** the user invokes Annotate, types a comment, and Saves
 - **Then** the selected cell text is wrapped as `{==…==}{>>comment<<}` in the source (bold/code constructs included whole), the title shows unsaved, and the cell re-renders with an amber highlight over the claim **immediately, without any view-mode switch**, in every view mode (preview / edit / split) — the same undoable source splice as a body annotation. (The in-place tag refresh cannot repaint a cell highlight, which is Pango markup on the cell `GtkLabel` rather than a buffer tag, so a cell annotation forces a full re-render; a body annotation still refreshes in place.)
 
@@ -2617,7 +2617,7 @@
 - **Given** a table taller than the viewport with an annotation in a lower cell row, in preview-only or split
 - **When** the document loads, and when the view is scrolled (wheel / keyboard / scrollbar) or clicked — with no mouse motion afterward
 - **Then** the marker chip is drawn beside its cell row from the first paint (no mouse-move required), stays drawn and tracks the row across the scroll, and does not flicker on click
-- **Because** the cell's scroll-invariant buffer-Y is measured once (when the anchored cell is allocated) and cached on the marker, not re-read from live geometry every snapshot — a per-frame read returns `None` mid-scroll and dropped the chip until a motion event re-snapshotted (Document Rendering CAM row 1: immediate + stable; ScrAP-22 / ScrAP-109)
+- **Because** the cell's scroll-invariant buffer-Y is measured once (when the anchored cell is allocated) and cached on the marker, not re-read from live geometry every snapshot — a per-frame read returns `None` mid-scroll and dropped the chip until a motion event re-snapshotted (Document Rendering CAM row 1: immediate + stable; GTK4Rs/AP-22 / GTK4Rs/AP-91)
 
 ### 17.33 An editor-pane annotation never splits an inline construct
 - **Given** the editor pane with a selection that starts or ends *inside* an inline construct — e.g. `bol` within `**bold**`, part of a `` `code span` ``, the text of a `[link](url)`, **or any of the tight constructs this app tokenises itself: `==highlight==`, `~~strikethrough~~`, `^superscript^`, `~subscript~`**
@@ -3687,7 +3687,7 @@ created by an act of navigation, and traversing history is not one of them.**
 - **When** they invoke Back
 - **Then** the viewport returns to the position they were reading at **when they clicked** — not to the top of the document, and not to wherever the entry was originally created for — and Forward returns to the heading. The active document is not changed, reloaded or re-rendered by either press
 - **And** that holds when the position they clicked from *was* the top of the document, which is where a reader following a table of contents at the head of the file always is: Back scrolls back up to it, rather than treating "already at the top" as nothing to restore and leaving the reader on the section they asked to leave (ScrAP-262)
-- **And** for a document the *link itself opened*, the position Back returns it to is its **top** — the reader arrived there and never chose a position in it, so it must not be thrown to the document's end or left sitting on the section it opened at (ScrAP-263)
+- **And** for a document the *link itself opened*, the position Back returns it to is its **top** — the reader arrived there and never chose a position in it, so it must not be thrown to the document's end or left sitting on the section it opened at (GTK4Rs/AP-263)
 - **And** re-following the link for the section the reader is already in moves the viewport but adds no entry, so Back never needs two presses to leave a place reached once
 
 ### 23.13 Sections and documents are one history, in the order they happened

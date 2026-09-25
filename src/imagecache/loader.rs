@@ -20,16 +20,16 @@
 //! point: it sniffs by content and routes WebP/GIF/APNG
 //! to `richimg` — never `Texture::from_file`, which leaked ~12 MB/call on a valid
 //! animated WebP and SIGSEGVed on a truncated one (`Pixbuf::from_file` errored
-//! outright and was never a fallback — ScrAP-146 / GTK4Rs/AP-66, now superseded by
+//! outright and was never a fallback — GTK4Rs/AP-66 / GTK4Rs/AP-66, now superseded by
 //! this route for every format it claims).
 //!
 //! **Remote images** are fetched by [`crate::imagefetch`], not by GIO — a
 //! `gio::File::for_uri("https://…")` needs a GVfs http backend that claims the scheme,
 //! which exists on the Linux desktop and nowhere else, so that route rendered
-//! nothing at all on macOS (ScrAP-292). The bytes then go through the same
+//! nothing at all on macOS (GTK4Rs/AP-292). The bytes then go through the same
 //! [`crate::imagedecode`] choke point as a local file. `Refused`/`Missing` never
 //! load. Remote fetches block the main thread for the request (accepted for the
-//! opt-in "Show Unsafe Images" path, ScrAP-34, its 34a half).
+//! opt-in "Show Unsafe Images" path, GTK4Rs/AP-44, its 34a half).
 //!
 //! ## Animation on a cache hit (TDD 27.1)
 //!
@@ -392,7 +392,7 @@ fn rasterize_vector(
 /// fetch and the decode — and collapsing them into one `.ok()` is what made the
 /// GVfs gap above invisible for as long as it was: the placeholder tooltip said
 /// "Could not load image", which reads as *the bytes were not an image* when in
-/// fact no request had been made (ScrAP-292).
+/// fact no request had been made (GTK4Rs/AP-292).
 ///
 /// **Routed through [`super`].** A disclosure fold-toggle re-renders its document
 /// into a scratch buffer to rebuild its offset maps, which walks every image tag

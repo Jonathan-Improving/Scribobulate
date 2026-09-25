@@ -16,7 +16,7 @@
 //! `fetch`. This is a property of the call site, not something every caller has
 //! to remember to check, which is the point: the defect this cache exists to
 //! remove is a synchronous, uncached fetch running again on every disclosure
-//! fold-toggle (ScrAP-34a re-render), so "does a hit call fetch" is the single
+//! fold-toggle (GTK4Rs/AP-44 re-render), so "does a hit call fetch" is the single
 //! most load-bearing fact about this module and is proven directly by
 //! `a_hit_never_calls_fetch_again` below, by counting calls through the closure
 //! rather than by inspecting the code.
@@ -251,7 +251,7 @@ impl<V: Clone> Cache<V> {
 /// has to hold its borrow across `fetch`, and this cache lives behind a `thread_local!`
 /// `RefCell`. A `fetch` that re-entered (directly, or by pumping the main loop, which
 /// is what making it async would do) would hit a second `borrow_mut` and ABORT the
-/// process rather than fail — ScrAP-53's shape. Owning the borrow here means it is
+/// process rather than fail — GTK4Rs/AP-61's shape. Owning the borrow here means it is
 /// released before `fetch` runs and retaken after, so re-entry is merely a second
 /// lookup. Proved by `a_reentrant_fetch_does_not_abort` below, which calls back into
 /// the same cache from inside the closure.

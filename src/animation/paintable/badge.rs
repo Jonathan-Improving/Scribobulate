@@ -17,7 +17,7 @@
 //! names ship in GTK's own icon set; [`icon_used_for_test`] exists so a test
 //! can assert on the literal name actually painted rather than trusting a
 //! doc comment not to drift, and [`paint`] verifies the lookup actually
-//! resolved rather than trusting `has_icon` (GTK4Rs/AP-48; ScrAP-169 is this
+//! resolved rather than trusting `has_icon` (GTK4Rs/AP-48; GTK4Rs/AP-174 is this
 //! project's own instance of the same lesson).
 
 use crate::icons::Icon;

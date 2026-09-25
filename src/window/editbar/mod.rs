@@ -8,7 +8,7 @@
 //!   - [`newline`]   — the Enter conveniences (`wire_newline_edits`, list/quote
 //!     continuation + code-fence auto-close, mapping `format::*` to buffer edits;
 //!     driven by a capture-phase key controller, never an `insert-text` hook —
-//!     ScrAP-199)
+//!     GTK4Rs/AP-73)
 //!   - [`dialog`]    — the modal `input_form` + file-chooser Browse (`BrowseSpec`)
 //!   - [`insert`]    — the Tier-2 commands (`insert_link`/`insert_image`/
 //!     `insert_table`) and `go_to_line`

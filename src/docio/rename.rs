@@ -423,12 +423,12 @@ pub(super) fn recover_rename_orphan(path: &Path) -> Option<PathBuf> {
 ///
 /// A `FileEnumerator` is the authority here and `query_info` is not: `standard::name`
 /// from a `query_info` is derived from the `GFile`'s own path, so it echoes the
-/// question back (ScrAP-270 — MEASURED: a `query_info` that *follows* a symlink
+/// question back (GTK4Rs/AP-270 — MEASURED: a `query_info` that *follows* a symlink
 /// returns the link's own name beside the target's `id::file`). Identity is matched
 /// on `id::file` rather than by comparing spellings, which keeps this free of any
 /// Unicode-normalisation logic of our own — the filesystem is asked which entry *is*
 /// this file, not which entry looks like it. That identity is **not unique among
-/// directory entries**, though: hard links share it, which is ScrAP-271 and why the
+/// directory entries**, though: hard links share it, which is GTK4Rs/AP-271 and why the
 /// scan below finishes before it answers.
 ///
 /// Best-effort by construction: every failure yields `None` and the caller keeps the

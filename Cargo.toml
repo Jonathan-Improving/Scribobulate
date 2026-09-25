@@ -41,7 +41,7 @@ default-run = "scribobulate"
 # without this feature `GdkTexture::from_bytes` (gdk_texture_new_from_bytes, GTK 4.6)
 # is simply absent from the crate and reads as a type error rather than a version
 # one (GTK4Rs/AP-94). Remote images need it: their bytes arrive from `imagefetch`,
-# not from a `GFile` (ScrAP-292). Do NOT raise this past the floor in POLICY —
+# not from a `GFile` (GTK4Rs/AP-292). Do NOT raise this past the floor in POLICY —
 # an above-floor wrapper compiles and then fails at link/runtime (GTK4Rs/AP-114).
 gtk = { package = "gtk4", version = "0.10", features = ["v4_6"] }
 sourceview = { package = "sourceview5", version = "0.10" }
@@ -80,7 +80,7 @@ env_logger = "0.11"
 libc = "0.2"
 two-face = { version = "0.5.1", default-features = false, features = ["syntect-fancy"] }
 # The HTTP(S) client behind remote images ("Show Unsafe Images"). Justified in
-# TECH.md § Rust crates and ScrAP-292: GIO resolves an https:// URI only where a
+# TECH.md § Rust crates and GTK4Rs/AP-292: GIO resolves an https:// URI only where a
 # GVfs http backend is installed, which is the Linux desktop and nowhere else, so
 # the feature was silently dead on macOS. `default-features = false` drops
 # gzip/json/cookies; `rustls` pins the ring provider (no OpenSSL, and no build tool

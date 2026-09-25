@@ -567,7 +567,7 @@ fn everything_below_a_toggled_block_still_addresses_its_own_text_in_the_live_pan
     // real activation performs rather than a restatement of `rd.links`.
     //
     // The borrow above must be released first: `link_url_at` takes the view and borrows
-    // `RenderData` itself, and holding a `Ref` across it is ScrAP-53's abort rather than
+    // `RenderData` itself, and holding a `Ref` across it is GTK4Rs/AP-61's abort rather than
     // a failure.
     let link_start = link.0;
     drop(rd);
@@ -594,7 +594,7 @@ fn everything_below_a_toggled_block_still_addresses_its_own_text_in_the_live_pan
 /// A SURVIVOR of the splice still carries the handler it was built with. Connect a
 /// second one to it and every click folds twice — which reads to the reader as a click
 /// that does nothing, and is the exact report this construct has already produced by
-/// another route (ScrAP-79). Nothing asserted it (F-TEST-A-006): with one disclosure in
+/// another route (GTK4Rs/AP-109). Nothing asserted it (F-TEST-A-006): with one disclosure in
 /// the fixture there was no survivor at all.
 ///
 /// The assertion is on the FIRST activation, not the round trip. A double-connected

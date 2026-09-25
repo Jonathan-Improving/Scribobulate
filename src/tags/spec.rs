@@ -127,7 +127,7 @@ pub(super) fn heading_spec(
 /// quote half had no such home, so `Renderer::block_inset` computed it its own way and
 /// drifted from the tag by exactly the rounding (a table inside a quote then overflowed
 /// the viewport by 1px at zoom 1.5, summoning the Automatic h-scrollbar and re-arming the
-/// GTK4Rs/AP-22/23 churn — ScrAP-23a's failure through a new door).
+/// GTK4Rs/AP-22/23 churn — GTK4Rs/AP-139's failure through a new door).
 ///
 /// So this is the single supplier POLICY's "One theme key, every application path" asks
 /// for, at the ARITHMETIC rather than at the key: every path that needs to know how far a

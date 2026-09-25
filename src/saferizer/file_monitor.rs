@@ -8,7 +8,7 @@ use gtk::prelude::*;
 ///
 /// Finalizing a *cancelled* `GFileMonitor` after the main context has dispatched
 /// aborts the process with `STATUS_HEAP_CORRUPTION` on Windows — no panic, no GLib
-/// warning, no failing assertion (ScrAP-297). The safe ordering is cancel and
+/// warning, no failing assertion (GTK4Rs/AP-340). The safe ordering is cancel and
 /// release in one uninterrupted stretch, which is what both call sites already did;
 /// nothing enforced it, so any future code that parked a second reference across a
 /// main-loop turn would reintroduce a silent, Windows-only process kill invisible to
@@ -52,7 +52,7 @@ impl DocMonitor {
     /// Cancel the monitor and release it in the same statement.
     ///
     /// Consuming `self` is the point: no main-loop turn can intervene between the
-    /// cancel and the final unref, which is the ordering GIO mishandles (ScrAP-297).
+    /// cancel and the final unref, which is the ordering GIO mishandles (GTK4Rs/AP-340).
     pub(crate) fn cancel_and_release(self) {
         // The sole sanctioned `FileMonitorExt::cancel` in the tree.
         #[allow(clippy::disallowed_methods)]
@@ -74,7 +74,7 @@ impl DocMonitor {
 /// after production code has cancelled it.
 ///
 /// The reference is held in a `ManuallyDrop` and is **never** unrefed: releasing it
-/// is precisely the ScrAP-297 abort, since by the time a test can observe the
+/// is precisely the GTK4Rs/AP-340 abort, since by the time a test can observe the
 /// cancelled state the main context has necessarily dispatched. Leaking one GObject
 /// per test run is the price of asserting on the real monitor instead of on
 /// something that merely finalizes safely.
@@ -109,7 +109,7 @@ mod tests {
     ///
     /// The observation handle is taken *before* the release for the same reason the
     /// rename integration test does it: `cancel_and_release` consumes the monitor, so
-    /// afterwards there is no value left to ask (ScrAP-297).
+    /// afterwards there is no value left to ask (GTK4Rs/AP-340).
     #[test]
     fn a_monitor_is_live_until_it_is_cancelled_and_released() {
         let dir = tempfile::tempdir().unwrap();

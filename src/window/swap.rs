@@ -93,7 +93,7 @@ fn request_snapshot(tab: &Rc<TabState>) {
 ///
 /// The closure weak-captures the tab and re-resolves it at fire time. A strong capture
 /// here would pin the tab (and its whole widget subtree) alive past its window's
-/// teardown and then fire against the zombie — ScrAP-152, whose reflexive guards each
+/// teardown and then fire against the zombie — GTK4Rs/AP-128, whose reflexive guards each
 /// miss on their own.
 fn arm_timer(tab: &Rc<TabState>, delay_ms: u64) {
     cancel_pending(tab);

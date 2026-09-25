@@ -42,7 +42,7 @@ use std::rc::Rc;
 pub(crate) fn register_export_action(window: &ApplicationWindow) {
     // File ▸ Export is a nested submenu, so activation goes through the same
     // constructor every other nested-submenu action uses — otherwise GTK 4.6–4.12
-    // leaves the parent "File" menu popped open behind the chooser (ScrAP-116).
+    // leaves the parent "File" menu popped open behind the chooser (GTK4Rs/AP-108).
     let action = super::actions::nested_submenu_action(
         window,
         "export",
@@ -114,7 +114,7 @@ fn choose_destination(window: &ApplicationWindow, st: Rc<TabState>, target: Expo
     }
     let win_weak = window.downgrade();
     // A `NativeDialog` needs ONE external strong reference for its lifetime — the one
-    // dialog type whose liveness rule is the opposite of a `GtkWindow`'s (ScrAP-41).
+    // dialog type whose liveness rule is the opposite of a `GtkWindow`'s (GTK4Rs/AP-41).
     crate::saferizer::native_dialog::NativeDialogHolder::show(&chooser, move |ch, resp| {
         let chosen = (resp == ResponseType::Accept)
             .then(|| ch.file().and_then(|f| f.path()))

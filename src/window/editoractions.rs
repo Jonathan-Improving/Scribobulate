@@ -316,7 +316,7 @@ pub(super) fn register_editor_actions(window: &ApplicationWindow, heading_btn: &
                     // Defer focus return so that when this fires from a menu/popover
                     // item (the heading MenuButton) the grab doesn't race the popover
                     // dismissal; harmless for the toolbar buttons, which never took
-                    // focus anyway. Weak-capture across the idle hop (ScrAP-60 parity;
+                    // focus anyway. Weak-capture across the idle hop (GTK4Rs/AP-63 parity;
                     // `grab_focus` is surface-independent, so not a crash class).
                     let editor = &st.editor;
                     gtk::glib::idle_add_local_once(gtk::glib::clone!(

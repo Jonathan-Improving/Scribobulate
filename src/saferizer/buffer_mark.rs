@@ -5,7 +5,7 @@ use gtk::prelude::*;
 
 /// A `GtkTextMark` paired with the buffer it was created on, so that resolving it
 /// back to an iter can be gated on the mark still belonging to the buffer being
-/// resolved against (ScrAP-104).
+/// resolved against (GTK4Rs/AP-89).
 ///
 /// # Contract
 ///
@@ -59,7 +59,7 @@ impl BufferMark {
 
     /// Resolve the mark to an iter in `against`, or `None` if `against` is not the
     /// mark's current owning buffer. The `None` arm is the safe fallback: the caller
-    /// skips work rather than aborting on a foreign/orphaned mark (ScrAP-104).
+    /// skips work rather than aborting on a foreign/orphaned mark (GTK4Rs/AP-89).
     pub(crate) fn resolve(&self, against: &impl IsA<gtk::TextBuffer>) -> Option<gtk::TextIter> {
         let against = against.upcast_ref::<gtk::TextBuffer>();
         self.is_current(against)
@@ -87,7 +87,7 @@ mod gtk_integration_tests {
 
     /// A mark created in buffer A, resolved against a DIFFERENT buffer B, must return
     /// `None` — never abort — and against its own buffer A must resolve to the mark's
-    /// offset. This is the ScrAP-104 crash (`gtk_text_btree_line_number couldn't find
+    /// offset. This is the GTK4Rs/AP-89 crash (`gtk_text_btree_line_number couldn't find
     /// line`) reduced to a unit: removing the `is_current` membership check makes the
     /// cross-buffer arm abort the process (verified by mutation per GTK4Rs/AP-78).
     #[gtktest::test]

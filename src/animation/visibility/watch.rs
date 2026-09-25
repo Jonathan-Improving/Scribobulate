@@ -4,7 +4,7 @@
 //! # Why every reference back to `host` (and its ancestors) is weak
 //!
 //! `host` is the `GtkPicture` an `AnimatedPaintable` is set on, and this watch is
-//! owned by that same paintable (POLICY weak-capture rule, ScrAP-60/ScrAP-155):
+//! owned by that same paintable (POLICY weak-capture rule, GTK4Rs/AP-63/GTK4Rs/AP-63):
 //! `host → paintable → VisibilityWatch`. If [`VisibilityWatch`] (or a closure it
 //! installs) held `host` STRONGLY, the cycle would close —
 //! `host → paintable → watch → host` — and every picture that ever showed an

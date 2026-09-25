@@ -87,7 +87,7 @@ mod imp {
         /// Raises the editor pane's in-surface Annotate card over the current editor
         /// selection. Wired once in `new` onto `editor_overlay`;
         /// the `win.annotate` action calls it via [`super::SplitView::trigger_editor_annotate`]
-        /// when the editor is the active pane. Captures only weak refs (no cycle, ScrAP-60).
+        /// when the editor is the active pane. Captures only weak refs (no cycle, GTK4Rs/AP-63).
         pub(super) editor_annotate_trigger: RefCell<Option<Rc<dyn Fn()>>>,
         pub(super) preview_holder: OnceCell<gtk::Box>,
         pub(super) divider: OnceCell<gtk::Separator>,

@@ -710,7 +710,7 @@ fn build_window(
     // earlier `connect_buf_to_copy_action` inside `register_editor_actions` ran
     // BEFORE `assemble_tab_core` mounted the split, so `content_box` was empty,
     // `active_text_view` returned `None`, and it early-returned — leaving the
-    // buffer `has-selection` and primary-clipboard (`ScrAP-110` table-cell) handlers
+    // buffer `has-selection` and primary-clipboard (`GTK4Rs/AP-28` table-cell) handlers
     // unwired for a default window that opens in Preview and never fires a
     // `view-mode` change (a restored/mode-switched window re-binds via the
     // change-state handler in `viewactions`, so this only closes the startup gap).
@@ -881,7 +881,7 @@ fn register_window_destroy_handlers(window: &ApplicationWindow, zoom_provider: g
     window.connect_destroy(|w| {
         if let Some(chrome) = winstate::chrome(w) {
             // Cancel any pending ~40 ms format-overlay timer so it can't fire a
-            // `popup()` during window teardown (GTK4Rs/AP-128/ScrAP-152). Belt to the timer body's
+            // `popup()` during window teardown (GTK4Rs/AP-128/GTK4Rs/AP-128). Belt to the timer body's
             // own `is_realized()` gate; `take()` no-ops if it already fired.
             if let Some(id) = chrome.format_overlay_timer.borrow_mut().take() {
                 id.remove();
@@ -894,7 +894,7 @@ fn register_window_destroy_handlers(window: &ApplicationWindow, zoom_provider: g
             if let Some(id) = chrome.text_stats_timer.borrow_mut().take() {
                 id.remove();
             }
-            // popdown-then-unparent (ScrAP-144), via the handle — the prior raw
+            // popdown-then-unparent (GTK4Rs/AP-123), via the handle — the prior raw
             // `unparent()` here skipped the close path.
             chrome.format_overlay.teardown();
         }
@@ -1697,7 +1697,7 @@ pub(crate) mod gtk_integration_tests {
         // (`start_child_allocation.y -= …`, gtkpaned.c 4.6.9 `:1370-1374`), so a section
         // dragged to nothing still measures its full ~110px while being invisible on
         // screen. Measured: with `shrink=true` this test PASSED on `height()` alone
-        // (ScrAP-336) — the guard's original form could not see the very thing it was
+        // (GTK4Rs/AP-317) — the guard's original form could not see the very thing it was
         // written to catch. The position IS the start child's allocated share, and it is
         // what GTK clamps, so it answers the question `height()` only appears to.
         for extreme in [0, i32::MAX / 2] {

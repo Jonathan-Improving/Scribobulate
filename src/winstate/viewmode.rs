@@ -78,7 +78,7 @@ pub(crate) enum FocusedPane {
 /// visible view (preview-only or edit-only — no ambiguity), `Some(pane)` = that split
 /// pane. Only split mode distinguishes panes. This is the decision core of
 /// `actions::focused_text_view`; keeping it a pure function pins the split
-/// focused-pane fix (TDD 9.25, ScrAP-72) under the coverage gate and unit
+/// focused-pane fix (TDD 9.25, GTK4Rs/AP-70) under the coverage gate and unit
 /// test, independent of live GTK state.
 pub(crate) fn copy_target(mode: ViewMode, focused: FocusedPane) -> Option<FocusedPane> {
     match mode {
@@ -106,7 +106,7 @@ mod tests {
             assert_eq!(copy_target(ViewMode::Preview, focused), None);
             assert_eq!(copy_target(ViewMode::Edit, focused), None);
         }
-        // Split: whichever pane holds focus — the fix for TDD 9.25 / ScrAP-72.
+        // Split: whichever pane holds focus — the fix for TDD 9.25 / GTK4Rs/AP-70.
         assert_eq!(
             copy_target(ViewMode::Split, FocusedPane::Preview),
             Some(FocusedPane::Preview)

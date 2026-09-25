@@ -13,7 +13,7 @@
 //! defers work until validation has finished, and [`wire_buffer_ends_scroll`] uses
 //! it to make Ctrl+Home / Ctrl+End land on the real ends of a large document.
 //!
-//! See ScrAP-260 for the two GTK mechanisms involved and the measurements behind
+//! See GTK4Rs/AP-260 for the two GTK mechanisms involved and the measurements behind
 //! the design — including the one that was prototyped and refuted.
 
 /// The neighbouring wait: *"has GTK stopped moving the viewport?"*, which is what a
@@ -287,7 +287,7 @@ fn caret_still_at_requested_end(to_end: bool, iter_is_end: bool, iter_offset: i3
 /// A realized view that has never been allocated has a zero-height text window, and
 /// GTK scrolls against that height rather than refusing — so the result is a wrong
 /// position, not a no-op. `page_size` is this codebase's established proxy for "the
-/// scrollable range is real yet" (ScrAP-13); zero means the view is not yet on screen
+/// scrollable range is real yet" (GTK4Rs/AP-13); zero means the view is not yet on screen
 /// and the caller should leave the position alone.
 fn has_viewport(view: &gtk::TextView) -> bool {
     viewport_is_real(view.vadjustment().map(|a| a.page_size()))
@@ -362,7 +362,7 @@ pub(crate) fn wire_buffer_ends_scroll(view: &gtk::TextView) {
 /// **Contract.** The scroll is issued immediately, so a laid-out document responds
 /// in the same turn and nothing about the warm path changes. If GTK cannot honour
 /// it yet — the document is large and still being laid out — the request is
-/// *silently discarded* by GTK rather than deferred (ScrAP-260), so it is issued a
+/// *silently discarded* by GTK rather than deferred (GTK4Rs/AP-260), so it is issued a
 /// second time from [`after_line_heights_validated`], when it can be computed
 /// correctly.
 ///
@@ -373,7 +373,7 @@ pub(crate) fn wire_buffer_ends_scroll(view: &gtk::TextView) {
 /// generation bookkeeping — and a re-issue can never drag the reader somewhere they
 /// have already left. The target mark is carried through
 /// [`BufferMark`](crate::saferizer::buffer_mark::BufferMark), so a `set_buffer`
-/// swap in the meantime yields `None` rather than the ScrAP-104 abort.
+/// swap in the meantime yields `None` rather than the GTK4Rs/AP-89 abort.
 ///
 /// The alignment arguments are GTK's own, passed through unchanged.
 pub(crate) fn scroll_to_mark_when_ready(
@@ -475,7 +475,7 @@ mod decision_tests {
 
     #[test]
     fn a_draft_adjustment_with_zero_page_size_has_no_viewport() {
-        // ScrAP-13: page_size is this codebase's proxy for "the scrollable range is real
+        // GTK4Rs/AP-13: page_size is this codebase's proxy for "the scrollable range is real
         // yet". Scrolling against a zero viewport lands WRONG, not nowhere.
         assert!(!viewport_is_real(Some(0.0)));
     }
@@ -599,7 +599,7 @@ mod gtk_integration_tests {
     /// * It waits for a change **first**. Otherwise the initial pre-validation value —
     ///   momentarily stable while nothing has been laid out yet — would satisfy a bare
     ///   stability test and report a cold view as settled. `cold_editor` deliberately
-    ///   stops pumping the moment a viewport exists (ScrAP-87), so the range really is
+    ///   stops pumping the moment a viewport exists (GTK4Rs/AP-78), so the range really is
     ///   still tiny at that point: 567 px against a settled 540 014.
     ///
     /// Callers take this helper rather than writing a predicate, so a second absolute

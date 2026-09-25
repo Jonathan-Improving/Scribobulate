@@ -16,7 +16,7 @@ use gtk::prelude::*;
 /// `scroll_mark_onscreen` scrolls by animating over ~200 ms, so "somebody else's
 /// scroll is in flight" is a live possibility on any adjustment a `GtkTextView`
 /// owns, and truncating it leaves the reader part-way to a destination they asked
-/// for (ScrAP-260, where GTK does this to *itself* from its validation idle).
+/// for (GTK4Rs/AP-260, where GTK does this to *itself* from its validation idle).
 ///
 /// **You cannot ask whether an animation is running.** GTK's own guard for this,
 /// `gtk_adjustment_is_animating` — the test `gtk_text_view_size_allocate` uses at
@@ -28,7 +28,7 @@ use gtk::prelude::*;
 /// So: call this when you mean **"the position is now this, regardless"** — a
 /// restore, a re-anchor, a jump the user just asked for. Do not reach for it as a
 /// nudge alongside a scroll somebody else owns; two drivers over one adjustment is
-/// its own trap (ScrAP-149).
+/// its own trap (GTK4Rs/AP-172).
 ///
 /// GTK clamps `value` into `[lower, upper - page_size]` internally, so callers need
 /// not pre-clamp for safety — only where they go on to *read the value back* and

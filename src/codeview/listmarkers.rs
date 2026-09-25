@@ -27,7 +27,7 @@ pub(super) fn draw(snapshot: &gtk::Snapshot, ctx: &PaintCtx) {
     // the band LEFT of the item's content margin, aligned to the item's FIRST
     // line. Paint VISIBLE first-lines only, so
     // the y read (`line_yrange`, cache-free — never `iter_location`, GTK4Rs/AP-22/
-    // ScrAP-105; research §4) is on a validated line; x derives from `depth`
+    // GTK4Rs/AP-89; research §4) is on a validated line; x derives from `depth`
     // (`list_content_margin_px` == the `li-{depth}` content margin), never
     // from GTK geometry. Buffer-space, so scroll-correct for free.
     if !list_markers.is_empty() {

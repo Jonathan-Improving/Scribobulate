@@ -480,7 +480,7 @@ pub(super) fn build_products_scratch(prepared: &Prepared<'_>) -> RenderProducts 
 /// never dies, so no cache entry can outlive it — and the clearing delete below
 /// invalidates the entries for the old content on GTK's own delete path, which
 /// carries no line-data condition. Keeping the buffer is what makes this safe;
-/// clearing it is ordinary bookkeeping. Cf. ScrAP-104/ScrAP-105, the two earlier,
+/// clearing it is ordinary bookkeeping. Cf. GTK4Rs/AP-89/GTK4Rs/AP-89, the two earlier,
 /// narrower faces of this same dangling-line-display defect.
 pub(super) fn build_render_products_into(
     buf: &TextBuffer,
@@ -1767,7 +1767,7 @@ mod gtk_integration_tests {
     ///    registered deepest-last so GTK resolves the margin to the deeper one. This is
     ///    asserted as RESOLVED GEOMETRY (`iter_location().x()`) rather than as tag
     ///    properties, because a tag-level assertion passes even when the priority order
-    ///    that makes it true has been reversed (ScrAP-121).
+    ///    that makes it true has been reversed (GTK4Rs/AP-96).
     /// 3. **The step is one level's worth**, not a doubling or a re-based absolute.
     ///
     /// Mutation check (measured): recording only the outermost span leaves one span and
@@ -3588,7 +3588,7 @@ mod gtk_integration_tests {
     /// API is never entered and the test would stay green if decode reverted to
     /// `static_image`. Linux is the only detector. The graceful-degradation
     /// half (one anchored child, src not leaked) still holds on every host.
-    /// (ScrAP-146 — WebP renders via `Texture::from_file`'s own loader chain
+    /// (GTK4Rs/AP-66 — WebP renders via `Texture::from_file`'s own loader chain
     /// when the loader is registered.)
     #[gtktest::test]
     fn undecodable_webp_degrades_to_one_anchored_child() {
@@ -4226,7 +4226,7 @@ mod gtk_integration_tests {
     ///
     /// This is the seam a fold toggle needs: clearing and refilling the whole buffer
     /// discards every line's height validation, which collapses the vadjustment and
-    /// throws the reader to the top (MEASURED — ScrAP-339), while
+    /// throws the reader to the top (MEASURED — GTK4Rs/AP-321), while
     /// an edit confined to one region leaves every untouched line validated.
     ///
     /// Asserted as CONTENT rather than as a call: a right-gravity mark is what makes

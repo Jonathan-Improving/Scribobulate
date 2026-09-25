@@ -670,7 +670,7 @@ fn admit_for_decode(r: &SpriteRef) -> Option<std::borrow::Cow<'static, [u8]>> {
 ///
 /// **Moved to [`crate::imagedecode::probe_pixel_size`]** — the same probe now
 /// serves the document/remote-image path as well as the theme-sprite path, so the two
-/// cannot disagree about what an image's header says (ScrAP-328). Re-exported here so
+/// cannot disagree about what an image's header says (GTK4Rs/AP-311). Re-exported here so
 /// `preview::build`'s pinned test (`the_shared_byte_probe_and_the_cap_agree_about_an_oversized_image`)
 /// and this module's own dimension-probe test keep resolving `sprite::probe_pixel_size`
 /// — `admit_for_decode` itself now calls the content-aware

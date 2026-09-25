@@ -179,7 +179,7 @@ fn project_scroll(window: &ApplicationWindow) {
         return;
     }
     let iter = dst_view.buffer().iter_at_offset(dst_offset);
-    // Y of the target line via `line_yrange`, NOT `iter_location` (ScrAP-105).
+    // Y of the target line via `line_yrange`, NOT `iter_location` (GTK4Rs/AP-89).
     // This tick fires in the frame-clock UPDATE phase, BEFORE this frame's
     // layout/allocate, and often right after a `re_render` rebuilt the follower's
     // content. `iter_location` builds+caches a line DISPLAY, inserting it into the
@@ -367,7 +367,7 @@ pub(super) fn rerender_split_preview_driven_by_editor(window: &ApplicationWindow
 /// render node — converting a stuck blank into a self-healed one.
 ///
 /// Frame-clock-anchored (not wall-clock — GTK4Rs/AP-122), one-shot (disconnects itself on the
-/// first fire), weak overlay (never keeps it alive — ScrAP-152/GTK4Rs/AP-128). Gated to the first
+/// first fire), weak overlay (never keeps it alive — GTK4Rs/AP-128/GTK4Rs/AP-128). Gated to the first
 /// render since mount, so steady-state edits pay nothing.
 fn arm_first_content_repaint(overlay: &gtk::Overlay) {
     let Some(clock) = overlay.frame_clock() else {
@@ -461,7 +461,7 @@ pub(crate) fn content_reading_position(window: &ApplicationWindow) -> DocPositio
 /// editor directly (its buffer is the original source), the preview through the
 /// fresh render's waypoint map. Both then restore by buffer LINE through
 /// `restore_preview_scroll_to_line`, which is the validation-safe path
-/// (ScrAP-65/ScrAP-13): a freshly built preview has unvalidated line heights, so a
+/// (GTK4Rs/AP-14/GTK4Rs/AP-13): a freshly built preview has unvalidated line heights, so a
 /// raw adjustment write here would land near the top.
 pub(super) fn apply_content_reading_position(
     window: &ApplicationWindow,
@@ -620,7 +620,7 @@ mod gtk_integration_tests {
     /// re-applies across successive line-height validation passes, so the position
     /// keeps changing for an unbounded number of frames after the switch returns; on an
     /// idle machine it settles in well under 250 ms, and under the load of a full suite
-    /// run it does not (ScrAP-13/65, and the same wall-clock-on-a-shared-runner trap the
+    /// run it does not (GTK4Rs/AP-13/65, and the same wall-clock-on-a-shared-runner trap the
     /// register's flaky growth-ratio guards fell into).
     ///
     /// **And not a poll of this value either, which is the correction.** The version

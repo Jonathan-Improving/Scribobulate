@@ -866,7 +866,7 @@ fn history_rows(win: &ApplicationWindow, btn: &gtk::MenuButton) -> Vec<String> {
     // `popup()` is what the press does, and it is what runs the `create_popup_func`
     // that builds the model from the ACTIVE tab. Reading the model rather than the
     // popover's widgets keeps this about the CONTENT — and it works on a bare Xvfb,
-    // where a popover surface may never map (ScrAP-101).
+    // where a popover surface may never map (GTK4Rs/AP-175).
     btn.popup();
     crate::testpump::drain_for(
         crate::testpump::Clock::Idle,

@@ -100,7 +100,7 @@ impl Renderer {
                 // ZERO buffer chars, so an item's content starts immediately with its text.
                 // Moving the marker out of the buffer makes selection/copy skip it for free
                 // (as major word processors do) and retires the fragile hanging-indent
-                // (`indent`) that the old inline marker forced (ScrAP-118). The `ListMarker`
+                // (`indent`) that the old inline marker forced (GTK4Rs/AP-95). The `ListMarker`
                 // recorded just above is the data seam the gutter draw consumes; the
                 // ordered counter still advances at TagEnd::Item.
             }
@@ -757,7 +757,7 @@ impl Renderer {
         // The zoom term is applied HERE, once, rather than in the allocation path: a
         // zoom step re-renders the whole preview (`window/zoom.rs`), so a render-time
         // value is always current, and `size_allocate` is the last place this project
-        // wants a second consumer of anything (ScrAP-22/ScrAP-29). TDD 13.11.
+        // wants a second consumer of anything (GTK4Rs/AP-22/GTK4Rs/AP-29). TDD 13.11.
         let extent = super::image::zoomed_extent(image.intrinsic.w, image.intrinsic.h, self.zoom);
         const INIT_SEED_W: i32 = 640;
         let seed = super::image::fit_within(extent, extent.w.min(INIT_SEED_W));

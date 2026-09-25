@@ -145,7 +145,7 @@ pub(super) fn draw_panel(snapshot: &gtk::Snapshot, ctx: &PaintCtx) {
 /// `span_card_y_extent`, which is deliberate (GTK4Rs/AP-22: measuring an off-screen,
 /// unvalidated iter blanks the view). A bottom-anchored decoration drawn from a clamped
 /// bottom would pin itself to the VIEWPORT and slide up the quote as the reader scrolls
-/// — ScrAP-333's shape, and the same trap the accent bar's tile phase already carries a
+/// — GTK4Rs/AP-315's shape, and the same trap the accent bar's tile phase already carries a
 /// note about.
 ///
 /// Asking for the true bottom instead is not available: obtaining it means measuring the

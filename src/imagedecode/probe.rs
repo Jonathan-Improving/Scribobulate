@@ -38,7 +38,7 @@ pub(crate) fn probe_dimensions(bytes: &[u8]) -> Option<(i32, i32)> {
 /// The natural pixel dimensions a GTK-decodable image's header declares, without
 /// decoding it. Moved here from `sprite.rs` — the same probe now serves the
 /// document/remote-image path as well as the theme-sprite path, so the two cannot
-/// disagree about what an image's header says (ScrAP-328).
+/// disagree about what an image's header says (GTK4Rs/AP-311).
 ///
 /// Feeds a `GdkPixbufLoader` in chunks only until `size-prepared` fires, then **aborts
 /// the load from inside that handler with `set_size(0, 0)`**. Returns `None` for bytes
@@ -73,7 +73,7 @@ thread_local! {
     /// animated WebP is not scalable, so the loader would refuse it one step later and
     /// the test would stay green with the guard deleted. What the guard actually buys is
     /// that those bytes never REACH the loader, because reaching it is what costs
-    /// ~2.3 MB per call (ScrAP-146). So the test counts arrivals instead of reading
+    /// ~2.3 MB per call (GTK4Rs/AP-66). So the test counts arrivals instead of reading
     /// answers. Thread-local, so parallel tests do not see each other's counts.
     static HEADER_PROBES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
@@ -96,7 +96,7 @@ struct Header {
 /// It is factored out rather than written twice because the two copies it replaces had
 /// already drifted by a line, and this is not a guard that tolerates drift: it is the
 /// difference between a 20 MB probe and a measured 1163 MB allocation (GTK4Rs/AP-311,
-/// ScrAP-328). A duplicated guard whose doc comment claims to "share" the original is
+/// GTK4Rs/AP-311). A duplicated guard whose doc comment claims to "share" the original is
 /// worse than an obvious copy — the reader is told the correction they make here will
 /// reach both call sites, and it will not.
 ///
@@ -150,7 +150,7 @@ fn probe_header(bytes: &[u8]) -> Header {
 /// bytes.** A WebP/GIF/APNG file is never scalable, but finding that out HERE would mean
 /// feeding it to a raw `PixbufLoader` — reaching the same leaking header-probe path this
 /// project measured at ~2.3 MB/call on an animated WebP (`Pixbuf::file_info`; see this
-/// crate's module doc comment, ScrAP-146) — so richimg-owned content must stay
+/// crate's module doc comment, GTK4Rs/AP-66) — so richimg-owned content must stay
 /// unreachable here whatever it would have answered. [`super::probe_dimensions`]'s own
 /// doc comment states the same precondition for the same reason.
 ///
@@ -164,7 +164,7 @@ fn probe_header(bytes: &[u8]) -> Header {
 /// see wearing a `.svg` name — not just SVG-shaped text.
 ///
 /// Shares [`probe_pixel_size`]'s `size-prepared` → `set_size(0, 0)` sentinel
-/// (GTK4Rs/AP-311, ScrAP-328) — genuinely shares it, through the single
+/// (GTK4Rs/AP-311, GTK4Rs/AP-311) — genuinely shares it, through the single
 /// [`probe_header`] both call: sniffing the format can still run a module far enough to
 /// reach that signal, and this function must never allocate a decompression bomb just to
 /// answer "is this scalable".
