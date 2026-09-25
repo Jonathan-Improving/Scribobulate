@@ -34,7 +34,7 @@ param(
     # reads as a broken checkout rather than as an unbound variable. MEASURED: the trigger
     # is the PAIR, [CmdletBinding()] with -File; either alone is fine, and `&` or a dotted
     # path is fine. Filled in the BODY below, as package.ps1 and verify-licenses.ps1
-    # already do. ScrAP-288.
+    # already do. GEP-51.
     [string]$OutDir,
     [string]$RepoRoot
 )
@@ -116,7 +116,7 @@ Copy-Item $exeSrc "$OutDir\bin\"
 # load-bearing part of single-instance behaviour on Windows, and omitting it
 # produces a build that starts perfectly and then opens a second PROCESS for
 # every document (TDD 8.1/8.2 broken in the shipped installer while passing in
-# the dev tree, where gvsbuild's bin is on PATH -- ScrAP-249).
+# the dev tree, where gvsbuild's bin is on PATH -- GEP-39).
 #
 # Why: GIO has no Win32-native uniqueness backend. `GApplication` negotiates
 # uniqueness over a D-Bus session bus on Windows exactly as on Linux, and with

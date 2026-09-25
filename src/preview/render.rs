@@ -794,7 +794,7 @@ mod gtk_integration_tests {
     /// shapes, since a heading carries a scaled font and its own margins and so reaches
     /// the wrap width differently from body prose. A control paragraph rides along, and
     /// a `page_size == 0` reading is reported as a failure, so a view that laid nothing
-    /// out cannot clear this assert vacuously (ScrAP-209).
+    /// out cannot clear this assert vacuously (GEP-1).
     ///
     /// **Mutation check (measured):** reverting `render`'s
     /// `view.set_wrap_mode(WrapMode::Char)` to `WrapMode::Word` fails this test —
@@ -807,7 +807,7 @@ mod gtk_integration_tests {
     /// because it pins `Char` by equality rather than merely excluding `WordChar`. Under
     /// today's code no reachable mutation separates the two — buffer text under `Char`
     /// cannot go over-wide, so the wrap mode is the only route in, and the guard above
-    /// already watches it (ScrAP-254: an invariant held by two sufficient mechanisms is
+    /// already watches it (GEP-11: an invariant held by two sufficient mechanisms is
     /// mutation-proof one at a time).
     ///
     /// It is kept for two reasons that do not depend on that. First, TDD 2.2·a11y
@@ -817,7 +817,7 @@ mod gtk_integration_tests {
     /// `WordChar` once the toolkit floor reaches 4.8. On that day `assert_eq!(Char)`
     /// becomes wrong and will be edited to match the new setting, and this test is the
     /// only remaining statement of what must still be TRUE afterwards — that whatever
-    /// mode is chosen, no line goes over-wide (ScrAP-234: asserting one of a feature's
+    /// mode is chosen, no line goes over-wide (GEP-10: asserting one of a feature's
     /// two representations and reading the green suite as evidence about both).
     #[gtktest::test]
     fn no_text_construct_produces_an_over_wide_line() {

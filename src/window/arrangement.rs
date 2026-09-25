@@ -38,7 +38,7 @@ pub(crate) struct SplitArrangement {
 /// window's forwarders read it, so whichever window is built first — restored or
 /// fresh — seeds the value, and every later window reads the LIVE one. The session
 /// is read only while no live value exists yet, which is what keeps this clear of
-/// ScrAP-136 (seeding live UI state from the persisted snapshot).
+/// GEP-41 (seeding live UI state from the persisted snapshot).
 pub(crate) fn ensure_registered(app: &Application) {
     if app.lookup_action(SWAP).is_some() {
         return;

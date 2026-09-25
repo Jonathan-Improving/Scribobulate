@@ -615,7 +615,7 @@ pub(crate) fn resolve_image(
     // Via the SHARED `scheme_of` (not an inlined `split_once(':')`) so a local
     // path containing a colon (`assets/notes:v2.png`, `C:\…`) is NOT misread as a
     // URL and wrongly refused — it has no scheme and falls through to the local
-    // resolution below (ScrAP-151). A hierarchical `file://`/`smb://`
+    // resolution below (GEP-46). A hierarchical `file://`/`smb://`
     // still resolves to a scheme here and is refused.
     if let Some(scheme) = scheme_of(src) {
         match scheme.to_ascii_lowercase().as_str() {
@@ -909,7 +909,7 @@ mod tests {
         assert_eq!(scheme_of("mailto:user@example.com"), Some("mailto"));
         assert_eq!(scheme_of("HTTPS://x"), Some("HTTPS")); // case preserved; caller lowercases
 
-        // Local paths that merely CONTAIN a colon are NOT schemes (ScrAP-151).
+        // Local paths that merely CONTAIN a colon are NOT schemes (GEP-46).
         assert_eq!(scheme_of("C:\\Users\\me\\img.png"), None); // Windows drive letter
         assert_eq!(scheme_of("C:/Users/me/img.png"), None); // ditto, forward slashes
         assert_eq!(scheme_of("assets/notes:v2.png"), None); // colon in a later segment

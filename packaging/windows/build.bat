@@ -30,7 +30,7 @@ set "SCRIB_REPO=%~dp0..\.."
 
 rem `if "%VAR%"==""` rather than `if not defined VAR`: an inherited variable can
 rem arrive defined-but-empty, which `defined` reports as set - the exact shape
-rem that cost two GTK builds in ScrAP-165. This form treats empty and unset alike.
+rem that cost two GTK builds in GEP-30. This form treats empty and unset alike.
 if "%SCRIB_GTK_PREFIX%"=="" set "SCRIB_GTK_PREFIX=C:\gtk-build\gtk\x64\release"
 
 rem Check the directory PKG_CONFIG_PATH will point at, not merely the prefix:
@@ -88,7 +88,7 @@ goto :ready
 rem A shift loop, not `%1 %2 %3 %4`: there is no "%* minus the first token", and
 rem the numbered form drops everything past the fourth argument without a word.
 rem That is what reduced `build test --skip <case>` to a bare `build test` -
-rem the same class of defect as ScrAP-201 one layer up, and just as green.
+rem the same class of defect as GEP-32 one layer up, and just as green.
 :collect
 set "SCRIB_MODE=%~1"
 shift

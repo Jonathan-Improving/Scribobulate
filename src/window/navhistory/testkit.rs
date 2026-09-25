@@ -91,7 +91,7 @@ omega
 
 /// A document whose linked heading is the **first thing in it**, so the
 /// navigation target resolves to buffer offset 0 — the mirror of the departure
-/// boundary ScrAP-262 was about, approached from the arrival side.
+/// boundary GEP-53 was about, approached from the arrival side.
 pub(super) const TOP_TARGET_DOC: &str = "\
 # Top Section
 

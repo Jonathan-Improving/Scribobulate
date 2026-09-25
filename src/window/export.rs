@@ -57,7 +57,7 @@ pub(crate) fn register_export_action(window: &ApplicationWindow) {
             // The subject is resolved ONCE, when the reader acts, and carried across
             // the chooser and the write — the main loop runs during both, so a
             // re-ask after either would answer about whatever tab is active then
-            // (ScrAP-244; Deferred-operation CAM).
+            // (GEP-43; Deferred-operation CAM).
             let Some(st) = state(w) else { return };
             choose_destination(w, st, target);
         },

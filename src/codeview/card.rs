@@ -13,7 +13,7 @@
 //!  * Nothing re-pointed the card when the document scrolled, so it stranded over
 //!    unrelated text. (This was NOT a behaviour the autohide seat grab used to supply and
 //!    that GTK4Rs/AP-83 took away: 4.6.9's autohide check handles button and touch input only,
-//!    never scroll, and GTK implements no anchor-tracking anywhere — ScrAP-188.)
+//!    never scroll, and GTK implements no anchor-tracking anywhere — GEP-15.)
 //!  * Nothing dismissed it on an outside click, autohide having been switched off.
 //!  * Activating a different annotation re-pointed the card with a rect captured *before*
 //!    the navigation's converge-scroll, so it landed away from its chip (ScrAP-187's

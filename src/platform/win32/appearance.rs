@@ -103,7 +103,7 @@ fn windows_prefers_dark() -> Option<bool> {
 ///   selection to `@media (prefers-color-scheme: …)` driven by
 ///   `gtk-interface-color-scheme` — and GDK-Win32 sets that one no more than Quartz
 ///   does, so it sits at `UNSUPPORTED` here. On macOS that combination paints the
-///   window light however correct every other reading is (ScrAP-184). **Measured on
+///   window light however correct every other reading is (GEP-10). **Measured on
 ///   Windows, it does not**: gvsbuild's 4.22.4 with the `Default` theme still paints
 ///   correctly from the legacy property alone, both directions, so the defect
 ///   predicted for this platform did not reproduce (QA round R1-04). Both are written
@@ -333,7 +333,7 @@ mod gtk_integration_tests {
     /// `preferring_dark_moves_the_probe_the_whole_app_themes_from` above asserts the
     /// palette moves — and on macOS intermediate state stayed perfectly correct
     /// through an entire session in which the window painted the wrong colour
-    /// (ScrAP-184). macOS closed that by asserting pixels; Windows inherited the same
+    /// (GEP-10). macOS closed that by asserting pixels; Windows inherited the same
     /// exposure and not the check (QA round R1-04). This is the check.
     ///
     /// **It is a guard, not a reproduction.** Measured on a real Windows host when it

@@ -28,7 +28,7 @@
 //! **The 4.20 twist, which cost most of the effort here.** Writing only
 //! `gtk-application-prefer-dark-theme` moves the palette and re-renders the app
 //! while leaving the window *painted light*, and every intermediate check still
-//! reads correct — see ScrAP-184. GTK 4.20 deprecated that property and made the
+//! reads correct — see GEP-10. GTK 4.20 deprecated that property and made the
 //! default theme's `gtk.css` a set of `@media (prefers-color-scheme: …)` imports
 //! driven by `gtk-interface-color-scheme`, in which `UNSUPPORTED`, `DEFAULT` and
 //! `LIGHT` all evaluate as **light** — and the Quartz backend never sets it. So

@@ -87,7 +87,7 @@
 //! `win.*` action states (each toggle handler writes them; nothing else owns
 //! them, so they cannot go stale). `window::read_window_chrome` is the single
 //! reader, called by *both* the inherit-a-new-window path and the persist path,
-//! so what a window inherits and what the session records cannot drift (ScrAP-136).
+//! so what a window inherits and what the session records cannot drift (GEP-41).
 //! Window-scoped state is **inherited** by a brand-new window from its source but
 //! **adopted from the destination** on a move into an existing one: zoom must
 //! actively adopt (two tabs under one per-window CSS class cannot render at

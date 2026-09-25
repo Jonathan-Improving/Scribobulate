@@ -2,7 +2,7 @@
 //!
 //! # Why this is a module and not a helper in one test file
 //!
-//! The remedy for ScrAP-212 — create the link at test time, split by target family,
+//! The remedy for GEP-4 — create the link at test time, split by target family,
 //! and SKIP LOUDLY where the platform refuses — was written once, inside
 //! `links.rs`'s own `mod tests`, where nothing else could reach it. Three other
 //! tests over the same subject kept the shape it replaced (`#[cfg(unix)]`), so the
@@ -124,7 +124,7 @@ use std::path::Path;
 /// ```
 ///
 /// — the announcement that a rubric went **unverified**, rendered as a pass, in the
-/// one mechanism the project has for saying otherwise (ScrAP-273). Building the line
+/// one mechanism the project has for saying otherwise (GEP-25). Building the line
 /// first and emitting it with a single `write_all` closes it: a sub-`PIPE_BUF` write
 /// is atomic on the pipe the pipeline reads through. A literal-only `eprintln!` is
 /// already one write and was never affected, which is why this went unnoticed — every
@@ -201,7 +201,7 @@ pub(crate) fn symlink_or_skip(target: &Path, link: &Path, limb: &str) -> Result<
 /// make succeed by other means. The pipeline greps that marker and counts the limbs it
 /// names, so a skip line emitted before a successful fallback would report the
 /// guarantee as unverified in the one mechanism the project has for saying so —
-/// ScrAP-273's shape, arrived at from the other direction.
+/// GEP-25's shape, arrived at from the other direction.
 fn symlink_checked(target: &Path, link: &Path) -> std::io::Result<()> {
     if let Err(e) = try_symlink(target, link) {
         if cfg!(unix) {
@@ -211,7 +211,7 @@ fn symlink_checked(target: &Path, link: &Path) -> std::io::Result<()> {
     }
     // Prove the SETUP before trusting the verdict: a test whose fixture is not what
     // it claims reports on something else entirely, and passes while doing it
-    // (ScrAP-209). On Windows in particular a "successful" creation that left a plain
+    // (GEP-1). On Windows in particular a "successful" creation that left a plain
     // file behind would make every assertion after it meaningless — which is exactly
     // how the checked-in `core.symlinks=false` fixture came to exercise the INVERSE
     // of its intent while looking like an unremarkable pass.
@@ -270,7 +270,7 @@ fn try_junction(target_dir: &Path, link: &Path) -> std::io::Result<()> {
 /// # What it proves before it returns
 ///
 /// The fixture, never the verdict. `symlink_or_skip` already asserts a symlink is a
-/// symlink (ScrAP-209's species — a fixture that is not what it claims reports on
+/// symlink (GEP-1's species — a fixture that is not what it claims reports on
 /// something else and passes while doing it); a junction has to clear the same bar,
 /// and "mklink printed success" does not clear it. So the junction arm canonicalises
 /// the reference and asserts it lands on the **outside** file — the link genuinely

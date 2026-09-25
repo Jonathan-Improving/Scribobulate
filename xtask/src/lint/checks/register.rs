@@ -15,7 +15,7 @@ const MANIFEST: &str = "sdd/scrap-numbers.manifest";
 
 /// Check 9 — ScrAP numbers are frozen IDs: never renumbered, never reused. A deleted or
 /// merged entry keeps a landing-spot stub under its heading forever; an entry RETIRED to a
-/// skill (manifest line `N -> GTK4Rs/AP-M`) has no heading and may be cited nowhere, since
+/// skill (manifest line `N -> GTK4Rs/AP-M` or `N -> GEP-M`) has no heading and may be cited nowhere, since
 /// the citation that resolves is the skill's.
 ///
 /// Until this existed the rule was enforced by a person hand-diffing the heading set against
@@ -457,8 +457,11 @@ pub fn stub_keeps_implementation_line(tree: &Tree) -> bool {
 /// file fell from ~267 KB to ~150 KB. The ratchet moved down with it, as on 2026-08-29:
 /// the file sits within a few hundred bytes of WARN by design, so the next resident entry re-opens the
 /// question rather than sliding under it.
-const REGISTER_WARN: u64 = 150_000;
-const REGISTER_FAIL: u64 = 160_000;
+/// **Lowered again 2026-09-24 — 150_000/160_000 -> 90_000/100_000.** The 97 GEP `**Routed**`
+/// tombstones followed the gtk4-rs stubs out by the same mechanism (`N -> GEP-M` in the
+/// manifest); the file is ~87 KB and holds only resident entries and dead landing spots.
+const REGISTER_WARN: u64 = 90_000;
+const REGISTER_FAIL: u64 = 100_000;
 const ENTRY_WARN: u64 = 3_000;
 const ENTRY_FAIL: u64 = 4_000;
 

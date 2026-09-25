@@ -58,7 +58,7 @@ use gtk::gio;
 /// the right behaviour by calling this and nothing else. Deliberately *not* a pair of
 /// `write_swap`/`delete_swap` helpers called from each of those sites: an opt-in
 /// mitigation re-applied per call site is a latent regression, because the next site
-/// added will forget it and the feature test will still pass (GTK4Rs/AP-108, ScrAP-219).
+/// added will forget it and the feature test will still pass (GTK4Rs/AP-108, GEP-25).
 pub(crate) fn sync_tab_swap(tab: &Rc<TabState>) {
     match swapfile::sync_action(tab.needs_close_prompt()) {
         SwapSync::Write => request_snapshot(tab),
@@ -998,7 +998,7 @@ mod tests {
             // enforces the same rule from the other side), so the assertion that
             // actually pins the wiring is the discard-recovery test in `swaprecovery` —
             // recorded here because a mutation run going red is not by itself evidence
-            // that THIS guard fired (ScrAP-183).
+            // that THIS guard fired (GEP-11).
             refresh_dirty_status(&win);
 
             assert!(

@@ -393,7 +393,7 @@ mod gtk_integration_tests {
     /// it again by the time realize returns (or the dialog is never a child window at
     /// all). Mutation-checked in both directions — neutering `detach` fails the first
     /// assertion only, `restore` the second only, so neither masks the other
-    /// (ScrAP-254).
+    /// (GEP-11).
     ///
     /// It cannot judge the *symptom*: a Space transition needs a natively-fullscreen
     /// parent, and reproduces only from inside the `.app` bundle. That half is

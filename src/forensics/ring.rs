@@ -4,7 +4,7 @@
 //! **This is the deliverable of the whole crash-forensics effort.** Every recovered
 //! crash so far was dangling-GObject-shaped, and that class is diagnosed by knowing
 //! *what the app was doing*, not by a backtrace: the faulting frame is inside GTK,
-//! which carries no symbols on the reference platform (ScrAP-141). A ring of recent
+//! which carries no symbols on the reference platform (GEP-15). A ring of recent
 //! lifecycle events is the only artefact that answers the question.
 //!
 //! # Why this is not a `Mutex<VecDeque<String>>`

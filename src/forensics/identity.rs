@@ -10,7 +10,7 @@
 //! * **Fingerprint** — the executable's path, size and modification time,
 //!   answering *which binary*. This is the half that survives the reference
 //!   platform's constraints: the shipped binary is stripped and the distribution's
-//!   GTK carries no symbols (ScrAP-141), so an investigator's only route from a
+//!   GTK carries no symbols (GEP-15), so an investigator's only route from a
 //!   report back to a resolvable artefact is finding the exact file again. A
 //!   commit alone cannot do that — an uncommitted build reports its parent commit
 //!   truthfully and is still a different binary; size and mtime tell them apart.
@@ -101,7 +101,7 @@ fn executable_stat() -> Option<ExecutableStat> {
 /// way to test that header at all.
 ///
 /// **The destructure below is the completeness gate, and it is the whole point of
-/// writing it that way** (QA round 5, L-5; ScrAP-216). Reading fields off `id.` one at a
+/// writing it that way** (QA round 5, L-5; GEP-24). Reading fields off `id.` one at a
 /// time means a field added to [`Identity`] is simply never rendered — the struct grows,
 /// the crash report does not, and nothing anywhere says so. That is the same
 /// checks-existence-where-correspondence-matters shape as the icon audit walking a

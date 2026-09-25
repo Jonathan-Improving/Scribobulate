@@ -5,7 +5,7 @@
 //! PowerShell one, so the shell side caught a dangler at depth 7 and the Windows side did
 //! not — a lenient/strict split in the one gate whose whole purpose was to prove the two
 //! platforms enforced the same rule. Check 1 walked its own four-root list and disagreed
-//! with check 6 IN THE SAME RUN (ScrAP-207).
+//! with check 6 IN THE SAME RUN (GEP-3).
 //!
 //! The two-port parity problem is retired with the ports, but the single-enumeration rule
 //! is NOT a parity artefact and stays: a check that walks the tree for itself is a second

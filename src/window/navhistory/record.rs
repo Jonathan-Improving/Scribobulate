@@ -58,7 +58,7 @@ mod gtk_integration_tests {
     use super::*;
     use crate::winstate::state;
 
-    /// ScrAP-262 — the shape the feature is *for*, and the one every other test
+    /// GEP-53 — the shape the feature is *for*, and the one every other test
     /// here missed: a table of contents at the head of the file, followed from the
     /// top of the document.
     ///

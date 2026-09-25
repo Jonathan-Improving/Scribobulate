@@ -50,7 +50,7 @@ mod icons;
 ///
 /// It used to walk `icons::ALL` and `icons::GLYPH_FALLBACK` — two hand-maintained
 /// arrays with nothing tying them to the variants they partitioned. MEASURED (QA
-/// round 5, M-5; ScrAP-216): adding a 50th `Icon` variant with an unresolvable name
+/// round 5, M-5; GEP-24): adding a 50th `Icon` variant with an unresolvable name
 /// left this target printing *"audited 49 names"* and exiting 0. An audit whose
 /// population is a list somebody remembers to update checks existence where
 /// correspondence matters, and it fails silent — the one direction an audit must

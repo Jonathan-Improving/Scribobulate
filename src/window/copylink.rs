@@ -309,7 +309,7 @@ mod gtk_integration_tests {
     /// the state machine and says nothing about the wiring that drives it. A
     /// headless test cannot reach that handler without a real popover; the disarm is
     /// verified in the live drive (`tests/MANUAL-TEST.md` 9.32) instead. Asserting
-    /// the half you can reach and believing you covered the other is ScrAP-234's
+    /// the half you can reach and believing you covered the other is GEP-10's
     /// shape; writing down which half is which is the only mitigation available.
     #[gtktest::test]
     fn a_right_clicked_link_enables_the_command_even_with_no_editor_caret() {

@@ -12,7 +12,7 @@
 # and `--list-steps` / `-ListSteps` prints exactly that derived list. The distinction is
 # load-bearing and was paid for one level down: the cross-reference gate's scan-set diff
 # proved its two ports agreed WITH EACH OTHER and for a long time proved neither honoured
-# lint-references.scan — it printed a set some checks did not consume (ScrAP-207). It
+# lint-references.scan — it printed a set some checks did not consume (GEP-3). It
 # worked only because both ports genuinely read the contract, so agreement and
 # conformance happened to coincide. (Those two ports are now one binary, which is the
 # stronger version of the same fix: nothing to compare.) Where a port RESTATES instead of deriving, a clean
@@ -223,7 +223,7 @@ cmd.windows test  cargo test
 # prints its marker in step 5's own output, which step 5 surfaces (`surface`) rather than
 # paying for a second integration run. Never `#[cfg(platform)]` a test to achieve a skip — a cfg'd-out test is not
 # skipped, it is deleted: not compiled, not reported, not counted, and no harness
-# distinguishes "never built" from "passed" (ScrAP-212).
+# distinguishes "never built" from "passed" (GEP-4).
 # ---------------------------------------------------------------------------
 step   4b  skipreport
 intent skipreport  Tests that skipped themselves at runtime are surfaced with their rubric and reason
@@ -254,7 +254,7 @@ cmd.windows skipreport  cargo test -- --nocapture
 # a parallel run of a suite that WEDGES prints no test names at all, and "zero test
 # names" then reads as evidence the hang happened at or before the first test. That
 # misreading cost a well-argued but wrong startup-stall hypothesis once already
-# (ScrAP-166), on Windows, which is where a wedging GTK suite is most likely. It is
+# (GEP-31), on Windows, which is where a wedging GTK suite is most likely. It is
 # scoped to the platform whose failure mode it serves rather than slowing the other two.
 #
 # LINUX AND WINDOWS CARRY `G_DEBUG=fatal-criticals`; macOS CANNOT. POLICY § Logging has
@@ -264,7 +264,7 @@ cmd.windows skipreport  cargo test -- --nocapture
 # carrying three latent criticals while reporting `ok` (a window built before
 # `GApplication::startup`; a `compute_bounds` on a parentless popover; and a
 # `change_action_state` on a STATELESS action, which was silently no-opping a guard's setup
-# so it walked a smaller tree than it claimed to — ScrAP-209's own species, inside the test
+# so it walked a smaller tree than it claimed to — GEP-1's own species, inside the test
 # that cites it). All three are fixed and both Linux harnesses are clean under the flag.
 # Windows confirmed its own suite clean under the flag and MUTATION-TESTED the gate rather
 # than merely observing quiet: reverting one of the three fixes above makes the suite pass

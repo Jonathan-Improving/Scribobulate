@@ -386,7 +386,7 @@ impl Line {
             self.height,
             // Every field of the ref, enumerated: this digest is a guard, and a field
             // it cannot see is a field a change can move without the guard going red
-            // (ScrAP-325). `depth` and `root` decide how many bars get drawn and where
+            // (GEP-10). `depth` and `root` decide how many bars get drawn and where
             // the panel starts, so both belong here beside the indent.
             self.quote.map(|q| (q.root, q.depth, q.indent)),
             self.fill

@@ -10,7 +10,7 @@
 # IT INVOKES THE RUNNERS AND NAMES NO STEP. There is deliberately not one `cargo` or
 # `clippy` invocation below. A workflow that listed the steps would be a FOURTH restatement
 # of a contract whose whole design is derivation, and a clean diff between restatements
-# proves only that two people copied the same list (ScrAP-207). `execute-linux` runs
+# proves only that two people copied the same list (GEP-3). `execute-linux` runs
 # `scripts/pipeline.sh` whole and takes its verdict; when a step is added to the contract,
 # this file does not change.
 #
@@ -105,7 +105,7 @@ jobs:
       # is still compared on all three. One implementation removes PORT divergence, not
       # PLATFORM divergence: the set is derived by walking a filesystem, and case folding,
       # symlink resolution and directory order are the host's answer, not the program's.
-      # Assuming parity follows from sharing a file is ScrAP-207's shape exactly.
+      # Assuming parity follows from sharing a file is GEP-3's shape exactly.
       - name: Cross-reference gate's corpora prove its patterns discriminate
         run: cargo test --package xtask
       - name: Emit parity artefacts
@@ -266,7 +266,7 @@ jobs:
 
       # THE ARTEFACT IS VERIFIED AS AN ARTEFACT, NOT AS AN EXIT CODE. A packaging step
       # that exits 0 having produced a zero-byte file is this project's own measured
-      # defect class (ScrAP-276), so existence and a floor on size are asserted here
+      # defect class (GEP-3), so existence and a floor on size are asserted here
       # rather than inferred from a green step.
       - name: The installers exist and are not empty
         if: github.event_name == 'release' || inputs.package
@@ -397,7 +397,7 @@ jobs:
   # confidently wrong in a way only execution could catch: once reporting `pipeline PASSED`
   # with exit 0 after a step had failed, and once writing `-ListSteps` through
   # [Console]::Out, which PowerShell's `>` does not redirect, producing a zero-byte parity
-  # artefact at exit 0 (ScrAP-276). Contract-parsing evidence never had a chance of seeing
+  # artefact at exit 0 (GEP-3). Contract-parsing evidence never had a chance of seeing
   # either.
   #
   # GTK COMES PREBUILT, and this is the one place this job departs from the local build

@@ -764,7 +764,7 @@ mod tests {
         }
 
         let in_menu: BTreeSet<String> = menu_actions().into_iter().collect();
-        // ScrAP-132 guard-against-the-guard: a walk that descends wrongly scans nothing
+        // GEP-1 guard-against-the-guard: a walk that descends wrongly scans nothing
         // and passes forever. Pin one item per construction route — a flat Cmd-table
         // row, a parameterised radio item, a parameterised Format item behind a submenu
         // link, and an inline command — before trusting the sweep.

@@ -989,7 +989,7 @@ mod tests {
     /// let the invariant remove the recovery data* — rather than a bespoke deletion. The
     /// assertion that matters is the second one: reverting alone must be sufficient, so a
     /// future refactor that adds an explicit delete here is adding a second deletion path
-    /// (GTK4Rs/AP-108/ScrAP-219) and this test would keep passing while that rot set in — so
+    /// (GTK4Rs/AP-108/GEP-25) and this test would keep passing while that rot set in — so
     /// it deliberately never calls a delete itself.
     #[gtktest::test]
     fn discarding_a_recovery_reverts_the_tab_and_clears_its_recovery_data() {

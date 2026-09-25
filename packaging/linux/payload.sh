@@ -4,7 +4,7 @@
 # the same five places; only the metadata around them differs. Written twice, the two
 # layouts drift — and a drifted layout is invisible, because each package installs
 # cleanly on its own and nothing compares them. That is the same defect the build-step
-# contract exists to prevent (ScrAP-207), one level down, so
+# contract exists to prevent (GEP-3), one level down, so
 # the same answer applies: ONE definition, both consumers read it.
 #
 # What is NOT shared, deliberately: the deb's copyright/changelog/control and the rpm's

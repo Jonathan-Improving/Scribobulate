@@ -822,7 +822,7 @@ mod gtk_integration_tests {
     // load-bearing half of the Cmd-not-Ctrl fix: revert the transform and this
     // fails, because the label would fall back to ⌃.
     //
-    // Per ScrAP-181, the expected glyph is a `#[cfg]`'d *constant*, never derived
+    // Per GEP-18, the expected glyph is a `#[cfg]`'d *constant*, never derived
     // by calling the function under test — deriving it would make the test agree
     // with itself.
     #[cfg(target_os = "macos")]
@@ -835,7 +835,7 @@ mod gtk_integration_tests {
         assert_eq!(accel_hint(""), None, "empty accel has no hint");
         let hint = accel_hint("<Primary>o").expect("Ctrl+O has a hint");
         // Assert the platform prefix + key without pinning the exact glyph
-        // spelling GTK chooses beyond the per-platform constant above (ScrAP-181).
+        // spelling GTK chooses beyond the per-platform constant above (GEP-18).
         assert!(
             hint.contains(PRIMARY_MOD_LABEL),
             "hint {hint:?} should name the platform modifier ({PRIMARY_MOD_LABEL:?})"

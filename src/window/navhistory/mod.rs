@@ -9,7 +9,7 @@
 //! switch callback (`window::tabs::wire_tab_switch_page`) — so *every* way of
 //! changing the active tab is history-bearing by default, including any added
 //! later. That is deliberate, and it inverts the usual enforcement problem
-//! (GTK4Rs/AP-108's opt-in mitigation, ScrAP-219's ladder): here the *feature* is
+//! (GTK4Rs/AP-108's opt-in mitigation, GEP-25's ladder): here the *feature* is
 //! centralised and only the **opt-out** is per-call-site, so forgetting one adds a spurious
 //! history entry rather than silently dropping a navigation the reader made. A
 //! missing entry is invisible and unfixable from the outside; a spurious one is
@@ -163,7 +163,7 @@ fn wire_mouse_buttons(window: &ApplicationWindow) {
 /// because it has not been rendered.
 ///
 /// Module-**private**, and that is the enforcement rung this earns (POLICY
-/// § Typed GTK seams, ScrAP-219's ladder): once the two callers below were the
+/// § Typed GTK seams, GEP-25's ladder): once the two callers below were the
 /// only ones, the dead-`pub(crate)` warning proved nothing outside needed it, so
 /// demoting it makes "reconcile from some other render site" not merely
 /// discouraged but non-compiling.
@@ -205,7 +205,7 @@ mod gtk_integration_tests {
     /// TDD 23.6's mouse half — the thumb buttons are gestures, so what is
     /// assertable headlessly is that they resolve to the same actions the menu
     /// uses (a synthetic button-8 press needs a real pointer device; the live
-    /// check is `tests/MANUAL-TEST.md` §23). This is the ScrAP-172 lesson applied
+    /// check is `tests/MANUAL-TEST.md` §23). This is the GEP-12 lesson applied
     /// in advance: assert what the wiring IS, and leave the delivery to the live
     /// pass rather than to an input synthesiser that can fail silently.
     #[gtktest::test]

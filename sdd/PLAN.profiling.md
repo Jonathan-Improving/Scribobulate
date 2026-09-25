@@ -30,7 +30,7 @@ is *scattered* — the toolkit-noise filter, the strand-on-close leak, the per-r
 plan, the sanctioned `valgrind` invocation. There is no recorded **escalation
 order**, so every investigation re-derives one, and the cost of getting that wrong is
 on record: a previous hunt burned ~72 minutes on a debug-symbol source that was never
-going to deliver (ScrAP-141).
+going to deliver (GEP-15).
 
 Two consequences follow. Performance regressions are invisible until a human notices
 one, and the open CPU defect has stalled — in part on an instrument that does not
@@ -74,7 +74,7 @@ depends on this application. Ubuntu jammy, **GTK 4.6.9 / GLib 2.72.4**, Xvfb,
 | `valgrind` present. `heaptrack`, `sysprof`, `samply`, `hotspot` **absent** | The allocation-attribution ladder must be built from valgrind + bespoke tooling |
 | Release binary is `strip = "symbols"` — **no symbol table, no `.debug` sections** | Sampling the release build yields addresses, not app function names |
 | An unstripped `target/debug` binary exists | Named app frames are available today — unoptimized, so structurally informative and numerically meaningless |
-| GTK/GLib debug symbols unobtainable from both official sources for this exact version (ScrAP-141) | Frames inside the toolkit resolve to `lib+offset` at best, on every tier |
+| GTK/GLib debug symbols unobtainable from both official sources for this exact version (GEP-15) | Frames inside the toolkit resolve to `lib+offset` at best, on every tier |
 
 ## The four failure classes
 
@@ -255,7 +255,7 @@ something.
   this repository — rebuild it rather than trusting this table on a different host or
   a different GTK.
 - **Confirmed dead ends — do not re-walk.** Distribution debug symbols for this
-  exact GTK/GLib version from either official source (ScrAP-141, ~72 minutes lost);
+  exact GTK/GLib version from either official source (GEP-15, ~72 minutes lost);
   `g_type_get_instance_count()` and the Inspector Statistics tab; sysprof marks; any
   informational `GTK_DEBUG`/`GDK_DEBUG`/`GSK_DEBUG` key (GTK4Rs/AP-251).
 - **The stripping consequence is exact.** The release binary has no symbol table and

@@ -223,7 +223,7 @@ mod tests {
     /// XML). Checked without a display by inspecting the string.
     /// The host's spelling of File ▸ Open's accelerator, as it must appear
     /// escaped in the generated XML. Pinned as a `#[cfg]`'d literal rather than
-    /// derived through `accel::for_host` (ScrAP-181): the *point* of the
+    /// derived through `accel::for_host` (GEP-18): the *point* of the
     /// assertion is that this window advertises Command on macOS, and deriving
     /// the expectation from the transform under test would make it agree with
     /// itself and pass whichever modifier it emitted.

@@ -326,7 +326,7 @@ pub(super) fn scroll_editor_to_offset(
     let (s, e) = buf.bounds();
     let text = crate::saferizer::BufferText::of_range(buf, &s, &e);
     // Byte → char through the shared seam, never a local `get(..).unwrap_or(0)`
-    // (ScrAP-216's sibling, QA round 3 P-1): an offset landing inside a
+    // (GEP-24's sibling, QA round 3 P-1): an offset landing inside a
     // multi-byte character used to answer 0 — the top of the document — silently
     // sending the caret somewhere the user did not click. Flooring to the
     // containing character is off by at most one character and never lies.

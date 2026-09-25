@@ -21,7 +21,7 @@
 //!
 //! * **macOS** (Homebrew) needs the modern property. Writing only the legacy one
 //!   leaves the window painted light while every intermediate reading stays correct
-//!   — ScrAP-184, and the reason `tests/macos_dark_mode.rs` samples pixels.
+//!   — GEP-10, and the reason `tests/macos_dark_mode.rs` samples pixels.
 //! * **Windows** (gvsbuild) does **not**, as of this writing. Measured on a real
 //!   host: the theme resolves to `Default`, `gtk-interface-color-scheme` sits at
 //!   `UNSUPPORTED`, and the legacy property alone still paints

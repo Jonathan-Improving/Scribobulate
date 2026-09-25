@@ -6,7 +6,7 @@
 //! declaration deleted its nine tests from every platform but the target. Not skipped,
 //! not reported, not counted: `cargo test --lib -- --list` found zero cases here on the
 //! platform POLICY names as canonical, so the decision that carries the whole feature
-//! was unverified by the only gate that runs (ScrAP-212, which
+//! was unverified by the only gate that runs (GEP-4, which
 //! `scripts/pipeline.steps` states as a rule about tests and which this module was
 //! breaking through its module declaration instead).
 //!
@@ -117,7 +117,7 @@ use gtk::MovementStep;
 /// must not defeat the match for a reader who has either one on.
 // Compiled on every platform so its tests are, which is the whole point of the split;
 // only macOS has a caller, so every other target sees a function with none. The
-// alternative is the `cfg` that deleted these tests in the first place (ScrAP-212).
+// alternative is the `cfg` that deleted these tests in the first place (GEP-4).
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))] // no caller off macOS; see above
 pub(crate) fn word_movement(key: Key, mods: ModifierType) -> Option<(i32, bool)> {
     let significant = ModifierType::SHIFT_MASK

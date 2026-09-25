@@ -223,7 +223,7 @@ fn scroll_away_and_back_cycles_do_not_grow_footprint_ttd_6_10() {
 ///
 /// `animation::paintable::gtk_tests` already asserts the paintable half of
 /// this (`dropping_the_picture_releases_the_paintable_and_its_decoder`); new
-/// here is the CURRENT TEXTURE'S OWN independent weak ref (ScrAP-254: an
+/// here is the CURRENT TEXTURE'S OWN independent weak ref (GEP-11: an
 /// invariant held by only one mechanism at a time is not proven by exercising
 /// the other one) — a leak that retained just the displayed frame somewhere
 /// OUTSIDE the paintable would not show up on the paintable's weak ref alone.

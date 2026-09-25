@@ -371,7 +371,7 @@ mod gtk_integration_tests {
         window.destroy();
     }
 
-    /// The arrival-side mirror of ScrAP-262: a heading that is the **first thing
+    /// The arrival-side mirror of GEP-53: a heading that is the **first thing
     /// in the document** resolves to buffer offset 0, so Forward onto it asks the
     /// preview to scroll to the very top. The departure guard that swallowed line
     /// 0 lived on the `NavSpot::Line` path; this pins the `NavSpot::Heading` path,
@@ -416,7 +416,7 @@ mod gtk_integration_tests {
     /// `restore_preview_scroll_to_line` resolves the line with
     /// `iter_at_line(line).map(…).unwrap_or(0)`, so a line the buffer will not
     /// resolve does not fail, it silently becomes the **top of the document**:
-    /// ScrAP-262's failure mode arriving from the opposite end. Only a departure
+    /// GEP-53's failure mode arriving from the opposite end. Only a departure
     /// at the extreme can distinguish "restored exactly" from "off by one and
     /// therefore unresolvable", and a body that departs from the middle has slack
     /// on both sides.

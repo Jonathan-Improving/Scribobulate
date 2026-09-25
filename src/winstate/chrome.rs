@@ -421,7 +421,7 @@ mod tests {
             "and it must never have been pushed onto the destination's stack"
         );
 
-        // Positive control (ScrAP-217): the shape this replaced — re-resolving the
+        // Positive control (GEP-12): the shape this replaced — re-resolving the
         // stack through the tab at fire time — is proven to strand the notice, so
         // the assertions above cannot be passing vacuously.
         let stranded = origin_chrome.status.borrow_mut().push("stranded");

@@ -251,7 +251,7 @@ required-features = ["gtk-integration-tests"]
 # Same shape again. Isolates the annotation card's deferred-focus mechanism
 # (`markers.rs`'s `idle_add_local_once` + `child_focus(TabForward)` after a popover
 # `popup()`) without reaching `AnnotationCard`/`CodePreviewView` themselves — those
-# need crate internals well past what `#[path]` can pull in as a leaf (ScrAP-197).
+# need crate internals well past what `#[path]` can pull in as a leaf (GEP-34).
 # Runs on every platform: the mechanism is generic
 # GtkPopover/focus-chain behaviour, not macOS-specific, even though the defer it
 # guards was found and fixed on Quartz.

@@ -59,11 +59,11 @@ pub(crate) use scope::{PreviewScope, RenderKey};
 /// which in pure-preview mode means highlighting and scrolling a buffer the user
 /// **cannot see** — a find that silently acts on the wrong document.
 ///
-/// That is ScrAP-167's shape, and the file already documented it happening once: a
+/// That is GEP-42's shape, and the file already documented it happening once: a
 /// widget-tree change made the downcast fail, `None` came back, and the editor was
 /// searched invisibly. The fix applied at the time changed *which accessor* was used,
 /// which repaired the instance and left the mechanism — so the remedy had coverage
-/// exactly equal to the one tree change that motivated it (ScrAP-220). Making the
+/// exactly equal to the one tree change that motivated it (GEP-5). Making the
 /// outcomes distinct TYPES is what removes the mechanism: the compiler now refuses to
 /// let a caller treat "not in preview" and "preview is broken" the same way, so the
 /// next widget-tree change is a loud error rather than a silent wrong-target search.

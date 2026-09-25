@@ -838,7 +838,7 @@ pub(crate) fn refresh_dirty_status(window: &ApplicationWindow) {
         // The crash-recovery invariant hangs off the same recomputation as the
         // indicator, so every path that changes dirtiness — save, Save As, reload,
         // revert, undo — gets the right swap-file behaviour without being individually
-        // taught it (`window::swap::sync_tab_swap`, GTK4Rs/AP-108/ScrAP-219). The one
+        // taught it (`window::swap::sync_tab_swap`, GTK4Rs/AP-108/GEP-25). The one
         // deletion that cannot come through here is a *discarded* tab, which is still
         // dirty when it is destroyed; that is `discard_tab_swap`.
         crate::window::sync_tab_swap(&st);

@@ -183,7 +183,7 @@ fn a_theme_stating_no_disclosure_band_or_ink_leaves_every_surface_untouched() {
 
     // …and the anti-vacuity half. Without it every assertion above is satisfied by a
     // build that ignores these keys completely, which is the same green suite and a
-    // decoration nobody can use (ScrAP-209's shape).
+    // decoration nobody can use (GEP-1's shape).
     let banded = banded();
     assert!(banded.disclosure_band_decor().is_present());
     assert_eq!(banded.metrics.disclosure_band_radius, 7);
@@ -422,7 +422,7 @@ fn every_themed_page_inks_its_disclosure_indicator() {
 /// `Theme::resolve` is removed — which the shipped-file guard cannot, since every theme
 /// we ship now states its own. Written against an inline fragment for exactly that
 /// reason: the input set has to contain the case being policed, or the check is a
-/// tautology about the data (ScrAP-132).
+/// tautology about the data (GEP-1).
 #[test]
 fn an_undressed_theme_takes_its_marker_ink_from_the_page() {
     let mut themes = Themes::builtin();

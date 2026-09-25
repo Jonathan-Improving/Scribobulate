@@ -965,7 +965,7 @@ mod tests {
     /// Windows is where the user-writable `%APPDATA%` row of SCHEMA's search-path
     /// table lives. It now goes through the shared runtime skip, so a host that
     /// genuinely cannot make a symlink says so in the run output instead of counting
-    /// as a pass (ScrAP-212).
+    /// as a pass (GEP-4).
     ///
     /// **And on Windows it no longer skips at all.** Containment is a property of
     /// *reparse points*, not of symlinks specifically, so the fixture comes from

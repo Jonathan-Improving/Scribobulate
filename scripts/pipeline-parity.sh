@@ -12,7 +12,7 @@
 # (.github/workflows/pipeline.yml).
 #
 # IT COMPARES; THE PORTS CONFORM. Comparison proves the ports agree, derivation proves
-# they conform, and only the second is worth having (ScrAP-207). This script is the
+# they conform, and only the second is worth having (GEP-3). This script is the
 # first half only, and it is deliberately not the whole gate: each port also runs its own
 # `--self-test` on its own runner, which is where conformance is established. A clean diff
 # here over three restatements would prove nothing, and if the runners ever stop deriving,
@@ -23,8 +23,8 @@
 # "whatever is in the directory" finds the two survivors identical and reports PARITY OK.
 # That output is indistinguishable from a real three-way agreement, and it appears exactly
 # when something has gone wrong — the shape of a guard whose setup prevents the condition
-# it guards from arising (ScrAP-209), and of a negative result with no positive control
-# (ScrAP-217). So every kind declares who must be present, a missing or empty member is a
+# it guards from arising (GEP-1), and of a negative result with no positive control
+# (GEP-12). So every kind declares who must be present, a missing or empty member is a
 # hard failure that names the port, and `--self-test` mutation-proves both.
 #
 # THE `steps` EXPECTATION IS DERIVED FROM THE CONTRACT, for the same reason the runners'
@@ -40,7 +40,7 @@
 # two shell ports for a single `cargo xtask` binary removed PORT divergence and left PLATFORM
 # divergence untouched: the set is derived by WALKING A FILESYSTEM, and case folding, symlink
 # resolution and directory order are the host's answer rather than the program's. Assuming
-# parity follows from sharing an implementation is ScrAP-207's shape (the platform nobody
+# parity follows from sharing an implementation is GEP-3's shape (the platform nobody
 # runs becomes the lenient one) on the one axis a shared file was assumed to close. Compared
 # per PLATFORM, therefore, and per platform is now the only unit there is.
 #

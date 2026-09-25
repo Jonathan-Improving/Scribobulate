@@ -313,7 +313,7 @@ fn is_rename_orphan_of(entry: &str, document: &str) -> bool {
 
 /// Put back a document that a crash stranded midway through a case-only rename.
 ///
-/// ScrAP-272: naming the debris `recognisably` is a property of a string, and the
+/// GEP-67: naming the debris `recognisably` is a property of a string, and the
 /// obligation is the verb — this is the recogniser that was missing.
 ///
 /// The two-step case-only rename is atomic in each step and **not** across the pair,
@@ -598,7 +598,7 @@ mod tests {
 
     /// **The Windows rules are asserted from Linux**, which is the whole reason the
     /// rules are a parameter. `#[cfg(windows)]` here would not skip these on Linux,
-    /// it would delete them (POLICY § Unit tests, ScrAP-212) — and Windows is the
+    /// it would delete them (POLICY § Unit tests, GEP-4) — and Windows is the
     /// platform whose extra rules nobody would otherwise exercise.
     #[test]
     fn windows_adds_rules_that_posix_does_not_have() {
@@ -842,7 +842,7 @@ mod tests {
         let shouted = dir.path().join("NOTES.MD");
         if !shouted.exists() {
             // Through the shared helper, not a local `eprintln!` — the helper is the
-            // only thing that emits the line atomically (ScrAP-273), and reaching for
+            // only thing that emits the line atomically (GEP-25), and reaching for
             // `eprintln!` here is exactly the miss its own module header predicts: a
             // remedy that lives behind a symlink-shaped name is one the next
             // differently-shaped test will not find.

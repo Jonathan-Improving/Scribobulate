@@ -748,7 +748,7 @@ mod gtk_integration_tests {
     ///
     /// Read-only does not exempt a `GtkTextView`: GTK's buffer-ends bindings live on
     /// the view, not on editability. Wiring one pane and not the other is exactly
-    /// the surface-shaped gap ScrAP-234 records.
+    /// the surface-shaped gap GEP-10 records.
     #[gtktest::test]
     fn ctrl_end_reaches_the_bottom_of_the_preview_pane_too() {
         let view = crate::codeview::CodePreviewView::new();
@@ -891,7 +891,7 @@ mod gtk_integration_tests {
         };
 
         // Positive control: unaided, it arrives. Without this the test could pass
-        // because nothing ever worked, which would evidence nothing (ScrAP-217).
+        // because nothing ever worked, which would evidence nothing (GEP-12).
         let (view, scroller, window) = build();
         view.emit_move_cursor(gtk::MovementStep::BufferEnds, 1, false);
         let arrived_unaided = settle(&scroller.vadjustment());

@@ -106,7 +106,7 @@ pub(super) struct SpliceOutcome {
 /// `RenderProducts` and drop six fields by naming each `_`, so the only thing
 /// separating the two halves was a reviewer noticing a missing underscore — and
 /// adding a field produced a compile error whose obvious fix was another `_`. That is
-/// the ScrAP-131 shape. The conversion below is the ONE place the split is decided,
+/// the GEP-40 shape. The conversion below is the ONE place the split is decided,
 /// and it is an exhaustive destructure, so a field added to `RenderProducts` must be
 /// assigned a side there rather than silently inheriting one.
 pub(super) struct ScratchProducts {

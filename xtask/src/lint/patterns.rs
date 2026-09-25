@@ -536,7 +536,7 @@ pub struct ProseHit {
 /// depend on how the author happened to wrap their prose.
 ///
 /// The FILE BOUNDARY is where the awk original had two live bugs, both found by the Windows
-/// seat and both invisible to a single-file corpus (ScrAP-226): a pending paragraph was
+/// seat and both invisible to a single-file corpus (GEP-3): a pending paragraph was
 /// reported with the NEXT file's name, and its state carried across, so a later file
 /// mentioning `gtktest` could silently swallow an earlier file's real prescription. Taking
 /// a file at a time and flushing at its end makes both unrepresentable rather than fixed —

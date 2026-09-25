@@ -18,7 +18,7 @@
 # ONE SET, CONSUMED BY EVERY CHECK. `root` and `file` together define a single
 # enumeration, produced exactly once; every check narrows it rather than walking the tree
 # again. A check that walks for itself is a second enumeration, and there is no such thing
-# as a harmless one — three coexisted here and disagreed with each other (ScrAP-207). What
+# as a harmless one — three coexisted here and disagreed with each other (GEP-3). What
 # each check narrows to is its own business and is documented at the check: 6a scans the
 # whole set, 6b its `.md` members, check 1 everything but the register, checks 2 and 5 the
 # `src/` members.
