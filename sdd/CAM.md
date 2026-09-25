@@ -345,6 +345,39 @@ the top**, because a transiently shrinking-then-growing `upper` clamps `value`
 perfectly, only the scroll is wrong, and only on the one event that forgot — the
 textbook latent gap.
 
+**The horizontal axis is a documented gap in this matrix, not a documented mechanism
+— issue #3 (the preview drawn horizontally scrolled after a mode switch or Reload)
+investigated it and found no reproducible write on macOS/GTK 4.22.4/Quartz.** Every
+row and every rule above and below is about the **vertical** clamp; nothing here
+previously said anything about `hadjustment` at all.
+The investigation instrumented `notify::upper`/`notify::value` on both axes at the
+preview's mount point (`SplitView::set_preview`) and around both restore calls
+(`CodePreviewView::scroll_to_buffer_offset`'s real `scroll_to_mark`, and
+`restore_preview_scroll_to_line_fresh`'s progressive `set_value` loop —
+`src/preview/scrolldebug.rs` carries the wiring), then watched the real production
+mount+restore call live: `scroll_to_mark(mark, 0.0, /* use_align */ true,
+/* xalign */ 0.0, /* yalign */ 0.0)` never wrote the horizontal adjustment at all, on
+any trial, across 30+ alternating-gesture trials and a dedicated far-target (line 100
+of a 200-paragraph document) isolation. Both restore mechanisms — the one-shot
+`scroll_to_mark` this matrix's rows already use, and the progressive `_fresh`
+restore `GTK4Rs/AP-115` documents — left the horizontal axis clean; rebinding one to
+the other, holding everything else fixed, changed nothing on this platform. **This is
+a negative result about macOS only.** The defect this section investigates was
+measured on Linux and Windows before this investigation, which could drive neither
+(no Xvfb, no X11/Wayland/Win32 session
+reachable from where it ran); it does not close the underlying report, and does not
+license treating the horizontal axis as safe on every platform — only on the one this
+investigation could reach. Two harness traps the investigation hit and corrected are
+worth knowing before extending this instrumentation elsewhere: a bare
+`iteration(false)` spin (rather than `testpump`'s disciplined blocking wait) reported
+the preview's `page_size` permanently stuck at `0.0` across 2000+ turns on a gesture
+that a correct wait settles in milliseconds (the ScrAP-358 "under-disciplined pump"
+failure, on the manufacturing side); and mounting a SECOND preview on top of a real
+reload's single mount (to get an earlier hook on the adjustment) produced a
+dramatic, deterministic, animated climb to exactly `value = 20.0` that looked exactly
+like the defect's own reported symptom and was not one — production never
+double-mounts a preview in one gesture, and removing the extra mount made it vanish.
+
 The perturbation kinds need different *restore mechanisms*, never a different
 *concern*:
 

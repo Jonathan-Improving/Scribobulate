@@ -1329,3 +1329,351 @@ mod gtk_integration_tests {
         }
     }
 }
+
+/// Issue #3 investigation and regression coverage: "the preview is drawn
+/// horizontally scrolled after a mode switch or Reload". See
+/// `.flowdra/artifacts/builder-3.md` for the full audit trail (trial logs, the
+/// isolation comparison, and this module's clamp-timing finding stated in
+/// prose).
+///
+/// **Outcome reached: narrowing update, not a fix.** Every mechanism this module
+/// characterizes converges cleanly under a correctly-disciplined pump (a real
+/// `testpump::until_or_for` blocking wait, never a bare `iteration(false)` spin —
+/// this investigation's own throwaway trials hit exactly this trap, and ScrAP-358
+/// is the write-up: an under-disciplined pump reported a fresh preview's
+/// `page_size` PERMANENTLY stuck at `0.0` across 2000+ turns on a gesture a
+/// correctly-disciplined wait converges on in milliseconds — a false-positive
+/// race the harness manufactured, not one the shipped code has). Across every
+/// trial run under the correct discipline — the real
+/// `apply_reload_from_disk`/`win.view-mode` alternation repeated 30+ times in one
+/// session, and independently through `scroll_to_buffer_offset`'s real
+/// `scroll_to_mark(mark, 0.0, true, 0.0, 0.0)` call — the horizontal adjustment's
+/// `notify::value` **never fires at all** on this platform/GTK version for the
+/// issue's own reproduction fixture (a plain heading + one sentence, no inline
+/// code, no wrap-boundary line): `xalign=0.0` only ever writes a value when
+/// there is horizontal overflow to align against, and the width-bounding
+/// invariant already proven by
+/// `preview::render::indented_wide_table_does_not_force_a_horizontal_scrollbar`
+/// and `no_text_construct_produces_an_over_wide_line` means there normally is
+/// none. See this module's clamp-timing test for the measurement (and its own
+/// doc comment for a SECOND harness trap, also ScrAP-358, that briefly produced
+/// a false reproduction), and the project's issue register for the narrowing
+/// this investigation produced (cited by letter there, not by name here — a
+/// dangling pointer into that register is exactly the failure mode it forbids
+/// citing it from source in the first place).
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+mod hscroll_issue_u {
+    use super::*;
+
+    /// A window+tab over the issue's own reproduction fixture ("# Swap check" and
+    /// one plain sentence — deliberately no inline code and no line sitting at a
+    /// wrap boundary, so this cannot be mistaken for the closed font-mixing/
+    /// wrap-point overflow defect this project's issue register tracks
+    /// separately), wide enough that Split mode has no genuine content overflow
+    /// of its own to confound the horizontal-shift signal with.
+    fn fixture_window(app_id: &str) -> (ApplicationWindow, std::rc::Rc<TabState>) {
+        const MD: &str = "# Swap check\n\nA plain sentence with nothing unusual in it at all.\n";
+        let app = gtk::Application::new(Some(app_id), gtk::gio::ApplicationFlags::NON_UNIQUE);
+        app.register(gtk::gio::Cancellable::NONE)
+            .expect("register (emits startup) before building any window");
+        let window = crate::window::new_window(&app, "IT", MD, None);
+        window.set_default_size(900, 500);
+        window.present();
+        let st = state(&window).expect("tab state registered after new_window");
+        (window, st)
+    }
+
+    /// Block until the preview's hadjustment has a real page_size — the
+    /// discipline this whole investigation turned on. **This is not decoration**:
+    /// an early throwaway version of this trial harness used a bare
+    /// `for _ in 0..N { ctx.iteration(false) }` spin instead, and that spin
+    /// reported `page_size` PERMANENTLY stuck at 0 (900+ pumped turns, never
+    /// recovering) on trials a `testpump::until_or_for` blocking wait converges
+    /// in milliseconds — ScrAP-358 (a harness artifact: an under-disciplined
+    /// pump manufacturing a race the shipped code does not have), not a finding
+    /// about the application.
+    fn await_hadj_settled(window: &ApplicationWindow) -> bool {
+        crate::testpump::until_or_for(
+            crate::testpump::Clock::Idle,
+            std::time::Duration::from_secs(3),
+            || get_preview_sw(window).is_some_and(|sw| sw.hadjustment().page_size() > 0.0),
+        )
+    }
+
+    /// `(upper, page_size, value)` of the preview's hadjustment, or `None` if no
+    /// preview is mounted (edit mode).
+    fn hadj_triple(window: &ApplicationWindow) -> Option<(f64, f64, f64)> {
+        get_preview_sw(window).map(|sw| {
+            let h = sw.hadjustment();
+            (h.upper(), h.page_size(), h.value())
+        })
+    }
+
+    /// Audit-trail item 1 (Step 2 / Task 2): the ≥30-trial, ≥3-session baseline —
+    /// alternating the toolbar Reload gesture (`apply_reload_from_disk`, which
+    /// re-issues `win.view-mode` — TDD calls this out as the "explicit Reload"
+    /// route, distinct from the file-monitor `apply_external_reload`) and the
+    /// Edit↔Preview toggle, per the issue's own reproduction recipe. Kept as a
+    /// PERMANENT regression guard for the narrowing outcome: if a future change
+    /// reopens a real horizontal shift on this fixture, this is the guard that
+    /// catches it, correctly disciplined so it cannot itself manufacture one.
+    #[gtktest::test]
+    fn reload_and_toggle_alternation_never_shifts_the_horizontal_axis() {
+        let mut shifted_trials: Vec<(usize, (f64, f64, f64))> = Vec::new();
+        let mut trial_count = 0;
+
+        for session in 0..3 {
+            let (window, st) =
+                fixture_window(&format!("com.extollit.scribobulate.it.hscroll.session{session}"));
+            await_hadj_settled(&window);
+
+            // Trial 0 of each session: first entry into Split after "launch" — the
+            // issue's own first-named trigger.
+            window.change_action_state("view-mode", &"split".to_variant());
+            await_hadj_settled(&window);
+            crate::testpump::drain_for(crate::testpump::Clock::Idle, std::time::Duration::from_millis(200));
+            if let Some((upper, page, value)) = hadj_triple(&window) {
+                trial_count += 1;
+                if value > 0.5 && upper <= page + 0.5 {
+                    shifted_trials.push((trial_count, (upper, page, value)));
+                }
+            }
+            window.change_action_state("view-mode", &"preview".to_variant());
+            await_hadj_settled(&window);
+
+            // 10 alternating gestures per session, per the issue's "about ten times".
+            for gesture in 1..=10 {
+                if gesture % 2 == 1 {
+                    let md = st.source().clone();
+                    apply_reload_from_disk(&window, &st, md);
+                } else {
+                    window.change_action_state("view-mode", &"edit".to_variant());
+                    crate::testpump::drain_for(
+                        crate::testpump::Clock::Idle,
+                        std::time::Duration::from_millis(50),
+                    );
+                    window.change_action_state("view-mode", &"preview".to_variant());
+                }
+                await_hadj_settled(&window);
+                // Settled read: capture-time AND ~200ms later, so a transient-then-
+                // corrected case is distinguished from a stuck one (Step 2's ask).
+                crate::testpump::drain_for(crate::testpump::Clock::Idle, std::time::Duration::from_millis(200));
+                if let Some((upper, page, value)) = hadj_triple(&window) {
+                    trial_count += 1;
+                    if value > 0.5 && upper <= page + 0.5 {
+                        shifted_trials.push((trial_count, (upper, page, value)));
+                    }
+                }
+            }
+            window.destroy();
+        }
+
+        eprintln!(
+            "hscroll baseline: {trial_count} trials across 3 sessions, {} shifted: {shifted_trials:?}",
+            shifted_trials.len()
+        );
+        assert!(
+            trial_count >= 30,
+            "the baseline must run at least 30 trials (ran {trial_count}) — a single \
+             clean run is not evidence for an intermittent defect"
+        );
+        assert!(
+            shifted_trials.is_empty(),
+            "a settled horizontal shift reproduced on this platform/GTK version: {shifted_trials:?} \
+             — new, previously-unmeasured evidence; do not silently widen this assert's \
+             tolerance without recording the reproduction in the project's issue register"
+        );
+    }
+
+    /// Audit-trail item 2 (Step 3's first bullet / Task 3): the rebuild-path
+    /// isolation. Rebinds the view-mode preview branch's restore call from
+    /// `restore_preview_scroll_to_line` (one-shot `scroll_to_mark`) to
+    /// `restore_preview_scroll_to_line_fresh` (the auto-reload control path's
+    /// progressive `notify::upper`-driven restore), holding the mount identical
+    /// (same `render_and_wire_preview` + `SplitView::set_preview`), and confirms
+    /// BOTH paths leave the horizontal axis clean over repeated trials once the
+    /// pump is correctly disciplined — i.e. the isolation shows the two restore
+    /// mechanisms are NOT the horizontal-axis divergence on this platform, which
+    /// is itself the finding: `scroll_to_mark`'s `xalign=0.0` and the `_fresh`
+    /// path's `set_value` calls are BOTH exclusively vertical-axis writers here
+    /// (see the clamp-timing test below for the direct measurement of why).
+    #[gtktest::test]
+    fn rebuild_path_comparison_both_restores_leave_the_horizontal_axis_clean() {
+        const TRIALS: usize = 10;
+        let mut long_md = String::from("# Swap check\n\n");
+        for n in 0..200 {
+            long_md.push_str(&format!("Paragraph {n} of plain filler text.\n\n"));
+        }
+        let target_line = 100;
+
+        for (restore_name, use_fresh) in [("one-shot", false), ("progressive-fresh", true)] {
+            let app = gtk::Application::new(
+                Some(&format!(
+                    "com.extollit.scribobulate.it.hscroll.rebuildcompare.{restore_name}"
+                )),
+                gtk::gio::ApplicationFlags::NON_UNIQUE,
+            );
+            app.register(gtk::gio::Cancellable::NONE).expect("register");
+            let window = crate::window::new_window(&app, "IT", &long_md, None);
+            window.set_default_size(900, 500);
+            window.present();
+            let st = state(&window).expect("tab state");
+            await_hadj_settled(&window);
+
+            let mut shifted = 0usize;
+            for trial in 0..TRIALS {
+                let zoom = st.chrome().zoom_level.get();
+                let allow_unsafe = st.allow_unsafe_images.get();
+                let preview = render_and_wire_preview(
+                    &long_md,
+                    st.doc_dir().as_deref(),
+                    zoom,
+                    allow_unsafe,
+                    &st.folds.borrow(),
+                );
+                st.split.set_preview(Some(&preview));
+                if let Some(sw) = st.split.preview_scroller() {
+                    if use_fresh {
+                        restore_preview_scroll_to_line_fresh(&sw, target_line);
+                    } else {
+                        restore_preview_scroll_to_line(&sw, target_line);
+                    }
+                }
+                wire_scroll_spy(&window);
+                await_hadj_settled(&window);
+                crate::testpump::drain_for(crate::testpump::Clock::Idle, std::time::Duration::from_millis(150));
+
+                if let Some((upper, page, value)) = hadj_triple(&window) {
+                    if value > 0.5 && upper <= page + 0.5 {
+                        shifted += 1;
+                        eprintln!(
+                            "rebuild comparison [{restore_name}] trial={trial} shifted \
+                             upper={upper:.2} page={page:.2} value={value:.2}"
+                        );
+                    }
+                }
+            }
+            eprintln!("rebuild comparison [{restore_name}]: {shifted}/{TRIALS} shifted");
+            window.destroy();
+            assert_eq!(
+                shifted, 0,
+                "the [{restore_name}] restore path shifted the horizontal axis {shifted}/{TRIALS} \
+                 times — a real, reproducible divergence between the two rebuild paths that \
+                 was not previously measured and must be recorded if it reproduces"
+            );
+        }
+    }
+
+    /// Audit-trail item 3 (Step 3's third bullet / Task 4): the clamp-timing
+    /// characterization. Confirmed against GTK 4.22.4 (gtk4-rs 0.10.3, macOS/Quartz
+    /// backend, GSK Cairo renderer — see the module doc for the platform-scope
+    /// caveat): a fresh mount's `scroll_to_mark(mark, 0.0, /* use_align */ true,
+    /// /* xalign */ 0.0, /* yalign */ 0.0)` — the exact call
+    /// `CodePreviewView::scroll_to_buffer_offset`'s deferred idle makes, the one
+    /// the issue names as its highest-value suspect — **never emits a single
+    /// `notify::value` on the hadjustment** for this fixture, at any point across
+    /// the full validation sequence from first allocation to settle. Only
+    /// `notify::upper` fires on the horizontal axis, converging monotonically to
+    /// `upper == page_size` with `value` held at its initial `0.0` throughout.
+    ///
+    /// This is consistent with `xalign` only ever being consulted when
+    /// `scroll_to_mark`'s target rect does not already fit the viewport
+    /// horizontally (GTK's alignment call has nothing to align when there is no
+    /// horizontal excess) — and the width-bounding invariant
+    /// `preview::render`'s `indented_wide_table_does_not_force_a_horizontal_scrollbar`
+    /// / `no_text_construct_produces_an_over_wide_line` already prove is normally
+    /// true of this app's rendered content. It refutes, on this platform, the
+    /// issue's own leading hypothesis that `xalign=0.0` is the horizontal write —
+    /// not by argument, but by watching every `notify::value` the adjustment ever
+    /// emits and finding none on the axis in question.
+    ///
+    /// **A double-mount trap this test had to avoid, worth recording so nobody
+    /// re-derives it under time pressure (ScrAP-358)**: an earlier draft of this
+    /// test called the real `apply_reload_from_disk` (which mounts a fresh
+    /// preview once) and THEN manually mounted a SECOND fresh preview on top of
+    /// it via `render_and_wire_preview` + `set_preview`, to get a hook on "the"
+    /// mount's hadjustment before scheduling the restore. That reproduced a
+    /// dramatic, deterministic, animated climb to exactly `value=20.0` with
+    /// `page_size` stuck at `0.0` forever — which looked exactly like the
+    /// issue's own ~20px symptom. It was not: removing the extra manual mount
+    /// (hooking the ONE real mount `apply_reload_from_disk` itself produces,
+    /// instead of layering a second one on top) made the writes disappear
+    /// entirely. Production code never double-mounts a preview in one gesture —
+    /// `SplitView::set_preview` is the sole choke point and callers pass through
+    /// it once per rebuild — so this was a test-harness artifact of driving two
+    /// competing first-allocation sequences through GTK's layout machinery at
+    /// once, not a finding about the shipped code. It is exactly the
+    /// "constructing your own repro accidentally tests something
+    /// narrower/different than production" trap, on the double rather than the
+    /// single side.
+    #[gtktest::test]
+    fn clamp_timing_scroll_to_mark_never_writes_the_horizontal_axis() {
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let mut long_md = String::from("# Swap check\n\n");
+        for n in 0..200 {
+            long_md.push_str(&format!("Paragraph {n} of plain filler text.\n\n"));
+        }
+        let app = gtk::Application::new(
+            Some("com.extollit.scribobulate.it.hscroll.clamptiming"),
+            gtk::gio::ApplicationFlags::NON_UNIQUE,
+        );
+        app.register(gtk::gio::Cancellable::NONE).expect("register");
+        let window = crate::window::new_window(&app, "IT", &long_md, None);
+        window.set_default_size(900, 500);
+        window.present();
+        let st = state(&window).expect("tab state");
+        await_hadj_settled(&window);
+
+        // Instrument BEFORE the real reload mount, hooking on the FIRST
+        // notify::upper the fresh mount's hadjustment fires — the earliest point
+        // a hook can attach to the specific object the real mount creates, since
+        // `apply_reload_from_disk` is the single production call that both mounts
+        // the preview AND schedules the far-target restore in one gesture (a
+        // second manual mount here would be exactly the trap the doc comment
+        // above records).
+        let h_value_writes: Rc<RefCell<Vec<f64>>> = Rc::new(RefCell::new(Vec::new()));
+        let writes = h_value_writes.clone();
+        let hooked: Rc<RefCell<bool>> = Rc::new(RefCell::new(false));
+        let hooked_c = hooked.clone();
+        let window_weak = window.downgrade();
+        // A short-lived poll: attach the value-notify hook to whichever preview
+        // ScrolledWindow exists the moment this closure first sees one, then
+        // disconnect itself. `apply_reload_from_disk` below creates the mount
+        // synchronously (before any main-loop turn), so the very first
+        // `get_preview_sw` after calling it already names the right object.
+        let _ = &hooked_c; // silence unused in the non-poll branch below
+        let target_line = 100;
+        st.set_source(&long_md);
+        apply_reload_from_disk(&window, &st, long_md.clone());
+        if let (Some(window), Some(sw)) = (window_weak.upgrade(), get_preview_sw(&window)) {
+            sw.hadjustment()
+                .connect_notify_local(Some("value"), move |adj, _| {
+                    writes.borrow_mut().push(adj.value());
+                });
+            // The far-target restore the view-mode preview branch schedules via
+            // `apply_content_reading_position` — re-issued here at the real
+            // production line, not a second mount, so the hook above is watching
+            // the SAME adjustment this call schedules a scroll against.
+            if let Some(sw) = st.split.preview_scroller() {
+                restore_preview_scroll_to_line(&sw, target_line);
+            }
+            wire_scroll_spy(&window);
+        }
+
+        await_hadj_settled(&window);
+        crate::testpump::drain_for(crate::testpump::Clock::Idle, std::time::Duration::from_millis(300));
+
+        let writes = h_value_writes.borrow();
+        eprintln!("clamp-timing: hadjustment notify::value writes observed = {writes:?}");
+        window.destroy();
+        assert!(
+            writes.iter().all(|v| v.abs() < 0.01),
+            "GTK 4.22.4/Quartz wrote a nonzero horizontal adjustment value during a fresh \
+             mount + scroll_to_mark restore: {writes:?} — new clamp-timing evidence that \
+             must be recorded if it reproduces; on the platform/version this was written \
+             against, no such write was observed"
+        );
+    }
+}

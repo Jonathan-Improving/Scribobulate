@@ -42,7 +42,7 @@ described from a different vantage point.
 | G | Linux | Test | A one-time ~12.6 MB allocation appears in step 5b's footprint samples on the GitHub Linux runner and on no development host, at a different sample each run. **Unattributed** — the runner logs `libEGL warning: DRI3 error: Could not get DRI3 device`, so a lazily created buffer in its software GL stack is a suspicion and nothing more. The growth gate tolerates one allocation by design (TDD 6.11), so this is not currently red; what is unknown is whether the sampler is measuring something the application does not own | Low |
 | I | Mac | Upstream | macOS only: every native file-chooser invocation (Open, Save, Export) grows RSS by ~1.1 MB and does not give it back. Roughly four fifths is AppKit's own price for presenting an `NSSavePanel` — reproduced with no GTK in the process — with about a fifth GTK-attributable. Caching the panel upstream would recover ~95% | Medium |
 | M | Windows | Production | On a machine with no Visual C++ runtime the app installs and then fails to start; the installer's bootstrapper for it has landed but has never been verified against that condition | Medium |
-| U | Any | Production | The preview is drawn horizontally scrolled (~20px, its left padding gone, a horizontal scrollbar showing) after a mode switch or an explicit Reload rebuilds it — intermittent, pre-existing, seen on Linux and Windows | Low |
+| U | Linux, Windows | Production | The preview is drawn horizontally scrolled (~20px, its left padding gone, a horizontal scrollbar showing) after a mode switch or an explicit Reload rebuilds it — intermittent, pre-existing; checked and does not reproduce on macOS | Low |
 | X | Mac | Test | The macOS integration suite hangs part-way through a run in roughly two to four runs in five. Independent of any one feature — it survives removing the surface it was first blamed on. **A stack now names the mechanism**: GDK's macOS event source drains an autorelease pool inside `prepare()`, a deferred `NSWindow` dealloc there tears down a text input context, and the IMK session's semaphore runs a nested `CFRunLoop` that re-enters `g_main_context_iteration` | High |
 | Z | Any | Production | GTK logs `GtkText - unexpected blinking selection. Removing` once during find-bar use. Cosmetic — GTK detects its own inconsistent blink state and clears it, and nothing on screen changes. Reproduced once in a compound driven run and in **none** of five isolated legs (idle, open bar, open and type, open/type/Enter/Escape, menu open then Escape), so the trigger is a combination or a timing, not any one interaction. Not caused by the window-level Escape handler — the operator's sighting predates it | Low |
 | W | Mac | Production | Observed ONCE: after a compound find-bar run the Escape key stopped closing the find bar and then never worked again in that process — permanent, not transient, with the bar visibly open and the application otherwise responsive. Not reproduced in three isolated legs nor in a faithful replay of the whole compound sequence. The handler has since been hardened so that it declines the key when the bar did not actually close, which BOUNDS this rather than fixes it: the diagnosed cause is still unknown | High |
@@ -619,7 +619,8 @@ and a horizontal scrollbar shows; nothing is lost, and a width change corrects i
 First reported by the Windows seat (GTK 4.22.4 gvsbuild, release build, 2026-09-13) on the
 first entry into Split after launch. **Now measured on Linux and Windows, and pre-existing**:
 the Windows seat reproduced it identically across two successive builds (2026-09-14), and
-Linux (Xvfb, the later of the two) shows both triggers below. **macOS not yet checked.**
+Linux (Xvfb, the later of the two) shows both triggers below. **macOS checked and does not
+reproduce** — see the narrowing below.
 
 **Measured**:
 
@@ -649,27 +650,90 @@ Linux (Xvfb, the later of the two) shows both triggers below. **macOS not yet ch
 point, and the symptom is a nonzero horizontal adjustment VALUE (content displaced by about
 the left padding) with the pane drawn, not blanked.
 
-**Inferred, not probed**: every gesture that can shift it rebuilds the preview through the
-view-mode handler — a mode switch, and the explicit Reload, which re-issues the current mode —
-while both things that reliably correct it do not: the auto-reload builds a fresh preview and
-installs it with its reading line restored, and a width change forces a fresh allocation. So
-the likely shape is a race in the view-mode rebuild's first allocation, where the horizontal
-adjustment's `upper` briefly exceeds `page_size`, `value` lands near the padding width, and
-nothing clamps it back when `upper` shrinks.
+**NARROWED (macOS, 2026-09-24): the leading hypothesis is refuted on this platform, and no
+deterministic mechanism reproduces here — the entry stays open for Linux/Windows, where it was
+originally measured and this investigation could not drive a real session.**
 
-**Mitigation options**:
+Instrumented per the original mitigation options below (`notify::upper`/`notify::value` on
+both axes at the preview's mount point and around both restore calls — `src/preview/scrolldebug.rs`,
+wired from `SplitView::set_preview`, `codeview/geometry.rs`'s `scroll_to_buffer_offset`, and
+`preview/scroll.rs`'s `_fresh` progressive restore), then measured against GTK 4.22.4
+(gtk4-rs 0.10.3, macOS/Quartz backend, GSK Cairo renderer):
 
-- **Treat the adjustment's settling as a dark pattern**: how and when GTK clamps an
-  adjustment's value when `upper` shrinks during a first allocation is not documented, so the
-  researcher should establish that before a fix is written, rather than resetting `value` by
-  guesswork. Alternating toolbar Reload and Edit-then-Preview about ten times in Preview gives
-  a reproduction within a session.
-- **Compare the rebuild paths**: the auto-reload's rebuild has not been seen to shift, so
-  building the preview the same way from the view-mode handler might remove it without
-  touching adjustments — to be established by that research, not assumed.
-- **Accept it** while it stays cosmetic.
+- **The real reload/toggle alternation, 33+ trials across 3 sessions, on the issue's own
+  fixture, never shifted the horizontal axis** (`src/window/reload.rs`'s
+  `hscroll_issue_u::reload_and_toggle_alternation_never_shifts_the_horizontal_axis`, a
+  permanent regression guard). Every trial converged to `upper == page_size`, `value == 0`.
+- **The rebuild-path comparison the previous mitigation option asked for was run — both
+  directions, not just the auto-reload control.** Rebinding the view-mode preview branch's
+  restore call from `restore_preview_scroll_to_line` (one-shot `scroll_to_mark`) to
+  `restore_preview_scroll_to_line_fresh` (the progressive `notify::upper`-driven restore the
+  auto-reload path already uses) made no observable difference on this platform: BOTH restore
+  mechanisms left the horizontal axis clean over 10 trials each, on a document long enough to
+  need the far-restore machinery (200 paragraphs, target line 100) — see
+  `rebuild_path_comparison_both_restores_leave_the_horizontal_axis_clean`. This refutes, here,
+  the inference that "which restore runs" is the divergence — on macOS neither one ever writes
+  the horizontal axis at all.
+- **The clamp-timing question the first mitigation option asked to establish before touching
+  anything, answered directly**: `scroll_to_mark(mark, 0.0, /* use_align */ true,
+  /* xalign */ 0.0, /* yalign */ 0.0)` — the exact call the issue names as its highest-value
+  suspect — was watched via a live `notify::value` hook on the real production mount+restore
+  call (`clamp_timing_scroll_to_mark_never_writes_the_horizontal_axis`) and **never emitted a
+  single write to the horizontal adjustment**, at any point from first allocation to settle.
+  Only `notify::upper` fires on that axis, converging monotonically to `upper == page_size`.
+  This is consistent with `xalign` only being consulted when the target rect does not already
+  fit the viewport horizontally — and this app's own width-bounding invariant
+  (`preview::render::indented_wide_table_does_not_force_a_horizontal_scrollbar`,
+  `no_text_construct_produces_an_over_wide_line`) already proves that is normally true of its
+  rendered content.
+- **A test-harness trap this investigation hit and is recording so nobody re-derives it under
+  time pressure**: an early, since-corrected draft of the clamp-timing test called the real
+  `apply_reload_from_disk` (which mounts a preview once) and then manually mounted a SECOND
+  fresh preview on top of it to get an earlier hook on the adjustment. That produced a
+  dramatic, deterministic, animated climb to exactly `value = 20.0` with `page_size` stuck at
+  `0.0` forever — which looked exactly like this entry's own ~20px symptom, closely enough that
+  it was initially logged as a reproduction. It was not: production code never double-mounts a
+  preview in one gesture (`SplitView::set_preview` is the sole choke point, passed through once
+  per rebuild), and removing the extra manual mount made the writes disappear entirely. A
+  second, independent trap of the same shape was caught earlier in the same session: a bare
+  `for _ in 0..N { ctx.iteration(false) }` spin (rather than a real blocking
+  `testpump::until_or_for` wait) reported the preview's `page_size` **permanently** stuck at
+  `0.0` across 2000+ pumped turns on the identical reload gesture — exactly the ScrAP-358
+  "an under-disciplined headless pump settles, or manufactures, the very race under study"
+  failure mode, on the manufacturing side rather than the settling side `GTK4Rs/AP-78` and
+  `GTK4Rs/AP-79` already cover. Both traps are recorded here because each, independently, would have produced a false
+  "fixed" or false "reproduced" verdict for this entry if not caught.
+
+**What this narrows, precisely.** The issue's own "Inferred, not probed" paragraph named two
+candidate mechanisms — a race in the view-mode rebuild's first allocation, and "which restore
+runs" as the fix point — and named the auto-reload's clean restore as evidence for the second.
+On macOS, this investigation refutes the second (both restores are clean) and finds no evidence
+for the first (no first-allocation race was ever observed to write the horizontal axis, across
+recorded thousands of `notify::upper`/`notify::value` firings in this and the isolation tests).
+**Neither refutation is platform-general.** The issue was measured on Linux and Windows and not
+on macOS before this investigation; this investigation ran only on macOS (no Xvfb, no X11/Wayland
+session, and no real-session GUI driving available in this environment) and could not re-run the
+Linux/Windows reproduction this entry's own history describes. A negative result on one platform,
+for a defect the issue's own text already shows is intermittent and platform-flavoured (the
+Windows seat's own session-to-session rate drifted from 8/8 to 5/4/1), is evidence about that
+platform, not a refutation everywhere — GTK's per-backend layout/frame-clock timing is exactly
+the kind of thing `GTK4Rs/AP-153`'s and `GTK4Rs/AP-291`'s clamp family shows can differ by
+backend even when the mechanism is otherwise shared.
+
+**Mitigation options** (revised):
+
+- **Re-run this investigation's instrumentation on Linux or Windows, under a real X11/Wayland/
+  Win32 session** (the `scribobulate::hscroll` trace target `src/preview/scrolldebug.rs`
+  installs is already wired at every candidate site and needs no further code change to drive
+  there) — this is the highest-value next step, since the platform where the defect was
+  actually measured is the one this investigation could not reach.
+- **Treat the adjustment's settling as a dark pattern**: still true in general, but the specific
+  clamp-timing question this raised (does `scroll_to_mark`'s `xalign=0.0` ever write the
+  horizontal axis on a fresh mount) is now answered — on macOS, no — rather than open.
+- **Accept it** while it stays cosmetic, on the platforms where it still reproduces.
 
 ---
+
 
 ## CLSD-03. No screen reader on Windows or macOS can read the app's accessible names
 

@@ -356,7 +356,13 @@ fn restore_textview_scroll_to_line_progressive(sw: &ScrolledWindow, view: &TextV
             return true;
         };
         let (y, _) = view.line_yrange(&iter);
+        // Issue #3 / SDD issue U instrumentation (Step 1, third bullet): before/after
+        // snapshot on BOTH axes around the write this "control" path is believed never
+        // to touch the horizontal one — confirming that rules out coincidence rather
+        // than assuming it.
+        crate::preview::scrolldebug::log_both_snapshot("restore_fresh pre jump", 0, &sw);
         crate::saferizer::scrollpos::jump(&vadj, (y as f64).clamp(0.0, max)); // NON-animating
+        crate::preview::scrolldebug::log_both_snapshot("restore_fresh post jump", 0, &sw);
         let (top, _) = view.line_at_y(vadj.value() as i32);
         top.line() == target || vadj.value() >= max
     });
@@ -733,3 +739,4 @@ mod gtk_integration_tests {
         );
     }
 }
+

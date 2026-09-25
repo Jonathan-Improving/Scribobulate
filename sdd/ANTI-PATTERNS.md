@@ -9,7 +9,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 2. General engineering discipline that survives deleting every Scribobulate noun? → route it to `general-engineering-principles`, cited `GEP-N`; leave a one-line `**Routed**` tombstone here. No ScrAP number is needed for provenance.
 3. Neither — Scribobulate internals, or a non-gtk4-rs dependency (Pango, GtkSourceView, pulldown-cmark, librsvg, syntect, serde/toml, the toolchain)? → it stays here, **in ≤ 6 lines**: Symptom · Root cause · Resolution · Lesson · Scribobulate · See. Extend an existing entry rather than minting a sibling for the same root cause. Route a Pango lesson on whose API *contract* it is about, and raise it before routing.
 
-**Numbers are frozen** (check 9): never renumbered, never reused; a retired entry keeps its `## N.` heading as a landing spot. Reserved gaps — do not fill: **176–179** (Windows port; holder gone, held pending operator resolution), **186** (`feat/spelling`, inbound), **276–289** (unmerged branches). **Next free number: 358**+ — check this table and announce the range you claim; never derive it from the highest heading below. (It read 354 while 354 and 355 both had bodies, so a writer who obeyed it minted a duplicate — and the same sentence forbids the one check a reader would otherwise make. Check 9 can only see a duplicate after it exists. **Check 21 now asserts the one relation the header must satisfy whatever the reserved gaps are — strictly above the highest heading present** — so this line is no longer guarded by prose alone; move it in the same change that mints.)
+**Numbers are frozen** (check 9): never renumbered, never reused; a retired entry keeps its `## N.` heading as a landing spot. Reserved gaps — do not fill: **176–179** (Windows port; holder gone, held pending operator resolution), **186** (`feat/spelling`, inbound), **276–289** (unmerged branches). **Next free number: 359**+ — check this table and announce the range you claim; never derive it from the highest heading below. (It read 354 while 354 and 355 both had bodies, so a writer who obeyed it minted a duplicate — and the same sentence forbids the one check a reader would otherwise make. Check 9 can only see a duplicate after it exists. **Check 21 now asserts the one relation the header must satisfy whatever the reserved gaps are — strictly above the highest heading present** — so this line is no longer guarded by prose alone; move it in the same change that mints.)
 
 **Growth** is gated in bytes (check 11). The ratchet only tightens; consolidate in the change that trips it.
 
@@ -370,6 +370,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 | 355 | Solving a themed fill against the surface it is MIXED from rather than the page it is READ on | C |
 | 356 | Deriving a text run's own fill from the PAGE when the preview draws a surface behind it | C |
 | 357 | An oracle whose failing PRECONDITION is an expired host premise, not a subject defect | B |
+| 358 | A headless test's own pump loop can manufacture a false-positive race, not just settle away a real one | C |
 
 ---
 
@@ -1945,3 +1946,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 ## 357. An oracle whose failing PRECONDITION is an expired host premise, not a subject defect
 **Routed**: GEP-85 — the lesson lives in the `general-engineering-principles` skill; essay in git history. The self-undoing provisioning write it also produced is GEP-55.
 **Scribobulate**: the decode no-fallback oracle rides a GIF, never an APNG — whether gdk-pixbuf claims an APNG is a per-host answer. `probe_vector_dimensions` needs an SVG loader that the Linux CI job and both Linux packages now name.
+
+## 358. A headless pump loop's OWN discipline can manufacture a false-positive race, not just settle away a real one
+**Scribobulate**: `src/window/reload.rs`'s `hscroll_issue_u` module doc carries the write-up (a bare `iteration(false)` spin reported `page_size` stuck at `0.0` forever where a real `testpump::until_or_for` wait converges quickly; a doubled preview mount mimicked the symptom under study — both harness artifacts, not app defects).
+**See**: gtk4-rs skill → threading-async-and-memory (`GTK4Rs/AP-78`, `GTK4Rs/AP-79` — kin, opposite direction).

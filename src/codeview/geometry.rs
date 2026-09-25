@@ -302,6 +302,20 @@ impl CodePreviewView {
             let Some(mark) = bmark.scroll_mark(&view.buffer()) else {
                 return;
             };
+            // Issue #3 / SDD issue U instrumentation (Step 1, second bullet):
+            // before/after snapshot of the hadjustment around the real scroll_to_mark
+            // call — the plausible route for a horizontal write to reach an adjustment
+            // whose upper has not yet settled from a fresh mount's first allocation.
+            let sw_for_trace = view
+                .parent()
+                .and_then(|p| p.downcast::<gtk::ScrolledWindow>().ok());
+            if let Some(sw) = &sw_for_trace {
+                crate::preview::scrolldebug::log_hadj_snapshot(
+                    "scroll_to_buffer_offset pre scroll_to_mark",
+                    0,
+                    sw,
+                );
+            }
             // A FAR scroll_to_mark in a long buffer must not race GtkTextView's
             // lazy line-height validator — the total height keeps changing across
             // idle passes, re-queuing a resize each frame, so paint bails
@@ -316,6 +330,13 @@ impl CodePreviewView {
             // myth-bust #1). yalign 0.0 puts the heading at the top of the viewport.
             #[allow(clippy::disallowed_methods)] // deliberate raw call — see clippy.toml
             view.scroll_to_mark(mark, 0.0, true, 0.0, 0.0);
+            if let Some(sw) = &sw_for_trace {
+                crate::preview::scrolldebug::log_hadj_snapshot(
+                    "scroll_to_buffer_offset post scroll_to_mark",
+                    0,
+                    sw,
+                );
+            }
         });
     }
 
@@ -641,3 +662,4 @@ mod chip_geometry_tests {
         assert_eq!(wide, 14.0, "ceiling");
     }
 }
+

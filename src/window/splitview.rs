@@ -431,6 +431,20 @@ impl SplitView {
             // live re-render (`set_buffer` while already visible) is the one that can
             // blank the overlay. Arm the one-shot heal for that render.
             self.imp().preview_first_render_pending.set(true);
+            // Issue #3 / SDD issue U instrumentation (Step 1): every mount of a fresh
+            // preview widget gets its own mount id and its own hadjustment/vadjustment
+            // notify::upper/notify::value trace, so a captured shift can be tied to
+            // THIS specific preview instance's first allocation rather than treated as
+            // one continuous timeline across a session's many rebuilds.
+            if let Some(sw) = p
+                .downcast_ref::<gtk::Overlay>()
+                .and_then(|o| o.child())
+                .and_then(|c| c.downcast::<gtk::ScrolledWindow>().ok())
+            {
+                let mount_id = crate::preview::scrolldebug::next_mount_id();
+                crate::preview::scrolldebug::log_both_snapshot("set_preview mount", mount_id, &sw);
+                crate::preview::scrolldebug::wire_adjustment_trace(&sw, mount_id);
+            }
         }
     }
 

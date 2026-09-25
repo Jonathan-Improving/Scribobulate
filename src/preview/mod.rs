@@ -35,6 +35,7 @@ mod markertests;
 pub(crate) mod qdata;
 mod render;
 mod scroll;
+pub(crate) mod scrolldebug;
 pub(crate) mod sourcemap;
 pub(crate) mod splice;
 

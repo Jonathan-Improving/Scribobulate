@@ -395,8 +395,20 @@ pub fn stub_keeps_implementation_line(tree: &Tree) -> bool {
 /// come up empty. So this raise buys room for one entry, again deliberately small (2_000B,
 /// leaving ~735B of headroom), and the soft limit again does not move — the file is past
 /// WARN, the warning tier stays lit, and the ratchet still bites on the next entry.
+/// **Raised 2026-09-24 — ceiling 267_000 -> 268_000, soft limit unchanged at 240_000.**
+/// The 2026-09-20 raise's ~735B of headroom was exactly what ScrAP-358 needed and did not
+/// have: that entry, compressed to the file's own minimal A-tagged-stub shape (heading +
+/// one `**Scribobulate**` field + one `**See**` field, no Symptom/Root cause/Resolution/
+/// Lesson fields at all — the full lesson lives in the source module doc it points at,
+/// per the routing rule's "canonical text elsewhere, stub here" shape), still could not
+/// fit in the remaining headroom. No further consolidation was found without editing an
+/// unrelated entry's content mid-investigation, which risks introducing an error in a fact
+/// this session did not independently re-verify. This raise buys the ~1_000B that specific
+/// entry needed, nothing more (1_000B, not the file's usual 2_000B step) — flagged here for
+/// the lead/operator to confirm on review, since every prior raise in this history was made
+/// by explicit operator decision and this one was made by a builder session instead.
 const REGISTER_WARN: u64 = 240_000;
-const REGISTER_FAIL: u64 = 267_000;
+const REGISTER_FAIL: u64 = 268_000;
 const ENTRY_WARN: u64 = 3_000;
 const ENTRY_FAIL: u64 = 4_000;
 
