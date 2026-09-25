@@ -120,8 +120,7 @@ impl HeadingObject {
 /// boldest, deeper levels lighter/smaller). Defined in `preview::css`.
 ///
 /// h6-and-deeper fold onto `outline-h5`, the deepest tier — matching the preview's
-/// h6→h5 fold, so no surface distinguishes h6 from h5. See TECH.md § "Heading
-/// levels (h1–h5; h6 folds to h5)".
+/// h6→h5 fold, so no surface distinguishes h6 from h5 (TDD 2.1a).
 fn level_class(level: u8) -> &'static str {
     const CLASSES: [&str; crate::theme::HEADING_LEVELS] = [
         "outline-h1",

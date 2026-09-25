@@ -29,6 +29,26 @@
 //! allocation on the recording path beyond the formatted line itself, and
 //! `debug`/`trace` stay off unless `RUST_LOG` asks (TDD 21.11).
 //!
+//! # What it leaves behind
+//!
+//! Four artefacts, all beside `session.toml` in the state directory, which
+//! `session::state_directory` resolves once for both:
+//!
+//! | Artefact | What it is |
+//! |---|---|
+//! | `scribobulate.log` | Every `info`-or-worse record, appended unbuffered, size-capped with one retained generation. |
+//! | The identity stamp | Version, commit, profile, executable path/size/mtime, GTK **runtime** version, renderer, pid — the first records of every run and the header of every crash report. |
+//! | The breadcrumb ring | The last 64 records, in memory, in fixed slots written with atomics only. |
+//! | `crash-<stamp>-<pid>.log` | Written by the panic hook or the fatal-signal handler: identity and fault, then breadcrumbs, then backtrace and the process's executable mappings — the last making a frame resolve to module + offset with no core dump. |
+//!
+//! Four properties constrain everything on that path, none visible from a call
+//! site: the recording threshold is `max(RUST_LOG, Info)` — breadcrumbs must
+//! already exist when an unanticipated crash arrives (POLICY § Logging states the
+//! call-site rules); the crash path may not allocate or lock ([`signal`] documents
+//! every choice this forces); the handler re-raises, so a crash terminates exactly
+//! as it would unhandled (GEP-35); and every artefact is created owner-only through
+//! one shared `OpenOptions` ([`private_options`] states why one, not per-writer).
+//!
 //! # Platform
 //!
 //! The fatal-signal half is `unix`-gated because POSIX signals do not exist

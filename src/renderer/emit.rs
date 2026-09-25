@@ -130,8 +130,7 @@ impl Renderer {
         if let Some(level) = self.heading {
             // Indexed by `theme::heading_slot`, the one definition of the h6→h5
             // fold, rather than re-deriving it here — this arm was one of five
-            // hand-rolled copies. See TECH.md § "Heading levels (h1–h5; h6 folds
-            // to h5)".
+            // hand-rolled copies (TDD 2.1a).
             apply(HEADING_TAGS[crate::theme::heading_slot(level as u8)]);
         }
         self.inter.trailing_newlines = 0;

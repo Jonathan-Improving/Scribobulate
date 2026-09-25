@@ -241,7 +241,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **Root cause**: - (a) The renderer's pulldown-cmark event loop drops `Event::Html`/`Event::InlineHtml` via a catch-all `_ => {}` (sanitize-by-omission — correct for untrusted HTML). pulldown-cmark 0.13 emits a **block** HTML construct **line-by-line** — one `Event::Html` per source line — **wrapped** in `Event::Start(Tag::HtmlBlock)` … `Event::End(TagEnd::HtmlBlock)`.
 **Lesson**: when a renderer mirrors an HTML element's semantics, honour the element's **grouping/scoping**, not just the presence of the child tags — and remember the *same* logical construct reaches you as **either a block or inline events** depending on formatting the author didn't think about, so grouping st…
 **Scribobulate**: a pure, unit-tested scanner turns a fragment into an ordered tag stream (`PictureOpen` / `PictureClose` / `Candidate(src)`); the renderer replays that stream against a `<picture>` grouping state carried **on the `Renderer`, across events** (`feed_html`/`picture_open`).
-**See**: TDD 2.23; TECH.md § Rendering (the rich-images work — `<picture>`/`<img>` + WebP fallback — was retired into this entry + GTK4Rs/AP-66).
+**See**: TDD 2.23 (the rich-images work — `<picture>`/`<img>` + WebP fallback — was retired into this entry + GTK4Rs/AP-66).
 
 ## 148. Splicing at an offset mapped OUT of a delimiter-stripped coordinate space
 **Symptom**: making a preview annotation from a selection that (a) spans more than one block AND (b) ends part-way through an existing `{==highlight==}{>>comment<<}` did **nothing the user could see** — no new comment chip appeared — and the reviewer's typed comment vanished.
