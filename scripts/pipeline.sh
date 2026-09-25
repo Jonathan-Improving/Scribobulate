@@ -5,7 +5,7 @@
 # It DERIVES every step from scripts/pipeline.steps rather than restating them. That is
 # the whole design: a runner that restated the list would let `--list-steps` prove only
 # that two restatements match, which two people copying the same wrong list also achieve
-# (ScrAP-207, one level down). The contract's header carries the full rationale.
+# (GEP-3, one level down). The contract's header carries the full rationale.
 #
 # The load-bearing structural property, and the reason this file has no second step list:
 # `derived_step_ids` is the ONLY producer of the ordered step list, and BOTH `--list-steps`

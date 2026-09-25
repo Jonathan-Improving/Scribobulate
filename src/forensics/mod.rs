@@ -16,7 +16,7 @@
 //! | Nothing at `warn` described user activity, so a log could not reconstruct the sequence | [`ring`] + the `info!` lifecycle records |
 //! | No build identity in the log | [`identity`] |
 //!
-//! Symbols are the one hole deliberately left open: ScrAP-141 records that Ubuntu
+//! Symbols are the one hole deliberately left open: GEP-15 records that Ubuntu
 //! jammy ships none for the installed GTK 4.6.9 in either `-dbgsym` or debuginfod,
 //! and 4 of the 5 recorded faults are *inside* GTK. A backtrace is therefore the
 //! least valuable half of a report here, which is why it is written last and why
@@ -159,7 +159,7 @@ pub(crate) fn make_path_private(path: &std::path::Path) {
 /// property of this function, it is a property of its one caller.
 ///
 /// Deduplicated here rather than into either module because `rawbuf` is `unix`-gated
-/// and `ring` is not, so neither can depend on the other (ScrAP-219: put the shared
+/// and `ring` is not, so neither can depend on the other (GEP-25: put the shared
 /// thing where every consumer can reach it, or it is not shared).
 pub(crate) fn floor_char_boundary(s: &str, limit: usize) -> usize {
     if limit >= s.len() {
@@ -250,7 +250,7 @@ pub(crate) fn announce_previous_crash() {
 /// Delegates to [`crate::session::state_directory`] rather than resolving
 /// `XDG_STATE_HOME` again: two lookups would be two chances to disagree, and the
 /// session module already owns the platform fallbacks and the one-shot warning
-/// (ScrAP-167).
+/// (GEP-42).
 fn state_directory() -> Option<PathBuf> {
     crate::session::state_directory()
 }

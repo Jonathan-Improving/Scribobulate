@@ -544,7 +544,7 @@ mod gtk_integration_tests {
     /// The middle stop is the one worth having, and it found a second defect. The
     /// arrival stamps the just-created target tab's entry with the position it was
     /// at *before* the fragment scrolled it, which for a brand-new tab is **line
-    /// 0** — so this crosses ScrAP-262's path in the cross-document direction,
+    /// 0** — so this crosses GEP-53's path in the cross-document direction,
     /// where the reader never chose the departure at all; it is simply where a
     /// fresh document starts. But that position is read in the same synchronous
     /// turn the tab is built in, before GTK has allocated the view, and

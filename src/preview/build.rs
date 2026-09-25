@@ -30,7 +30,7 @@ use std::collections::HashMap;
 /// FOR. A splice's PASS A renders the whole document into a scratch buffer that is then
 /// dropped, so its decor transfers to the live pane and its widgets emphatically do
 /// not — they are children of nothing. That distinction used to live only in prose and
-/// in six `_`-named fields at the splice's destructure, which is the ScrAP-131 shape:
+/// in six `_`-named fields at the splice's destructure, which is the GEP-40 shape:
 /// adding a field produced a compile error whose obvious fix was another `_`.
 pub(super) struct ViewInstall {
     pub(super) decor: InstallDecor,
@@ -4442,7 +4442,7 @@ mod gtk_integration_tests {
         );
 
         // The control, without which both assertions above are satisfied by a build
-        // that never applies the ink or installs a band span at all (ScrAP-209).
+        // that never applies the ink or installs a band span at all (GEP-1).
         let closed = build_render_products(
             "before\n\n<details>\n<summary>S</summary>\n\nbody\n\n</details>\n\n## After\n",
             None,
@@ -4535,7 +4535,7 @@ mod gtk_integration_tests {
         );
 
         // The control, without which a build that marked EVERY extent unspliceable
-        // would satisfy the assertion above and quietly retire the splice (ScrAP-209).
+        // would satisfy the assertion above and quietly retire the splice (GEP-1).
         let spaced = build_render_products(
             "<details>\n<summary>S</summary>\n\nseparated\n\n</details>\n\n## After\n",
             None,
@@ -4808,7 +4808,7 @@ mod gtk_integration_tests {
 
         // The control: with `open`, the same body IS a line of its own — without it, a
         // build that rendered nothing at all would satisfy the assertions above
-        // (ScrAP-209).
+        // (GEP-1).
         let opened = build_render_products(
             "<details open>\n<summary>S</summary>\nnot separated\n</details>\n",
             None,

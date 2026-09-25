@@ -35,7 +35,7 @@ pub(super) fn session_path() -> Option<PathBuf> {
 ///
 /// Only the FALLBACK differs per platform, because `HOME` is a POSIX convention that
 /// Windows does not set — assuming it there left this returning `None` forever, so
-/// nothing persisted at all (ScrAP-167).
+/// nothing persisted at all (GEP-42).
 pub(crate) fn state_directory() -> Option<PathBuf> {
     let Some(base) = std::env::var_os("XDG_STATE_HOME")
         .map(PathBuf::from)
@@ -43,7 +43,7 @@ pub(crate) fn state_directory() -> Option<PathBuf> {
     else {
         // Warn once, not per save/load. This hid for a whole port precisely
         // because the failure was silent — "nothing restored" is indistinguishable
-        // from "nothing was ever saved" (ScrAP-167).
+        // from "nothing was ever saved" (GEP-42).
         //
         // Gated on the warning being DELIVERABLE, not just on having warned (QA round
         // 5, L-4). The first caller is `forensics::install`, which runs at
@@ -52,7 +52,7 @@ pub(crate) fn state_directory() -> Option<PathBuf> {
         // dropped the message into a void *and consumed the latch*, and every later
         // caller — the ones that run with a working logger — stayed silent forever.
         // A one-shot warning that fires exactly once, before anything can hear it, is
-        // the ScrAP-167 silence rebuilt inside its own fix.
+        // the GEP-42 silence rebuilt inside its own fix.
         if log::log_enabled!(log::Level::Warn) {
             static WARNED: std::sync::Once = std::sync::Once::new();
             WARNED.call_once(|| {
@@ -375,7 +375,7 @@ mod tests {
     }
 
     /// The state directory must resolve on EVERY supported platform from the real
-    /// environment — no `XDG_STATE_HOME` override in sight (ScrAP-167).
+    /// environment — no `XDG_STATE_HOME` override in sight (GEP-42).
     ///
     /// This is the shape of test that would actually have caught it. A
     /// `#[cfg(windows)]` test asserting on a path would not have: the failure was
@@ -397,7 +397,7 @@ mod tests {
             resolved.is_some(),
             "with XDG_STATE_HOME unset the platform fallback must still yield a \
              state path; returning None here means session save/load silently \
-             no-ops and nothing persists (ScrAP-167)"
+             no-ops and nothing persists (GEP-42)"
         );
     }
 }

@@ -280,7 +280,7 @@ impl Icon {
     /// The next icon after `self`, or `None` at the end of the chain.
     ///
     /// **This exists so the audit ranges over the enum instead of over a list somebody
-    /// maintains** (QA round 5, M-5; ScrAP-216). It replaces the `ALL` and
+    /// maintains** (QA round 5, M-5; GEP-24). It replaces the `ALL` and
     /// `GLYPH_FALLBACK` arrays, which were two hand-written partitions of the variant
     /// set with nothing tying them to it: adding a 50th variant and forgetting to list
     /// it left `icon_resolution` reporting *"audited 49 names"* and exiting 0 — an audit

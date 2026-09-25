@@ -53,7 +53,7 @@
  *   --no-select    ⚠ THE CONTROL. Same loop, same cycle count, NEVER selects. A refcount
  *                  that also climbs here would mean the loop itself is retaining, and the
  *                  headline number would be measuring the probe. Without this arm, "it grew"
- *                  is not attributable to selecting (ScrAP-322).
+ *                  is not attributable to selecting (GEP-12).
  *   --takeover     remove GTK's selection-clipboard registration first, i.e. what
  *                  `wire_primary_selection` does. If the leak is application-avoidable, this
  *                  arm holds the refcount flat. If GTK4Rs/AP-318 is right, it changes nothing.

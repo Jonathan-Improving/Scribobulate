@@ -549,7 +549,7 @@ fn a_quote_panel_fills_the_quoted_column_on_the_page() {
 /// The fixture is quoted to depth 2 with **no depth-1 line of its own**, and that is the
 /// whole trick. A document with outer-level text as well would place the panel's left
 /// edge at the outer indent whatever the nested lines did, so the assertion would pass
-/// against a per-level panel and prove nothing (ScrAP-132: a guard whose input cannot
+/// against a per-level panel and prove nothing (GEP-1: a guard whose input cannot
 /// exhibit the defect). With only depth-2 lines present, a panel drawn per level starts
 /// one step further right, and the two answers are a whole `quote_step` apart.
 ///

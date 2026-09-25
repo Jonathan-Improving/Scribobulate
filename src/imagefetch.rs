@@ -134,7 +134,7 @@ fn agent() -> &'static ureq::Agent {
 
 /// Whether this module will fetch `uri` — a scheme test over the *shared*
 /// `links::scheme_of`, so a path that merely contains a colon is not mistaken
-/// for a URL here either (ScrAP-151).
+/// for a URL here either (GEP-46).
 pub(crate) fn is_fetchable(uri: &str) -> bool {
     crate::links::scheme_of(uri)
         .is_some_and(|scheme| FETCHABLE_SCHEMES.contains(&scheme.to_ascii_lowercase().as_str()))
@@ -327,7 +327,7 @@ mod imagefetch_tests {
         assert!(!is_fetchable("file:///etc/passwd"));
         assert!(!is_fetchable("smb://host/share/i.png"));
         assert!(!is_fetchable("ftp://host/i.png"));
-        // A local path that merely contains a colon is not a URL (ScrAP-151).
+        // A local path that merely contains a colon is not a URL (GEP-46).
         assert!(!is_fetchable("assets/notes:v2.png"));
         assert!(!is_fetchable("/home/user/i.png"));
     }

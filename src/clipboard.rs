@@ -296,7 +296,7 @@ fn wire_middle_click_paste(view: &sourceview::View) {
             }
 
             // Resolve the destination ONCE, here, and carry it across the await as a mark —
-            // an iterator would not survive the buffer changing underneath it (ScrAP-244).
+            // an iterator would not survive the buffer changing underneath it (GEP-43).
             let (bx, by) =
                 view.window_to_buffer_coords(gtk::TextWindowType::Widget, x as i32, y as i32);
             let Some(iter) = view.iter_at_location(bx, by) else {

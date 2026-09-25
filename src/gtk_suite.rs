@@ -13,7 +13,7 @@
 //! with no visibility changes and no `#[path]` anywhere: `mod copymap;` resolves to
 //! `src/copymap.rs` and its children to `src/copymap/`, exactly as `lib.rs` resolves
 //! them — placing a second crate root anywhere *other* than beside `lib.rs` reopens
-//! `#[path]`'s child-resolution trap (ScrAP-197).
+//! `#[path]`'s child-resolution trap (GEP-34).
 //!
 //! # Why the crate-level `allow`
 //!

@@ -24,7 +24,7 @@
 //!   lock; it is forced at install time by `prewarm_backtrace` so the handler
 //!   never triggers it. Do not read the `backtrace_symbols_fd` argument as
 //!   clearing the whole call — on other platforms the resolution half carries
-//!   its own hazard that pre-warming does not address (ScrAP-214).
+//!   its own hazard that pre-warming does not address (GEP-37).
 //!
 //! # Two design choices that pay off exactly when things are worst
 //!
@@ -164,7 +164,7 @@ pub(crate) fn install(report_path: &std::path::Path, header: &str, ring: &'stati
 /// and it is about a **different function**: it addresses the symbol-*printing*
 /// half and says nothing about `backtrace()` itself. Reading it as settling the
 /// safety of the whole call is how this survived review. (The doc has been
-/// amended accordingly, and `ScrAP-214` records the same trap for the macOS arm,
+/// amended accordingly, and `GEP-37` records the same trap for the macOS arm,
 /// where the hazard is in symbol *resolution* and pre-warming does NOT fix it.)
 ///
 /// Pre-warming is preferred over dropping the backtrace because it keeps the
@@ -298,7 +298,7 @@ extern "C" fn on_fatal(signal: c_int, info: *mut libc::siginfo_t, context: *mut 
 /// distinguishing a crash from a clean exit sees a clean exit. The plan's whole
 /// evidence trail is built on that kernel line, so a report that cost us the line
 /// would be a bad trade. Caught only by driving a real signal through a forked child
-/// (see this module's tests); every inspection of the code read fine. ScrAP-203.
+/// (see this module's tests); every inspection of the code read fine. GEP-35.
 fn die(signal: c_int) -> ! {
     // SAFETY: every call here is async-signal-safe; after `SIG_DFL` and the unblock,
     // the raise is fatal.
@@ -322,7 +322,7 @@ fn die(signal: c_int) -> ! {
 /// sizes a stack buffer from `ISO8601_LEN`". It did not. The comment described a
 /// coupling that did not exist, and nothing could contradict it — the claim names a
 /// real module in English rather than by path, so neither a citation gate nor a grep
-/// for `signal.rs` can reach it (QA round 4; a strictly worse variant of ScrAP-216,
+/// for `signal.rs` can reach it (QA round 4; a strictly worse variant of GEP-24,
 /// which at least mis-names something greppable).
 ///
 /// **The headroom is deliberate and the reason is measured.** Sizing this to exactly
@@ -556,7 +556,7 @@ fn write_breadcrumbs(fd: c_int) {
 }
 
 /// Frames, last because they are the least useful half here: the shipped binary is
-/// stripped and the distribution's GTK carries no symbols (ScrAP-141), so these
+/// stripped and the distribution's GTK carries no symbols (GEP-15), so these
 /// resolve as `module(+offset)` — which is precisely what the module map below is
 /// for.
 #[cfg(all(target_os = "linux", target_env = "gnu"))]
@@ -675,7 +675,7 @@ mod tests {
     ///
     /// That is the second time prose has poisoned this check, and the first fix was
     /// rebuilt from the instance that broke rather than from the population that could
-    /// (ScrAP-220): the boundary was chosen so that *the prose known at the time* fell on
+    /// (GEP-5): the boundary was chosen so that *the prose known at the time* fell on
     /// the right side of it. New prose moved it again. So the rule here ranges over the
     /// population instead:
     ///
@@ -744,7 +744,7 @@ mod tests {
     /// The boundary finder finds the boundary — and the region it returns is the one
     /// the safety scan needs, not a prefix of it.
     ///
-    /// A REACH control, not a completeness gate (that distinction is ScrAP-216's): it
+    /// A REACH control, not a completeness gate (that distinction is GEP-24's): it
     /// does not claim to enumerate what the handler calls, only that the scanned region
     /// extends past the prose that truncated it and over the functions that write the
     /// report. Those names are stable and load-bearing; if one is renamed this fails and
@@ -838,7 +838,7 @@ mod tests {
     /// actually says. Deliberately an ALLOWLIST of the exact reference set rather
     /// than a denylist of forbidden modules: a denylist protects only the names
     /// someone thought of, while this fails on anything new and makes adding it a
-    /// decision with a justification attached (ScrAP-220 — range over the population,
+    /// decision with a justification attached (GEP-5 — range over the population,
     /// not over the instances you remembered).
     ///
     /// Widening it is legitimate. Widening it without arguing async-signal-safety for
@@ -958,7 +958,7 @@ mod tests {
     ///   and became a process-wide SIGSEGV — measured both ways with the same probe,
     ///   which is what turned the second bullet from a hypothesis into a cause.
     ///
-    /// ScrAP-265 holds the whole account, including the half that generalises past
+    /// GEP-54 holds the whole account, including the half that generalises past
     /// signals.
     ///
     /// **Restoring is test-only on purpose.** Exporting an `uninstall` from the module
@@ -1218,7 +1218,7 @@ mod tests {
     /// `SIGTRAP` left this green while the report said `signal: unknown (5)`
     /// (GTK4Rs/AP-160's shape, caught by mutation rather than by reading).
     ///
-    /// **Redundancy, recorded honestly** (ScrAP-254): the length check below *also*
+    /// **Redundancy, recorded honestly** (GEP-11): the length check below *also*
     /// fails if `SIGTRAP` is dropped from [`FATAL_SIGNALS`], which
     /// [`a_glib_fatal_message_dies_by_a_signal_this_handler_takes`] catches too. They
     /// are not the same claim — this one holds that the const was not quietly narrowed,
@@ -1380,7 +1380,7 @@ mod tests {
     /// A no-op unless [`GLIB_FATAL_PROBE_REPORT`] is set, which only that test does.
     /// No [`ArmedHandler`] here on purpose — this process is about to be killed by the
     /// very handler it installs, so there is nothing to restore and no later test to
-    /// protect (ScrAP-265's rule is about a *surviving* process).
+    /// protect (GEP-54's rule is about a *surviving* process).
     ///
     /// The fatal message goes through `glib::ffi::g_log` rather than a `g_*!` macro:
     /// POLICY's logging section bans those for application logging, and spelling the
@@ -1506,11 +1506,11 @@ mod tests {
     /// process, the wrong activity, and an application defect that did not exist, and
     /// the first thing anyone reading it concluded was that the app had crashed.
     ///
-    /// **Both halves are here on purpose** (ScrAP-217): "no report was written" and
+    /// **Both halves are here on purpose** (GEP-12): "no report was written" and
     /// "this harness cannot write reports at all" produce identical output, so the
     /// *armed* half is the positive control that gives the disarmed half a meaning.
     ///
-    /// **And both restorations are asserted separately** (ScrAP-254): putting the
+    /// **And both restorations are asserted separately** (GEP-11): putting the
     /// disposition back is on its own sufficient to make the report half pass, so the
     /// alternate stack — the half Rust's own stack-overflow handler needs back, and the
     /// half that decides whether a later overflow reads as "has overflowed its stack"
@@ -1524,7 +1524,7 @@ mod tests {
     fn the_fatal_handler_does_not_outlive_the_test_that_armed_it() {
         if !cfg!(all(target_os = "linux", target_env = "gnu")) {
             eprintln!(
-                "SKIPPED [ScrAP-265 fatal-handler test hygiene]: needs a forked child \
+                "SKIPPED [GEP-54 fatal-handler test hygiene]: needs a forked child \
                  raising a real SIGSEGV against a glibc handler. NOT verified by this \
                  run."
             );

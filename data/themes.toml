@@ -367,7 +367,7 @@ list_marker_color = "#fb6f92"   # hot-pink bullets/numerals/checkboxes — 6.0:1
 # tiers — the bullets leave the "furniture" hue family the quote bar and the task boxes
 # keep, and they are the only element on this page that does. They also reach an export
 # as a rasterised colour glyph rather than as text, which on macOS means the bullet
-# character is absent from the PDF's extractable text altogether (ScrAP-307). Both costs
+# character is absent from the PDF's extractable text altogether (GEP-63). Both costs
 # were weighed and taken: this theme is named for the sweet, and the sweet is the point.
 # The disclosure fold below declined the SAME glyph on the SAME two counts and still
 # does — a fold is a control whose two states must stay tellable apart at a glance,

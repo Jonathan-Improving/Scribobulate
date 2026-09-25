@@ -92,7 +92,7 @@ impl Default for ToolbarLayout {
 /// saved session. Idempotent; `build_window` calls it before seeding its own
 /// toolbar from the result, so whichever window is built first — restored or fresh
 /// — seeds the value and every later window reads the LIVE one. The session is read
-/// only while no live value exists yet, which is what keeps this clear of ScrAP-136
+/// only while no live value exists yet, which is what keeps this clear of GEP-41
 /// (seeding live UI state from the persisted snapshot).
 pub(crate) fn ensure_registered(app: &Application) {
     if app.lookup_action(SHOW).is_some() {

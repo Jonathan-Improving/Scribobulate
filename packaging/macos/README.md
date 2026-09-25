@@ -373,4 +373,4 @@ absorbed by the single-instance handler; it is not `open`'s own `-n`.
 `LSDisplayName=Scribobulate` (rather than a null identifier and a lowercase
 name) is the machine-checkable signal that the bundle took. The icon itself
 needs eyes on the Dock — and an unlocked screen, since a locked one silently
-sends synthetic clicks to the login window (ScrAP-172).
+sends synthetic clicks to the login window (GEP-12).

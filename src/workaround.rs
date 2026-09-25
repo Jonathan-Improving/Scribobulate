@@ -456,7 +456,7 @@ mod xdg_redirect_tests {
     // The "config path must never be resolved through GLib" invariant is now
     // enforced crate-wide by `clippy.toml` (a `disallowed-methods` ban on
     // `glib::user_config_dir`), replacing the former hardcoded-4-file self-scanning
-    // test — which was itself the ScrAP-132 scope-gap species (a "crate-wide" guard
+    // test — which was itself the GEP-1 scope-gap species (a "crate-wide" guard
     // that only scanned a fixed file list). Use `config::user_config_dir`, which
     // snapshots `std::env` before the `XDG_CONFIG_HOME` redirect.
 }

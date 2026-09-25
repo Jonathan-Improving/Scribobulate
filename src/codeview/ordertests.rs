@@ -57,7 +57,7 @@
 //! Swap the two draws and the upper vanishes completely — there is nowhere left for it
 //! to show. The second assertion is not decoration: without it a fixture that silently
 //! stopped producing the lower decoration would pass forever, having nothing to cover
-//! anything (ScrAP-209's shape). Where the rectangles merely intersect — a bar runs a
+//! anything (GEP-1's shape). Where the rectangles merely intersect — a bar runs a
 //! whole quote while a band covers only its heading's rows — presence survives the swap
 //! on the rows outside the intersection, so those two use the row-scoped form instead.
 //!

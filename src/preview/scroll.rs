@@ -250,7 +250,7 @@ fn restore_textview_scroll_to_line(sw: &ScrolledWindow, view: &TextView, line: i
 /// of the feature, a table of contents at the head of the file: the reader is at
 /// line 0 when they follow a TOC link, so Back had nowhere it was willing to go and
 /// Forward then re-scrolled to the section they were already on. Both directions
-/// looked broken while the history underneath was correct (ScrAP-262).
+/// looked broken while the history underneath was correct (GEP-53).
 ///
 /// A negative line is still clamped rather than honoured — that is a *bad value*,
 /// not a position — but 0 is scrolled to. Note the deliberately different contract

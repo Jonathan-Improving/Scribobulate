@@ -31,7 +31,7 @@
 //! across all three platforms.
 //!
 //! One mechanism, deliberately — **not** belt-and-braces. Adding the flag back "for
-//! safety" would produce the ScrAP-254 shape, where a mutation test grades each of two
+//! safety" would produce the GEP-11 shape, where a mutation test grades each of two
 //! mechanisms as dead code and the guard proves nothing. `expect_self_delete` keeps
 //! its job on the save path and has none here.
 //!
@@ -114,7 +114,7 @@ fn show_rename_dialog(window: &ApplicationWindow, tab: &Rc<TabState>) {
     // The subject is resolved HERE, when the reader acts, and carried into the
     // response closure — never re-resolved with `state(window)` afterwards. The
     // dialog is modal but the main loop runs under it, so "the active tab" is a
-    // different question by the time it is answered (TDD 24.12, ScrAP-244).
+    // different question by the time it is answered (TDD 24.12, GEP-43).
     let tab_for_ok = Rc::clone(tab);
     let validator_current = current.clone();
     input_form(
@@ -377,7 +377,7 @@ mod gtk_integration_tests {
     /// "No deleted-backing state appeared" is equally true of a correct rename and of
     /// a monitor that has simply stopped working, so the second half deletes the
     /// renamed file for real and asserts the state *does* appear. Without it this test
-    /// passes against a completely broken monitor (ScrAP-209 / GTK4Rs/AP-78 shape: the
+    /// passes against a completely broken monitor (GEP-1 / GTK4Rs/AP-78 shape: the
     /// guard's setup would otherwise prevent the thing it guards from being
     /// observable).
     ///
@@ -386,7 +386,7 @@ mod gtk_integration_tests {
     /// `DELETED` + `CREATED` + `CHANGES_DONE_HINT` on the old monitor). Removing
     /// `expect_self_delete` entirely must NOT — which is the positive proof that the
     /// cancel, and not the self-delete guard, is carrying this invariant. They are not
-    /// two sufficient mechanisms (ScrAP-254); the flag is inert here by construction,
+    /// two sufficient mechanisms (GEP-11); the flag is inert here by construction,
     /// because it only ever consumes `DELETED`.
     #[gtktest::test]
     fn a_rename_does_not_look_like_a_deletion() {
@@ -437,7 +437,7 @@ mod gtk_integration_tests {
     /// `attach_file_backing` cancels the previous monitor too, and on a rename this
     /// fast the completion callback beats GLib's inotify worker to the punch, so the
     /// events are suppressed by the second mechanism and the reader never sees a
-    /// difference. That is a genuine ScrAP-254 pair hiding behind a timing accident:
+    /// difference. That is a genuine GEP-11 pair hiding behind a timing accident:
     /// in production the researcher MEASURED the three events arriving BEFORE the
     /// completion (60 ms stand-in for the async round trip), so the pre-rename cancel
     /// is load-bearing there and merely invisible here.

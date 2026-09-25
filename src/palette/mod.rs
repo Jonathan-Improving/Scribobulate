@@ -308,7 +308,7 @@ impl Palette {
     /// one "foreground" during the theming refactor silently shifted the table
     /// header fill from `#EEEFEF` to `#EBEBEB` under System — invisible in isolation,
     /// but a real regression against the byte-identical bar (TDD 18.2), and an
-    /// instance of ScrAP-131 (a refactor that redefines what a value means
+    /// instance of GEP-40 (a refactor that redefines what a value means
     /// keeps compiling everywhere). A named theme states ONE foreground, so both
     /// resolve to it and the distinction costs a theme author nothing.
     pub(crate) fn from_base(

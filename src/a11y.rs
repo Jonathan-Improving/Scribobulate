@@ -14,7 +14,7 @@
 //! just has nothing to announce. And the omission re-appears with every control added
 //! later, because nothing about `set_tooltip_text` suggests a second call is owed.
 //!
-//! So this is a choke point, not a convention (ScrAP-219's enforcement ladder — a helper
+//! So this is a choke point, not a convention (GEP-25's enforcement ladder — a helper
 //! put where it is easier to use than to avoid, backed by the rung above it):
 //! **`WidgetExt::set_tooltip_text` is banned in `clippy.toml`**, and every control is
 //! named through one of the four entry points below, each of which sets both halves in

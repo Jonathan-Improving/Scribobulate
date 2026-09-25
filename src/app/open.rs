@@ -422,7 +422,7 @@ mod tests {
     ///
     /// Runtime skip, not `#[cfg(unix)]`: a cfg'd-out test is not skipped on Windows,
     /// it is deleted, and no harness distinguishes "never compiled" from "passed"
-    /// (ScrAP-212). This tree builds for Windows, so the exclusion left the guard
+    /// (GEP-4). This tree builds for Windows, so the exclusion left the guard
     /// silently absent on a platform where the failure it prevents is just as real.
     ///
     /// The link now points OUT of the folder the second spelling lives in, because

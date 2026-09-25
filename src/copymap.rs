@@ -1047,7 +1047,7 @@ fn leaf(md: &str, buf: BufSpan, src: Range<usize>) -> Node {
 /// Note for whoever mutation-tests this: restoring the recursion **does not fail
 /// any test**, and that is the honest finding, not a gap. No input reachable
 /// today drives it deep, so a "deep escapes do not overflow" test would pass on
-/// both versions — `ScrAP-209`'s shape, an assertion that cannot fail. The change is
+/// both versions — `GEP-1`'s shape, an assertion that cannot fail. The change is
 /// justified by removing an unowned assumption, not by a defect it fixes.
 fn text_nodes(
     md: &str,

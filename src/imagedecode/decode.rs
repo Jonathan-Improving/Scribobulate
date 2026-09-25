@@ -562,7 +562,7 @@ mod tests {
     /// first assertion PROVES the GTK route would have succeeded on these exact
     /// bytes; the second proves `decode` returns `None` regardless. Without the first,
     /// a day when GTK also refuses the fixture would leave this passing vacuously
-    /// (ScrAP-209's species).
+    /// (GEP-1's species).
     ///
     /// **The vehicle must be GIF and cannot be APNG**, because whether gdk-pixbuf will
     /// so much as CLAIM an APNG is a per-host answer. MEASURED on the same bytes:
@@ -611,7 +611,7 @@ mod tests {
     /// refused by gdk-pixbuf too ("Not all frames of the GIF image were loaded"), which
     /// would leave the oracle unsatisfiable rather than live. That control has been run
     /// — truncating this fixture six bytes early fails the ORACLE assertion below, which
-    /// is how we know the assertion is not vacuous here (ScrAP-357, ScrAP-209).
+    /// is how we know the assertion is not vacuous here (GEP-85, GEP-1).
     fn gtk_decodable_gif_richimg_refuses() -> Vec<u8> {
         #[rustfmt::skip]
         const BYTES: [u8; 45] = [

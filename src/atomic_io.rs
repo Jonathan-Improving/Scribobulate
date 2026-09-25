@@ -32,7 +32,7 @@
 //!   fixed with a process-id + nanosecond-timestamp suffix, created with
 //!   `create_new` so a pre-existing file at that exact name is never
 //!   silently reused (the same exclusivity discipline as `workaround.rs`'s
-//!   `create_unique_secure_dir`, ScrAP-42).
+//!   `create_unique_secure_dir`, GEP-47).
 //! - **N5**: `rename` is atomic but not otherwise guaranteed durable across
 //!   a crash without an `fsync` on the containing directory — fixed by
 //!   fsyncing the parent directory after the rename (best-effort: a failure
@@ -666,7 +666,7 @@ mod tests {
     /// link itself, so a write-temp-then-rename defeats a file symlink by design
     /// unless the path is canonicalized first.
     ///
-    /// Runtime skip rather than `#[cfg(unix)]` (ScrAP-212): Windows has symlinks too,
+    /// Runtime skip rather than `#[cfg(unix)]` (GEP-4): Windows has symlinks too,
     /// and this tree ships there. Under the exclusion the guard did not exist on
     /// Windows — not skipped, not counted — so nothing on that platform ever checked
     /// that a save through a link keeps the link.

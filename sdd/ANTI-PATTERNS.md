@@ -1,19 +1,19 @@
 # Anti-Patterns
 
-Scribobulate's register of costly dead ends. It is a **project index, not an essay collection**: each entry is a few lines — the trap, where *this* tree implements the fix, and a pointer to the reusable home of the full lesson. Lessons about gtk4-rs itself are not here at all: they live in the `gtk4-rs` skill and are cited `GTK4Rs/AP-N` at the site (the stubs that once pointed there were retired 2026-09-24; their numbers are frozen in `scrap-numbers.manifest` with the skill entry each became). The full essays live in this file's git history — `git log --diff-filter=M --format='%h %ad %s' -- sdd/ANTI-PATTERNS.md` finds the revisions, and the last long-form one predates the compression to this index (2026-08-28). Read the table of contents, then only the entries whose titles match the task (SDD principle 7).
+Scribobulate's register of costly dead ends. It is a **project index, not an essay collection**: each entry is a few lines — the trap, where *this* tree implements the fix, and a pointer to the reusable home of the full lesson. Lessons about gtk4-rs itself, and general engineering discipline, are not here at all: they live in the `gtk4-rs` and `general-engineering-principles` skills and are cited `GTK4Rs/AP-N` / `GEP-N` at the site (the stubs and tombstones that once pointed there were retired 2026-09-24; their numbers are frozen in `scrap-numbers.manifest` with the skill entry each became). The full essays live in this file's git history — `git log --diff-filter=M --format='%h %ad %s' -- sdd/ANTI-PATTERNS.md` finds the revisions, and the last long-form one predates the compression to this index (2026-08-28). Read the table of contents, then only the entries whose titles match the task (SDD principle 7).
 
 **Citation convention.** An entry here is `ScrAP-N` (bare `#N` only inside this file); a `gtk4-rs` skill entry is `GTK4Rs/AP-N`, one of its techniques `GTK4Rs/T-N`; a `general-engineering-principles` entry is `GEP-N`. A bare `AP-N` or `T-N` is illegal anywhere in the tree (`cargo xtask lint-references` check 8). Skills are named, never pathed — they may not be installed on every machine. When both registers hold a lesson, cite `ScrAP-N`; it is always resolvable.
 
 **Routing rule — applied when an entry is MINTED, never in a later migration.**
 1. About gtk4-rs itself (gtk4, glib, gio, gdk)? → weave it into the `gtk4-rs` skill and cite `GTK4Rs/AP-N` at the site. **Nothing here** — no stub, no number. The skill owns the routing; if an agent fails to reach it, improve the skill's routing, not this file.
-2. General engineering discipline that survives deleting every Scribobulate noun? → route it to `general-engineering-principles`, cited `GEP-N`; leave a one-line `**Routed**` tombstone here. No ScrAP number is needed for provenance.
+2. General engineering discipline that survives deleting every Scribobulate noun? → route it to `general-engineering-principles` and cite `GEP-N` at the site. **Nothing here** either — the `**Routed**` tombstones were retired 2026-09-24 the same way as the gtk4-rs stubs.
 3. Neither — Scribobulate internals, or a non-gtk4-rs dependency (Pango, GtkSourceView, pulldown-cmark, librsvg, syntect, serde/toml, the toolchain)? → it stays here, **in ≤ 6 lines**: Symptom · Root cause · Resolution · Lesson · Scribobulate · See. Extend an existing entry rather than minting a sibling for the same root cause. Route a Pango lesson on whose API *contract* it is about, and raise it before routing.
 
 **Numbers are frozen** (check 9): never renumbered, never reused; a retired entry keeps its `## N.` heading as a landing spot. Reserved gaps — do not fill: **176–179** (Windows port; holder gone, held pending operator resolution), **186** (`feat/spelling`, inbound), **276–289** (unmerged branches). **Next free number: 358**+ — check this table and announce the range you claim; never derive it from the highest heading below. (It read 354 while 354 and 355 both had bodies, so a writer who obeyed it minted a duplicate — and the same sentence forbids the one check a reader would otherwise make. Check 9 can only see a duplicate after it exists. **Check 21 now asserts the one relation the header must satisfy whatever the reserved gaps are — strictly above the highest heading present** — so this line is no longer guarded by prose alone; move it in the same change that mints.)
 
 **Growth** is gated in bytes (check 11). The ratchet only tightens; consolidate in the change that trips it.
 
-**Disposition** (`Disp`): `B` general-engineering-principles · `C` resident · `D` dead landing spot. (`A`, gtk4-rs, no longer exists as a row: those entries were retired to the skill.)
+**Disposition** (`Disp`): `C` resident · `D` dead landing spot. (`A` gtk4-rs and `B` general-engineering-principles no longer exist as rows: those entries were retired to their skills, numbers frozen in the manifest.)
 
 | # | Anti-pattern | Disp |
 |---|--------------|------|
@@ -24,10 +24,8 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 | 10 | Walking the widget tree to re-discover anchor-embedded GtkLabel widgets | C |
 | 14 | Restoring `GtkTextView` scroll via adjustment manipulation after `set_buffer` | D |
 | 27 | Searching find-next from the caret after `select_range` (re-finds the current match) | C |
-| 31 | Resolving an untrusted document's local image `src` against the CWD (or with a lexical-only containment check) | B |
 | 36 | Letting the editor `GtkSourceSearchContext` `notify::occurrences-count` overwrite the preview buffer's `forward_search` count in preview mode | C |
 | 35 | Reading `st.source` for a programmatic preview re-render in split mode | C |
-| 42 | Predictable, reused path under the shared temp dir for a config-redirect workaround (security) | B |
 | 45 | A `GtkNotebook` with `show-tabs` false cannot be a cross-window tab-drag drop target | D |
 | 51 | A `GtkSourceSearchContext` `occurrences-count` handler that strong-captures its own context is a permanent self-reference leak | C |
 | 58 | Reparenting a reused `GtkSourceView` across view-mode containers re-fires its gutter's never-unbound `vadjustment` binding → a use-after-free | C |
@@ -48,130 +46,37 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 | 122 | Translating a stripped-then-parsed document's ranges back to original coordinates instead of per-position translation silently swallows the stripped bytes (the range-merge gotcha) | C |
 | 123 | A coverage ratchet's floor recorded as stale prose drifts from the real (climbing) figure, silently loosening the gate | C |
 | 130 | A hand-authored SVG that renders fine in Inkscape can be invalid XML that librsvg (and GTK) rejects outright | C |
-| 131 | A refactor that REDEFINES what an existing field means keeps compiling at every call site, and silently changes behaviour | B |
-| 132 | A guard test whose INPUT SET is not the thing it polices — a wrong scope filter, or a hand-maintained mirror — passes forever | B |
-| 136 | Seeding live UI state from the persisted-session snapshot | B |
-| 140 | A security gate answering a DIFFERENT question than the one being asked | B |
-| 141 | A "this will misbehave" theory read from a construction site, never executed | B |
-| 143 | A PERMANENT register entry citing an EPHEMERAL artifact (an ISSUES entry, a PLAN file) | B |
-| 145 | Two registers numbering their entries with the SAME prefix — every cross-citation is wrong-but-plausible | B |
 | 147 | Raw-HTML `<picture>`/`<img>` silently dropped — block HTML is emitted per-line, wrapped in `Tag::HtmlBlock` | C |
 | 148 | Splicing at an offset mapped OUT of a delimiter-stripped coordinate space | C |
-| 151 | Detecting a URL scheme with "the text before the first colon" (`split_once(':')`) | B |
 | 158 | A content-less list item still emits a full item (and task marker) — an unconditional per-item gutter decoration draws a stray marker | C |
 | 160 | syntect's bundled default syntax set has no TypeScript/TSX/TOML — a fence in one of those languages silently falls back to plain text and renders as one flat colour | C |
 | 163 | Switching a `GtkLabel` to `set_markup` silently makes every interpolated string a Pango-markup injection/breakage surface — an un-escaped filename metacharacter renders the label EMPTY, with no crash | C |
-| 164 | Committing a test fixture whose filename is itself the invalid input breaks checkout on other platforms | B |
-| 165 | Clearing an env var the wrong way gives a false confirmation | B |
-| 166 | Never diagnose a hung test suite from a parallel run | B |
-| 167 | An `Option`-returning lookup whose `None` is also a legitimate answer will fail silently forever | B |
-| 172 | A synthesized-click UI-automation tool can be silently broken, making a real bug look unfixable across several attempts | B |
-| 175 | A defect whose CONSEQUENCE is platform-dependent while the defect itself is not — the platform that never triggers it never tests for it, and a guard written on the triggering platform's symptom is permanently green where the bug actually lives | B |
-| 181 | A suite that has never RUN on a platform is full of assertions that only look portable | B |
-| 183 | A mutation that fails on an earlier precondition proves nothing about the guard under test | B |
-| 184 | Four green checks, none of them the outcome — the plumbing was verified and the user-visible result was not | B |
 | 187 | A byte range captured at build time and applied at click time is a bet, not a coordinate | C |
-| 188 | "It broke when I removed X, so X was providing it" — a temporal correlation dressed as a mechanism | B |
 | 194 | A shared per-line helper that hands out a RAW line makes every block transform blind to the container prefix — one rule, four copies to get wrong | C |
 | 195 | A decision driven off one parser's event stream cannot see the constructs a second tokeniser owns | C |
 | 196 | A fallback keyed on a symptom, not a cause, silently swallows the next cause that shares the symptom | C |
-| 197 | A `#[path]`-included module's children resolve against the attribute's directory, not the module's own name | B |
-| 198 | `pub use` cannot widen `pub(crate)` visibility — there is no test-façade shortcut around it | B |
 | 200 | `GtkSourceIndenter` is unusable from gtk-rs — the subclass trampoline frees the caller's `GtkTextIter` | C |
-| 201 | A custom `harness = false` runner that ignores libtest's `--skip` turns a carve-out into a selection — silently, and green | B |
-| 203 | Restoring `SIG_DFL` and re-raising inside a fatal-signal handler exits *normally* with status 139 — the signal is blocked for the handler's own duration | B |
-| 204 | Resolving a kernel segfault `ip` against `nm` output — the kernel's VMA base is the executable *segment*, not the ELF load base | B |
-| 206 | A reference gate whose pattern demands a file extension the codebase's citations never write — clean, green, and blind to every dangler of that shape | B |
-| 207 | Two ports of one gate that share a pattern but not a file ENUMERATION — the parity claim is false, and the platform nobody runs is the lenient one | B |
-| 208 | A proc macro that moves the annotated item's attributes onto the generated BODY instead of the harness item — `#[ignore]` silently does nothing | B |
-| 209 | A guard test whose setup prevents the resource from ever existing cannot observe the leak it guards — it passes with the fix deleted | B |
-| 210 | Windows PowerShell converting a value on your behalf instead of failing — the call site reads correctly in every instance | B |
-| 211 | A verification whose result nothing consumes — it reported the mismatch, and the corrupted payload was applied one line later | B |
-| 212 | `#[cfg(unix)]` on a test and "skipped on Windows" are indistinguishable in the report, and only one of them is true | B |
-| 213 | An artifact that describes what you meant to do, shipped beside what you actually did, and never reconciled | B |
-| 214 | `backtrace_symbols`'s BSD twin is not the safe half of the pair — the async-signal-safety argument you inherited is about a different hazard | B |
-| 215 | Verifying a behaviour-preserving refactor with hand-written expectations tests your belief about the code, not the change you made | B |
-| 216 | A gate that checks a citation EXISTS cannot see one that points at the wrong real thing | B |
-| 217 | A negative result is worthless without a positive control — "it was prevented" and "I cannot see it" produce identical output | B |
-| 218 | Confidence ratchets across a relay — the hedge is dropped by whoever summarises, and nobody does anything wrong | B |
-| 219 | A remedy that lives inside one consumer reaches the consumers that already knew about it | B |
-| 220 | A regression guard built from the instance you fixed has coverage exactly equal to the fix | B |
-| 221 | A comment explaining why a test asserts less than its name promises is where a false premise hides | B |
-| 222 | Two gates, each correct, enforcing opposite things — and neither can see the other | B |
-| 223 | Write a finding as a testable proposition, not as a conclusion — a conclusion recruits agreement, a proposition recruits a measurement | B |
-| 224 | A squash makes single-seat authorship unprovable — on a deadline nobody is watching | B |
-| 225 | Four denial-of-service paths in four subsystems were one omission: nobody had said the project had an opinion about input size | B |
-| 226 | The check your self-test does not cover is the one that ships broken — and a single-file corpus cannot falsify a multi-file bug | B |
 | 228 | A property implemented on one branch, documented as a property of the whole function | C |
-| 229 | A seam named for a guarantee it delivers on one platform — and the permission model that lives in the directory, not the file | B |
-| 231 | Retiring an ambiguous citation form by LEGALISING it instead of banning it — and a completeness claim with no predicate | B |
 | 233 | Delegating a delimited format's unforgeable-terminator invariant to a third-party serialiser's escaping | C |
-| 234 | Asserting one of a feature's two representations, and reading the green suite as evidence about both | B |
-| 237 | A `cfg`-gated gate proves nothing about the branches it did not compile | B |
-| 239 | `git stash pop` restores the source, not the binary — a control run that silently drives the old build | B |
-| 240 | A detector that enumerates the VOCABULARY of a free-text citation is defeated by a synonym | B |
-| 241 | A process NAME is not an identity — pid reuse defeats every liveness probe, on every platform | B |
-| 242 | `clippy --all-targets` WITHOUT the feature flag reports dead-code errors in files you never touched | B |
-| 244 | Making a window-scoped operation async turns "which tab is active?" into two different questions | B |
-| 248 | A randomly-minted identity correlates only with the mechanism that persisted it | B |
-| 249 | A capability whose backend is a HELPER EXECUTABLE is a packaging obligation, and the dev tree cannot fail the test | B |
 | 250 | A widget swapped in for one feature's sake moves its text out of every text-walker's reach | C |
-| 254 | An invariant held by two sufficient mechanisms is mutation-proof one at a time — so the mutation test calls each of them dead code | B |
 | 255 | A construct whose glyphs are buffered at its `End` event is not opaque — it is char-precise in a coordinate space nobody wrote down | C |
-| 256 | A gate's threshold is copied by hand out of a multi-metric report — so maintaining the gate is how you break it | B |
 | 261 | A derived-state hook installed at the producer misses the rebuild shape the producer also has | C |
-| 262 | A restore seam's "nothing to do at the boundary" shortcut is a claim about its first caller, and the second caller loses a real destination | B |
-| 265 | A test that arms a process-global fatal-signal handler and never disarms it re-points the rest of the suite — and displaces the runtime's own stack-overflow guard, so a later overflow stops naming itself | B |
-| 272 | A plan obligation written as a property of an artefact, which reads as done once the artefact exists | B |
-| 273 | A runtime skip announcement shredded by libtest's own progress output — and one shred read `SKIPPED [rubric]: ok` | B |
-| 274 | A provenance tally that counts measurements instead of outcomes, and so reports the opposite of its evidence | B |
-| 276 | A parity artefact written to the console instead of the success stream — the documented diff produced an empty file, and the self-test rebuilt the list rather than calling the printer | B |
-| 278 | A filename or file-existence predicate standing in for a semantic question — three measured cases in one night, each confidently wrong | B |
-| 280 | Provisioning for a machine you cannot inspect — installing a tool the image already had, and discovering one path component while pinning its sibling | B |
-| 281 | A corpus that exercises the PATTERN cannot see a bug in the FLAG on the call site that consumes it | B |
 | 282 | An operation counter is a complexity oracle only for operations you control | C |
-| 283 | A false premise can file a measurable fact as unmeasurable, and the two protect each other | B |
-| 285 | *(merged into 245)* A drive tool's zero exit is a claim about the tool, never about delivery | B |
-| 286 | A reconciliation agreed in the room and never written into the artefact reopens on the next read | B |
-| 287 | A scope claim is only as wide as the thing it was measured over — a runtime survey answered an attribution question | B |
-| 288 | `$PSScriptRoot` is empty while `param()` defaults bind under `powershell -File`, and correct everywhere else | B |
-| 289 | An HTTP 200 is a claim about the transaction, not about the document — four fetched licence texts were anti-bot pages | B |
 | 294 | Letting a coverage ratchet be satisfied by widening the exclusion instead of testing the code | C |
-| 295 | A PID-qualified AppleScript process reference decays to name resolution once stored | B |
-| 296 | A derived screen coordinate is only as trustworthy as the derivation behind it | B |
 | 298 | A TIGHT list item's content arrives as bare inline events with no `Tag::Paragraph` wrapper | C |
-| 299 | A suite-ordering defect that is deterministic on one platform and invisible in the canonical platform's full suite | B |
-| 300 | A driven UI step that misses its target does not fail — it acts somewhere else, and a loop that does nothing produces a perfectly stable measurement | B |
-| 304 | cairo's Windows colour-glyph path wraps colour glyphs in a Type3 `d0` font, and one 2017 extractor mishandles it | B |
-| 305 | A `#[gtk::test]` body and a plain `#[test]` calling `gtk::init()` cannot share a binary | B |
 | 306 | A chooser's `set_current_folder` is best-effort and its failure is unobservable | C |
-| 307 | macOS embeds a colour emoji as a bare Image XObject, so its text is absent by construction | B |
-| 308 | A font's Unicode flag does not predict whether its text extracts | B |
 | 309 | A cancelled export destroys the destination, and the wreckage is a valid file | C |
-| 310 | An extraction failure is not evidence about appearance | B |
 | 311 | Which of two same-key bindings wins is a property of the BACKEND, not of the toolkit | C |
 | 312 | Repairing the editor buffer when the defect is in the source string — the preview never reads the buffer | C |
 | 314 | Instantiating ANY `sourceview::Buffer` subclass corrupts the heap — and the backtrace is innocent | C |
 | 315 | Laying a table out with tab characters — a tab ladder cannot express a column | C |
 | 316 | A repair handler on `insert-text` is also a handler on the UNDO machinery, and the divergence it causes is silent | C |
-| 317 | A counter that stops being able to SEE its subject reports the intervention as a success | B |
-| 319 | A portability gate whose verdict depends on which `grep` is first on PATH — and the seat that should catch the bug is the seat that hides it | B |
-| 320 | The unresolvable pointer — a reference whose target the reader cannot dereference, mistaken for a delivery | B |
-| 321 | The spurious kill — a mutation run that scores its own breakage as detection, and certifies coverage that does not exist | B |
-| 322 | A control is a property of a CLAIM, not of a probe — and one control makes every other claim feel covered | B |
 | 324 | A compiled-in asset resolved against a runtime directory is absent everywhere that directory isn't | C |
-| 325 | A whole-struct `{:?}` in a completeness digest degenerates the guard into a restatement of what the producer already guarantees | B |
-| 326 | A `const`-evaluated constructor scores ZERO in llvm-cov, so code exercised at every build reads as dead | B |
 | 329 | A gate read through a pipe reports the pipe's last stage, not the gate | t |
-| 330 | A seam that exists is not a seam that is called | B |
-| 331 | A vocabulary rename that reaches a selector | B |
 | 334 | A repaint failure that also happens in an unrelated application is upstream, and the platform seam it invites is the wrong response | C |
-| 337 | A precondition implicit in a whole script is reported by whichever line violates it first, at that line's layer, after everything before it has run | B |
 | 338 | A settle wait pointed at a value the code records SYNCHRONOUSLY ahead of the work it waits for — it observes a constant, reports converged on the first turns, and leaves fixed drains doing the real waiting | C |
 | 340 | Splicing a region whose rendered content was written by an event ABOVE that region | C |
-| 342 | An installer anchoring its PATH and manual-page links inside the build directory — and the dangling PATH entry that is SKIPPED rather than failed | B |
 | 343 | Enlarging a decoded `GdkTexture` to display a VECTOR image at a larger size | C |
-| 344 | A region-wide suppression written as one event kind, and a `bool` where the region can nest | B |
 | 345 | Judging a theme change against a machine that has ever run `install.sh` — the installed `themes.toml` overrides the built-in PER KEY | C |
 | 346 | Assuming every `U+FFFC` in the preview buffer is an anchored child | C |
 | 347 | A legibility gate measuring an ink against a surface its level can never show | C |
@@ -179,11 +84,9 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 | 350 | A comment that tells you NOT to do something — load-bearing in the direction nothing checks | C |
 | 351 | A gdk-pixbuf loader module that retains every decode — invisible to refcount assertions, visible only as slope | C |
 | 352 | `GdkTexture::from_file`/`from_bytes` reach a pixbuf module's INCREMENTAL path, not its one-shot `load` | C |
-| 353 | A coalescing slot shared by every subject, whose loser nothing re-issues | B |
 | 354 | A reachability probe whose PRECONDITION names an asset that does not resolve — the key reads as reaching nothing | C |
 | 355 | Solving a themed fill against the surface it is MIXED from rather than the page it is READ on | C |
 | 356 | Deriving a text run's own fill from the PAGE when the preview draws a surface behind it | C |
-| 357 | An oracle whose failing PRECONDITION is an expired host premise, not a subject defect | B |
 
 ---
 
@@ -216,10 +119,6 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **Root cause**: `select_range(ins, bound)` parks the caret (`cursor-position`) at the match **start**; `sc.forward(caret)` returns the first match at-or-after the caret — the same match, forever. Backward happens to advance, so only *next* looks broken.
 **Resolution**: step from the **far edge of the current selection in the direction of travel** — forward from `selection_bounds().end`, backward from `.start`; fall back to the caret only with no selection. Same rule for a plain `TextIter::forward_search` loop.
 
-## 31. Resolving an untrusted document's local image `src` against the CWD (or with a lexical-only containment check)
-**Routed**: GEP-46 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: the contained-image resolver joins the document directory with the source path, then `dunce::canonicalize`s it (resolves `..` **and** symlinks), admitting the result only if it `starts_with` the canonicalized document directory — **component-wise `Path::starts_with`**, never a string prefix.
-
 ## 36. Letting the editor `GtkSourceSearchContext` `notify::occurrences-count` overwrite the preview buffer's `forward_search` count in preview mode
 **Symptom**: in preview mode the find count shows more matches than navigation can reach — the editor source context counts `| cell |` markdown the preview buffer can't navigate to (table cell text lives in `GtkLabel` child widgets, never in the buffer's btree).
 **Root cause**: `set_search_text()` triggers `notify::occurrences-count` on the *editor* context, whose handler ran unconditionally and overwrote the correct preview (body-only) count with the inflated editor count.
@@ -230,10 +129,6 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **Symptom**: in split mode a programmatic preview re-render (zoom/toggle/theme) uses stale content — just-typed editor text vanishes until a mode round-trip.
 **Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 **See**: project-specific; the fix + rationale live in a code comment at the split-mode preview re-render site.
-
-## 42. Predictable, reused path under the shared temp dir for a config-redirect workaround (security)
-**Routed**: GEP-47 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: the temp-dir helper prefers `$XDG_RUNTIME_DIR` (0700) and makes a PID+timestamp dir with exclusive no-clobber semantics (`DirBuilder::mode(0o700).create`, fails on `AlreadyExists`).
 
 ## 45. A `GtkNotebook` with `show-tabs` false cannot be a cross-window tab-drag drop target
 **Retired**: merged/superseded — see the entry named in the title's successor; number kept as a landing spot.
@@ -341,34 +236,6 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **Root cause**: three `<text>` elements carried a DUPLICATE `class` attribute — a fatal XML well-formedness error; Inkscape's libxml2 recovery mode silently keeps the first occurrence and continues, while librsvg parses strictly and fails the WHOLE document with no partial render.
 **Resolution**: `xmllint --noout file.svg` is the gate for any hand-authored/generated SVG, run BEFORE ever trusting a render; confirm in the actual (strict) consumer, never the lenient authoring tool.
 
-## 131. A refactor that REDEFINES what an existing field means keeps compiling at every call site, and silently changes behaviour
-**Routed**: GEP-40 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: the preview palette no longer carries a page-lightness field; a comment records why, and anything outside the preview probes the desktop's lightness through a dedicated helper. TDD 18.7.
-
-## 132. A guard test whose INPUT SET is not the thing it polices — a wrong scope filter, or a hand-maintained mirror — passes forever
-**Routed**: GEP-1 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `app::mnemonics::menu_access_keys_unique_per_popover` now DERIVES its popover grouping from `app::menubar::build_top_level_menus` — the same models `build_menubar` ships — instead of mirroring them, and pins its own non-vacuity plus the dynamic-popover exemptions; deriving found the collision on its…
-
-## 136. Seeding live UI state from the persisted-session snapshot
-**Routed**: GEP-41 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `session::LiveChrome` + `update_live_chrome` (a `thread_local`; GTK is single-threaded), read by `window/mod.rs`'s `build_window` — **since retired.** The live app-wide cache was a correct fix to the *read* staleness and a wrong answer to the underlying question: the state was never app-wide.
-
-## 140. A security gate answering a DIFFERENT question than the one being asked
-**Routed**: GEP-45 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `links.rs` (`is_allowed_url` / `resolve_doc_link` / `scheme_of`) + `window/linknav.rs` (the dispatcher).
-
-## 141. A "this will misbehave" theory read from a construction site, never executed
-**Routed**: GEP-15 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
-
-## 143. A PERMANENT register entry citing an EPHEMERAL artifact (an ISSUES entry, a PLAN file)
-**Routed**: GEP-23 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: GTK4Rs/AP-171 was filed citing a plan file that was deleted ~20 minutes later, when the probe killed the design and its findings were folded into the issue register. The entry now inlines the gesture trace and the reduced repro and cites nothing ephemeral.
-
-## 145. Two registers numbering their entries with the SAME prefix — every cross-citation is wrong-but-plausible
-**Routed**: GEP-24 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: this register's `ScrAP-N` citation prefix and the citation-convention paragraph at the top of this file; `lint-references` check 8, which makes the ambiguous bare form illegal rather than defaulted.
-
 ## 147. Raw-HTML `<picture>`/`<img>` silently dropped — block HTML is emitted per-line, wrapped in `Tag::HtmlBlock`
 **Symptom**: three related failures. (a) A GitHub-style `<picture>…</picture>` hero (WebP `<source>` + GIF `<img>` fallback) renders as NOTHING in-app, even though it displays fine on GitHub — the app's own README hero was invisible when the app opened its own README.
 **Root cause**: - (a) The renderer's pulldown-cmark event loop drops `Event::Html`/`Event::InlineHtml` via a catch-all `_ => {}` (sanitize-by-omission — correct for untrusted HTML). pulldown-cmark 0.13 emits a **block** HTML construct **line-by-line** — one `Event::Html` per source line — **wrapped** in `Event::Start(Tag::HtmlBlock)` … `Event::End(TagEnd::HtmlBlock)`.
@@ -382,11 +249,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **Resolution**: **before splicing at an anchor that came out of a stripped space, snap it to a boundary the stripped space could not see.** A point comment must land cleanly *outside* any construct — it never extends one (extending is the intra-block highlight path's job; a cross-block selection was deliberately ne…
 **Lesson**: **a coordinate is only as trustworthy as the space it was measured in.** An offset from a projection that *deleted* structure (a cleaned/stripped/normalised view) can be dereferenced for reading but must be re-validated against the *full* text before it is used as an insertion or deletion point — th…
 **Scribobulate**: `annotate::point_comment_anchor` (pure, unit-tested in `annotate/mutate.rs`), applied at the single commit choke point `window::annotate::apply_annotation_edit`'s `Point` arm — which **both** the preview sink and the editor Create card route through, so neither call site can forget the guard.
-**See**: TDD 17.44 (the cross-block point-comment contract + the deliberate no-extend decision); #143 (an ANTI-PATTERNS entry must be self-contained — this one inlines the mechanism rather than citing the now-…
-
-## 151. Detecting a URL scheme with "the text before the first colon" (`split_once(':')`)
-**Routed**: GEP-46 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `links::scheme_of` (now the single source, shared by `is_allowed_url`, the doc-link gate, and `resolve_image` — the last had inlined its own `split_once(':')`).
+**See**: TDD 17.44 (the cross-block point-comment contract + the deliberate no-extend decision); GEP-23 (an ANTI-PATTERNS entry must be self-contained — this one inlines the mechanism rather than citing the now-…
 
 ## 158. A content-less list item still emits a full item (and task marker) — an unconditional per-item gutter decoration draws a stray marker
 **Symptom**: an empty task-list item `- [ ]` on its own line drew a checkbox in the preview gutter despite having no content. The same shape affected the other kinds: a content-less bullet (`- `) or number (`1.
@@ -408,51 +271,11 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **Scribobulate**: the tab strip's label is now markup, so the single funnel that composes it (`window/tabs/documents.rs::tab_display_markup`) escapes the filename with `glib::markup_escape_text` **before** interpolation, and the pure label formula (`winstate::decisions::tab_label_markup`) takes the **already-escaped*…
 **See**: gtk4-rs skill → widgets-and-composites (GTK4Rs/AP-154); `winstate/decisions.rs::tab_label_markup` (pure, escaped-name + colour param) and its unit tests; `window/tabs/documents.rs::tab_display_markup`…
 
-## 164. Committing a test fixture whose filename is itself the invalid input breaks checkout on other platforms
-**Routed**: GEP-29 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `src/links.rs` tests (`scheme_of`/`is_allowed_url` string literals = the cross-platform guard; the `#[cfg(unix)]` `resolve_image` colon temp-file test = the run-time-file precedent); TDD §19.7a (now marked unit-verified, fixture-free); `tests/fixtures/doc-links.md` + `tests/MANUAL-TEST.md` (colon ca…
-
-## 165. Clearing an env var the wrong way gives a false confirmation
-**Routed**: GEP-30 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `packaging/windows/README.md` ("Two things that will bite you"), which states the non-working alternative explicitly so nobody re-derives it.
-
-## 166. Never diagnose a hung test suite from a parallel run
-**Routed**: GEP-31 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `scripts/pipeline.steps` carries `--test-threads=1` on `cmd.windows integration`, with the reason recorded at the step — a serialised run prints test names as it goes, so a wedge names the body it wedged on instead of producing the silence that invited the wrong diagnosis.
-
-## 167. An `Option`-returning lookup whose `None` is also a legitimate answer will fail silently forever
-**Routed**: GEP-42 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `src/config.rs` (`config_home_fallback`), `src/session/statedir.rs` (`state_home_fallback`, `state_directory_resolves_without_any_xdg_override`); `sdd/TECH.md` § platform notes.
-
-## 172. A synthesized-click UI-automation tool can be silently broken, making a real bug look unfixable across several attempts
-**Routed**: GEP-12 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
-
-## 175. A defect whose CONSEQUENCE is platform-dependent while the defect itself is not — the platform that never triggers it never tests for it, and a guard written on the triggering platform's symptom is permanently green where the bug actually lives
-**Routed**: GEP-16 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `src/window/tabs/dnd.rs` — the `detach_overlay_from` call in `move_tab_to_new_window`, and `move_tab_to_new_window_detaches_the_source_windows_format_overlay` (the guard, with the "green for the wrong reason" argument in its doc comment).
-
-## 181. A suite that has never RUN on a platform is full of assertions that only look portable
-**Routed**: GEP-18 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: neither fix lives in this branch. Both are platform-neutral — a `canonical_tempdir` helper for the temp-dir case, a `#[cfg]`'d `PRIMARY_LABEL` constant for the accelerator one — and were conveyed to the shared branch rather than carried here, per the rule that a platform branch holds no platform-neu…
-
-## 183. A mutation that fails on an earlier precondition proves nothing about the guard under test
-**Routed**: GEP-11 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
-
-## 184. Four green checks, none of them the outcome — the plumbing was verified and the user-visible result was not
-**Routed**: GEP-10 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
-
 ## 187. A byte range captured at build time and applied at click time is a bet, not a coordinate
 **Symptom**: **Remove** on an annotation card, with unsaved edits in the document, deleted the wrong text. Twice more by the same mechanism: a comment committed over a range a re-render had moved, and every disclosure control in a split pane dying on a Ctrl+S.
 **Root cause**: the mutation said *"delete bytes 6..32"* rather than *"delete this annotation"*. A range holds only against the string it came from, and this one crossed time in a closure with nothing re-establishing that the two were the same.
 **Resolution**: carry the range with **the text that occupied it** — `docref::AnchoredSpan`, this tree's one held reference, whose rule has three clauses: an **ambiguity policy** per construct (nearest occurrence for a distinctive identity; refuse for one a document repeats); `None` obliging the caller to **re-derive the view**, never to do nothing; a CAM row per construction site, which check 24 gates.
 **Lesson**: a bare integer is the one form of reference that cannot be checked, and an index into mutable content is a reference. Once it outlives the instant it was computed — a closure, a widget's state, a queued message, a row model — it needs an identity that can be re-established. A generation stamp is not one: it sees that something moved without naming what, so its mismatch arm can only refuse.
-
-## 188. "It broke when I removed X, so X was providing it" — a temporal correlation dressed as a mechanism
-**Routed**: GEP-15 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 194. A shared per-line helper that hands out a RAW line makes every block transform blind to the container prefix — one rule, four copies to get wrong
 **Symptom**: every block formatting command corrupted a blockquoted line. Heading 3 on `> Heading` produced `### > Heading`; Bulleted/Numbered/Task List on `> item` produced `- > item` / `1. > item` / `- [ ] > item`.
@@ -475,128 +298,16 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **Scribobulate**: test the cause instead. `annotate::kept_chars` counts the chars of a run that actually reach the buffer (construct delimiters dropped, everything else 1:1) from the scanner's spans; the precise path runs whenever that count equals the event's buffer length — which **subsumes** the old 1:1 case (no c…
 **See**: TDD 17.18 (claim extent, including the marker-stripped case); MANUAL-TEST 17.39; `annotate::kept_chars` / `map_cleaned_highlight_to_local`; siblings #194 (one rule, N copies) and #195 (two tokenisers,…
 
-## 197. A `#[path]`-included module's children resolve against the attribute's directory, not the module's own name
-**Routed**: GEP-34 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: the second crate root sits beside `lib.rs` in `src/` (`src/gtk_suite.rs`), not under a relocated `#[path]`, so `mod` declarations resolve exactly as `lib.rs` resolves them.
-
-## 198. `pub use` cannot widen `pub(crate)` visibility — there is no test-façade shortcut around it
-**Routed**: GEP-34 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `src/gtk_suite.rs` is compiled as part of the crate (`[[test]] harness = false`, sharing `lib.rs`'s module tree) rather than as an external façade re-exporting internals.
-
 ## 200. `GtkSourceIndenter` is unusable from gtk-rs — the subclass trampoline frees the caller's `GtkTextIter`
 **Symptom**: implementing `GtkSourceIndenter` — the sanctioned, keystroke-only home for auto-indent behaviour (`is_trigger(view, location, state, keyval)` + `indent(view, iter)`, `GTK_SOURCE_AVAILABLE_IN_ALL`) — SIGSEGVs the app on the **first Enter**, with no warning, no panic, and an empty stderr.
 **Root cause**: the binding's subclass trampoline takes the caller's **transfer-none** `GtkTextIter*` with `from_glib_full`, so the Rust wrapper owns it and frees GtkSourceView's own iterator when it drops (`sourceview5-0.10.0/src/subclass/indenter.rs:107-110`):
 **Resolution**: don't use the interface from Rust at this version. Do by hand what it would have done, from the same place: a `PropagationPhase::Capture` `GtkEventControllerKey` on the view (GtkSourceView installs its own capture-phase key controller for exactly this purpose, `gtksourceview.c:1442-1443`), mirroring…
 **Lesson**: the discriminator that saves the hour is **re-run the crash with an empty vfunc body**. A segfault inside a freshly written subclass reads as "my code is wrong" and invites a long bisect of one's own logic; if it still crashes doing *nothing*, the binding is the defect and the correct move is to rou…
 
-## 201. A custom `harness = false` runner that ignores libtest's `--skip` turns a carve-out into a selection — silently, and green
-**Routed**: GEP-32 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `src/gtk_suite.rs::parse_args` — an explicit `VALUE_FLAGS` list whose values are consumed before filtering, and `--skip`/`--skip=` honoured as a repeatable exclusion; guarded by its own `parse_args` unit tests.
-
-## 203. Restoring `SIG_DFL` and re-raising inside a fatal-signal handler exits *normally* with status 139 — the signal is blocked for the handler's own duration
-**Routed**: GEP-35 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `src/forensics/signal.rs::die` — the signal is unblocked between restoring the default disposition and re-raising it, so the process dies by the signal rather than exiting normally with its status.
-
-## 204. Resolving a kernel segfault `ip` against `nm` output — the kernel's VMA base is the executable *segment*, not the ELF load base
-**Routed**: GEP-36 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
-
-## 206. A reference gate whose pattern demands a file extension the codebase's citations never write — clean, green, and blind to every dangler of that shape
-**Routed**: GEP-2 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `cargo xtask lint-references` check 6a — the plan pattern matches the bare `PLAN.<topic>` citation form as well as the full filename, `.md` listed first so a whole filename still matches under both regex engines.
-
-## 207. Two ports of one gate that share a pattern but not a file ENUMERATION — the parity claim is false, and the platform nobody runs is the lenient one
-**Routed**: GEP-3 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `scripts/lint-references.scan` — one enumeration definition the gate reads rather than restates, with `maxdepth` as a hard tripwire rather than a filter.
-
-## 208. A proc macro that moves the annotated item's attributes onto the generated BODY instead of the harness item — `#[ignore]` silently does nothing
-**Routed**: GEP-33 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
-
-## 209. A guard test whose setup prevents the resource from ever existing cannot observe the leak it guards — it passes with the fix deleted
-**Routed**: GEP-1 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
-
-## 210. Windows PowerShell converting a value on your behalf instead of failing — the call site reads correctly in every instance
-**Routed**: GEP-28 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `packaging/windows/pipeline.ps1` — every conversion pinned rather than defaulted: `-Encoding` on both halves of a round-trip, quoting around native arguments containing braces, `$m.Success` tested before a capture is read, and `$LASTEXITCODE` checked deliberately.
-
-## 211. A verification whose result nothing consumes — it reported the mismatch, and the corrupted payload was applied one line later
-**Routed**: GEP-6 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
-
-## 212. `#[cfg(unix)]` on a test and "skipped on Windows" are indistinguishable in the report, and only one of them is true
-**Routed**: GEP-4 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
-
-## 213. An artifact that describes what you meant to do, shipped beside what you actually did, and never reconciled
-**Routed**: GEP-21 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
-
-## 214. `backtrace_symbols`'s BSD twin is not the safe half of the pair — the async-signal-safety argument you inherited is about a different hazard
-**Routed**: GEP-37 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
-
-## 215. Verifying a behaviour-preserving refactor with hand-written expectations tests your belief about the code, not the change you made
-**Routed**: GEP-8 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
-
-## 216. A gate that checks a citation EXISTS cannot see one that points at the wrong real thing
-**Routed**: GEP-24 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `lint-references` check 8 plus this file's citation convention — the two legal forms are single unique tokens and the ambiguous bare form is illegal, so a citation's register is decided by its text rather than by when it was written.
-
-## 217. A negative result is worthless without a positive control — "it was prevented" and "I cannot see it" produce identical output
-**Routed**: GEP-12 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: the positive control accompanying every negative result in `packaging/windows/pipeline.ps1`'s verification steps — the same probe re-run with the guard removed, required to show the effect.
-
-## 218. Confidence ratchets across a relay — the hedge is dropped by whoever summarises, and nobody does anything wrong
-**Routed**: GEP-19 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
-
-## 219. A remedy that lives inside one consumer reaches the consumers that already knew about it
-**Routed**: GEP-25 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
-
-## 220. A regression guard built from the instance you fixed has coverage exactly equal to the fix
-**Routed**: GEP-5 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
-
-## 221. A comment explaining why a test asserts less than its name promises is where a false premise hides
-**Routed**: GEP-9 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
-
-## 222. Two gates, each correct, enforcing opposite things — and neither can see the other
-**Routed**: GEP-26 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
-
-## 223. Write a finding as a testable proposition, not as a conclusion — a conclusion recruits agreement, a proposition recruits a measurement
-**Routed**: GEP-20 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
-
-## 224. A squash makes single-seat authorship unprovable — on a deadline nobody is watching
-**Routed**: GEP-22 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
-
-## 225. Four denial-of-service paths in four subsystems were one omission: nobody had said the project had an opinion about input size
-**Routed**: GEP-27 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
-
-## 226. The check your self-test does not cover is the one that ships broken — and a single-file corpus cannot falsify a multi-file bug
-**Routed**: GEP-3 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
-
 ## 228. A property implemented on one branch, documented as a property of the whole function
 **Symptom**: fixing an unrelated format ambiguity made `the_marker_forgets_reports_that_no_longer_exist` fail — a test that had passed since it was written, over code the fix did not touch.
 **Root cause**: `announce_unread_report`'s comment claimed the seen-marker was "pruned to reports that still EXIST, which is what keeps a set-valued marker bounded". The pruning lived in `seen_set`, and only in its **legacy-watermark** branch, where it is structural — a watermark is *evaluated against* the present set, so filtering by it is how that branch works at all.
 **Scribobulate**: `src/forensics/report.rs` — `seen_set` applies one `extant` predicate on every branch and owns the bound in its own doc comment; the writer's comment now points at it rather than restating it.
-
-## 229. A seam named for a guarantee it delivers on one platform — and the permission model that lives in the directory, not the file
-**Routed**: GEP-38 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
-
-## 231. Retiring an ambiguous citation form by LEGALISING it instead of banning it — and a completeness claim with no predicate
-**Routed**: GEP-24 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `cargo xtask lint-references` check 8 (the per-site migration rule and the audit's limits are documented at the check, next to the gate that enforces the form); the citation-convention paragraphs at the top of this file and at "Numbering reconciliation"; POLICY step 9.
 
 ## 233. Delegating a delimited format's unforgeable-terminator invariant to a third-party serialiser's escaping
 **Symptom**: A frontmatter-style file format — a magic line, a TOML metadata block, a bare `+++` terminator, then a verbatim payload — silently truncated its payload when one metadata value (a filesystem path) contained a newline.
@@ -605,58 +316,14 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **Lesson**: **When you write down that a hazard is handled *by someone else's code*, that sentence is a hypothesis with a test attached, not a conclusion.** The tell is a design note that identifies a risk precisely and then discharges it by appeal to an upstream guarantee — the precision of the analysis lends…
 **Scribobulate**: `src/swapfile/codec.rs` — `to_wire`/`from_wire` (construction) and the `encode` fence check (verification); the invariant is stated in the module doc. Sibling of GTK4Rs/AP-167, which came from the same feature: both are cases of a convenience API's advertised behaviour being narrower than its name.
 
-## 234. Asserting one of a feature's two representations, and reading the green suite as evidence about both
-**Routed**: GEP-10 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
-
-## 237. A `cfg`-gated gate proves nothing about the branches it did not compile
-**Routed**: GEP-4 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
-
-## 239. `git stash pop` restores the source, not the binary — a control run that silently drives the old build
-**Routed**: GEP-14 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `tests/MANUAL-TEST.md` §1.7 — the control build is copied and named explicitly before the fix is applied, rather than assumed to still be on disk.
-
-## 240. A detector that enumerates the VOCABULARY of a free-text citation is defeated by a synonym
-**Routed**: GEP-2 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `cargo xtask lint-references` check 1 — the pattern matches the *shape* of a reference rather than enumerating the connecting nouns a citation might use.
-
-## 241. A process NAME is not an identity — pid reuse defeats every liveness probe, on every platform
-**Routed**: GEP-17 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
-
-## 242. `clippy --all-targets` WITHOUT the feature flag reports dead-code errors in files you never touched
-**Routed**: GEP-4 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
-
-## 244. Making a window-scoped operation async turns "which tab is active?" into two different questions
-**Routed**: GEP-43 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `src/window/save.rs` — every step takes an explicit `Rc<TabState>`, resolved once when the user acts and carried through the read, the dialog and the write.
-
-## 248. A randomly-minted identity correlates only with the mechanism that persisted it
-**Routed**: GEP-44 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `swapfile::recovery::disposition`'s `tab_at_same_path` parameter (the decision) and `window::swaprecovery::tab_id_at_same_path` (the filesystem half, kept out of the display-free core). Contract is TDD 22.17, with 22.16 as the boundary.
-
-## 249. A capability whose backend is a HELPER EXECUTABLE is a packaging obligation, and the dev tree cannot fail the test
-**Routed**: GEP-39 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `packaging\windows\stage.ps1` `$helpers` (hard-fails like the DLL list, so a future gvsbuild layout change is a build error rather than a silent regression); the corrected claims in [TECH.md](TECH.md) (platform table + the single-instance architecture bullet) and `tests/MANUAL-TEST.md` (§A *Launch &…
-
 ## 250. A widget swapped in for one feature's sake moves its text out of every text-walker's reach
 **Symptom**: The find bar reports "No matches" for a word the reader can see on the page. In a table, `| [Handbook](…) |` — a cell that is *nothing but* a link — is never found; the same word written as `see [Handbook](…) again`, in the cell beside it, is found normally.
 **Scribobulate**: `widgets::table::linkcell` — `link_cell_button` (the only sanctioned way to build a link cell; `gtk4::LinkButton::with_label`/`::new` are banned in `clippy.toml`, the seam and the two GTK-emission probes in `renderer::end` carrying the only allows) and its twin `link_cell_caption`, consumed by `prev…
-
-## 254. An invariant held by two sufficient mechanisms is mutation-proof one at a time — so the mutation test calls each of them dead code
-**Routed**: GEP-11 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 255. A construct whose glyphs are buffered at its `End` event is not opaque — it is char-precise in a coordinate space nobody wrote down
 **Symptom**: Selecting a couple of words inside a rendered code block and choosing Copy — from the context menu, the Edit menu, or Ctrl+C, all one `win.copy` action — put the **entire fenced block, fences included** on the clipboard.
 **Root cause**: The copymap captures each render event's live buffer range as `(before, after)` around that event's processing. That is exact for every construct whose interior events insert their own glyphs — and a code block's do not: `Renderer` *accumulates* the body while the `Text` events go by (inserting nothing, so each captured range is **zero-width**) and flushes the whole block in one syntect-highlighte…
 **Resolution**: `copymap::code_block_node` lays the interior events' source runs out across the `End` event's buffer range, in order, producing one leaf per run — and **proves the layout before trusting it**: the flushed char count must equal the body's, mirroring `insert_code_block`'s own rule (trailing blank line…
-
-## 256. A gate's threshold is copied by hand out of a multi-metric report — so maintaining the gate is how you break it
-**Routed**: GEP-7 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: none — a discipline lesson with no implementation in this tree. (Stated, not omitted: an absent field and a dropped one look identical.)
 
 ## 261. A derived-state hook installed at the producer misses the rebuild shape the producer also has
 **Symptom**: a hook that keeps state consistent with the rendered document fires for every re-render *except* the one the feature exists for. The headless test — which drives the in-place re-render — passes; on the live display the same scenario leaves the state stale, silently, with no warning and no log line.
@@ -665,45 +332,6 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **Lesson**: when a producer has more than one code shape, a hook on the producer is a latent regression — the next shape added will not have it, and a test written against the shape you are looking at will not notice. Prefer siting derived state in front of the
 **Scribobulate**: `window/navhistory.rs`'s `reconcile_nav_history_headings` is private and called from `refresh_nav_history_actions` (before it reads `nav_can`) and from `traverse` (before it steps); `preview/render.rs` deliberately calls nothing.
 **See**: kin GTK4Rs/AP-55 (the same two rebuild shapes, reached through a stale *signal* rather than a missing hook — different root cause, same architectural fact); TDD 23.14.
-
-## 262. A restore seam's "nothing to do at the boundary" shortcut is a claim about its first caller, and the second caller loses a real destination
-**Routed**: GEP-53 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `preview/scroll.rs`'s `restore_preview_scroll_to_line` (no `line <= 0` return; negatives clamped), reached from `window/navhistory/traverse.rs`'s `restore_place` for a `NavSpot::Line`, and from `window/zoom.rs` for the zoom re-render it was originally written for.
-
-## 265. A test that arms a process-global fatal-signal handler and never disarms it re-points the rest of the suite — and displaces the runtime's own stack-overflow guard, so a later overflow stops naming itself
-**Routed**: GEP-54 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `forensics::signal::tests::ArmedHandler` — an RAII guard that takes the install lock, snapshots every fatal disposition in `FATAL_SIGNALS` (four when this was written, five since GTK4Rs/AP-268) **and** the calling thread's alternate signal stack, arms, and restores both on drop.
-
-## 272. A plan obligation written as a property of an artefact, which reads as done once the artefact exists
-**Routed**: GEP-67 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `docio::rename::recover_rename_orphan` is the missing recogniser, called from `docio::read_document_blocking` — the module's only door, so one placement covers Open, session restore, link navigation and crash recovery, and ordered *ahead* of the admission check so a recovered file is stat'd and size…
-
-## 273. A runtime skip announcement shredded by libtest's own progress output — and one shred read `SKIPPED [rubric]: ok`
-**Routed**: GEP-25 (module-name half); the platform half in its platform entry — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `testsymlink::skipped` builds the whole line — newline included — and emits it with a single `std::io::stderr().lock().write_all()`; a sub-`PIPE_BUF` write is atomic on the pipe the pipeline reads through. Verified 6/6 clean on the same command that produced 2/4 corrupt.
-
-## 274. A provenance tally that counts measurements instead of outcomes, and so reports the opposite of its evidence
-**Routed**: folded into GEP-20 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: GTK4Rs/AP-269's macOS paragraph now splits the correction from the confirmation explicitly and states the semantics/multiplicity distinction; the rename feature's platform-gap record had its monitor-event-count row reopened for Windows after being closed wholesale on the strength of a *macOS* measuremen…
-
-## 276. A parity artefact written to the console instead of the success stream — the documented diff produced an empty file, and the self-test rebuilt the list rather than calling the printer
-**Symptom**: `-ListSteps > file` exits 0, prints the list to the log, and writes a zero-byte file — while `-SelfTest` passed on the same runner seconds earlier.
-**Scribobulate**: `packaging/windows/pipeline.ps1` (`Write-StepList`, `Invoke-SelfTest`), compared by `scripts/pipeline-parity.sh` from `.github/workflows/pipeline.yml`.
-**See**: general-engineering-principles — the self-test half (GEP-3), the success-signal half (GEP-52).
-
-## 278. A filename or file-existence predicate standing in for a semantic question — six measured cases, each confidently wrong
-**Scribobulate**: the cross-reference gate matches `PLAN.<topic>` case-SENSITIVELY (a case-insensitive pattern reported `plan.switch_to`, a field access, as a dangling document); the Windows licence audit enumerates the vendored directory instead of matching `COPYING`-style names, and each row declares a string that must occur in its licence text, so a file that exists under the right name and says the wrong thing is caught.
-**See**: `general-engineering-principles` skill → verification-and-gates (`GEP-76`), which carries all four cases, the false-legal-claim escalation and the proxy-replacing-a-proxy sequence; kin `GEP-49`, `GEP-50`. Migrated to a stub 2026-09-19 after verifying that text is installed; the essay is in this file's history.
-
-## 280. Provisioning for a machine you cannot inspect — installing a tool the image already had, and discovering one path component while pinning its sibling
-**Symptom**: Two consecutive packaging failures on a hosted runner, both in provisioning, neither reproducible on any development machine.
-**Scribobulate**: `packaging/windows/package.ps1` — the installer-compiler lookup takes the first match (its comment records the doubled-path invocation), and the redistributable directory is selected by content rather than by name; the workflow probes before installing and announces which branch it took.
-**See**: general-engineering-principles (GEP-55).
-
-## 281. A corpus that exercises the PATTERN cannot see a bug in the FLAG on the call site that consumes it
-**Symptom**: A gate's self-test stays green through a mutation battery aimed at the defect, and adding plainly discriminating cases does not change it.
-**Scribobulate**: `xtask/src/lint/` — case sensitivity at the MATCH SITE, not in the pattern, pinned by a corpus case in `xtask/src/lint/corpus.rs` that routes through the same call the check itself makes. Found while the gate was two hand-synced shell ports; the ports are retired, the trap is not — a corpus that feeds a pattern directly still cannot see a flag on the call site that consumes it.
-**See**: general-engineering-principles (GEP-3).
 
 ## 282. An operation counter is a complexity oracle only for operations you control
 
@@ -719,83 +347,16 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 
 ---
 
-## 283. A false premise can file a measurable fact as unmeasurable, and the two protect each other
-**Symptom**: A document states that something "remains unmeasured" — a claim that was never true — and it survives review because the sentence explaining *why* it cannot be measured sits a few lines above it and is itself false.
-**Scribobulate**: `packaging/windows/README.md`'s long-paths section, where both coupled sentences are corrected together and each says the other must be edited with it, and the matching claim in `.github/workflows/pipeline.yml`.
-**See**: general-engineering-principles (GEP-56).
-
-## 285. Merged into GTK4Rs/AP-245 — a drive tool's zero exit is a claim about the tool, never about delivery
-
-**Symptom**: `cliclick kp:esc` exits 0, posts an event the application never receives, while clicks and typed text from the same tool land — a working build reads as broken.
-
-**Merged, not deleted.** This is the macOS instance of GTK4Rs/AP-245's root cause (input channels diverging silently with no tool reporting an error), so it lives there as a second measured case rather than as a numbered essay beside it — one root cause, one entry. The number is retired and kept as a landing spot; it is never reused.
-
-**Scribobulate**: `tests/MANUAL-TEST.md` §A.2's drive loop, cited from §7.19m.
-
-**See**: GTK4Rs/AP-245, and gtk4-rs skill → ui-testing-debugging (GTK4Rs/AP-245), which took the same fold decision independently.
-
----
-
-## 286. A reconciliation agreed in the room and never written into the artefact is not a decision — it reopens on the next read, and the seat that measured it pays twice
-**Symptom**: A question settled days ago comes back phrased as though it had never been asked, because the artefact still carries the superseded claim that the conversation corrected.
-**Scribobulate**: the artefacts that carried those reconciliations — `packaging/windows/licenses.psd1` and its `PROVENANCE.md`, and `packaging/macos/MANIFEST.tsv` — each state their measurement inline rather than recording a verdict whose basis lived only in a conversation. **The instance that produced this entry is no longer citable by path**: it was a set of rows in the build-pipeline plan, and that plan was retired once its work landed (git history holds it). That is not an accident of housekeeping, it is the entry restating itself — a reconciliation held in a document written to be deleted is one step from a reconciliation held in the room.
-**See**: general-engineering-principles (GEP-48).
-
-## 287. A scope claim is only as wide as the thing it was measured over — "which platform bundles the runtime" answered "which platform owes attribution"
-**Symptom**: An obligation recorded as affecting one platform — with a measurement backing it — is in fact live on all three.
-**Scribobulate**: `packaging/linux/payload.sh` stages `THIRD-PARTY-LICENSES.md` for all three Linux routes (rpm marks it `%license`; the deb `copyright` gained a `Files: usr/bin/*` stanza naming the grammars' licences); POLICY § "Third-party attribution" separates the two obligations, and separates them where they can be read without the plan that discovered them; `tests/MANUAL-TEST.md` §A.1 item 5 asserts all six payload files.
-**See**: general-engineering-principles (GEP-49).
-
-## 288. `$PSScriptRoot` is EMPTY while parameter defaults are evaluated under `powershell -File`, and correct everywhere else
-**Symptom**: A script's `param()` default resolves against the drive root under one invocation form and correctly under every other, with nothing at the use site to show it. The error names a path that still LOOKS like a path (`the item 'R:\..\..\target\release\...' is outside the base 'R:'`), so it reads as a broken checkout rather than as an unbound variable — which is what makes it expensive rather than merely obscure.
-**The precondition is a PAIR, not `-File` alone** — measured with a two-line probe, and worth knowing because it says exactly which scripts are exposed instead of leaving every `-File` call site suspect: `[CmdletBinding()]` **with** `powershell -File` breaks; `[CmdletBinding()]` without `-File` is fine; `-File` without `[CmdletBinding()]` is fine; `&` or a dotted path is fine either way.
-**Scribobulate**: fixed in `packaging/windows/stage.ps1` — its `$OutDir`/`$RepoRoot` defaults moved out of `param()` into the body, where `$PSScriptRoot` is populated, as `package.ps1` and `verify-licenses.ps1` already did. It was the one exposed script and nothing in-tree started it that way, so the blast radius was zero and stayed zero: this was found by a seat reading the file, not by a failure, which is the only way a dormant defect of this shape is ever found.
-**See**: general-engineering-principles (GEP-51).
-
-
----
-
-## 289. An HTTP 200 is a claim about the transaction, not about the document — four fetched licence texts were anti-bot pages
-**Symptom**: four of the first nine upstream licence fetches returned HTTP 200 carrying an anti-bot interstitial, all four byte-identical at 4626 bytes, with the client reporting success for every one — while the two requests that failed loudly (406, 404) were the harmless ones.
-**Scribobulate**: the Windows licence gate's fourth condition — every row of `packaging/windows/licenses.psd1` declares an `Expect` string that must occur in its licence text, asserted when the text is fetched and re-checked at build time by `packaging/windows/verify-licenses.ps1`. `packaging/windows/licenses/PROVENANCE.md` records the pinned versions and SHA-256s, and `packaging/windows/licenses/.gitattributes` (`* -text`) keeps those hashes true on a CRLF checkout — without it a fresh clone on an `autocrlf` seat rewrites the texts and every recorded hash silently describes bytes that are no longer on disk (measured: 219,581-byte blob vs 223,875 on disk, the delta exactly the line count).
-**Case — the guard's SCOPE did not follow what it guards.** That `.gitattributes` covers `packaging/windows/licenses/` only. `LICENSE` and `THIRD-PARTY-LICENSES.md` were staged from the repo root by a LATER commit, still `text: auto`, so the Windows installer shipped them CRLF against LF elsewhere: 205,287 B installed against a 201,166 B blob, delta 4,121 = exactly the line count. Harmless by luck (no SHA-256 covers those two), but nothing extended the guard to files added afterwards. Two rules: **a byte count for a text file is reproducible only if it states its line-ending convention**, and when two seats report different sizes for one file, **check the line count against the delta before accepting any causal story** — the first explanation offered here (a pending edit) was plausible, wrong, and self-ratcheting, since the file was about to grow and the story would have been adjusted rather than falsified.
-**Case — the anchor discriminates DOCUMENTS, not REVISIONS of one.** The FTL text vendored first was SPDX's re-wrap, not FreeType 2.14.3's own file: same licence, different edition (5,979 B against 6,743 B, unwrapped paragraphs, stale URL), beside a provenance line asserting 2.14.3. The gate passed it and **would pass it again**, the declared anchor occurring in both. Deliberately NOT escalated to a hash anchor: that fails every row on any upstream whitespace change and teaches re-baselining rather than reading. What caught it was going to the build tree for a neighbouring file — so **prefer vendoring from the source tree the artefact was built from over a tagged download**: a tag asserts upstream published those bytes under that name; the build tree IS what the shipped binary was built from.
-**See**: general-engineering-principles (GEP-52).
-
 ## 294. Letting a coverage ratchet be satisfied by widening the exclusion instead of testing the code
 **Symptom**: a change whose only new logic was display-free and fully unit-tested still failed build-pipeline step 6. The feature's GTK wiring had landed in `preview/interactions.rs` — in scope, and 0% covered like every preview wiring file — while its decidable half sat in `codeview/`, which the scope regex exc…
 **Scribobulate**: the pure geometry and the shared point-in-rectangle hit test moved out of the excluded `codeview/` tree into `affordance.rs`, where the gate counts them and their tests; `FLOOR` rose 77.72 → 77.75 in the same change, with the reason recorded beside it.
 **See**: project-specific (process/tooling; the routing rule keeps these here). POLICY § Build pipeline step 6 for the rule, `scripts/coverage.sh` for the floor, the scope and the per-module rationale.
-
-## 295. A PID-qualified AppleScript process reference decays to name resolution once stored
-**Routed**: folded into GEP-17 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: no code — a harness rule for `tests/MANUAL-TEST.md` §A.2. Re-derive the PID-qualified reference **inside every `tell` block**; never bind it to a variable and reuse it.
-
-## 296. A derived screen coordinate is only as trustworthy as the derivation behind it
-**Routed**: folded into GEP-61 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `tests/MANUAL-TEST.md` §1 and §A.3 — derive the coordinate rather than estimating it, **and give the derivation its own sanity check**: grow along a column the content cannot interrupt, and confirm the derived rectangle against the image before any assertion rests on it.
 
 ## 298. A TIGHT list item's content arrives as bare inline events with no `Tag::Paragraph` wrapper
 **Symptom**: an exported document breaks its lines after almost every token inside a numbered or bulleted list — `POLICY.md`, then a line break, then the next four words, then a break, then a comma on its own line. Only *inside* list items; the same prose at top level is fine.
 **Root cause**: pulldown-cmark wraps a **loose** list item's content in `Tag::Paragraph` and a **tight** item's in nothing at all — the inline events arrive directly inside `Tag::Item`. A consumer that reaches for "no inline container is open, so start a paragraph" therefore starts a *new* paragraph for every inline event the item contains: one for the text run, one for the inline code, one for the link, one for…
 **Scribobulate**: `src/export/walk.rs` carries an implicit-paragraph frame — `Open::ImplicitParagraph`, opened lazily by `Builder::push_inline` the first time an inline arrives with an empty inline stack, and closed by `Builder::flush_implicit` into the enclosing block frame.
 **See**: project-specific; the fix and its rationale live in code comments at `src/export/walk.rs` (`Open::ImplicitParagraph`, `Builder::flush_implicit`, `is_block_start`).
-
-## 299. A suite-ordering defect that is deterministic on one platform and invisible in the canonical platform's full suite
-**Routed**: folded into GEP-54 (+GEP-4, GEP-16) — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `src/saferizer/file_monitor.rs` — the `changed`-adapter test enters its own `MainContext` before attaching. **The honest limit of that guard**: it pins the *fix*, not the *class*. Nothing in the tree asserts that no other test borrows the default context, and no claim is made that anything does.
-
-## 300. A driven UI step that misses its target does not fail — it acts somewhere else, and a loop that does nothing produces a perfectly stable measurement
-**Routed**: GEP-61 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: none — harness discipline, with no implementation in this tree. (Stated rather than omitted: an absent field and a dropped one look identical.)
-
-## 304. cairo's Windows colour-glyph path wraps colour glyphs in a Type3 `d0` font, and one 2017 extractor mishandles it
-**Routed**: folded into GEP-63/GEP-49; toolkit half in gtk4-rs — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: accepted as an out-of-scope limit by operator ruling, on a hands-on Acrobat test (TDD 25.19).
-
-## 305. A `#[gtk::test]` body and a plain `#[test]` calling `gtk::init()` cannot share a binary
-**Routed**: folded into GEP-54 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: not hit on the shipped tree — this project writes `#[gtktest::test]` everywhere and `cargo xtask lint-references` check 5 enforces it. Measured while evaluating whether the export path was reachable from a test.
 
 ## 306. A chooser's `set_current_folder` is best-effort and its failure is unobservable
 **Symptom**: on Windows `set_current_folder` returns `Ok(())` and `current_folder()` reads back `None` **whether or not** the folder was honoured.
@@ -804,21 +365,13 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **Scribobulate**: `window::export::choose_destination` sets it through a discarded `let _ =` with the reason in a comment beside the call.
 **See**: gtk4-rs skill → printing-and-export (GTK4Rs/AP-299).
 
-## 307. macOS embeds a colour emoji as a bare Image XObject, so its text is absent by construction
-**Routed**: folded into GEP-63/GEP-49; toolkit half in gtk4-rs — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: accepted as the stricter of the two platform limits (TDD 25.18b), asserted as measured behaviour to catch a *change*, not as an aspiration.
-
-## 308. A font's Unicode flag does not predict whether its text extracts
-**Routed**: GEP-52 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: TDD 25.18's method note forbids gating on font metadata, and the §25 checks assert the round-trip per line.
-
 ## 309. A cancelled export destroys the destination, and the wreckage is a valid file
+**Symptom**: cancelling a `GtkPrintOperation` export leaves a valid, readable, **partial** PDF at the destination, having already replaced whatever was there; it extracts cleanly and the extractor exits 0, so nothing signals that the previous file is gone. MEASURED (Windows, GTK 4.22.4): a 43,973-byte destination replaced by a 171,327-byte 51-page partial.
+**Root cause**: `set_export_filename` hands cairo the destination directly — no temp-and-rename — and GTK opens, and therefore truncates, it **before the first page is drawn** (zero `draw-page` calls when the open fails). Cancel is a normal-completion path, not an error path, so the destruction is reached by pressing Cancel in ordinary use.
+**Resolution**: never point an export sink at a user-visible destination. Render to a private temp file and publish atomically **on success only**, gated on the application's own page count rather than the toolkit's return value (GTK4Rs/AP-294).
+**Lesson**: a write that begins by truncating its destination has no cancel path — "cancel" and "half-write" are the same outcome, and a valid-looking partial is worse than a corrupt one because nothing downstream complains.
 **Scribobulate**: `atomic_io::AtomicPublish` holds the create-private-temp → write → publish sequence; `export_pdf` stages into it and promotes only on `Ok(Apply)` with `drawn == expected` (TDD 25.21).
-**See**: gtk4-rs skill.
-
-## 310. An extraction failure is not evidence about appearance
-**Routed**: GEP-60 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: TDD 25.11a makes the pairing a rubric rather than a habit.
+**See**: GTK4Rs/AP-167 — the same family (a failure mid-write) and the same promote-only-after-a-complete-write rule, on the swap file; this entry's trigger is user intent, not a fault.
 
 ## 311. Which of two same-key bindings wins is a property of the BACKEND, not of the toolkit
 **Symptom**: a fix, a TDD rubric and a module doc all state as settled fact that `GtkSourceView`'s `move-words` class keybinding beats a window `GAction` accelerator declared on the same keystroke while the view holds focus. On Quartz that is measured and true.
@@ -854,38 +407,10 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **Scribobulate**: `src/lineendings.rs` — `new_editor_buffer` (the choke point, the only route to an armed buffer) and the private `wire_paste_normalization`; `window::tabs::lifecycle`'s `build_tab_editor` is its single production caller.
 **See**: gtk4-rs skill → controllers-and-bindings (GTK4Rs/AP-303), read back from the installed copy of the skill on this host rather than taken on report; attribution there is split th…
 
-## 317. A counter that stops being able to SEE its subject reports the intervention as a success
-**Routed**: GEP-68 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `probes/native-chooser-rss.m` grew `--track-dealloc` (a `DeallocSpy` associated object) precisely to catch this, and `--track-dealloc` against `--reap` is the reproduction.
-
-## 319. A portability gate whose verdict depends on which `grep` is first on PATH — and the seat that should catch the bug is the seat that hides it
-**Routed**: folded into GEP-57 (+GEP-1) — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: the check is now two POSIX-ERE stages behind `win_illegal_path` (character rule case-sensitive with the control range built by the shell; reserved device names as their own `grep -i` pass, since ERE has no inline flag) plus the `--self-test` corpus it shipped without — 18 cases, mirrored string-for-…
-
-## 320. The unresolvable pointer — a reference whose target the reader cannot dereference, mistaken for a delivery
-**Routed**: folded into GEP-23 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: five incidents in one session, across two agents. The load-bearing one for generality is **this seat's**, not the researcher's: `docs/` is gitignored (`.gitignore:16`), and both platform seats were dispatched their QA work by being pointed at `docs/code-review.md`, which reaches neither clone.
-
-## 321. The spurious kill — a mutation run that scores its own breakage as detection, and certifies coverage that does not exist
-**Routed**: folded into GEP-11 (+GEP-2, GEP-3, GEP-64) — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: three instances, one seat, one session, on Windows PowerShell 5.1. (1) A check-12 predicate harness wrote mutants to a scratch directory while the script resolves its scan set from `$PSScriptRoot`, so every mutant died on a missing `.scan` and five of six clauses reported "killed" — the BASELINE die…
-
-## 322. A control is a property of a CLAIM, not of a probe — and one control makes every other claim feel covered
-**Routed**: folded into GEP-12 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `probes/textview-primary-overwrite.c` carries all five modes and the retraction in its own header, so the corrected reading is where the wrong one was.
-
 ## 324. A compiled-in asset resolved against a runtime directory is absent everywhere that directory isn't
 **Symptom**: a shipped theme's sprite renders as its flat fallback on a fresh install, a developer build run with no user config, and a macOS bundle — no warning, no crash, green suite throughout. The reference was never invalid; it was simply never resolved.
 **Root cause**: two ways a resource can be *named* — compiled into the binary, or read from disk — but only one way it was *resolved*: against a themes-file's own directory, a step that only the disk-file case ever ran.
-**See**: kin to ScrAP-317/319/320/321 (this register's own family of checks/mechanisms that cannot go red for the right reason) — here the mechanism that went silently right was a *resolution step*, not a test…
-
-## 325. A whole-struct `{:?}` in a completeness digest degenerates the guard into a restatement of what the producer already guarantees
-**Routed**: folded into GEP-10 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `src/theme/tests/sinks.rs` — `decoration_digest` enumerates the metrics the preview's paint pass scales and nothing else, with the measurement above stated in the function's own comment so the next agent does not "simplify" it back; everything typographic is proven through the tag digest beside it,…
-
-## 326. A `const`-evaluated constructor scores ZERO in llvm-cov, so code exercised at every build reads as dead
-**Routed**: folded into GEP-4 (+GEP-7) — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `src/theme/keys.rs`'s registry is the const-evaluated table; its runtime-construction test asserts the registry's shape as well as restoring the measurement, and `scripts/coverage.sh`'s FLOOR was re-armed upward (81.45) rather than relaxed — that log entry, dated 2026-08-27, carries the numbers.
+**See**: kin to GEP-68/319/320/321 (this register's own family of checks/mechanisms that cannot go red for the right reason) — here the mechanism that went silently right was a *resolution step*, not a test…
 
 ## 329. A gate read through a pipe reports the pipe's last stage, not the gate
 **Symptom**: a coverage ratchet was set from a measurement, re-run to confirm, and reported green twice — while actually failing. Two independent mechanisms had to line up, and both fail in the green direction.
@@ -893,28 +418,16 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **Resolution**: invoke a gate directly and read its own exit status; where a pipeline is genuinely wanted, `set -o pipefail` first. Read a coverage floor from the column the gate reads, never the column the summary leads with.
 **BOUNDARY, measured later**: "read its own exit status" assumes the tool is HONEST about it. `codesign --force --deep --sign -` printed `bundle format unrecognized, invalid, or unsuitable`, wrote no `_CodeSignature` at all, and RETURNED ZERO, so a guard written as `if ! codesign …` waved a broken signature through. **The narrow form is the useful one: it is the ACTING verb that lies, not the tool** — `--sign` returns 0 having done nothing, while `codesign --verify --deep --strict` exits non-zero correctly. So the repair is not to distrust exit codes generally but to follow an acting verb with the same tool's VERIFYING verb and assert the artefact exists. (Measured during that investigation: reading `$?` after piping `--verify` to `head` reported 0 when verify had failed — this entry's own lesson biting inside its boundary.) It BREAKS the resolution above rather than illustrating it, which is why it is written here rather than folded into it.
 **Scribobulate**: `scripts/coverage.sh`'s header carries the column warning and its instances, and the floor is set from the Lines column and verified by running the script directly. **The value is deliberately not repeated here** — POLICY step 6 makes the script its only home, and the copy that used to sit in this line had already gone stale.
-**See**: cargo-llvm-cov and shell invocation. Kin — ScrAP-321's family (a green that means nothing) and ScrAP-326, the other way a coverage number misleads: 326 is a real…
-
-## 330. A seam that exists is not a seam that is called
-**Routed**: GEP-67 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `CssSafeFontStack::pango_family` (`src/theme/value.rs`) is the sole projection, and the PDF sink's layout specs carry that type rather than `String`. The guard asserts the face Pango *resolved* in the artefact, and separately asserts its own fixture came back quoted so it cannot rot into the weaker…
-
-## 331. A vocabulary rename that reaches a selector
-**Routed**: folded into GEP-10 (+GEP-40) — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: the table-cell link selectors (`src/preview/css.rs`) name GTK's own `link` class on `GtkLinkButton`, not this project's `link_color` key; the constant carries a warning saying so, because the two are one blanket rename apart.
+**See**: cargo-llvm-cov and shell invocation. Kin — GEP-11's family (a green that means nothing) and GEP-4, the other way a coverage number misleads: 326 is a real…
 
 ## 334. A repaint failure that also happens in an unrelated application is upstream, and the platform seam it invites is the wrong response
 **Symptom**: on a KDE/X11 desktop, toggling the system dark↔light theme leaves parts of the application drawn in the previous scheme until something forces a repaint.
 **Scribobulate**: NOT fixed, and deliberately not investigated further (operator, 2026-08-28). The remedy it invites is a new `src/platform/linux/` portal seam to observe the desktop's appearance signal directly, which is a real module with a real maintenance cost, built to work around somebody else's bug.
 **See**: kin to the `Upstream` scope rule in `sdd/ISSUES.md`'s header, which exists for the same reason — an upstream defect is not work waiting to be scheduled here.
 
-## 337. A precondition implicit in a whole script is reported by whichever line violates it first, at that line's layer, after everything before it has run
-**Routed**: GEP-69 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: `install.sh` at the repo root is a `uname -s` router holding no install logic, dispatching to `packaging/linux/install.sh` and `packaging/macos/install.sh`; each body ALSO guards itself, because it stays directly runnable and a direct run must not be the lenient path. Found by the macOS seat: the pre-router script spent a full `cargo build --release` and then died on `install -Dm755` with exit 71 and a message naming a path, because BSD install has no `-D`.
-
 ## 338. A settle wait pointed at a value the code records SYNCHRONOUSLY ahead of the work it waits for — it observes a constant, reports converged on the first turns, and leaves fixed drains doing the real waiting
 **Scribobulate**: `window::scrollsync`'s reading-position guards. `settled_top_line` polled `preview::preview_top_line` for four equal readings — but that call prefers `CodePreviewView`'s `restore_target_line`, a `Cell` the restore path writes synchronously (only the scroll itself is deferred). So it polled a value that was already final: MEASURED `polls=5 stable=4 converged=true` — the minimum possible turn count — on every call, on a healthy run and equally on a starved one that was reading line 0 off an unvalidated view. It also discarded `until_or_for`'s convergence flag, so a timeout was indistinguishable from success. The real waiting was being done by two fixed drains (400ms, 120ms) against a pane that moves through TWELVE distinct offsets over ~365ms on an idle box. Consequence: the one-time crossing cost wandered with host speed — 11 on Linux, 9/11/13/17/19 over ten macOS runs, 11-or-17 over twenty Windows runs, against a bound of 20 — and the hosted CI runner reached 25 and went red on a required gate immediately before a merge. Now `scrollsync::settle` samples the LIVE viewport (`view_top_offset`, mirroring the pane `content_reading_position` reads), waits for a quiet DURATION via `testpump::until_stable`, and asserts convergence with a message that says precondition rather than drift; the cost is 1 with zero variance on all three platforms. The fixture's own lines-per-section now derives the bound that was a literal 20.
-**See**: kin — ScrAP-132 (a guard whose INPUT SET is not the thing it polices; this is the same defect one layer down, in what a WAIT samples), GTK4Rs/AP-122 (the sibling bound-unit error), ScrAP-209, ScrAP-220.
+**See**: kin — GEP-1 (a guard whose INPUT SET is not the thing it polices; this is the same defect one layer down, in what a WAIT samples), GTK4Rs/AP-122 (the sibling bound-unit error), GEP-1, GEP-5.
 
 ## 340. Splicing a region whose rendered content was written by an event ABOVE that region
 **Symptom**: an UNSPACED `<details>` (rubric 2.26d) collapsed correctly and then could never be opened again — the fold splice deleted the body and wrote nothing back, and the heading below lost its block separator.
@@ -924,11 +437,6 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **Scribobulate**: `renderer::DisclosureExtent::spliceable` (set in `renderer::start::record_disclosure_extent`), refused in `preview::splice::splice`; pinned by `preview::build`'s `an_unspaced_disclosure_is_not_spliceable_and_a_spaced_one_is`, which carries its own positive control.
 **See**: GTK4Rs/AP-321 (the reader-position half of the same splice).
 
-## 342. An installer anchoring its PATH and manual-page links inside the build directory — and the dangling PATH entry that is SKIPPED rather than failed
-**Routed**: GEP-71 (the anchor and the silent skip), GEP-72 (the two gate-predicate traps), GEP-73 (bundle identity is not location), GEP-74 (a remedy that no-ops); grafts onto GEP-52 (a false FAILURE on the ordinary case), GEP-1 (mutation-test the gate) and GEP-19 (the implementer falsifies the prescription) — the lessons live in the `general-engineering-principles` skill.
-**Scribobulate**: `packaging/macos/install.sh` copies the bundle out of `target/` to `~/Applications` and deletes the build copy once the anchor's signature re-verifies, behind two gates that run BEFORE the release build — one for a second bundle carrying the `CFBundleIdentifier` read from `Info.plist.in` (direct test of the two fixed locations, `mdfind` only widening it), one walking PATH with `[ -e ] || [ -L ]` and classifying by PATH order. `packaging/macos/uninstall.sh` unregisters the paths it installed and verifies that by reading the Launch Services database back, never by the `-u` exit status. `packaging/linux/install.sh` runs the PATH scan too but WARNS and never refuses, because a distro package beside a user-local build is supported here; it names the first *executable* hit, since a dangling link is not the winner it appears to be.
-**See**: TDD 26.10 and manual-test items 26.11 / 26.11m; kin ScrAP-249 (packaging obligations), ScrAP-320 (the unresolvable pointer).
-
 ## 343. Enlarging a decoded `GdkTexture` to display a VECTOR image at a larger size
 **Symptom**: an SVG diagram drawn above its natural size is soft, and the TEXT inside it — the part the reader enlarged it to read — goes first.
 **Root cause**: two facts that only bite together. `GdkTexture::from_file` decodes a scalable source at its NATURAL size with no way to ask for another (GTK 4.6 handles PNG/JPEG/TIFF itself and falls through to `gdk_pixbuf_new_from_stream`, which hands the loader a **no-op size callback**, so the size is discarded before librsvg sees a request). And enlarging the result cannot be sharp: GSK 4.6 sets no cairo filter at all, so it lands on cairo's default `FILTER_GOOD`, and `gtk_snapshot_append_scaled_texture` is 4.10+.
@@ -937,10 +445,6 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **Scribobulate**: `imagecache::loader::rasterize_vector` and `LoadedImage` (which carries the size at zoom 1.0 apart from the texture's own — for a re-rendered vector they differ); target bound `renderer::image::cap_raster`. Plain-gdk-pixbuf repro and measurements: `probes/svg-rasterise-rs`.
 **See**: TDD 13.11; kin GTK4Rs/AP-58, GTK4Rs/AP-66; `sprite.rs` pre-resamples for the same GSK reason.
 
-## 344. A region-wide suppression written as one event kind, and a `bool` where the region can nest
-**Routed**: GEP-75 — the lesson lives in the `general-engineering-principles` skill.
-**Scribobulate**: an image's alt text reaches the render as NOTHING, and the contract is stated once, in front of the dispatch, as `renderer::Renderer::alt_suppressed` over an `image_alt_depth` count — never as a guard inside one arm of `renderer::events::process`. `preview::build`'s per-cell copy capture asks that same predicate rather than re-deriving the condition, so the buffer and the cell offsets cannot disagree. The four leaks the one-event version shipped are one test each in `preview::altsuppression`, with a control proving the construct still renders outside an image; the contract is TDD 2.5 and the manual check is `tests/MANUAL-TEST.md` 2.5d. `export::walk` is the shape that never had the defect: it opens an inline frame at `Start(Image)` and folds the subtree into the alt string at its close, so there is nothing to enumerate and nothing to reset.
-**See**: TDD 2.5; kin ScrAP-147 (raw-HTML images reaching the scanner from inside a region meant to render as nothing — the collapsed-body half of the same hazard).
 ## 345. Judging a theme change on a machine that has ever run `install.sh`
 **Root cause**: `$XDG_DATA_HOME/scribobulate/themes.toml` (row 2, from `install.sh`) merges over the compiled-in file **per key**, so an edit half-lands and reads as a rendering bug. Verify under a scratch `XDG_DATA_HOME`, or refresh that copy and its `sprites/`.
 **See**: `sdd/THEMING.md`; kin GTK4Rs/AP-173; GEP-57.
@@ -980,10 +484,6 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **Scribobulate**: the SVG dimension probe that used the animation API for this reason is gone; sizing reads `imagedecode::probe_vector_dimensions`, and every raster decode goes through `src/imagedecode/`.
 **See**: kin `GTK4Rs/AP-66`, GTK4Rs/AP-66, GTK4Rs/AP-311; ScrAP-351 is the leak this asymmetry hid.
 
-## 353. A coalescing slot shared by every subject, whose loser nothing re-issues
-**Routed**: GEP-79 — the lesson lives in the `general-engineering-principles` skill; essay in git history.
-**Scribobulate**: the word-count scheduler queues one pending job per tab, so no subject's request can displace another's; the rule it now obeys is the coalescing rule in [CAM.md](CAM.md)'s deferred-operation matrix.
-
 ## 354. A reachability probe whose PRECONDITION names an asset that does not resolve — the key reads as reaching nothing
 **Symptom**: the sink sweep reports a freshly added key as reaching NO surface, the verdict it gives a key nobody wired. It was wired on all three, and the sweep was right about what it measured.
 **Root cause**: a gated key is probed with the TOML its `Reach::needs` states, and that TOML has to WORK. Two anchor keys declared a `needs` naming `sprites/x.png`, which resolves to nothing — so the scene it was to supply never existed, and moving that scene changed no output.
@@ -1007,7 +507,3 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **Lesson**: a decoration derived from the page inherits the page's assumption that nothing else is drawn there; and toward-the-ink is a move DOWN the ink's own contrast, so a surface already at the floor must be tinted the other way.
 **Scribobulate**: `palette::codechips` (resolution + precedence), `tags::CODE_INLINE_SURFACES`, `pangospan::code`, `export::html::code_surface_css`.
 **See**: TDD 18.61; kin ScrAP-355, GTK4Rs/AP-84.
-
-## 357. An oracle whose failing PRECONDITION is an expired host premise, not a subject defect
-**Routed**: GEP-85 — the lesson lives in the `general-engineering-principles` skill; essay in git history. The self-undoing provisioning write it also produced is GEP-55.
-**Scribobulate**: the decode no-fallback oracle rides a GIF, never an APNG — whether gdk-pixbuf claims an APNG is a per-host answer. `probe_vector_dimensions` needs an SVG loader that the Linux CI job and both Linux packages now name.

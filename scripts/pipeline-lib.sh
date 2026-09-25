@@ -10,7 +10,7 @@
 # and the macOS copy checked only the first word; and the macOS copy's `report_carveouts`
 # re-implemented `carveouts_for` inline with its own `awk`. Each drift made one platform
 # quietly the lenient one, which is the exact failure `scripts/pipeline.steps` exists to
-# prevent one level down (ScrAP-207). Reconciling three divergences by hand would have
+# prevent one level down (GEP-3). Reconciling three divergences by hand would have
 # fixed three instances and left the mechanism that produced them intact. One
 # implementation removes the class.
 #
@@ -146,7 +146,7 @@ validate_contract() {
     # the running. This was found by mutation: validating only `$PLATFORM` let a garbled
     # `na.windows` line pass from Linux, so a contract defect on the platform nobody
     # happens to be running would surface only when someone finally ran it there — the
-    # exact "the platform nobody runs is the lenient one" shape that ScrAP-207 records and
+    # exact "the platform nobody runs is the lenient one" shape that GEP-3 records and
     # that this whole contract exists to prevent. Cross-platform validation makes that
     # class of gap fail everywhere, immediately, on whichever runner is invoked first.
     local id

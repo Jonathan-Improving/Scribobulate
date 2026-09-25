@@ -74,7 +74,7 @@ pub(crate) fn save_enabled(dirty: bool, backing_lost: bool) -> bool {
 ///    case). Either one already vetoes. A fourth condition that no reachable state can
 ///    be the sole cause of is dead code wearing a guard's clothes — and, being a
 ///    second sufficient mechanism, it would make the other two mutation-proof one at a
-///    time (ScrAP-254): neuter the dirty veto and the suite stays green.
+///    time (GEP-11): neuter the dirty veto and the suite stays green.
 /// 2. **The gate is barely readable by design.** `WriteGate::is_busy` has exactly ONE
 ///    sanctioned production caller, so no other caller can branch on the state and act
 ///    on it a moment later — the check-then-act race a `WritePass` exists to make

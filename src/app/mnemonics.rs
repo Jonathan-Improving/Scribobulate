@@ -381,7 +381,7 @@ mod tests {
                 popovers.iter().map(|(p, _)| p).collect::<Vec<_>>()
             );
         }
-        // ScrAP-132 guard-against-the-guard: a walker whose descent is wrong scans
+        // GEP-1 guard-against-the-guard: a walker whose descent is wrong scans
         // nothing and passes forever. Pin that the File popover really does reach
         // through `build_command_menu`'s SECTIONS to the items this issue was about.
         let file = &popovers

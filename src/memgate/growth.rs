@@ -4,7 +4,7 @@
 //! module never opens a process or a file. That is what lets the assertion
 //! itself be unit-tested with planted series — a climbing series must fail,
 //! a stepped one must pass, wherever the step lands — so a later change to the
-//! arithmetic cannot silently invert the gate (GEP-1 / ScrAP-209).
+//! arithmetic cannot silently invert the gate (GEP-1 / GEP-1).
 //!
 //! **Why not a half-mean.** This predicate replaces `mean(second half) −
 //! mean(first half)`, which cannot tell the two apart at all: one allocation
@@ -235,7 +235,7 @@ mod tests {
 
     /// TDD 6.11, second half: a per-render climb fails, and says what it
     /// measured. The reason matters — a mutation that broke the predicate could
-    /// still "fail" on the length precondition and look live (ScrAP-183).
+    /// still "fail" on the length precondition and look live (GEP-11).
     #[test]
     fn a_per_render_climb_fails_and_names_its_growth() {
         let series = climbing(13, 12_000);

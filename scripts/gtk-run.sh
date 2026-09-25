@@ -86,7 +86,7 @@
 #
 # 4. IT BOUNDS THE RUN.
 #
-# A wedged GTK suite is a real failure mode (ScrAP-166 is a whole entry about
+# A wedged GTK suite is a real failure mode (GEP-31 is a whole entry about
 # misdiagnosing one), and an unbounded step turns it into a run nobody can tell from a
 # slow one. Budgets are the caller's, and are deliberately generous: the timeout exists to
 # catch a WEDGE, not to police duration. A timeout is reported as its own distinct verdict
@@ -251,7 +251,7 @@ if [ "$rc" -eq 124 ] || { [ "$rc" -eq 137 ] && [ -n "$budget_secs" ] && [ "$elap
     echo "$label: NO VERDICT — the command did not finish within ${budget}s and was killed."
     echo "$label: this is a WEDGE, not a failure of the thing under test; the output above"
     echo "$label: is whatever it managed to print. Do not diagnose it from a parallel run"
-    echo "$label: (ScrAP-166)."
+    echo "$label: (GEP-31)."
 elif [ "$rc" -eq 137 ]; then
     echo
     echo "$label: NO VERDICT — the command was killed by SIGKILL after ${elapsed}s, BEFORE"

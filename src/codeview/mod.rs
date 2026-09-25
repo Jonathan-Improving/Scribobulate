@@ -1514,7 +1514,7 @@ mod gtk_integration_tests {
         // The fixture keeps its end of the bargain: exactly one vector populated, and
         // it is this decoration's. Without it the pixel assertion below would pass for
         // a build whose band is not in the gate at all, because some other construct
-        // had opened it (ScrAP-209's shape).
+        // had opened it (GEP-1's shape).
         use gtk::subclass::prelude::ObjectSubclassIsExt;
         let others: Vec<&str> = DRAWN_VECTORS
             .iter()
@@ -2496,7 +2496,7 @@ mod gtk_integration_tests {
         // second block is the last thing in the document, so that is not hypothetical.
         // Count the blocks actually checked and require at least one, or a fixture
         // edit that removed the abutting paragraph would leave this test green while
-        // testing nothing (ScrAP-209).
+        // testing nothing (GEP-1).
         let mut checked = 0usize;
         for cb in &blocks {
             let (_card_top, card_bottom) =

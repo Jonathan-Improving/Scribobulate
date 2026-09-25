@@ -170,7 +170,7 @@ fn main() {
 
     // ── 4. THE PIXELS ───────────────────────────────────────────────────────
     //
-    // The assertion ScrAP-184 says every one of the checks above was missing: it
+    // The assertion GEP-10 says every one of the checks above was missing: it
     // renders a real window through GSK and samples what comes out. Checks 1–3
     // all read intermediate state, and intermediate state stayed correct through
     // an entire session in which the app displayed the wrong colours.

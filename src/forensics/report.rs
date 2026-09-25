@@ -268,7 +268,7 @@ pub(crate) fn write_report(
 
     // 3. Last, because it is the least useful half on this platform: the shipped
     //    binary is stripped and the distribution's GTK carries no symbols
-    //    (ScrAP-141), so these frames resolve only as module + offset.
+    //    (GEP-15), so these frames resolve only as module + offset.
     if let Some(backtrace) = backtrace {
         writeln!(file, "\n--- backtrace ---\n{backtrace}")?;
     }
@@ -468,10 +468,10 @@ mod tests {
     /// Note what the old test suite asserted and why it could not catch this: every
     /// case moved the clock FORWARD. "Newer than the marker is announced" and "equal
     /// to the marker is not" are both true of a broken implementation; the population
-    /// the tests ranged over excluded the only inputs that discriminate (ScrAP-220).
+    /// the tests ranged over excluded the only inputs that discriminate (GEP-5).
     ///
     /// **And note what THIS test's first version could not catch either** (QA round 5,
-    /// M-2, ScrAP-209). It built the marker by hand and passed `present = [announced]`
+    /// M-2, GEP-1). It built the marker by hand and passed `present = [announced]`
     /// — omitting `after_step`, the only report whose classification is in question. The
     /// legacy-watermark branch filters `present`, so with the discriminating report left
     /// out of it there was nothing for the wrong reading to wrongly exclude, and the test

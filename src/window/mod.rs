@@ -919,7 +919,7 @@ pub(crate) mod gtk_integration_tests {
     ///
     /// `pub(super)` so every GTK test under `window/` reaches the SAME helper rather than
     /// each re-deriving one. A helper that only its own module can import is a helper the
-    /// next module will quietly reimplement, slightly differently (ScrAP-219).
+    /// next module will quietly reimplement, slightly differently (GEP-25).
     // M37's one home for this helper, re-exported at `pub(crate)` because other modules'
     // integration tests need a window built by the PRODUCTION path rather than a stand-in
     // they wired themselves — `clipboard`'s middle-click pair is exactly that distinction.

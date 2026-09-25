@@ -67,7 +67,7 @@ themselves.
   re-resolve one at retraction time"*; Document-Reference, whose whole subject is a
   reference held across time); it is stated here because it governs all of them and
   because making an operation asynchronous introduces it wholesale into code that
-  never had it (ScrAP-244).
+  never had it (GEP-43).
 - **A new row obliges a back-sweep of what already shipped, or an explicit record
   that it was not swept.** A CAM is consulted when a change lands, so a row added
   today is applied to future changes and to nothing else — every feature that shipped
@@ -724,7 +724,7 @@ Rules that give the matrix its teeth:
 - **Split every completion into subject-scoped and surface-scoped work.** Both exist:
   the swap sync and the tab badge belong to the document that was written; the status
   bar and the toast belong to whatever is on screen. Conflating them is a defect in
-  either direction (ScrAP-244).
+  either direction (GEP-43).
 - **Force the divergence in the guard, or you have not written one.** A test that
   issues the operation and asserts leaves the world unchanged, so both readings agree
   and the bug is invisible — the first guard written here survived its mutation run for
@@ -1070,7 +1070,7 @@ rule.
   earns its place by being either a frequent target or a *status display*; these are
   neither — nothing about "Rename" or "Go To Line" is worth a persistent pixel, and
   their enabled state is already legible from the menu, which greys visibly (unlike a
-  toolbar chevron, which is pixel-identical enabled and disabled — ScrAP-136).
+  toolbar chevron, which is pixel-identical enabled and disabled — GEP-41).
 
   **Every other cell of the Action CAM is satisfied** for all four: one `GAction`, one
   enabled-state source of truth, and the accelerator surfaced everywhere the SSOT

@@ -503,7 +503,7 @@ mod tile_tests {
     /// `(rect.x(), rect.y())` fails the on-grid assertion; `(rect.x(), 0.0)` fails the
     /// proximity assertion. None is visible in `RenderNode`'s `Debug`, which prints only
     /// the node's OWN bounds — identical under every anchor, so a formatted comparison
-    /// would pass whatever this code did (ScrAP-325).
+    /// would pass whatever this code did (GEP-10).
     #[gtktest::test]
     fn the_tile_grid_is_anchored_at_the_rects_x_and_a_document_grid_line() {
         let t = tex();

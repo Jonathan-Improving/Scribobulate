@@ -11,7 +11,7 @@
 //! The **constraint** — every document read goes through
 //! [`is_regular_file_within_limit`], never a comparison against these constants — is
 //! stated in `sdd/POLICY.md` § Input limits, because it binds callers rather than this
-//! module. The **reasoning** for why such a rule was needed at all is ScrAP-225.
+//! module. The **reasoning** for why such a rule was needed at all is GEP-27.
 //!
 //! This comment used to argue that case at length, which duplicated both: a module
 //! doc arguing for a policy is a second copy of the policy, and the copy is the one
@@ -300,7 +300,7 @@ const MEASURED_SAFE_DEPTH: usize = 1050;
 /// A `const` assertion rather than a `#[test]` deliberately: both operands are
 /// compile-time constants, so a runtime test could never fail on a build that
 /// compiled — it would be an assertion that cannot fail, which is exactly the
-/// ScrAP-209 shape this round is about (clippy's `assertions_on_constants`
+/// GEP-1 shape this round is about (clippy's `assertions_on_constants`
 /// says the same thing and refused the test form). As a `const` assertion it
 /// fails the BUILD, which is both stronger and honest about when the check
 /// actually happens.
@@ -320,7 +320,7 @@ mod tests {
     /// *accepted*, and then asserted the `Display` text of a hand-constructed
     /// `TooLarge` — so the branch at [`is_regular_file_within_limit`]'s size
     /// check was never executed by anything, in the module whose whole purpose
-    /// is to be the single home of that decision (`ScrAP-221` — `ScrAP-209`'s shape
+    /// is to be the single home of that decision (`GEP-9` — `GEP-1`'s shape
     /// inside the code that round wrote). Its stated excuse, that an oversized
     /// file is impractical to create, was simply false: `set_len` makes a
     /// **sparse** 64 MiB file instantly, allocating no blocks, on every

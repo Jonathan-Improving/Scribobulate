@@ -182,7 +182,7 @@ pub fn run() -> Result<bool, String> {
 /// in a different order on a different host, and a parity diff cannot tell that apart from a
 /// set that genuinely differs. The ONE difference between three ports and one binary is that
 /// this ordering is now a property of the program rather than of whichever `sort` was first
-/// on PATH (ScrAP-319).
+/// on PATH (GEP-57).
 pub fn list_scan() -> Result<String, String> {
     let repo = repo_root()?;
     let contract_text = std::fs::read_to_string(repo.join(contract::CONTRACT))

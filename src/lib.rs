@@ -102,7 +102,7 @@ pub(crate) mod memgate;
 // module was gated here, which deleted its decision function's tests from every
 // platform but the target: `cargo test --lib -- --list` reported zero cases under it
 // on the platform POLICY names as canonical. A `cfg`'d-out test is not skipped, it is
-// deleted (ScrAP-212), and `word_movement` is pure data — the one thing that has no
+// deleted (GEP-4), and `word_movement` is pure data — the one thing that has no
 // reason to be platform-bound. This is NOT the `platform/` seam rule below: that rule
 // gates a module whose every line is a platform's plumbing, and this module's decision
 // core is not.
@@ -161,7 +161,7 @@ pub(crate) mod testlog;
 pub(crate) mod testpump;
 /// Test-only. Shared symlink setup with a runtime skip, so a test whose subject is a
 /// symlink is *skipped and counted* where the platform refuses one rather than
-/// `#[cfg(unix)]`-deleted (ScrAP-212). Not gated on the GTK-suite feature: its
+/// `#[cfg(unix)]`-deleted (GEP-4). Not gated on the GTK-suite feature: its
 /// consumers are ordinary unit tests.
 #[cfg(test)]
 pub(crate) mod testsymlink;

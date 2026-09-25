@@ -120,7 +120,7 @@ pub(super) fn make_recovery_toast(window: &ApplicationWindow) -> (gtk::Box, Labe
             // Revert to what is on disk. That alone clears the dirty flag, and the
             // dirtiness choke point then removes the recovery data — so this must NOT
             // also delete it by hand, which would be the second deletion path
-            // GTK4Rs/AP-108/ScrAP-219 warn about.
+            // GTK4Rs/AP-108/GEP-25 warn about.
             super::reload::reload_from_disk(&w);
             dismiss_recovery_toast(&w);
         }

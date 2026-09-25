@@ -44,7 +44,7 @@ const SUB_ARROW: &str = "~>";
 /// `SUB_ARROW` on a bare `find`, and the regression guard that shipped with it
 /// was written against one literal opener (`{==`) — so the guard could not see
 /// the same-shape quadratic that survived under `{~~`. A guard whose pattern
-/// cannot match the surviving instance is `ScrAP-220`; parameterising it over
+/// cannot match the surviving instance is `GEP-5`; parameterising it over
 /// this table is what stops the next delimiter from repeating it.
 const PAIRS: [(&str, &str); 5] = [
     (HL_OPEN, HL_CLOSE),
@@ -658,7 +658,7 @@ mod tests {
     /// `crate::testtiming` carries the measurement.
     ///
     /// **Parameterised over [`PAIRS`], and over two input SHAPES, because the
-    /// first version of this guard was not** (`ScrAP-220`). It built its
+    /// first version of this guard was not** (`GEP-5`). It built its
     /// input as `"{==".repeat(n)` — the delimiter that had just been fixed —
     /// while an identical quadratic survived under `{~~`, whose arrow scan is
     /// only reached when a closer *is* present. The guard passed with the defect

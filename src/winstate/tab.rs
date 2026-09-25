@@ -451,7 +451,7 @@ impl TabState {
     /// (An aside earned the hard way, twice in one session: the blanket substitution that
     /// converted this file's readers to the accessor above also rewrote the accessor's own
     /// body into a call to itself. A source-transforming operation whose pattern matches
-    /// the text it produces — ScrAP-321's fourth route. Caught by the compiler both times,
+    /// the text it produces — GEP-11's fourth route. Caught by the compiler both times,
     /// which is luck rather than method.)
     ///
     /// Replace the source text, repairing it on the way in.

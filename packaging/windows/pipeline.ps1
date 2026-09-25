@@ -17,7 +17,7 @@
     POLICY never mentioned -- and nothing detected the divergence because nothing had an
     opinion about what the step list was. A port that RESTATED the list would make
     `-ListSteps` prove only that two restatements match, which two people copying the
-    same wrong list also achieve (ScrAP-207).
+    same wrong list also achieve (GEP-3).
 
     The load-bearing structural property, mirroring scripts/pipeline.sh: `Get-DerivedStepIds`
     is the ONLY producer of the ordered step list, and BOTH -ListSteps and the run loop
@@ -27,7 +27,7 @@
     THE CONTRACT IS VALIDATED IN FULL, FOR EVERY DECLARED PLATFORM, from this runner --
     not just for Windows. Validating only the running platform is what let a garbled
     `na.windows` line pass cleanly from Linux: the platform nobody runs becomes the
-    lenient one, which is ScrAP-207's shape reproduced inside the artefact built to
+    lenient one, which is GEP-3's shape reproduced inside the artefact built to
     prevent it. Cross-platform validation makes that class of gap fail on whichever
     runner is invoked first.
 
@@ -669,7 +669,7 @@ function Invoke-SelfTest {
     # string for one that is PRESENT AND EMPTY. So a `$null -ne $after` test asks a
     # question whose answer depends on which engine is running it, and this file is run
     # by two: 5.1 locally, pwsh 7 in the `contract (windows)` job. That is exactly the
-    # divergence ScrAP-207 is about, arriving inside the self-test rather than in the
+    # divergence GEP-3 is about, arriving inside the self-test rather than in the
     # thing it tests.
     #
     # cmd.exe has no such ambiguity: an unexpanded `%VAR%` means the variable does not
@@ -1616,7 +1616,7 @@ function Invoke-SetupPhase {
     # source tree were corrupt. [Environment]::SetEnvironmentVariable(..., $null) does NOT
     # work: it leaves the variable defined-but-empty, which cmd still honours, and
     # `$env:VAR` reads empty either way so the check that "confirms" the fix cannot detect
-    # the broken case. Only Remove-Item actually deletes it. ScrAP-165.
+    # the broken case. Only Remove-Item actually deletes it. GEP-30.
     #
     # It matters more now, not less: every contract command is dispatched through `cmd /c`.
     Remove-Item Env:NoDefaultCurrentDirectoryInExePath -ErrorAction SilentlyContinue

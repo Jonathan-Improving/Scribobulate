@@ -1105,7 +1105,7 @@ mod tests {
     /// implementation had, so it asserted the code against itself and passed happily
     /// while the real fill drifted `#EEEFEF` → `#EBEBEB`. A manual screenshot diff
     /// caught that, not this test — a test that re-derives its own expectation cannot
-    /// detect a wrong INPUT (ScrAP-132's family).
+    /// detect a wrong INPUT (GEP-1's family).
     ///
     /// The header fill is asserted because it is a large flat region that screenshots
     /// reliably. The 1px border is deliberately NOT pinned to a sampled byte — it

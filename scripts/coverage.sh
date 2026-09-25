@@ -197,7 +197,7 @@ cd "$(dirname "$0")/.."
 # unit tests, in scope and at 99.26%. That is the extraction the scope rule asks for
 # working as intended, not a windfall.
 #
-# RAISED 76.77 -> 76.86 by the ScrAP-265 fatal-handler test-hygiene fix. 76.87 printed,
+# RAISED 76.77 -> 76.86 by the GEP-54 fatal-handler test-hygiene fix. 76.87 printed,
 # rounded DOWN per the rule above. Recorded only because the direction is the opposite of
 # what the note two paragraphs up would predict: the change adds no product code at all —
 # it is a test-only RAII guard plus its guard test — and `forensics/` is deliberately IN
@@ -215,7 +215,7 @@ cd "$(dirname "$0")/.."
 # the mechanism working.
 #
 # RAISED 76.96 -> 77.01 by the GTK4Rs/AP-268 SIGTRAP fix. 77.02 printed, rounded DOWN per
-# the rule above. Test-weighted again, and for the ScrAP-265 reason two notes up:
+# the rule above. Test-weighted again, and for the GEP-54 reason two notes up:
 # `forensics/` is in scope, the product change is two lines (`SIGTRAP` in the const, its
 # name in `signal_name`), and everything else is test bodies landing in the numerator.
 #

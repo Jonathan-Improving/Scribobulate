@@ -40,7 +40,7 @@ pub(crate) fn config() -> &'static Config {
 /// Only the FALLBACK is platform-specific: `HOME` is a POSIX convention Windows does
 /// not set, so assuming it there made this return `None` forever and the user's
 /// `config.toml` — and their `themes.toml` overrides, which come through here — were
-/// unreachable (ScrAP-167). The snapshot-before-redirect discipline above is unchanged
+/// unreachable (GEP-42). The snapshot-before-redirect discipline above is unchanged
 /// and still applies on every platform; the Windows branch simply has no redirect to
 /// race, since `workaround.rs` is `#[cfg(unix)]`.
 pub(crate) fn user_config_dir() -> Option<PathBuf> {
@@ -53,7 +53,7 @@ pub(crate) fn user_config_dir() -> Option<PathBuf> {
                 // This went unnoticed through an entire platform port because it
                 // returned None in silence: indistinguishable from "the user has
                 // no config file", so the app just used defaults and never said
-                // why (ScrAP-167). `get_or_init` runs once, so this cannot become
+                // why (GEP-42). `get_or_init` runs once, so this cannot become
                 // log spam.
                 log::warn!(
                     "no user config directory could be located \

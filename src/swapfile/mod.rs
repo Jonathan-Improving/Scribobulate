@@ -25,7 +25,7 @@
 //! exist, so its swap goes. Implementing the invariant at the single place dirtiness is recomputed — rather
 //! than teaching each of save / save-as / discard / reload / revert its own deletion
 //! rule — is what makes every *future* path that changes dirtiness correct without being
-//! individually taught (POLICY § "one path, not two"; GTK4Rs/AP-108, ScrAP-219).
+//! individually taught (POLICY § "one path, not two"; GTK4Rs/AP-108, GEP-25).
 //!
 //! Two properties fall out of the invariant for free, and both are load-bearing
 //! elsewhere:
@@ -150,7 +150,7 @@ pub(crate) struct SwapHeader {
 /// Reached through [`crate::session::state_directory`] — the single lookup in the tree
 /// for the user state directory — rather than resolving XDG again here. That is not
 /// merely tidiness: it inherits the Windows/macOS fallback and the warn-once behaviour
-/// that ScrAP-167 exists to preserve, both of which a second lookup would have to
+/// that GEP-42 exists to preserve, both of which a second lookup would have to
 /// re-derive and would eventually get wrong.
 ///
 /// **State, not config.** TECH.md's platform notes state the rule this follows outright

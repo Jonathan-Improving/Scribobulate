@@ -102,7 +102,7 @@ pub fn legacy_gtk_test_attribute(tree: &Tree) -> bool {
 /// told them to. QA round 4 found `sdd/POLICY.md` instructing `#[gtk::test]` in its testing
 /// section while check 5 rejected that exact attribute: two artifacts, each internally
 /// correct, enforcing opposite things, and neither able to detect the other. A reader
-/// obeying the written rule was punished by the automated one (ScrAP-222).
+/// obeying the written rule was punished by the automated one (GEP-26).
 ///
 /// THE DISCRIMINATOR, and the reason this is not a blanket grep: these documents MUST be
 /// able to name the banned attribute — the paragraph explaining why it is banned says it
@@ -110,7 +110,7 @@ pub fn legacy_gtk_test_attribute(tree: &Tree) -> bool {
 /// USE, and so guaranteed to be disabled. A legitimate mention always contrasts the two
 /// attributes; a stale PRESCRIPTION stands alone.
 ///
-/// THE INPUT SET IS HALF THIS GATE (ScrAP-207): only documents that INSTRUCT are scanned,
+/// THE INPUT SET IS HALF THIS GATE (GEP-3): only documents that INSTRUCT are scanned,
 /// and the set comes from the contract's `prescriptive` class, not a literal here.
 /// `sdd/ANTI-PATTERNS.md` and the review reports are excluded on purpose — the register
 /// DESCRIBES a past state and a report QUOTES the defect verbatim, which is the point of a
@@ -164,7 +164,7 @@ pub fn legacy_attribute_prescribed(tree: &Tree) -> bool {
 ///
 /// INPUT SET IS `git ls-files`, DELIBERATELY — not the scan contract. The scan is a curated
 /// list and that file landed in the repo ROOT, outside it; a check whose input set is
-/// narrower than its hazard is ScrAP-132's species.
+/// narrower than its hazard is GEP-1's species.
 ///
 /// PLANTING A TEST CASE IS PLATFORM-SPECIFIC, and the platform this check defends fights
 /// hardest against arming it. On Linux/macOS: `touch 'bad|name.txt' && git add`. On Windows
