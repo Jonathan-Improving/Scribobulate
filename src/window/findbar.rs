@@ -18,6 +18,23 @@
 //! QA round-1 H2: it resolves its target window AND label fresh from the tab's own `content_box` on every fire (`tabs::resolve_tab_window` + `winstate::chrome`) instead of a captured `window`/`match_count_label` pair, which would go stale the moment the tab moves to a different window.
 use super::*;
 
+/// Whether the window-level Escape handler should claim the key, given the
+/// revealer's state *after* `close_find_bar()` has already been called.
+///
+/// `Propagation::Stop` only on evidence the bar actually closed — never on the
+/// assumption that calling close was enough. See the handler's own doc comment
+/// in `wire_find_bar` for the full argument.
+pub(super) fn decide_after_close_attempt(
+    reveals_child: bool,
+    is_child_revealed: bool,
+) -> glib::Propagation {
+    if reveals_child || is_child_revealed {
+        glib::Propagation::Proceed
+    } else {
+        glib::Propagation::Stop
+    }
+}
+
 /// Wire the window-shared find bar widgets carried in `chrome`. Every closure
 /// looks the active tab's search engine up fresh via `state(window)`, so this
 /// takes no per-tab `search_context` — a tab's own `occurrences-count` handler
@@ -212,15 +229,19 @@ pub(super) fn wire_find_bar(window: &ApplicationWindow, chrome: &Chrome) {
                 return glib::Propagation::Proceed;
             }
             cfb();
-            if fr.reveals_child() {
+            // Both properties, matching the handler doc comment above: closes a
+            // latent gap versus the old single-`reveals_child` check, intentionally —
+            // a desync here is "the other shape the wedge above could take."
+            let propagation =
+                decide_after_close_attempt(fr.reveals_child(), fr.is_child_revealed());
+            if propagation == glib::Propagation::Proceed {
                 // It did not take. Decline, so Escape stays available to everything
                 // else rather than being consumed by a handler that achieved nothing.
                 log::warn!(
                     "find: Escape did not close the find bar; leaving the key to other handlers"
                 );
-                return glib::Propagation::Proceed;
             }
-            glib::Propagation::Stop
+            propagation
         });
         window.add_controller(key_ctrl);
     }
@@ -856,4 +877,71 @@ pub(crate) fn refresh_preview_find_highlight(window: &ApplicationWindow) {
     // missed, which is why the fix routes the whole refresh rather than adding a second
     // call beside it.
     refresh_find(window, &st);
+}
+
+// The decision function above is pure — plain booleans in, `glib::Propagation` out —
+// so its truth table is pinned here directly rather than through a live revealer. See
+// Task 2 of the Escape-wedge spec: a real `GtkRevealer`'s `set_reveal_child(false)`
+// updates `reveals_child()` synchronously, so the "did not close" combinations below
+// are not reachable through a live widget at all — this is the ONLY coverage of them,
+// not a supplement to a GTK-driven one (`macwordnav.rs`'s split is the precedent for
+// keeping a pure decision's tests display-free and separate from its wiring's). Sited
+// at the end of the file, after every other item, per `clippy::items_after_test_module`.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_bar_that_is_fully_closed_yields_stop() {
+        // Both the target and the drawn state agree the bar is down — the plain,
+        // ordinary "it worked" case. This is the only combination that may return
+        // `Stop`; every other one below pins a way it could fail to.
+        assert_eq!(
+            decide_after_close_attempt(false, false),
+            glib::Propagation::Stop,
+            "a fully closed bar (reveals_child=false, is_child_revealed=false) must let \
+             the handler claim Escape"
+        );
+    }
+
+    #[test]
+    fn the_target_still_says_open_after_close_was_called() {
+        // `close_find_bar()` ran and set `reveal_child(false)`, but the property reads
+        // back `true` regardless — a plain failure to close, the wedge's most direct
+        // shape. Returning `Stop` here would swallow Escape for good with the bar still
+        // showing.
+        assert_eq!(
+            decide_after_close_attempt(true, false),
+            glib::Propagation::Proceed,
+            "reveals_child=true after a close attempt means the close did not take; the \
+             handler must decline rather than assume it worked"
+        );
+    }
+
+    #[test]
+    fn the_drawn_state_still_shows_it_after_the_target_flipped() {
+        // `reveals_child` (target) says closed but `is_child_revealed` (drawn) still
+        // says open — the slide animation mid-flight, or the two properties desynced
+        // outright. Either way the reader can still see a bar on screen, which is the
+        // handler's own definition of "showing."
+        assert_eq!(
+            decide_after_close_attempt(false, true),
+            glib::Propagation::Proceed,
+            "is_child_revealed=true means a bar is still drawn on screen (animation in \
+             flight, or a target/drawn desync) — Escape must stay available to whatever \
+             else wants it"
+        );
+    }
+
+    #[test]
+    fn both_properties_still_say_open() {
+        // The least ambiguous non-closed case: target and drawn state agree the bar is
+        // still up, so there is no argument that closing did anything at all.
+        assert_eq!(
+            decide_after_close_attempt(true, true),
+            glib::Propagation::Proceed,
+            "both revealer properties reporting open must decline — there is no evidence \
+             here that the close attempt had any effect"
+        );
+    }
 }

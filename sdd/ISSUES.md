@@ -531,8 +531,9 @@ swallows Escape again — for every other consumer in the window, for the life o
 process, which is exactly the reported shape. The handler now re-reads the revealer and
 **declines** when the bar did not close, and asks both `reveals_child` and
 `child_revealed` so a desync between the target and drawn states cannot hide the bar from
-it either. **This bounds the blast radius; it is not a diagnosis.** Neither mechanism has
-been shown to be what happened.
+it either (the decision itself is `findbar::decide_after_close_attempt`). **This bounds
+the blast radius; it is not a diagnosis.** Neither mechanism has been shown to be what
+happened.
 
 **The evidence from the one occurrence is gone**, and the way it was lost is worth
 keeping: the seat reset an isolated `HOME` to clear session state before replaying, which

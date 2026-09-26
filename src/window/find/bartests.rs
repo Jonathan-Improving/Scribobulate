@@ -957,6 +957,97 @@ fn each_field_offers_that_tabs_own_recent_entries() {
     win.destroy();
 }
 
+/// **Escape closes the find bar, and the bar reopens and closes again afterwards** —
+/// the shipped bounding behaviour's happy path (TDD 11.11/11.5a).
+///
+/// **What this test can and cannot exercise, stated plainly rather than glossed over,
+/// following `redirect_navigation_key`'s own convention in `codeview/navkeys.rs` for
+/// exactly this gap.** The claim this guards — that the window-level bubble-phase
+/// Escape handler in `wire_find_bar` declines (`Propagation::Proceed`) rather than
+/// swallows the key when the bar fails to close, so Escape stays available to whatever
+/// opened after it — has two halves, and only one is reachable from here:
+///
+/// - **The decline arm's precondition — "the bar failed to close" — cannot be
+///   reproduced through a real `GtkRevealer`.** `set_reveal_child(false)` updates
+///   `reveals_child()` synchronously (measured against the widget this handler reads),
+///   so there is no way to drive `close_find_bar()` and observe the post-close reveal
+///   state as anything but fully closed; the four-way truth table this handler's
+///   decision reduces to is pinned exhaustively instead by
+///   [`super::super::findbar::tests`]'s four `decide_after_close_attempt` cases —
+///   `(false, false)`, `(true, false)`, `(false, true)` and `(true, true)` — which is
+///   the ONLY coverage of that arm, not a supplement to a GTK-driven one.
+/// - **Cross-widget bubble-phase routing — "did a DIFFERENT consumer take Escape
+///   first" — has no synthetic-event path in this suite at all.** No test anywhere in
+///   this tree synthesises a real GDK key event through the widget tree (the same gap
+///   `redirect_navigation_key`'s module doc names for its own capture-phase handler);
+///   the only place that claim is actually exercised end to end, on a mapped and
+///   focused window, is the manual script at `tests/MANUAL-TEST.md` §11.5a.
+///
+/// What IS exercised here, live: the bar opens on `win.find`, is genuinely revealed,
+/// closes via the same `close_find_bar` the Escape handler calls, is genuinely no
+/// longer revealed afterward, and — mirroring §11.5a's own structure of staging a
+/// second Escape-bound surface (a menu, a toolbar drop-down, the annotation card) —
+/// this file's own history drop-down (a `GtkMenuButton` popover, already exercised by
+/// `each_field_offers_that_tabs_own_recent_entries`) still opens and closes normally
+/// with the bar closed beneath it, protecting the ordinary mechanics `wire_find_bar`
+/// wires from a regression that would otherwise only surface in the manual run.
+#[gtktest::test]
+fn escape_closes_the_bar_and_a_later_history_popover_still_works() {
+    let app = test_app("com.extollit.scribobulate.integrationtest.findescapehappy");
+    let win = crate::window::new_window(&app, "IT-findescapehappy", MD, None);
+    let st = state(&win).expect("the window has an active tab");
+    let revealer = st.chrome().find_bar_revealer.clone();
+
+    crate::window::actions::simple_action(&win, "find")
+        .expect("win.find is registered")
+        .activate(None);
+    crate::testpump::until(
+        crate::testpump::Clock::Frame,
+        "the find bar's slide-open transition to finish",
+        || revealer.reveals_child() && revealer.is_child_revealed(),
+    );
+
+    // The same signal `find_entry`'s own Escape keybinding fires
+    // (`connect_stop_search`, wired directly to `close_find_bar` in `wire_find_bar`) —
+    // driving it directly is legitimate here because this leg is about the CLOSE
+    // mechanics the handler depends on, not about the handler's own decision (that is
+    // Task 2's truth table, and the cross-widget routing decision is untestable here
+    // at all, per the doc comment above).
+    st.chrome().find_entry.emit_stop_search();
+    crate::testpump::until(
+        crate::testpump::Clock::Frame,
+        "the find bar's slide-closed transition to finish",
+        || !revealer.reveals_child() && !revealer.is_child_revealed(),
+    );
+
+    // A second Escape-bound surface, opened and closed normally with the bar down —
+    // the happy-path half of §11.5a's own structure, automated.
+    let find_btn = st.chrome().find_history_btn.clone();
+    // No history has been committed in this fresh tab, so the popover has nothing to
+    // show; what is asserted is that opening and closing it works at all with the find
+    // bar closed, not its content (that is `each_field_offers_that_tabs_own_recent_entries`'s
+    // job).
+    find_btn.popup();
+    crate::testpump::drain_for(
+        crate::testpump::Clock::Idle,
+        std::time::Duration::from_millis(150),
+    );
+    find_btn.popdown();
+
+    // Reopening the bar afterward must work exactly as the first open did — Escape
+    // having run once must not have left the revealer or the action in a state that
+    // only tolerates being opened a single time.
+    crate::window::actions::simple_action(&win, "find")
+        .expect("win.find is registered")
+        .activate(None);
+    crate::testpump::until(
+        crate::testpump::Clock::Frame,
+        "the find bar to reopen after an earlier close",
+        || revealer.reveals_child() && revealer.is_child_revealed(),
+    );
+    win.destroy();
+}
+
 /// **The find field is selected BEFORE it is focused, never after** (TDD 11.1).
 ///
 /// Not a style preference — it is a toolkit invariant. `gtk_text_focus_changed`
