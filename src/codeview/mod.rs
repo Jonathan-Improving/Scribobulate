@@ -163,6 +163,11 @@ mod imp {
         /// Last content-column width applied; the idempotent guard that keeps the
         /// `size_allocate` rebind from looping.
         pub(crate) last_content_width: Cell<i32>,
+        /// How many times `measure` has run. GTK re-measures a widget only after a
+        /// `queue_resize`, never after a bare `queue_allocate`, so this tells the two
+        /// requests apart (TDD 7.28).
+        #[cfg(all(test, feature = "gtk-integration-tests"))]
+        pub(crate) measures: Cell<u32>,
         /// Last raw ALLOCATION width seen in `size_allocate`. Distinct from
         /// `last_content_width` (= width − margins): a horizontal resize changes the
         /// allocation width and re-wraps the text (Reading-Position Preservation CAM,
@@ -399,6 +404,8 @@ mod imp {
                 image_bounded: RefCell::new(Vec::new()),
                 restore_generation: Cell::new(0),
                 last_content_width: Cell::new(-1),
+                #[cfg(all(test, feature = "gtk-integration-tests"))]
+                measures: Cell::new(0),
                 last_alloc_width: Cell::new(-1),
                 restore_target_line: Cell::new(None),
                 user_scrolling: Cell::new(false),
@@ -486,6 +493,13 @@ mod imp {
     pub(crate) type ScrollWork = Box<dyn FnOnce(&super::CodePreviewView)>;
 
     impl WidgetImpl for CodePreviewView {
+        /// Test builds only: a pass-through that counts re-measures (TDD 7.28).
+        #[cfg(all(test, feature = "gtk-integration-tests"))]
+        fn measure(&self, orientation: gtk::Orientation, for_size: i32) -> (i32, i32, i32, i32) {
+            self.measures.set(self.measures.get() + 1);
+            self.parent_measure(orientation, for_size)
+        }
+
         fn size_allocate(&self, width: i32, height: i32, baseline: i32) {
             // Re-bound the anchored block children BEFORE chaining up — using the
             // INCOMING allocation `width`, not the post-chain-up hadjustment page_size
@@ -1027,7 +1041,10 @@ impl CodePreviewView {
         let imp = self.imp();
         imp.width_bounded.replace(items);
         imp.last_content_width.set(-1); // force a re-apply on the next allocation
-        self.queue_allocate();
+
+        // A resize, never a bare allocate: GTK 4.6 can swallow the latter and leave
+        // the split view undrawn while typing (TDD 7.28, GTK4Rs/AP-104).
+        self.queue_resize();
     }
 
     /// Register this render's anchored images — each `(picture, max_w, max_h)` is the
@@ -1042,7 +1059,10 @@ impl CodePreviewView {
         imp.image_zoom.set(zoom);
         imp.image_bounded.replace(items);
         imp.last_content_width.set(-1); // force a re-apply on the next allocation
-        self.queue_allocate();
+
+        // A resize, never a bare allocate: GTK 4.6 can swallow the latter and leave
+        // the split view undrawn while typing (TDD 7.28, GTK4Rs/AP-104).
+        self.queue_resize();
     }
 
     /// Register this render's custom table widgets. `size_allocate` gives each its
@@ -1053,7 +1073,10 @@ impl CodePreviewView {
         let imp = self.imp();
         imp.tables.replace(tables);
         imp.last_content_width.set(-1); // force a re-apply on the next allocation
-        self.queue_allocate();
+
+        // A resize, never a bare allocate: GTK 4.6 can swallow the latter and leave
+        // the split view undrawn while typing (TDD 7.28, GTK4Rs/AP-104).
+        self.queue_resize();
     }
 
     /// The width-bounded children this view is currently holding — the read-back half

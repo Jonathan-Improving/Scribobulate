@@ -678,6 +678,59 @@ mod gtk_integration_tests {
             "the released scroll must run against a real allocation, ran at {ran_height:?}"
         );
     }
+
+    /// **Registering a render's bounded children asks for a resize, not just an
+    /// allocation (TDD 7.28).** Every preview render calls all three setters, and in
+    /// split mode that is every debounced keystroke. On GTK 4.6 a bare `queue_allocate`
+    /// can be swallowed by an ancestor already marked as having a child to allocate, and
+    /// that ancestor is then skipped at paint: the whole tab area blanked for up to a
+    /// second while typing (MEASURED under Xvfb: blank frames in 3 of 3 typing runs
+    /// before, 0 of 3 after). The stranded ancestor could not be planted in a bare test
+    /// window (GTK4Rs/AP-104), so this asserts the request: GTK re-measures a widget only
+    /// after `queue_resize`. The in-body control pins that premise, so the test cannot
+    /// pass merely because something else re-measured the view.
+    #[gtktest::test]
+    fn registering_bounded_children_asks_for_a_resize_not_just_an_allocation() {
+        use gtk::subclass::prelude::ObjectSubclassIsExt;
+        let (view, _sw, window, _ctx) = mapped_view(20);
+        let settle = std::time::Duration::from_millis(300);
+        let measures = |v: &CodePreviewView| v.imp().measures.get();
+
+        crate::testpump::drain_for(crate::testpump::Clock::Frame, settle);
+        let before = measures(&view);
+        #[allow(clippy::disallowed_methods)] // the control needs the banned request itself
+        view.queue_allocate();
+        crate::testpump::drain_for(crate::testpump::Clock::Frame, settle);
+        assert_eq!(
+            measures(&view),
+            before,
+            "control: a bare queue_allocate must not re-measure, or this test proves nothing"
+        );
+
+        type Setter = fn(&CodePreviewView);
+        let setters: [(&str, Setter); 3] = [
+            ("set_width_bounded", |v| v.set_width_bounded(Vec::new())),
+            ("set_image_bounded", |v| {
+                v.set_image_bounded(Vec::new(), 1.0)
+            }),
+            ("set_tables", |v| v.set_tables(Vec::new())),
+        ];
+        for (name, set) in setters {
+            let before = measures(&view);
+            set(&view);
+            let remeasured = crate::testpump::until_or_for(
+                crate::testpump::Clock::Frame,
+                std::time::Duration::from_secs(2),
+                || measures(&view) > before,
+            );
+            assert!(
+                remeasured,
+                "{name} must ask for a resize: a bare allocation request can be swallowed \
+                 by an ancestor on GTK 4.6 and leave the split view undrawn"
+            );
+        }
+        window.destroy();
+    }
 }
 
 #[cfg(test)]

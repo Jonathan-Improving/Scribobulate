@@ -1123,6 +1123,12 @@
 - **When** the user drags a tab off its window's strip and releases it over empty desktop space
 - **Then** a new window opens containing that tab (same outcome as 7.10 on X11 and 7.16 on macOS)
 
+### 7.28 The split view stays drawn while typing
+- **Given** a new, unsaved document in split mode (any arrangement)
+- **When** the reader types steadily, with pauses both shorter and longer than the live-preview delay
+- **Then** the tab strip, the preview and the editor are drawn on every frame — never blank, not even briefly — and no `Trying to snapshot … without a current allocation` warning appears
+- **And** each preview re-render asks for the view to be re-measured, not merely re-allocated
+
 ## 8. Single-instance lifecycle
 
 > One process, many windows. Launching the app repeatedly must not spawn

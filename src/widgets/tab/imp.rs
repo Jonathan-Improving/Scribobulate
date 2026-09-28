@@ -144,6 +144,8 @@ impl ObjectImpl for TabBar {
                             // one synchronously adjusting the value (via
                             // `configure`) — it's already mid-layout.
                             if !bar.imp().block_scrolling.get() {
+                                // Per scroll step; the next step re-issues it (clippy.toml).
+                                #[allow(clippy::disallowed_methods)]
                                 bar.queue_allocate();
                             }
                         }

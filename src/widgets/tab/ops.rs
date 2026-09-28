@@ -458,6 +458,7 @@ impl TabBar {
         // Animation is position-only — `queue_allocate`, never `queue_resize`
         // (the retired tab-widget plan gotcha #4: a per-frame `queue_resize` re-measures
         // everything and can loop).
+        #[allow(clippy::disallowed_methods)] // per-frame tick; the next frame re-issues it
         self.queue_allocate();
 
         if settled {

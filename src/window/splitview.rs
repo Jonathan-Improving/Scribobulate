@@ -604,9 +604,10 @@ impl SplitView {
         let delta = if vertical { off_y } else { off_x };
         let first_len = (imp.drag_anchor.get() + delta).clamp(0.0, avail);
         imp.fraction.set(first_len / avail);
-        // Size hasn't changed — only where the divider sits — so re-allocate
-        // rather than re-measure (the clamp against pane minima happens in
-        // `size_allocate`, so an over-drag simply pins at the limit).
-        self.queue_allocate();
+        // Only where the divider sits changed, but ask for a resize anyway: a bare
+        // `queue_allocate` can be dropped on GTK 4.6 and leave the panes undrawn
+        // (GTK4Rs/AP-104). The clamp against pane minima happens in `size_allocate`,
+        // so an over-drag simply pins at the limit.
+        self.queue_resize();
     }
 }
