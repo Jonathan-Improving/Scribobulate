@@ -3,19 +3,112 @@
 //! from the selection), then splices the returned string in as one undo step. The
 //! parsers ([`parse_link`], [`parse_image`]) detect when the selection is already
 //! exactly one link/image so the dialog EDITs it rather than re-wrapping.
+//!
+//! **The builders and the parsers are inverses, and both are judged by the Markdown
+//! parser, not by string shape.** A destination and a title are *data* the user typed
+//! (or Browse chose), so they are written in whatever form CommonMark reads back as
+//! exactly that value — a destination holding a space goes in `<…>`, a title holding a
+//! `"` is escaped. A caption / alt is Markdown source and is written verbatim. The
+//! tests assert the round trip through `pulldown_cmark` itself: string-shape tests
+//! alone once passed while every inserted path containing a space came out as literal
+//! text instead of an image.
 
-/// `[caption](url)` inline-link markup.
-pub(crate) fn link_markup(caption: &str, url: &str) -> String {
-    format!("[{caption}]({url})")
+use pulldown_cmark::{Event, LinkType, Parser, Tag, TagEnd};
+
+/// `[caption](url)` inline-link markup, or `[caption](url "title")` when a title is
+/// given (Insert Link has no title field; Edit Link carries an existing one through).
+pub(crate) fn link_markup(caption: &str, url: &str, title: &str) -> String {
+    format!("[{caption}]({})", dest_and_title(url, title))
 }
 
 /// Image markup: `![alt](url)`, or `![alt](url "title")` when a title is given.
 pub(crate) fn image_markup(alt: &str, url: &str, title: &str) -> String {
+    format!("![{alt}]({})", dest_and_title(url, title))
+}
+
+/// The inside of a link's `(…)`: the destination, then ` "title"` when there is one.
+fn dest_and_title(url: &str, title: &str) -> String {
+    let dest = markdown_destination(url);
     if title.is_empty() {
-        format!("![{alt}]({url})")
-    } else {
-        format!("![{alt}]({url} \"{title}\")")
+        return dest;
     }
+    let title = escape_ascii_punct_after_backslash(title, &['"']);
+    // `( "t")` is not a link at all: an empty destination beside a title must be
+    // written in the pointy form.
+    let dest = if dest.is_empty() {
+        "<>".to_string()
+    } else {
+        dest
+    };
+    format!("{dest} \"{title}\"")
+}
+
+/// `url` as a CommonMark link destination that parses back to exactly `url`.
+///
+/// The bare form is kept whenever it is valid (the common case, and the readable
+/// one); otherwise the pointy form `<…>`, which admits spaces and unbalanced
+/// parentheses. Nothing is percent-encoded: this is a value the user may have typed,
+/// and only a path Browse produced is known to be a path (`links::percent_encode_path`
+/// records why encoding a typed value is unsafe). Line breaks cannot be represented
+/// in either form and are dropped — the field they arrive from is one line.
+fn markdown_destination(url: &str) -> String {
+    let url: String = url.chars().filter(|c| !matches!(c, '\n' | '\r')).collect();
+    // An empty destination is valid bare (`[text]()`), and the pointy form would
+    // only add noise.
+    let bare_ok = url.is_empty()
+        || (!url.starts_with('<')
+            && !url.chars().any(|c| c == ' ' || c.is_ascii_control())
+            && parens_balanced(&url));
+    if bare_ok {
+        escape_ascii_punct_after_backslash(&url, &[])
+    } else {
+        format!(
+            "<{}>",
+            escape_ascii_punct_after_backslash(&url, &['<', '>'])
+        )
+    }
+}
+
+/// Unescaped parentheses in `s` nest and close in order — the condition under which
+/// a bare destination may contain them.
+fn parens_balanced(s: &str) -> bool {
+    let mut depth = 0usize;
+    let mut escaped = false;
+    for c in s.chars() {
+        match c {
+            _ if escaped => escaped = false,
+            '\\' => escaped = true,
+            '(' => depth += 1,
+            ')' => match depth.checked_sub(1) {
+                Some(d) => depth = d,
+                None => return false,
+            },
+            _ => {}
+        }
+    }
+    depth == 0
+}
+
+/// `s` with each char in `specials` backslash-escaped, and each backslash that
+/// Markdown would otherwise read as an escape doubled — one followed by ASCII
+/// punctuation, or ending the string (where it would escape the closing delimiter).
+/// A backslash before anything else is already literal and is left alone, so a
+/// Windows path `C:\Users\x.png` stays as written.
+fn escape_ascii_punct_after_backslash(s: &str, specials: &[char]) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    let mut out = String::with_capacity(s.len());
+    for (i, &c) in chars.iter().enumerate() {
+        if c == '\\' {
+            let next = chars.get(i + 1);
+            if next.is_none_or(|n| n.is_ascii_punctuation()) {
+                out.push('\\');
+            }
+        } else if specials.contains(&c) {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
 }
 
 /// A GFM table skeleton: a header row (`first_cell` in column 1, the rest blank),
@@ -47,32 +140,82 @@ pub(crate) fn table_markup(cols: usize, rows: usize, first_cell: &str) -> String
     out
 }
 
-/// If `s` is **exactly** one inline link `[caption](url)` (trimmed, nothing else),
-/// return `(caption, url)`. Image markup (`![…]`) or any surrounding text returns
-/// `None` — so the Insert Link command edits an existing link but treats a plain or
-/// mismatched selection as a new caption.
-pub(crate) fn parse_link(s: &str) -> Option<(String, String)> {
-    let inner = s.trim().strip_prefix('[')?.strip_suffix(')')?;
-    let (caption, url) = inner.split_once("](")?;
-    if caption.contains('[') || caption.contains(']') {
-        return None;
-    }
-    Some((caption.to_string(), url.to_string()))
+/// If `s` is **exactly** one inline link `[caption](url)` / `[caption](url "title")`
+/// (trimmed, nothing else), return `(caption, url, title)`. Image markup (`![…]`), a
+/// caption holding another link or image, or any surrounding text returns `None` — so
+/// the Insert Link command edits an existing link but treats a plain or mismatched
+/// selection as a new caption.
+pub(crate) fn parse_link(s: &str) -> Option<(String, String, String)> {
+    parse_one_inline(s, false)
 }
 
 /// If `s` is **exactly** one image `![alt](url)` or `![alt](url "title")` (trimmed),
 /// return `(alt, url, title)`. Link markup or surrounding text returns `None`.
 pub(crate) fn parse_image(s: &str) -> Option<(String, String, String)> {
-    let inner = s.trim().strip_prefix("![")?.strip_suffix(')')?;
-    let (alt, rest) = inner.split_once("](")?;
-    if alt.contains('[') || alt.contains(']') {
+    parse_one_inline(s, true)
+}
+
+/// The shared parser behind [`parse_link`] / [`parse_image`], delegated to the
+/// Markdown parser so it reads every destination form the builders write (`<…>`,
+/// escapes, balanced parentheses) exactly as the preview will. The url and title come
+/// back unescaped (values); the caption / alt comes back as its raw source, because
+/// the builders write it verbatim.
+///
+/// The cheap shape test runs first: this backs the Insert↔Edit relabel, which runs on
+/// every selection change, and a selection that cannot be one construct is refused
+/// without parsing it.
+fn parse_one_inline(s: &str, image: bool) -> Option<(String, String, String)> {
+    let t = s.trim();
+    let open = if image { "![" } else { "[" };
+    if !t.starts_with(open) || !t.ends_with(')') {
         return None;
     }
-    let (url, title) = match rest.split_once(" \"") {
-        Some((u, t)) => (u, t.strip_suffix('"')?),
-        None => (rest, ""),
+    let mut events = Parser::new(t).into_offset_iter();
+    if !matches!(events.next(), Some((Event::Start(Tag::Paragraph), _))) {
+        return None;
+    }
+    let (dest, title) = match events.next()? {
+        (
+            Event::Start(Tag::Image {
+                link_type,
+                dest_url,
+                title,
+                ..
+            }),
+            r,
+        ) if image && link_type == LinkType::Inline && r == (0..t.len()) => (dest_url, title),
+        (
+            Event::Start(Tag::Link {
+                link_type,
+                dest_url,
+                title,
+                ..
+            }),
+            r,
+        ) if !image && link_type == LinkType::Inline && r == (0..t.len()) => (dest_url, title),
+        // dispatch-selector: a predicate, not a renderer — anything but the one expected
+        // construct means the selection is not exactly one link/image, so nothing is dropped.
+        _ => return None,
     };
-    Some((alt.to_string(), url.to_string(), title.to_string()))
+    // Walk the caption to the construct's own end, refusing a nested link or image.
+    let mut caption_end = open.len();
+    loop {
+        match events.next()? {
+            (Event::End(TagEnd::Image | TagEnd::Link), _) => break,
+            (Event::Start(Tag::Image { .. } | Tag::Link { .. }), _) => return None,
+            (_, r) => caption_end = caption_end.max(r.end),
+        }
+    }
+    if !matches!(events.next(), Some((Event::End(TagEnd::Paragraph), _))) || events.next().is_some()
+    {
+        return None;
+    }
+    let close = caption_end + t[caption_end..].find(']')?;
+    Some((
+        t[open.len()..close].to_string(),
+        dest.to_string(),
+        title.to_string(),
+    ))
 }
 
 /// The destination URL of the Markdown inline link (or image) whose construct
@@ -222,10 +365,10 @@ mod tests {
     #[test]
     fn link_markup_wraps_caption_and_url() {
         assert_eq!(
-            link_markup("text", "https://x.com"),
+            link_markup("text", "https://x.com", ""),
             "[text](https://x.com)"
         );
-        assert_eq!(link_markup("", ""), "[]()");
+        assert_eq!(link_markup("", "", ""), "[]()");
     }
 
     #[test]
@@ -251,9 +394,12 @@ mod tests {
     fn parse_link_detects_exactly_one_link() {
         assert_eq!(
             parse_link("[text](http://x)"),
-            Some(("text".into(), "http://x".into()))
+            Some(("text".into(), "http://x".into(), String::new()))
         );
-        assert_eq!(parse_link("  [a](b)  "), Some(("a".into(), "b".into())));
+        assert_eq!(
+            parse_link("  [a](b)  "),
+            Some(("a".into(), "b".into(), String::new()))
+        );
         // Image markup is not a link; surrounding text / plain text are not either.
         assert_eq!(parse_link("![alt](img.png)"), None);
         assert_eq!(parse_link("see [a](b)"), None);
@@ -273,6 +419,121 @@ mod tests {
         // Link markup is not an image; surrounding text is not either.
         assert_eq!(parse_image("[text](url)"), None);
         assert_eq!(parse_image("x ![a](b)"), None);
+    }
+
+    /// Destinations and titles that a naive `format!` turns into something other than
+    /// the one construct it meant. Each is a value a user can put in the dialog: by
+    /// Browse (an absolute path of an untitled buffer), by typing, or by pasting.
+    const HARD_DESTS: &[&str] = &[
+        "img.png",
+        "",
+        "/home/me/Trust Pod/13 Behaviours/Talk-Straight.front.svg",
+        "A%20file.svg",
+        "Ruby_(gem).png",
+        "open(.png",
+        "close).png",
+        r"C:\Users\me\My Pictures\x.png",
+        r"odd\(name).png",
+        r"trailing\",
+        "a<b>.png",
+        "<leading.png",
+        "https://example.com/a b?q=1&r=(2)",
+    ];
+    const HARD_TITLES: &[&str] = &["", "A cat", r#"say "hi""#, r"back\slash\", "(paren", "it's"];
+
+    /// Every `(url, title)` the preview parses back from `markup`, in order — through
+    /// the RENDERER's own parse entry point, so this is what the preview itself will see.
+    fn parsed_targets(markup: &str, image: bool) -> Vec<(String, String)> {
+        use pulldown_cmark::{Event, Tag};
+        crate::renderer::NormalizedMd::new(markup)
+            .parse()
+            .filter_map(|ev| match ev {
+                Event::Start(Tag::Image {
+                    dest_url, title, ..
+                }) if image => Some((dest_url.to_string(), title.to_string())),
+                Event::Start(Tag::Link {
+                    dest_url, title, ..
+                }) if !image => Some((dest_url.to_string(), title.to_string())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// **The regression the operator reproduced**: Insert Image with a path holding a
+    /// space wrote `![](/home/…/Trust Pod/…svg)`, which Markdown does not read as an
+    /// image, so it rendered as literal text. The earlier tests here compared the
+    /// output against a hand-written string with a space-free path, which proves the
+    /// string's shape and nothing about what it parses to — this asserts the parse.
+    #[test]
+    fn inserted_image_parses_back_as_exactly_that_image() {
+        for &url in HARD_DESTS {
+            for &title in HARD_TITLES {
+                let markup = image_markup("alt text", url, title);
+                assert_eq!(
+                    parsed_targets(&markup, true),
+                    vec![(url.to_string(), title.to_string())],
+                    "{markup:?} must parse as one image with url {url:?}, title {title:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn inserted_link_parses_back_as_exactly_that_link() {
+        for &url in HARD_DESTS {
+            for &title in HARD_TITLES {
+                let markup = link_markup("caption", url, title);
+                assert_eq!(
+                    parsed_targets(&markup, false),
+                    vec![(url.to_string(), title.to_string())],
+                    "{markup:?} must parse as one link with url {url:?}, title {title:?}"
+                );
+            }
+        }
+    }
+
+    /// Edit Image / Edit Link pre-fill the dialog from what Insert wrote, so the parser
+    /// must invert the builder exactly — otherwise editing a spaced path hands the
+    /// dialog `<…>` or a backslash-doubled value, and the next Insert wraps it again.
+    #[test]
+    fn edit_prefill_inverts_insert() {
+        for &url in HARD_DESTS {
+            for &title in HARD_TITLES {
+                for alt in ["", "alt text", "a *b* `c]`"] {
+                    let img = image_markup(alt, url, title);
+                    assert_eq!(
+                        parse_image(&img),
+                        Some((alt.into(), url.into(), title.into())),
+                        "{img:?}"
+                    );
+                    let link = link_markup(alt, url, title);
+                    assert_eq!(
+                        parse_link(&link),
+                        Some((alt.into(), url.into(), title.into())),
+                        "{link:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// The readable bare form is kept whenever it is valid; only a destination that
+    /// needs it is bracketed.
+    #[test]
+    fn destination_is_bracketed_only_when_needed() {
+        assert_eq!(image_markup("a", "img/x.png", ""), "![a](img/x.png)");
+        assert_eq!(
+            image_markup("a", "Ruby_(gem).png", ""),
+            "![a](Ruby_(gem).png)"
+        );
+        assert_eq!(
+            image_markup("a", "My Pics/x.png", ""),
+            "![a](<My Pics/x.png>)"
+        );
+        assert_eq!(
+            image_markup("a", "x.png", r#"say "hi""#),
+            r#"![a](x.png "say \"hi\"")"#
+        );
     }
 
     /// The caret's reach: every offset from the construct's first character

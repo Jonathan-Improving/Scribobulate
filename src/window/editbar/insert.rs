@@ -14,9 +14,11 @@ pub(crate) fn insert_link(window: &ApplicationWindow) {
     let start_dir = st.doc_dir();
     // If the selection is exactly one existing link, EDIT it (pre-fill both fields)
     // rather than wrapping it again; otherwise the selection becomes the caption.
-    let (dlg_title, text0, url0) = match format::parse_link(&sel) {
-        Some((caption, url)) => ("Edit Link", caption, url),
-        None => ("Insert Link", sel, String::new()),
+    // The dialog has no Title field, so an edited link's title is carried through
+    // unseen rather than dropped.
+    let (dlg_title, text0, url0, title) = match format::parse_link(&sel) {
+        Some((caption, url, title)) => ("Edit Link", caption, url, title),
+        None => ("Insert Link", sel, String::new(), String::new()),
     };
     // Focus the URL (field 1) whenever the caption is already seeded — by a
     // selection (Insert over selected text) or by the link being edited (Edit Link).
@@ -42,7 +44,7 @@ pub(crate) fn insert_link(window: &ApplicationWindow) {
         move |w, vals| {
             let caption = vals.first().map(String::as_str).unwrap_or("");
             let url = vals.get(1).map(String::as_str).unwrap_or("");
-            splice_markup(w, start, end, &format::link_markup(caption, url));
+            splice_markup(w, start, end, &format::link_markup(caption, url, &title));
         },
     );
 }

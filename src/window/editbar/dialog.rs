@@ -287,13 +287,10 @@ fn open_file_chooser(
         if resp == ResponseType::Accept {
             if let Some(path) = ch.file().and_then(|f| f.path()) {
                 remember_dialog_dir(&path);
-                // Insert a document-relative reference when there's a base folder
-                // (security + portability — same containment as image loading);
-                // an untitled buffer has no base, so insert the absolute path.
-                let text = match start_dir.as_deref() {
-                    Some(base) => crate::links::relativize_for_insert(&path, base),
-                    None => path.to_string_lossy().into_owned(),
-                };
+                // Document-relative when there is a base folder (security +
+                // portability — same containment as image loading), absolute for an
+                // untitled buffer; encoded either way (`links::path_for_insert`).
+                let text = crate::links::path_for_insert(&path, start_dir.as_deref());
                 entry.set_text(&text);
             }
         }

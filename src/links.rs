@@ -128,7 +128,7 @@ fn percent_decode(s: &str) -> String {
 /// Percent-encode a local filesystem path so it is a valid Markdown destination.
 ///
 /// **Only ever applied to a path we produced ourselves** — the Browse button's chosen
-/// file (`relativize_for_insert`), never to whatever the user typed in the URL field.
+/// file (`path_for_insert`), never to whatever the user typed in the URL field.
 /// That restriction is the whole design: the field takes a local path OR a real URL and
 /// nothing can reliably tell them apart, so encoding a typed value would mangle the
 /// `?`, `&` and `:` of a pasted URL, or double-encode one that was already escaped.
@@ -757,32 +757,36 @@ pub(crate) fn resolve_doc_link(
     }
 }
 
-/// The document-relative reference to insert for a chosen local file (the Insert
-/// Link / Image Browse buttons): `pathdiff::diff_paths` of the canonicalized target
-/// against the canonicalized base, with forward slashes for portability.  Falls back
-/// to the absolute path when there is no relative route (different roots).  A result
-/// that escapes the base (`../…`) is returned as-is — it simply won't pass the image
-/// containment gate, which is the intended security behaviour.
-pub(crate) fn relativize_for_insert(target: &Path, base: &Path) -> String {
+/// The reference to insert for a chosen local file (the Insert Link / Image Browse
+/// buttons) — ONE function whatever the document's state, because the two concerns
+/// in it are independent and must not be coupled by a caller's branch:
+///
+/// * **Where it is relative to.** With a `base` (the document's folder), the
+///   `pathdiff::diff_paths` of the canonicalized target against the canonicalized
+///   base, with forward slashes for portability; the absolute path when there is no
+///   relative route (different roots) or no base at all (an untitled buffer). A
+///   result that escapes the base (`../…`) is returned as-is — it simply won't pass
+///   the image containment gate, which is the intended security behaviour.
+/// * **Encoding.** Always, on the finished path, so the result is a valid Markdown
+///   destination rather than one this app writes and then cannot read back. The
+///   encoding once lived only on the based branch, so an untitled buffer's Browse
+///   wrote `/path/with spaces.svg` raw — the space ends a destination and the image
+///   rendered as literal text.
+pub(crate) fn path_for_insert(target: &Path, base: Option<&Path>) -> String {
     let t = dunce::canonicalize(target).unwrap_or_else(|_| target.to_path_buf());
-    let b = dunce::canonicalize(base).unwrap_or_else(|_| base.to_path_buf());
-    let path = match pathdiff::diff_paths(&t, &b) {
-        Some(rel) => rel.to_string_lossy().replace('\\', "/"),
-        None => t.to_string_lossy().into_owned(),
-    };
-    // Encode LAST, on the finished path, so the result is a valid Markdown
-    // destination rather than one this app writes and then cannot read back:
-    // Browse used to hand `/some/path/with spaces.svg` straight into the URL field,
-    // the space ended the destination, and `![alt](with spaces.svg)` rendered as
-    // literal text — the app producing broken Markdown from its own file chooser.
+    let rel = base.and_then(|base| {
+        let b = dunce::canonicalize(base).unwrap_or_else(|_| base.to_path_buf());
+        pathdiff::diff_paths(&t, &b).map(|rel| rel.to_string_lossy().replace('\\', "/"))
+    });
+    let path = rel.unwrap_or_else(|| t.to_string_lossy().into_owned());
     percent_encode_path(&path)
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        anchor_target, doc_link_fragment, is_allowed_url, is_exportable_href, percent_decode,
-        percent_encode_path, relativize_for_insert, resolve_contained_image, resolve_doc_link,
+        anchor_target, doc_link_fragment, is_allowed_url, is_exportable_href, path_for_insert,
+        percent_decode, percent_encode_path, resolve_contained_image, resolve_doc_link,
         resolve_image, scheme_of, slug_is_for, slugify, unique_slug, ImageResolution,
         LinkResolution,
     };
@@ -933,7 +937,7 @@ mod tests {
     /// into the URL field verbatim, so a name with a space produced
     /// `![alt](/some/path/with spaces.svg)` — the space ends a Markdown destination, so
     /// the app rendered its own insertion as literal text. Mutation: dropping the
-    /// `percent_encode_path` call in `relativize_for_insert` fails this.
+    /// `percent_encode_path` call in `path_for_insert` fails this.
     #[test]
     fn browse_inserts_a_destination_markdown_can_actually_parse() {
         use std::fs;
@@ -942,7 +946,7 @@ mod tests {
         let spaced = base.join("A file.svg");
         fs::write(&spaced, b"x").unwrap();
 
-        let inserted = relativize_for_insert(&spaced, base);
+        let inserted = path_for_insert(&spaced, Some(base));
         assert_eq!(inserted, "A%20file.svg");
         assert!(
             !inserted.contains(' '),
@@ -953,6 +957,33 @@ mod tests {
             resolve_contained_image(&inserted, Some(base)).is_some(),
             "the app must be able to read back the destination it just wrote"
         );
+    }
+
+    /// The same guarantee with NO base — an untitled buffer, where Browse inserts the
+    /// absolute path. Encoding once lived only on the based branch, so this case wrote
+    /// the path raw and the inserted image rendered as literal text. The destination
+    /// must carry no raw space and must decode back to the chosen file.
+    #[test]
+    fn browse_encodes_the_absolute_path_of_an_untitled_buffer() {
+        use std::fs;
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("Trust Pod");
+        fs::create_dir(&folder).unwrap();
+        let spaced = folder.join("A file.svg");
+        fs::write(&spaced, b"x").unwrap();
+
+        let inserted = path_for_insert(&spaced, None);
+        assert!(!inserted.contains(' '), "raw space in {inserted}");
+        assert!(
+            inserted.ends_with("Trust%20Pod/A%20file.svg") || cfg!(windows),
+            "{inserted}"
+        );
+        match resolve_image(&inserted, None, true) {
+            ImageResolution::Local(p) => {
+                assert_eq!(p, dunce::canonicalize(&spaced).unwrap())
+            }
+            other => panic!("{inserted} must resolve to the chosen file, got {other:?}"),
+        }
     }
 
     /// The encoder touches what breaks Markdown or URL syntax and nothing else — the
@@ -1306,7 +1337,7 @@ mod tests {
         fs::create_dir(base.join("sub")).unwrap();
         let target = base.join("sub").join("y.png");
         fs::write(&target, b"x").unwrap();
-        assert_eq!(relativize_for_insert(&target, base), "sub/y.png");
+        assert_eq!(path_for_insert(&target, Some(base)), "sub/y.png");
     }
 
     // ── leading-`~` expansion ───────────────────────────────────────────────────
