@@ -2438,7 +2438,7 @@
 - **And** it rides the same count as the word count (16.11), so it appears in every window on the same terms
 
 ### 16.14 A link's target shows in the status bar while hovered
-- **Given** the pointer rests over a link in the preview
+- **Given** the pointer rests over a link in the preview — in body text or in a table cell, whether the link is the cell's whole content or sits beside other text (2.9)
 - **Then** its URL shows in the message area, and clears the moment the pointer leaves the link, leaving the underlying status intact
 - **And** moving from one link to another replaces the target rather than stacking a second
 

@@ -1076,6 +1076,104 @@ mod tests {
         window.destroy();
     }
 
+    /// TDD 2.9/16.14 — a link in a **table cell** shows its target too, in both cell
+    /// shapes (Document Rendering CAM row 2). The hover used to ask only the buffer's
+    /// link spans, which a cell does not have, so the footer stayed blank over every
+    /// table link while the cell's own tooltip still showed the URL.
+    ///
+    /// Driven through the view's real hover re-derivation (`refresh_hover_now`, the
+    /// body of `refresh_hover_after_paint` → the cursor hook → `set_hover_target`), with no motion fed to the cell: the
+    /// mixed cell must be hit-tested from its layout, because `GtkLabel::current_uri`
+    /// answers `None` for a link that was only hovered. Mutation-checked: answering only
+    /// from `link_at` fails both assertions; reading `current_uri` fails the second.
+    #[gtktest::test]
+    fn a_table_cell_link_shows_its_target_on_hover() {
+        const MD: &str = "| A | B |\n|---|---|\n| [Pure](https://pure.example/) | see [Mixed](https://mixed.example/) here |\n";
+        let app = make_app("com.extollit.scribobulate.integrationtest.statusbar.cellhover");
+        let window = new_window(&app, "w", MD, None);
+        window.present();
+        let chrome = crate::winstate::chrome(&window).expect("chrome registered");
+        chrome.status.borrow_mut().set_base("base");
+
+        fn descendants(root: &gtk::Widget, out: &mut Vec<gtk::Widget>) {
+            let mut child = root.first_child();
+            while let Some(c) = child {
+                descendants(&c, out);
+                child = c.next_sibling();
+                out.push(c);
+            }
+        }
+        let find_cells = || {
+            let view = super::super::zoom::get_preview_view(&window)?;
+            let mut all = Vec::new();
+            descendants(view.upcast_ref(), &mut all);
+            let pure = all
+                .iter()
+                .find_map(|w| w.downcast_ref::<gtk::LinkButton>().cloned())
+                .filter(|b| b.width() > 0)?;
+            let mixed = all
+                .iter()
+                .filter_map(|w| w.downcast_ref::<gtk::Label>())
+                .find(|l| l.label().contains("mixed.example"))
+                .filter(|l| l.width() > 0)
+                .cloned()?;
+            Some((view, pure, mixed))
+        };
+        assert!(
+            pump_until(|| find_cells().is_some()),
+            "the table's cells were allocated"
+        );
+        let (view, pure, mixed) = find_cells().expect("cells");
+
+        let hover = |target: &gtk::Widget, lx: f64, ly: f64, want: &str| {
+            let p = target
+                .compute_point(&view, &gtk::graphene::Point::new(lx as f32, ly as f32))
+                .expect("the cell sits inside the view");
+            view.set_pointer_position(Some((p.x(), p.y())));
+            // Synchronous, and read back at once: a real pointer over the window (a CI
+            // desktop has one) delivers its own motion, which would re-derive the target
+            // at ITS position if the loop ran in between.
+            view.refresh_hover_now();
+            let shown = chrome.status.borrow().label_text();
+            let (x, y) = (f64::from(p.x()), f64::from(p.y()));
+            assert_eq!(
+                shown,
+                want,
+                "[diagnostics] realized={} mapped={} picked={:?} link_url_at={:?}",
+                view.is_realized(),
+                view.is_mapped(),
+                view.pick(x, y, gtk::PickFlags::DEFAULT)
+                    .map(|w| w.type_().name()),
+                crate::preview::link_url_at(&view, x, y),
+            );
+            shown
+        };
+
+        let centre = |w: &gtk::Widget| (f64::from(w.width()) / 2.0, f64::from(w.height()) / 2.0);
+        let (px, py) = centre(pure.upcast_ref());
+        let want = "https://pure.example/";
+        assert_eq!(hover(pure.upcast_ref(), px, py, want), want);
+
+        // The mixed cell: the link caption is the last word run before " here", so aim
+        // at the label's layout position of the caption's first glyph.
+        let layout = mixed.layout();
+        let text = layout.text();
+        let idx = text.find("Mixed").expect("caption laid out") as i32;
+        let rect = layout.index_to_pos(idx + 1);
+        let (ox, oy) = mixed.layout_offsets();
+        let (lx, ly) = (
+            f64::from(ox) + f64::from(rect.x()) / f64::from(gtk::pango::SCALE),
+            f64::from(oy) + f64::from(rect.y() + rect.height() / 2) / f64::from(gtk::pango::SCALE),
+        );
+        let want = "https://mixed.example/";
+        assert_eq!(hover(mixed.upcast_ref(), lx, ly, want), want);
+
+        view.set_pointer_position(None);
+        crate::window::clear_hover_target(&view);
+        assert_eq!(chrome.status.borrow().label_text(), "base");
+        window.destroy();
+    }
+
     /// Deferred-operation CAM row 8 — while an export runs, Export is disabled and a
     /// close waits for it to stop.
     #[gtktest::test]

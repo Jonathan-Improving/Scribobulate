@@ -109,21 +109,71 @@ fn link_at(view: &CodePreviewView, rd: &RenderData, x: f64, y: f64) -> Option<Li
 /// offsets — the same shape `RenderData::links` stores.
 type LinkHit = (i32, i32, String);
 
-/// The URL of the rendered link under `(x, y)` (WIDGET coords), or `None`.
+/// The URL of the rendered link under `(x, y)` (WIDGET coords), or `None` — whatever
+/// widget shape carries it.
 ///
-/// The **fourth** consumer of [`link_at`] — the right-click context menu's Copy Link
-/// Location row, which must agree with the hover cursor, the hover tooltip and click
-/// activation about what counts as "over a link". It resolves the view's own
-/// `RenderData` from qdata rather than taking it as an argument, because the context
-/// menu is attached once per view and holds no per-render state.
+/// The one "which link is under the pointer" seam for every consumer that wants a URL
+/// rather than a buffer span: the status-bar hover target (TDD 16.14) and the
+/// right-click context menu's Copy Link Location row. It resolves the view's own
+/// `RenderData` from qdata, because the context menu is attached once per view and
+/// holds no per-render state.
 ///
-/// This deliberately answers only for links in the buffer text. A pure-link **table
-/// cell** is a `GtkLinkButton` (ScrAP-250), so it holds no buffer span at all; the
-/// caller reads that one off the picked widget instead.
+/// A link renders in three shapes and this answers for all of them (Document Rendering
+/// CAM row 2): buffer text carrying the `link` tag, and the two table-cell shapes that
+/// hold no buffer span at all ([`cell_link_at`]). Answering only for the first left the
+/// status bar blank over every link in a table while the tooltip, drawn by the cell
+/// widget itself, still showed the URL.
 pub(crate) fn link_url_at(view: &CodePreviewView, x: f64, y: f64) -> Option<String> {
     let rd = crate::preview::scrib_render_data(view)?;
-    let hit = link_at(view, &rd.borrow(), x, y);
-    hit.map(|(_, _, url)| url)
+    let url = link_url_in(view, &rd.borrow(), x, y);
+    url
+}
+
+/// [`link_url_at`] against render data the caller already holds — the hover path's
+/// entry, which has it in hand and runs on every motion event.
+fn link_url_in(view: &CodePreviewView, rd: &RenderData, x: f64, y: f64) -> Option<String> {
+    if let Some((_, _, url)) = link_at(view, rd, x, y) {
+        return Some(url);
+    }
+    // Hot-path CAM row 7: `pick` walks the view's child widgets, so it is asked only
+    // when this render holds a table — the only place a cell link can be.
+    if rd.table_anchors.is_empty() {
+        return None;
+    }
+    cell_link_at(view, x, y)
+}
+
+/// The URL of the link in the table **cell** under `(x, y)`, or `None`.
+///
+/// Both cell shapes answer here, because a reader cannot tell them apart: a cell that
+/// is *nothing but* a link is a `GtkLinkButton` carrying the URL as a property, and a
+/// cell holding a link *plus* other content is a `GtkLabel` whose markup carries a
+/// `<a href>` (`widgets::table::linkcell`). Missing either one produces the same bug —
+/// a visible, working link the app treats as plain text (GTK4Rs/AP-239).
+///
+/// The mixed cell is hit-tested against its own layout
+/// ([`crate::widgets::table::label_link_at`]), never read from
+/// `GtkLabel::current_uri`, which answers the hovered link only after a press.
+fn cell_link_at(view: &CodePreviewView, x: f64, y: f64) -> Option<String> {
+    let mut w = view.pick(x, y, gtk::PickFlags::DEFAULT);
+    while let Some(node) = w {
+        if let Some(btn) = node.downcast_ref::<gtk::LinkButton>() {
+            return Some(btn.uri().to_string());
+        }
+        if let Some(label) = node.downcast_ref::<Label>() {
+            let p = view.compute_point(label, &gtk::graphene::Point::new(x as f32, y as f32))?;
+            if let Some(url) =
+                crate::widgets::table::label_link_at(label, f64::from(p.x()), f64::from(p.y()))
+            {
+                return Some(url);
+            }
+        }
+        if node.downcast_ref::<CodePreviewView>() == Some(view) {
+            break;
+        }
+        w = node.parent();
+    }
+    None
 }
 
 /// Activate `url` as a link the reader clicked in `view`'s preview — the **one**
@@ -322,10 +372,10 @@ fn apply_pointer_cursor(
 ) {
     let clickable = is_clickable_at(view, render_data, x, y, over_marker, hover);
     view.set_cursor_from_name(Some(if clickable { "pointer" } else { "text" }));
-    // The link's target in the status bar as well as the tooltip, from the tooltip's own
-    // resolver — one hit-test, two surfaces (TDD 2.22, 16.14). Re-derived here because
-    // this also runs after a paint moved the document under a still pointer.
-    let url = link_at(view, &render_data.borrow(), x, y).map(|(_, _, url)| url);
+    // The link's target in the status bar as well as the tooltip — every link shape,
+    // table cells included (TDD 2.9, 2.22, 16.14). Re-derived here because this also
+    // runs after a paint moved the document under a still pointer.
+    let url = link_url_in(view, &render_data.borrow(), x, y);
     crate::window::set_hover_target(view, url.as_deref());
 }
 

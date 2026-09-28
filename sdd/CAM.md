@@ -1014,7 +1014,7 @@ matrices have to be satisfied together.
 | 4 | `size_allocate` / content-column change — anchored-child bounds, table width binding | ✓ | — | ✓ | — | ✓ | — | `codeview::CodePreviewView::size_allocate`; `set_bound_width` (re-binds only on a real width change — GTK4Rs/AP-23). Reads no document-derived cache, so F does not arise |
 | 5 | `snapshot_layer`, once per frame per decoration | ✓ | — | — | — | ✓ | ✓ | `decorplan::PAINT_ORDER`; every painter is gated to the VISIBLE range before it measures (which is also the GTK4Rs/AP-22 correctness rule, so the two agree). F: each decoration vector is REPLACED by its `set_*` on every render, and `DRAWN_VECTORS` is what keeps a new one from being forgotten |
 | 6 | Frame-clock tick (`add_tick_callback`) — animation frames, sprite advance, scroll settle | ✓ | — | ✓ | — | — | — | `animation::tick`; `animation::sprites`; `farscroll::settle` |
-| 7 | Pointer motion / hover — copy-button, checkbox and marker hit-boxes | ✓ | ✓ | ✓ | — | — | ✓ | `codeview`'s `*_hitboxes`, repopulated per paint for the visible rows only and cleared by the setter that invalidates them |
+| 7 | Pointer motion / hover — copy-button, checkbox and marker hit-boxes, and the hovered link's target (a table-cell link costs one `pick`, asked only when the render holds a table) | ✓ | ✓ | ✓ | — | — | ✓ | `codeview`'s `*_hitboxes`, repopulated per paint for the visible rows only and cleared by the setter that invalidates them |
 
 Rules that give the matrix its teeth:
 

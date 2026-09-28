@@ -1267,22 +1267,29 @@ impl CodePreviewView {
             self,
             move || {
                 view.imp().hover_idle.replace(None);
-                if !view.is_realized() {
-                    return;
-                }
-                let Some((x, y)) = view.imp().last_pointer.get() else {
-                    return;
-                };
-                view.apply_hover(view.hover_at_point(x, y));
-                // After the hover, so the cursor is decided from the verdict this pass
-                // just applied rather than the one it replaced.
-                let refresh = view.imp().cursor_refresh.borrow().clone();
-                if let Some(refresh) = refresh {
-                    refresh(&view, x, y);
-                }
+                view.refresh_hover_now();
             }
         ));
         self.imp().hover_idle.replace(Some(id));
+    }
+
+    /// The body of [`Self::refresh_hover_after_paint`]'s idle: re-derive the hover and
+    /// the cursor (and with it the status-bar link target) at the remembered pointer.
+    pub(crate) fn refresh_hover_now(&self) {
+        use gtk::subclass::prelude::*;
+        if !self.is_realized() {
+            return;
+        }
+        let Some((x, y)) = self.imp().last_pointer.get() else {
+            return;
+        };
+        self.apply_hover(self.hover_at_point(x, y));
+        // After the hover, so the cursor is decided from the verdict this pass just
+        // applied rather than the one it replaced.
+        let refresh = self.imp().cursor_refresh.borrow().clone();
+        if let Some(refresh) = refresh {
+            refresh(self, x, y);
+        }
     }
 
     /// The code block at `idx`'s text, exactly as it is rendered: the code, without

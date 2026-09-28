@@ -115,46 +115,12 @@ pub(super) fn set_context_link(window: &ApplicationWindow, url: Option<String>) 
 /// rather than the failure it would be when locating a line (GTK4Rs/AP-15).
 pub(super) fn link_at_pointer(view: &gtk::TextView, x: f64, y: f64) -> Option<String> {
     if let Some(pv) = view.downcast_ref::<CodePreviewView>() {
-        return crate::preview::link_url_at(pv, x, y).or_else(|| link_in_widget_at(view, x, y));
+        return crate::preview::link_url_at(pv, x, y);
     }
     let buf = view.buffer();
     let (bx, by) = view.window_to_buffer_coords(gtk::TextWindowType::Widget, x as i32, y as i32);
     let hit = view.iter_at_location(bx, by)?;
     link_target_in_line(&buf, &hit)
-}
-
-/// The URL of the link in the **widget** under `(x, y)` — a table cell, whose link
-/// holds the URL that no buffer span does.
-///
-/// Both cell shapes answer here, because a reader cannot tell them apart: a cell that
-/// is *nothing but* a link is a `GtkLinkButton` carrying the URL as a property, and a
-/// cell holding a link *plus* other content is a `GtkLabel` whose markup carries a
-/// Pango `<a href>` (`widgets::table::linkcell`). Missing either one produces the same
-/// bug — a right-click on a visible, working link whose Copy Link Location row is
-/// greyed out, for no reason the reader can see (GTK4Rs/AP-239).
-///
-/// `GtkLabel::current_uri` is the label's answer, and it is trustworthy **at the
-/// moment this runs and not much longer**: it reports `select_info->active_link`
-/// (`gtklabel.c:4608`), which the label updates from the pointer position on motion
-/// *and* on press (`gtk_label_update_active_link`, called first thing in
-/// `gtk_label_click_gesture_pressed`, `:4311`). The right-click that opens the context
-/// menu is such a press, and this runs from that press's capture-phase handler, so the
-/// active link is the one under `(x, y)` by construction. Do not cache the result or
-/// read it later: on the next motion outside the link it becomes `None`.
-fn link_in_widget_at(view: &gtk::TextView, x: f64, y: f64) -> Option<String> {
-    let mut w = view.pick(x, y, gtk::PickFlags::DEFAULT);
-    while let Some(node) = w {
-        if let Some(btn) = node.downcast_ref::<gtk::LinkButton>() {
-            return Some(btn.uri().to_string());
-        }
-        if let Some(label) = node.downcast_ref::<gtk::Label>() {
-            if let Some(uri) = label.current_uri() {
-                return Some(uri.to_string());
-            }
-        }
-        w = node.parent();
-    }
-    None
 }
 
 /// Set `win.copy-link-location`'s enabled state — the single source of truth for

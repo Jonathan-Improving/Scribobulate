@@ -37,7 +37,8 @@ pub(crate) mod layout;
 mod linkcell;
 
 pub(crate) use linkcell::{
-    cell_markup_label, link_cell_button, link_cell_caption, link_markup_open, LINK_MARKUP_CLOSE,
+    cell_markup_label, label_link_at, link_cell_button, link_cell_caption, link_markup_open,
+    LINK_MARKUP_CLOSE,
 };
 
 use gtk::prelude::*;
