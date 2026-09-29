@@ -1875,6 +1875,14 @@ fn a_blockquote_panel_sprite_tiles_across_the_page_and_keeps_one_grid() {
     // pixels on a row means the red did not come from the fill at all. Two failures
     // have been captured in the wild and neither said which, which is why the panic
     // below prints it.
+    //
+    // A third capture (GitHub Linux runner, ubuntu-24.04, 2026-09-25) did print it: every
+    // off-lattice start was a row of 1-11 pixels inside the quoted text's x range, never
+    // a panel-wide band, and `a_translucent_panel_colour_composites_…` failed in the
+    // same run on another thread. So the stray red is not the fill. Sixty-five runs in
+    // a container with that image's exact cairo/pango/pixman (1.18.0 / 1.52.1 /
+    // 0.42.2), at two cores — 40 of this module, 25 of the whole library suite — never
+    // reproduced it.
     let rows_with_x = colour_rows(drawn_page(md, &tiled, &p, MARGIN), MARK);
     let widths = |ys: &[usize]| -> Vec<String> {
         ys.iter()

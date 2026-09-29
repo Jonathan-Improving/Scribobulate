@@ -173,9 +173,9 @@ pub(crate) fn link_cell_caption(cell: &gtk::Widget) -> Option<Label> {
 /// hover. In GTK 4.6 it reports the hovered link only once a press has set
 /// `link_clicked`; otherwise it reports the *focus* link — the one at the selection
 /// caret (`gtk_label_get_current_uri` → `gtk_label_get_focus_link`) — so over a link
-/// the pointer merely rests on it answers `None`. The label's own hit-test is private,
-/// so this repeats it: the layout's index under the point, against the link ranges
-/// [`markup_links`] reads from the label's markup.
+/// the pointer merely rests on it answers `None` (GTK4Rs/AP-342). The label's own
+/// hit-test is private, so this repeats it: the layout's index under the point,
+/// against the link ranges [`markup_links`] reads from the label's markup.
 pub(crate) fn label_link_at(label: &Label, x: f64, y: f64) -> Option<String> {
     let markup = label.label();
     if !markup.contains("<a ") {
