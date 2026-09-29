@@ -270,9 +270,9 @@ The event classes (matrix columns):
 
 | # | Derived surface | A | B | C | D | Choke point |
 |---|---|:-:|:-:|:-:|:-:|---|
-| 1 | Outline tree (headings) | ✓ | ✓ | ✓ | ✓ | `refresh_outline` |
+| 1 | Outline tree (headings), its sidebar filter and the filter bar's "M of N" count | ✓ | ✓ | ✓ | ✓ | `refresh_outline` → `rebuild_outline_list`, which also re-shows the active document's own filter in the window-shared box (`sidebarfilter::sync_to_tab`, column D) |
 | 2 | Outline scroll-spy highlight | ✓ | ✓ | ✓ | ✓ | `wire_scroll_spy`; GTK4Rs/AP-52/GTK4Rs/AP-52/GTK4Rs/AP-112 |
-| 3 | Annotations viewer (flat list, and the heading's count) | ✓ | ✓ | ✓ | ✓ | `refresh_annotations`; `preview::refresh_annotations_in_place` |
+| 3 | Annotations viewer (flat list, its sidebar filter, the heading's count, and the filter bar's "M of N") | ✓ | ✓ | ✓ | ✓ | `refresh_annotations` → `rebuild_annotations_list` (filter re-shown as in row 1); `preview::refresh_annotations_in_place` |
 | 4 | Window title, tab label + tooltip, View ▸ Documents (menu **and** toolbar combo) | ✓ (dirty) | ✓ | — | ✓ | `update_window_title`/`retitle_window`; `refresh_active_tab_label`/`badge_tab_label`; `refresh_documents_menu`; `refresh_documents_button` |
 | 5 | Status bar — persistent line (lost file · live reload off · unsaved changes) | ✓ | ✓ | — | ✓ | `refresh_dirty_status` |
 | 6 | Status bar — Ln/Col indicator | ✓ | ✓ | ✓ | ✓ | `refresh_position_indicator` |
@@ -1015,6 +1015,7 @@ matrices have to be satisfied together.
 | 5 | `snapshot_layer`, once per frame per decoration | ✓ | — | — | — | ✓ | ✓ | `decorplan::PAINT_ORDER`; every painter is gated to the VISIBLE range before it measures (which is also the GTK4Rs/AP-22 correctness rule, so the two agree). F: each decoration vector is REPLACED by its `set_*` on every render, and `DRAWN_VECTORS` is what keeps a new one from being forgotten |
 | 6 | Frame-clock tick (`add_tick_callback`) — animation frames, sprite advance, scroll settle | ✓ | — | ✓ | — | — | — | `animation::tick`; `animation::sprites`; `farscroll::settle` |
 | 7 | Pointer motion / hover — copy-button, checkbox and marker hit-boxes, and the hovered link's target (a table-cell link costs one `pick`, asked only when the render holds a table) | ✓ | ✓ | ✓ | — | — | ✓ | `codeview`'s `*_hitboxes`, repopulated per paint for the visible rows only and cleared by the setter that invalidates them |
+| 8 | Sidebar filter `search-changed` — once per settled keystroke in the outline's or the annotations viewer's filter box | — | ✓ | ✓ | ✓ | ✓ | ✓ | `window::sidebarfilter::on_search_changed` → `rebuild_outline_list` / `rebuild_annotations_list`. B: a list rebuild is O(headings or annotations), the size of what is filtered. C: reads `TabState::outline_headings` / `annotation_entries`, written only by `refresh_outline` / `refresh_annotations` (Derived-view rows 1 and 3) — never a re-parse. D: GtkSearchEntry's fixed ~150 ms delay (4.6 has no `search-delay`); the rebuild is synchronous and reads the current filter, so no stale result can land. M: `sdd/TDD.md`, 626 headings, release, 2026-09-29 — 0.8 ms for a narrow query, 36 ms for a one-letter query keeping 568 rows. F: the caches are the rows' own choke points, so every mode and event class that refreshes a row refreshes what this reads. **Not swept** when written (2026-09-29): the find bar's `search-changed` is the one earlier handler of the same kind, and it was not walked against this row |
 
 Rules that give the matrix its teeth:
 

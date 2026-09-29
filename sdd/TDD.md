@@ -13,7 +13,7 @@
 | 9 | Menu bar, toolbar, and actions | 9.1 – 9.36 |
 | 10 | Markdown formatting commands | 10.1 – 10.20 |
 | 11 | Find & replace | 11.1 – 11.10 |
-| 12 | Document outline | 12.1 – 12.24 |
+| 12 | Document outline | 12.1 – 12.29 |
 | 13 | Preview zoom | 13.1 – 13.12 |
 | 14 | Show Unsafe Images | 14.1 – 14.10 |
 | 15 | Tabbed documents | 15.1 – 15.22 |
@@ -21,7 +21,7 @@
 | 17 | Annotation & review (CriticMarkup) | 17.1 – 17.53 |
 | 18 | Preview reading themes | 18.1 – 18.58 |
 | 19 | Local document-link navigation | 19.1 – 19.13 |
-| 20 | Annotations viewer | 20.1 – 20.22 |
+| 20 | Annotations viewer | 20.1 – 20.25 |
 | 21 | Crash forensics | 21.1 – 21.12 |
 | 22 | Crash recovery (swap files) | 22.1 – 22.18 |
 | 23 | Back / Forward navigation history | 23.1 – 23.14 |
@@ -604,6 +604,11 @@
 - **When** it is displayed
 - **Then** its background and syntax colours use a matching dark (or light) style scheme — the editor is not light while the rest of the app is dark (its scheme is set, not left on GtkSourceView's default)
 - **And** toggling the desktop colour scheme updates the editor scheme live, alongside the preview re-render, without reopening the document
+
+### 2.16 GtkSettings fallback when no XDG portal is present
+- **Given** no `org.freedesktop.portal.Settings` backend is running (e.g. bare X11 session without a portal)
+- **When** the application starts
+- **Then** it falls back to `GtkSettings` for theme detection, renders with readable contrast, and does not crash or emit unhandled errors
 
 ---
 
@@ -1214,11 +1219,6 @@
 - **And given** a text selection is active
 - **When** the user opens either menu
 - **Then** Copy is enabled in both — the main menu and the context menu cannot show different enabled states from each other
-
-### 2.16 GtkSettings fallback when no XDG portal is present
-- **Given** no `org.freedesktop.portal.Settings` backend is running (e.g. bare X11 session without a portal)
-- **When** the application starts
-- **Then** it falls back to `GtkSettings` for theme detection, renders with readable contrast, and does not crash or emit unhandled errors
 
 ### 9.5 Toolbar icon buttons mirror action enabled state
 - **Given** a window with no text selected
@@ -2030,6 +2030,68 @@
 - **And** renaming a heading re-expands that heading and anything nested under it, which is the accepted cost of never collapsing the wrong section by mistake
 - **And** none of this survives a restart — a reopened document starts fully expanded, because the folding describes a document that may since have changed
 
+### 12.25 An outline row navigates to the heading it is showing
+- **Given** a document open in an editor-visible mode, and an edit made above a heading the outline lists
+- **When** the reader activates that heading's outline row — **including inside the 300 ms window before the outline is rebuilt**
+- **Then** the caret and viewport arrive at **that heading**, not at the byte offset it occupied before the edit
+- **And given** the row's activation records a Back/Forward entry
+- **Then** the entry names the heading the reader activated, so a later return arrives where they were — a recorded place outlives the render that produced it, and a wrong one cannot be noticed later
+- **And** the scroll-spy's own selection state never suppresses a navigation the reader asked for
+- **And given** the heading has been renamed or deleted since the row was built
+- **Then** the activation navigates nowhere rather than to the heading that has moved into its place
+- **Rationale** the row used to bake a source offset at build time and to fetch its Back/Forward slug through a positional index into a list the outline re-derives. Both are stale for the length of the debounce, and the second **launders a stale index into a durable record**: the slug resolves perfectly, to the wrong heading. The row now carries the heading's own title path — the same durable name the collapsed-section state is keyed on (12.24) — the editor's offset is re-derived from the live document at the click, and the recorded slug is found by TITLE rather than by any index. The row's build-time index survives for one job only, the preview scroll, because the preview's own heading list is of that same build
+- **Coverage** `outline::expansion` (what a path is and what it survives) and `window::outline_nav`'s navigation tests; `tests/MANUAL-TEST.md` §12.25
+
+### 12.11 The outline panel has a labelled header
+- **Given** the outline sidebar is shown
+- **Then** a fixed caption reading "Outline" sits at the top of the panel and does not scroll with the heading list
+- **And** the header carries a close (×) button that hides the sidebar (sharing the same `win.outline` toggle as the toolbar button / View menu / F9)
+- **And** it carries a search button that opens and closes the outline's filter (12.26), pressed for as long as the filter is open; the annotations pane's header carries the same button for its own filter (20.24)
+
+### 12.23 Fast wheel-scrolling the outline never jumps the list
+- **Given** a document with enough headings that the outline list scrolls over many screens (this file is the reference case), positioned somewhere below the top
+- **When** the reader scrolls the outline list upward with the mouse wheel **quickly** — fast enough to deliver more than one scroll event per displayed frame
+- **Then** the list travels smoothly upward by the same distance per click as a slow scroll, and never jumps — in particular it never snaps back to the end of the list, at any point in the gesture
+- **And** the same holds for the annotations list, which is the same kind of pane
+- **And** slow scrolling, scrolling downward, dragging the scrollbar, and clicking a row to navigate are all unchanged
+
+### 12.22 The outline includes headings inside collapsed disclosures
+- **Given** a document with headings inside a collapsed disclosure block
+- **When** the outline is shown
+- **Then** those headings are listed in order like any others, and activating one expands its disclosure and navigates to it — the outline models the document, not the viewport
+
+### 12.26 The outline can be narrowed to headings matching typed words
+- **Given** a document with many headings, shown in the outline
+- **When** the reader opens the outline's filter from the search button in its header and types one or more words
+- **Then** the outline shows only headings that contain every typed word, in any order, ignoring case, with partial words counting
+- **And** the matching text is highlighted in each shown heading
+- **And** each match stays under its section path: ancestors that do not match are shown dimmed, and a match's own sub-headings are hidden unless they match too
+- **And** the filter bar shows how many headings match out of the total, beside the filter box, while the outline's own heading stays "Outline"
+- **And** when nothing matches, the outline says so instead of going blank
+- **Coverage** `sidebarfilter` and `outline::filter` (the matching rule and the kept tree); `window::sidebarfilter`'s integration tests; `tests/MANUAL-TEST.md` §12.26
+
+### 12.27 Clearing the outline filter restores the outline as it was
+- **Given** an outline with some sections collapsed by the reader, and a filter applied
+- **When** the reader clears the filter, with the clear-text icon or Escape, or closes the filter from the search button
+- **Then** every heading returns, folded exactly as it was before filtering
+- **And** closing the filter always clears it, so no rows are ever hidden while the filter is out of sight
+- **And** Expand all and Collapse all are unavailable while the filter is applied, and available again once it is cleared
+- **Coverage** `window::sidebarfilter`'s integration tests, including a chevron turned inside the filtered tree; `tests/MANUAL-TEST.md` §12.27
+
+### 12.28 Navigating from a filtered outline keeps the filter
+- **Given** a filtered outline
+- **When** the reader activates a shown heading, by click or keyboard, or presses Enter in the filter box
+- **Then** the document navigates to that heading, or to the first match for Enter, exactly as from an unfiltered outline (12.4, 12.5)
+- **And** the filter stays applied so the reader can try another match
+- **Coverage** `window::sidebarfilter`'s integration tests; `tests/MANUAL-TEST.md` §12.28
+
+### 12.29 The outline filter follows the document
+- **Given** a filtered outline
+- **When** the document's headings change, or the reader switches to another tab and back
+- **Then** the filter is re-applied to the current headings, and each document keeps its own filter text
+- **And** the outline's current-section highlight falls on the nearest shown heading when its own section is filtered out
+- **Coverage** `window::sidebarfilter`'s integration tests; `tests/MANUAL-TEST.md` §12.29
+
 ## 13. Preview zoom
 
 > Zoom In / Zoom Out / Reset Zoom scale the preview text on a discrete ladder
@@ -2113,34 +2175,6 @@
 - **And** with the modifier released, the wheel scrolls that pane exactly as before
 - **And** over the **editor** pane in split mode the gesture does nothing — zoom scales the preview, so that is where it is offered
 
-### 12.25 An outline row navigates to the heading it is showing
-- **Given** a document open in an editor-visible mode, and an edit made above a heading the outline lists
-- **When** the reader activates that heading's outline row — **including inside the 300 ms window before the outline is rebuilt**
-- **Then** the caret and viewport arrive at **that heading**, not at the byte offset it occupied before the edit
-- **And given** the row's activation records a Back/Forward entry
-- **Then** the entry names the heading the reader activated, so a later return arrives where they were — a recorded place outlives the render that produced it, and a wrong one cannot be noticed later
-- **And** the scroll-spy's own selection state never suppresses a navigation the reader asked for
-- **And given** the heading has been renamed or deleted since the row was built
-- **Then** the activation navigates nowhere rather than to the heading that has moved into its place
-- **Rationale** the row used to bake a source offset at build time and to fetch its Back/Forward slug through a positional index into a list the outline re-derives. Both are stale for the length of the debounce, and the second **launders a stale index into a durable record**: the slug resolves perfectly, to the wrong heading. The row now carries the heading's own title path — the same durable name the collapsed-section state is keyed on (12.24) — the editor's offset is re-derived from the live document at the click, and the recorded slug is found by TITLE rather than by any index. The row's build-time index survives for one job only, the preview scroll, because the preview's own heading list is of that same build
-- **Coverage** `outline::expansion` (what a path is and what it survives) and `window::outline_nav`'s navigation tests; `tests/MANUAL-TEST.md` §12.25
-
-### 12.11 The outline panel has a labelled header
-- **Given** the outline sidebar is shown
-- **Then** a fixed caption reading "Outline" sits at the top of the panel and does not scroll with the heading list
-- **And** the header carries a close (×) button that hides the sidebar (sharing the same `win.outline` toggle as the toolbar button / View menu / F9)
-
-### 12.23 Fast wheel-scrolling the outline never jumps the list
-- **Given** a document with enough headings that the outline list scrolls over many screens (this file is the reference case), positioned somewhere below the top
-- **When** the reader scrolls the outline list upward with the mouse wheel **quickly** — fast enough to deliver more than one scroll event per displayed frame
-- **Then** the list travels smoothly upward by the same distance per click as a slow scroll, and never jumps — in particular it never snaps back to the end of the list, at any point in the gesture
-- **And** the same holds for the annotations list, which is the same kind of pane
-- **And** slow scrolling, scrolling downward, dragging the scrollbar, and clicking a row to navigate are all unchanged
-
-### 12.22 The outline includes headings inside collapsed disclosures
-- **Given** a document with headings inside a collapsed disclosure block
-- **When** the outline is shown
-- **Then** those headings are listed in order like any others, and activating one expands its disclosure and navigates to it — the outline models the document, not the viewport
 ---
 
 ## 14. Show Unsafe Images
@@ -3447,6 +3481,24 @@ appearance that predates the feature; `Sepia` is the book-like reading theme.
 - **Given** a document with annotations
 - **Then** the viewer's heading reads "Annotations (N)" and follows adds, edits, removals, undo, reloads and tab switches
 - **And given** a document with none, **Then** it reads "Annotations"
+- **And given** a filter is applied (20.24), **Then** the heading still reads "Annotations (N)", counting every annotation; how many the filter shows is counted in the filter bar instead
+
+### 20.24 The annotations list can be narrowed to comments matching typed words
+- **Given** a document with many annotations, shown in the annotations viewer
+- **When** the reader opens the viewer's filter from the search button in its header and types one or more words
+- **Then** the viewer shows only annotations whose comment or quoted text contains every typed word, in any order, ignoring case, with partial words counting
+- **And** the matching text is highlighted, the filter bar shows how many match out of the total, and an empty result is stated rather than left blank
+- **And** navigating from a shown annotation keeps the filter, and clearing it restores the full list
+- **And** adding, editing or removing annotations re-applies the filter to the updated list
+- **Coverage** `annotations::filter_entries`; `window::sidebarfilter`'s integration tests; `tests/MANUAL-TEST.md` §20.24
+
+### 20.25 A sidebar filter is reachable and dismissable from the keyboard
+- **Given** either sidebar pane, shown or hidden
+- **When** the reader presses that pane's filter shortcut
+- **Then** the pane is shown if it was hidden, its filter opens, and the keyboard focus is in the filter box
+- **And** from the box, Down moves into the list at its first match and goes there, as an arrow key in the list does; typing while the list is focused opens the filter with what was typed; Escape clears a non-empty filter and, on an empty one, closes the filter and returns focus to the list, at the row the list highlights (or the list itself when nothing is highlighted) — without navigating or scrolling away from it
+- **And** the search buttons and filter boxes have accessible names, the buttons' tooltips name their shortcuts, and the match count is announced to assistive technology
+- **Coverage** `window::sidebarfilter`'s integration tests (command, Escape, Down selecting and going to the first match after a prior navigation, focus returned to the highlighted row, names, the count's status role); typing into the list is GtkSearchBar's own key capture and is checked by hand, `tests/MANUAL-TEST.md` §20.25
 
 ## 21. Crash forensics
 

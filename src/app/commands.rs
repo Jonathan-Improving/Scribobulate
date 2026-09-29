@@ -637,6 +637,30 @@ pub(crate) const INLINE_ACCEL_CMDS: &[InlineCmd] = &[
         label: "Annotations",
         accels: &["F8"],
     },
+    // The sidebar filters (TDD 12.26, 20.24, 20.25): show the pane if it is hidden, open
+    // its filter box and focus it — or, pressed again from inside the box, close it.
+    // Shift+ the pane's own F-key, so each filter sits beside the toggle it belongs to;
+    // both were unbound. An F-key with <Shift> is not the GTK4Rs/AP-51 trap (that is
+    // <Shift>+digit/punctuation, whose keyval the modifier changes — F9 stays F9), and
+    // `accel::map` returns bare F-keys unchanged on every platform.
+    //
+    // Labelled "Jump to …" rather than "Filter …" for the View popover's access keys:
+    // every letter of "Filter Outline" and "Filter Annotations" is already another View
+    // item's key, and "Jump to Heading" / "Jump to Comment" say what the reader is
+    // using the filter for. The search buttons themselves are named "Filter outline" /
+    // "Filter annotations", which is what they look like.
+    InlineCmd {
+        action: "win.filter-outline",
+        group: "View",
+        label: "Jump to Heading",
+        accels: &["<Shift>F9"],
+    },
+    InlineCmd {
+        action: "win.filter-annotations",
+        group: "View",
+        label: "Jump to Comment",
+        accels: &["<Shift>F8"],
+    },
     InlineCmd {
         action: "win.go-to-line",
         group: "View",

@@ -225,6 +225,7 @@ mod gtk_integration_tests {
             "win.outline",
             "Hide outline",
             &[],
+            &super::super::FilterBar::new(super::super::SidebarPaneKind::Outline),
             180,
         );
         let controllers = pane.scroller.observe_controllers();

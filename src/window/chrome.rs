@@ -45,6 +45,9 @@ pub(super) struct Chrome {
     pub status_bar: gtk::Box,
     /// The annotations viewer's heading label (TDD 20.22).
     pub annotations_title: gtk::Label,
+    /// The outline's and the annotations viewer's filter bars (`window::sidebarfilter`).
+    pub outline_filter: super::FilterBar,
+    pub annotations_filter: super::FilterBar,
     pub find_entry: gtk::SearchEntry,
     /// The drop-down of this tab's recent searches, beside the find field.
     pub find_history_btn: gtk::MenuButton,
@@ -349,21 +352,27 @@ pub(super) fn build_chrome(
     let outline_collapse_all = gtk::Button::from_icon_name(Icon::CollapseAll.name());
     crate::a11y::name(&outline_collapse_all, "Collapse all");
     outline_collapse_all.set_action_name(Some("win.outline-collapse-all"));
+    // Each pane's filter bar (TDD 12.26, 20.24): a search toggle in its header that
+    // reveals a filter box under it. Built before the pane so the pane can place both.
+    let outline_filter = super::FilterBar::new(super::SidebarPaneKind::Outline);
     let outline_pane = super::SidebarPane::new(
         "Outline",
         "win.outline",
         "Hide outline (F9)",
         &[outline_expand_all, outline_collapse_all],
+        &outline_filter,
         180,
     );
 
     // Annotations section: title + close ×, no header buttons (a flat list has no
     // fold-all). The × drives the same win.annotations action as the menu/toolbar.
+    let annotations_filter = super::FilterBar::new(super::SidebarPaneKind::Annotations);
     let annotations_pane = super::SidebarPane::new(
         "Annotations",
         "win.annotations",
         "Hide annotations",
         &[],
+        &annotations_filter,
         180,
     );
 
@@ -699,6 +708,8 @@ pub(super) fn build_chrome(
         statusbar,
         status_bar,
         annotations_title,
+        outline_filter,
+        annotations_filter,
         find_entry,
         find_history_btn,
         replace_history_btn,

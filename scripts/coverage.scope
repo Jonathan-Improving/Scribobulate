@@ -125,6 +125,7 @@ src/memgate/footprint.rs
 src/memgate/growth.rs
 src/notices.rs
 src/outline/expansion.rs
+src/outline/filter.rs
 src/outline/mod.rs
 src/outline/tree.rs
 src/palette/codechips.rs
@@ -178,6 +179,7 @@ src/session/migrate.rs
 src/session/mod.rs
 src/session/schema.rs
 src/session/statedir.rs
+src/sidebarfilter.rs
 src/span.rs
 src/sprite.rs
 src/swapfile/codec.rs

@@ -311,6 +311,9 @@ fn register_sidebar_actions(
         }
     ));
     window.add_action(&outline_collapse_all_action);
+
+    // ── win.filter-outline / win.filter-annotations — the sidebar filters ────
+    super::sidebarfilter::register_filter_actions(window);
 }
 
 /// View-chrome visibility toggles seeded from `vis`: `win.show-statusbar` and

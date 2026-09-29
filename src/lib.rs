@@ -133,6 +133,7 @@ pub(crate) mod readingpos;
 pub(crate) mod renderer;
 pub(crate) mod saferizer;
 pub(crate) mod session;
+pub(crate) mod sidebarfilter;
 pub(crate) mod span;
 /// Sprite decoration: a theme naming an image file.
 pub(crate) mod sprite;

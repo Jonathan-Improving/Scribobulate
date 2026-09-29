@@ -141,6 +141,22 @@ pub(crate) struct TabState {
     /// window the rebuilt tree widget already has during the live-edit debounce, so a
     /// reader here cannot disagree with what the tree currently shows.
     pub(crate) heading_index: RefCell<Vec<crate::outline::HeadingRef>>,
+    /// The same parse's full headings, titles included, for the outline's sidebar filter
+    /// (TDD 12.26): a keystroke in the filter box re-filters and rebuilds the list from
+    /// this rather than re-parsing the document (Hot-path CAM row 8). Written beside
+    /// `heading_index` by `refresh_outline` and nowhere else, so the two cannot disagree;
+    /// staleness is the same as `heading_index`'s.
+    pub(crate) outline_headings: RefCell<Rc<Vec<crate::outline::Heading>>>,
+    /// The annotations `refresh_annotations` last extracted — the annotations filter's
+    /// equivalent of `outline_headings`, written only by that refresh (Hot-path CAM row 8).
+    pub(crate) annotation_entries: RefCell<Rc<Vec<crate::annotations::AnnotationEntry>>>,
+    /// This document's sidebar filters — whether each pane's filter box is open and what
+    /// it holds (TDD 12.29, 20.24). Per document for the reason `outline_collapsed` is:
+    /// the filter boxes are window chrome shared by every tab, so the reader's filter
+    /// has to live here or it would follow them into another document.
+    /// `window::sidebarfilter` owns the box ↔ state traffic. Not persisted.
+    pub(crate) outline_filter: RefCell<crate::sidebarfilter::PaneFilter>,
+    pub(crate) annotations_filter: RefCell<crate::sidebarfilter::PaneFilter>,
     /// The source-span START byte of the annotation last activated in the annotations
     /// viewer, if any — its **identity**, not a row index (the list is a filtered
     /// subsequence of all constructs, so position is not identity).
@@ -580,6 +596,10 @@ impl TabState {
             outline_paths: RefCell::default(),
             folds: RefCell::new(crate::fold::FoldState::default()),
             heading_index: RefCell::new(Vec::new()),
+            outline_headings: RefCell::default(),
+            annotation_entries: RefCell::default(),
+            outline_filter: RefCell::default(),
+            annotations_filter: RefCell::default(),
             annotations_selected: Cell::new(None),
             outline_spy_selecting: Cell::new(false),
             outline_spy_doc: RefCell::new(None),

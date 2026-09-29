@@ -7,7 +7,7 @@
 //! resolves to a chip index — never a positional row index.
 
 use super::*;
-use crate::annotations::{extract_entries, step_index, Direction};
+use crate::annotations::{extract_entries, filter_entries, step_index, Direction};
 use crate::annotations_view::build_annotations_content;
 use crate::codeview::CardFocus;
 use crate::span::OriginalByteOffset;
@@ -23,12 +23,30 @@ use crate::span::OriginalByteOffset;
 pub(crate) fn refresh_annotations(window: &ApplicationWindow) {
     let Some(st) = state(window) else { return };
     let md = st.shown_source(current_mode(window));
-    let entries = extract_entries(&md);
+    // Cached for the sidebar filter, whose keystrokes re-filter without re-scanning the
+    // document (Hot-path CAM row 8).
+    *st.annotation_entries.borrow_mut() = Rc::new(extract_entries(&md));
+    rebuild_annotations_list(window);
+}
+
+/// Rebuild the annotations LIST from the active document's cached annotations and its
+/// sidebar filter, without re-scanning: the second half of [`refresh_annotations`], and
+/// all a filter keystroke needs (TDD 20.24).
+pub(crate) fn rebuild_annotations_list(window: &ApplicationWindow) {
+    let Some(st) = state(window) else { return };
+    super::sidebarfilter::sync_to_tab(window, super::SidebarPaneKind::Annotations, &st);
+    let entries = st.annotation_entries.borrow().clone();
+    let query = st.annotations_filter.borrow().query();
+    let rows = filter_entries(&entries, query.as_ref());
     // The heading counts the same list the rows are built from, at the same choke
-    // point, so it cannot disagree with them (TDD 20.22, Derived-view CAM row 3).
+    // point, so it cannot disagree with them (TDD 20.22, Derived-view CAM row 3) — and
+    // the filter bar counts "M of N" over that same pair (TDD 20.24).
     st.chrome()
         .annotations_title
         .set_label(&crate::annotations::heading(entries.len()));
+    st.chrome()
+        .annotations_filter
+        .set_count(query.is_some().then_some((rows.len(), entries.len())));
     // Re-select the previously activated annotation by IDENTITY (src_span start) if it
     // still exists, so the panel keeps its selection across the rebuild; the initial
     // selection is applied inside build_annotations_content *before* the navigation
@@ -37,11 +55,17 @@ pub(crate) fn refresh_annotations(window: &ApplicationWindow) {
     // outside this seam's touch set — so re-name it at this boundary as the original
     // source byte it is.
     let selected = st.annotations_selected.get().map(OriginalByteOffset::new);
+    let empty_label = if query.is_some() {
+        crate::sidebarfilter::NO_MATCHING_COMMENTS
+    } else {
+        "No annotations"
+    };
     let content = build_annotations_content(
-        &entries,
+        &rows,
         make_annotations_activate(window),
         make_annotations_escape(window),
         selected,
+        empty_label,
     );
     st.chrome().annotations_scroller.set_child(Some(&content));
     // Selection is applied inside `build_annotations_content` before the navigation
@@ -53,6 +77,45 @@ pub(crate) fn refresh_annotations(window: &ApplicationWindow) {
     glib::idle_add_local_once(move || {
         super::sidebar::reveal_selected_row(&scroller);
     });
+}
+
+/// Enter in the annotations filter box: go to the first shown annotation, exactly as
+/// activating its row would, and select that row (TDD 20.24). The focus stays in the box.
+///
+/// Selecting a row IS the navigation here (no scroll-spy owns this list), so a row that
+/// is not yet selected navigates through its selection; one that already is — the reader
+/// went there before — cannot be re-selected into a navigation, so it is activated
+/// directly.
+pub(crate) fn activate_first_annotation(window: &ApplicationWindow) {
+    let Some(st) = state(window) else { return };
+    let Some(sel) = super::sidebar::list_view_of(&st.chrome().annotations_scroller)
+        .and_then(|lv| lv.model())
+        .and_then(|m| m.downcast::<gtk::SingleSelection>().ok())
+    else {
+        return;
+    };
+    let Some(first) = sel
+        .item(0)
+        .and_downcast::<crate::annotations_view::AnnotationObject>()
+    else {
+        return;
+    };
+    if sel.selected() == 0 {
+        make_annotations_activate(window)(first.src_start());
+    } else {
+        sel.set_selected(0);
+    }
+}
+
+/// Down in the annotations filter box: select the first shown annotation — which
+/// navigates and opens its card, as an arrow key in the list does — and put the keyboard
+/// focus on its row (TDD 20.25). Every row of this flat list is a match. `false` when the
+/// list is empty.
+pub(crate) fn focus_first_annotation(window: &ApplicationWindow) -> bool {
+    let Some(st) = state(window) else {
+        return false;
+    };
+    super::sidebar::select_and_focus_row(&st.chrome().annotations_scroller, 0)
 }
 
 /// Build the row-activated callback for the annotations viewer: it navigates the relevant

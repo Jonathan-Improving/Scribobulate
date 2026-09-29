@@ -130,6 +130,90 @@ pub(crate) fn heading(count: usize) -> String {
     }
 }
 
+/// One row of the annotations list: the entry and, while a filter is active, the byte
+/// ranges of its comment and of its claim to highlight (both empty when unfiltered).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AnnotationRow {
+    pub(crate) entry: AnnotationEntry,
+    pub(crate) comment_hits: Vec<Range<usize>>,
+    pub(crate) claim_hits: Vec<Range<usize>>,
+}
+
+/// The rows the annotations viewer shows for `entries` under `query` (TDD 20.24): all of
+/// them, unhighlighted, with no query; otherwise only those whose comment or claim holds
+/// every word — the one matcher the outline filters by too, so both panes narrow alike.
+pub(crate) fn filter_entries(
+    entries: &[AnnotationEntry],
+    query: Option<&crate::sidebarfilter::Query>,
+) -> Vec<AnnotationRow> {
+    entries
+        .iter()
+        .filter_map(|entry| {
+            let Some(query) = query else {
+                return Some(AnnotationRow {
+                    entry: entry.clone(),
+                    comment_hits: Vec::new(),
+                    claim_hits: Vec::new(),
+                });
+            };
+            let claim = entry.claim.as_deref().unwrap_or_default();
+            let mut hits = query.find_in_fields(&[&entry.comment, claim])?;
+            let claim_hits = hits.pop().unwrap_or_default();
+            let comment_hits = hits.pop().unwrap_or_default();
+            Some(AnnotationRow {
+                entry: entry.clone(),
+                comment_hits,
+                claim_hits,
+            })
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod filter_tests {
+    use super::*;
+
+    /// One highlight span, spelled so clippy does not read it as a mistaken range-vec.
+    fn one(r: std::ops::Range<usize>) -> Vec<std::ops::Range<usize>> {
+        vec![r]
+    }
+    use crate::sidebarfilter::Query;
+
+    const DOC: &str = "A {==first claim==}{>>alpha note<<} then {>>beta<<} and \
+                       {==second thing==}{>>gamma note<<}.";
+
+    #[test]
+    fn no_query_keeps_every_row_unhighlighted() {
+        let entries = extract_entries(DOC);
+        let rows = filter_entries(&entries, None);
+        assert_eq!(rows.len(), 3);
+        assert!(rows
+            .iter()
+            .all(|r| r.comment_hits.is_empty() && r.claim_hits.is_empty()));
+    }
+
+    #[test]
+    fn a_word_may_match_in_the_comment_or_the_claim() {
+        let entries = extract_entries(DOC);
+        let q = Query::parse("note claim").unwrap();
+        let rows = filter_entries(&entries, Some(&q));
+        assert_eq!(rows.len(), 1, "only the first holds both words");
+        assert_eq!(rows[0].entry.comment, "alpha note");
+        assert_eq!(rows[0].comment_hits, one(6..10));
+        assert_eq!(rows[0].claim_hits, one(6..11));
+    }
+
+    #[test]
+    fn a_point_comment_matches_on_its_comment_alone() {
+        let entries = extract_entries(DOC);
+        let q = Query::parse("BETA").unwrap();
+        let rows = filter_entries(&entries, Some(&q));
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].entry.claim, None);
+        assert_eq!(rows[0].comment_hits, one(0..4));
+    }
+}
+
 #[cfg(test)]
 mod heading_tests {
     use super::{extract_entries, heading};

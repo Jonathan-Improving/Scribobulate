@@ -13,6 +13,7 @@
 //! `source_map` — so one extraction drives navigation in every mode.
 
 pub(crate) mod expansion;
+pub(crate) mod filter;
 mod tree;
 
 pub(crate) use tree::{ancestor_chain, build_tree, HeadingNode};

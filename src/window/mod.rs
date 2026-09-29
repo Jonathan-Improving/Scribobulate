@@ -140,6 +140,7 @@ mod livepreview;
 mod navhistory;
 mod restore;
 mod sidebar;
+mod sidebarfilter;
 mod statusbar;
 pub(crate) use statusbar::{
     clear_hover_target, defer_until_export_stops, note_buffer_changed, note_selection_changed,
@@ -170,6 +171,7 @@ pub(crate) use navhistory::{
     nav_action_name, record_in_document_jump, refresh_nav_history_actions,
 };
 use sidebar::*;
+pub(crate) use sidebarfilter::{FilterBar, SidebarPaneKind};
 pub(crate) use splitview::SplitView;
 use tabs::*;
 // The tab strip now lives under `crate::widgets::tab`; re-export it here so the
@@ -782,6 +784,8 @@ fn build_window_chrome_state(
         status: RefCell::new(winstate::StatusStack::new(chrome.statusbar.message.clone())),
         statusbar: chrome.statusbar.clone(),
         annotations_title: chrome.annotations_title.clone(),
+        outline_filter: chrome.outline_filter.clone(),
+        annotations_filter: chrome.annotations_filter.clone(),
         text_stats_timer: RefCell::new(None),
         selection_count: Cell::new(None),
         export_op: RefCell::new(None),

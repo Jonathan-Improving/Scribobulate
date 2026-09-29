@@ -17,7 +17,7 @@
 //! testable, so it sits outside the unit-test coverage gate alongside `outline_view.rs`
 //! — the pure model it consumes lives in `annotations.rs`, where it is unit-tested.
 
-use crate::annotations::AnnotationEntry;
+use crate::annotations::AnnotationRow;
 use crate::span::OriginalByteOffset;
 use gtk::prelude::*;
 use gtk::{gio, glib, pango};
@@ -36,6 +36,10 @@ mod imp {
         pub(crate) comment: RefCell<String>,
         /// The highlighted claim snippet (secondary, dimmed); empty for a point comment.
         pub(crate) claim: RefCell<String>,
+        /// The comment and the quoted claim as Pango markup with a sidebar filter's
+        /// matches highlighted; `None` shows the field's plain text (TDD 20.24).
+        pub(crate) comment_markup: RefCell<Option<String>>,
+        pub(crate) claim_markup: RefCell<Option<String>>,
     }
 
     #[glib::object_subclass]
@@ -53,13 +57,24 @@ glib::wrapper! {
 }
 
 impl AnnotationObject {
-    fn new(entry: &AnnotationEntry) -> Self {
+    fn new(row: &AnnotationRow) -> Self {
+        use crate::sidebarfilter::highlight_markup;
         use glib::subclass::prelude::*;
         let obj: Self = glib::Object::new();
         let imp = obj.imp();
+        let entry = &row.entry;
         imp.src_start.set(entry.src_span.start);
         *imp.comment.borrow_mut() = entry.comment.clone();
-        *imp.claim.borrow_mut() = entry.claim.clone().unwrap_or_default();
+        let claim = entry.claim.clone().unwrap_or_default();
+        if !row.comment_hits.is_empty() {
+            *imp.comment_markup.borrow_mut() =
+                Some(highlight_markup(&entry.comment, &row.comment_hits));
+        }
+        if !row.claim_hits.is_empty() {
+            *imp.claim_markup.borrow_mut() =
+                Some(quoted(&highlight_markup(&claim, &row.claim_hits)));
+        }
+        *imp.claim.borrow_mut() = claim;
         obj
     }
 
@@ -75,9 +90,24 @@ impl AnnotationObject {
         use glib::subclass::prelude::*;
         self.imp().claim.borrow().clone()
     }
+    fn comment_markup(&self) -> Option<String> {
+        use glib::subclass::prelude::*;
+        self.imp().comment_markup.borrow().clone()
+    }
+    fn claim_markup(&self) -> Option<String> {
+        use glib::subclass::prelude::*;
+        self.imp().claim_markup.borrow().clone()
+    }
 }
 
-/// Build the annotations content widget for `entries`.
+/// A claim as the viewer shows it: in curly quotes. One function for the plain and the
+/// highlighted form, so the two cannot quote differently (the quotes are markup-inert).
+fn quoted(text: &str) -> String {
+    format!("\u{201c}{text}\u{201d}")
+}
+
+/// Build the annotations content widget for `rows` — every annotation, or only those a
+/// sidebar filter kept, with their matches highlighted (`annotations::filter_entries`).
 ///
 /// Returns a `GtkListView` (flat, single-selection) when there are annotations, or a
 /// muted "No annotations" placeholder otherwise — never an error (TDD 20.3).
@@ -94,15 +124,19 @@ impl AnnotationObject {
 /// `initial_selected`, when `Some(src_start)`, pre-selects the row for that annotation
 /// *before* the selection-change handler is connected — so restoring the selection across a
 /// rebuild does not re-fire navigation (TDD 20.11).
+///
+/// `empty_label` is what an empty list says: "No annotations", or "No matching comments"
+/// under a filter that matched nothing (TDD 20.24).
 pub(crate) fn build_annotations_content(
-    entries: &[AnnotationEntry],
+    rows: &[AnnotationRow],
     on_activate: Rc<dyn Fn(OriginalByteOffset)>,
     on_escape: Rc<dyn Fn()>,
     initial_selected: Option<OriginalByteOffset>,
+    empty_label: &str,
 ) -> gtk::Widget {
-    if entries.is_empty() {
+    if rows.is_empty() {
         let placeholder = gtk::Label::builder()
-            .label("No annotations")
+            .label(empty_label)
             .xalign(0.0)
             .margin_start(12)
             .margin_top(12)
@@ -113,8 +147,8 @@ pub(crate) fn build_annotations_content(
     }
 
     let store = gio::ListStore::new::<AnnotationObject>();
-    for e in entries {
-        store.append(&AnnotationObject::new(e));
+    for row in rows {
+        store.append(&AnnotationObject::new(row));
     }
 
     // `autoselect` BEFORE `model`, and the order is load-bearing, not style. GObject
@@ -198,17 +232,22 @@ pub(crate) fn build_annotations_content(
         let Some(comment) = row.first_child().and_downcast::<gtk::Label>() else {
             return;
         };
-        comment.set_text(&ann.comment());
+        // `set_text`/`set_markup` each set `use-markup`, so a recycled label never
+        // keeps the previous row's mode.
+        match ann.comment_markup() {
+            Some(markup) => comment.set_markup(&markup),
+            None => comment.set_text(&ann.comment()),
+        }
         // The claim label is the second child; a point comment has no claim, so hide it.
         if let Some(claim) = comment.next_sibling().and_downcast::<gtk::Label>() {
             let text = ann.claim();
             claim.set_visible(!text.is_empty());
             // Quote the claim so it reads as "the text this note is about".
-            claim.set_text(&if text.is_empty() {
-                String::new()
-            } else {
-                format!("\u{201c}{text}\u{201d}")
-            });
+            match ann.claim_markup() {
+                Some(markup) => claim.set_markup(&markup),
+                None if text.is_empty() => claim.set_text(""),
+                None => claim.set_text(&quoted(&text)),
+            }
         }
     });
 
@@ -235,7 +274,7 @@ pub(crate) fn build_annotations_content(
 #[cfg(all(test, feature = "gtk-integration-tests"))]
 mod gtk_integration_tests {
     use super::*;
-    use crate::annotations::extract_entries;
+    use crate::annotations::{extract_entries, filter_entries};
 
     fn selection_of(content: &gtk::Widget) -> gtk::SingleSelection {
         content
@@ -258,7 +297,13 @@ mod gtk_integration_tests {
     fn a_freshly_built_list_selects_nothing() {
         let entries = extract_entries("A {==claim==}{>>one<<} and {==other==}{>>two<<} end.");
         assert_eq!(entries.len(), 2, "fixture has two annotations");
-        let content = build_annotations_content(&entries, Rc::new(|_| {}), Rc::new(|| {}), None);
+        let content = build_annotations_content(
+            &filter_entries(&entries, None),
+            Rc::new(|_| {}),
+            Rc::new(|| {}),
+            None,
+            "No annotations",
+        );
         assert_eq!(
             selection_of(&content).selected(),
             gtk::INVALID_LIST_POSITION,
@@ -274,8 +319,13 @@ mod gtk_integration_tests {
     fn a_restored_selection_lands_on_the_annotation_it_names() {
         let entries = extract_entries("A {==claim==}{>>one<<} and {==other==}{>>two<<} end.");
         let second = entries[1].src_span.start;
-        let content =
-            build_annotations_content(&entries, Rc::new(|_| {}), Rc::new(|| {}), Some(second));
+        let content = build_annotations_content(
+            &filter_entries(&entries, None),
+            Rc::new(|_| {}),
+            Rc::new(|| {}),
+            Some(second),
+            "No annotations",
+        );
         let selection = selection_of(&content);
         assert_eq!(selection.selected(), 1);
         let selected_src = selection

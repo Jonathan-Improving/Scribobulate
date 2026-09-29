@@ -138,6 +138,8 @@ see Help ▸ Keyboard Shortcuts in the app for the exact mapping.)*
   - Search the whole document, including table cells (Ctrl+F)
   - Replace in edit and split modes (Ctrl+H)
   - Outline sidebar jumps to any heading (F9)
+  - Type a few words to narrow the outline to matching headings, or the annotations
+    sidebar to matching comments (Shift+F9 / Shift+F8)
 - **Comfortable reading**
   - Reading themes: **Sepia**, **Bedtime**, **Synthwave**, **Terminal**,
     **Candy**, **Pixel Quest**, or match your desktop (**System**) — and you can adjust one, or

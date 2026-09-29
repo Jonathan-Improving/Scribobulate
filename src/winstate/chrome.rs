@@ -76,6 +76,11 @@ pub(crate) struct WindowChrome {
     /// The annotations viewer's heading label, which counts the annotations
     /// (TDD 20.22); set by `refresh_annotations`.
     pub(crate) annotations_title: gtk::Label,
+    /// The two panes' filter bars (search toggle, bar and box), window chrome shared by
+    /// every tab; what each shows is re-synced from the active tab's own filter
+    /// (`window::sidebarfilter`).
+    pub(crate) outline_filter: crate::window::FilterBar,
+    pub(crate) annotations_filter: crate::window::FilterBar,
     /// Debounce for recounting the active document's words and line endings after an
     /// edit (TDD 16.11).
     pub(crate) text_stats_timer: RefCell<Option<gtk::glib::SourceId>>,

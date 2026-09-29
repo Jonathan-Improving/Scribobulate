@@ -21,7 +21,9 @@ use gtk::prelude::*;
 
 /// One built sidebar section's persistent handles.
 pub(crate) struct SidebarPane {
-    /// The section container: `[ header ][ separator ][ scroller ]`, vertical. Its
+    /// The section container: `[ header ][ separator ][ filter bar ][ scroller ]`,
+    /// vertical — the scroller stays a DIRECT child, because the visibility
+    /// reconciliation reaches this box as the scroller's parent. Its
     /// `:visible` is the pane's show/hide state, toggled by the pane's `win.*` action.
     pub(crate) root: gtk::Box,
     /// The scroller whose inner child (the list `GtkListView`, or the "No …"
@@ -41,11 +43,16 @@ impl SidebarPane {
     /// `close_tooltip` is the ×'s tooltip (e.g. `"Hide outline (F9)"`). The × is a
     /// *secondary* control that shares the same `GAction` as the menu/toolbar toggle,
     /// so the pane has one source-of-truth for its visibility (Action CAM).
+    ///
+    /// `filter` is the pane's sidebar filter (`window::sidebarfilter`): its search
+    /// toggle leads the header buttons and its bar sits between the header and the list,
+    /// capturing typing from the list so a printable key there starts a filter.
     pub(crate) fn new(
         title: &str,
         close_action: &str,
         close_tooltip: &str,
         header_buttons: &[gtk::Button],
+        filter: &super::FilterBar,
         min_content_width: i32,
     ) -> Self {
         let scroller = gtk::ScrolledWindow::builder()
@@ -76,6 +83,7 @@ impl SidebarPane {
         header.set_margin_top(6);
         header.set_margin_bottom(6);
         header.append(&title_label);
+        header.append(&filter.button);
         for btn in header_buttons {
             header.append(btn);
         }
@@ -101,7 +109,13 @@ impl SidebarPane {
         root.set_vexpand(true);
         root.append(&header);
         root.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        root.append(&filter.bar);
         root.append(&scroller);
+        // Typing a printable key while the list has the focus opens the filter with it
+        // (GtkSearchBar's key capture — BUBBLE phase, so the list's own keys win first).
+        // The scroller rather than the list because the list is rebuilt on every change
+        // and the scroller persists.
+        filter.bar.set_key_capture_widget(Some(&scroller));
 
         Self {
             root,
@@ -140,6 +154,129 @@ pub(crate) fn focus_list_deferred(scroller: &gtk::ScrolledWindow) {
         if let Some(list_view) = list_view_of(&scroller) {
             let _ = list_view.grab_focus();
         }
+    });
+}
+
+/// Select position `pos` of `scroller`'s list — which navigates, exactly as an arrow key
+/// or a click in the list does — then put the keyboard focus on that row, scrolled into
+/// view. `false` when there is no list or no such position.
+///
+/// Down in a filter box (TDD 20.25). Selecting rather than only focusing is deliberate:
+/// there is no focus-without-select route that holds from GTK 4.6 to 4.22. On 4.8.2+ a
+/// later `grab_focus` re-applies the list's previous focus child and writes its cursor
+/// back, and on 4.18+ a Down from an unselected cursor selects it where it stands. So
+/// the order is: select through the model first, then focus the row widget carrying
+/// `:selected` once it exists — the focus lands last and on the row the selection names,
+/// leaving nothing for a later grab to snap back to.
+pub(crate) fn select_and_focus_row(scroller: &gtk::ScrolledWindow, pos: u32) -> bool {
+    let Some(sel) = list_view_of(scroller)
+        .and_then(|lv| lv.model())
+        .and_then(|m| m.downcast::<gtk::SingleSelection>().ok())
+    else {
+        return false;
+    };
+    if pos >= sel.n_items() {
+        return false;
+    }
+    sel.set_selected(pos);
+    focus_selected_row_deferred(scroller);
+    true
+}
+
+/// Hand the keyboard back to `scroller`'s list at the row it has SELECTED — the section
+/// the outline highlights, or the annotation last gone to — scrolled into view, deferred.
+/// With nothing selected, the list itself takes the focus and nothing is selected.
+///
+/// The return leg of closing a sidebar filter (TDD 20.25). Plain `grab_focus` on a
+/// `GtkListView` lands on its first materialised row, which after a rebuild is the top of
+/// the list — so the reader's next arrow press navigated the document to its first
+/// heading. Focusing a row widget does not select it (`gtk_list_item_widget_grab_focus`
+/// only moves the focus; selection is the list's `list.select-item`), so handing the
+/// focus back navigates nowhere.
+///
+/// The selected row is materialised only once it is on screen, so this reveals it first
+/// and looks for it on the following frames (bounded), by the `:selected` state GTK sets
+/// on the row widget. Should it never appear, the list takes the focus as before.
+pub(crate) fn focus_selected_row_deferred(scroller: &gtk::ScrolledWindow) {
+    let scroller = scroller.clone();
+    glib::idle_add_local_once(move || {
+        let Some(list_view) = list_view_of(&scroller) else {
+            return;
+        };
+        let has_selection = list_view
+            .model()
+            .and_then(|m| m.downcast::<gtk::SingleSelection>().ok())
+            .is_some_and(|sel| sel.selected() != gtk::INVALID_LIST_POSITION);
+        if !has_selection {
+            let _ = list_view.grab_focus();
+            return;
+        }
+        reveal_selected_row(&scroller);
+        let is_selected = |row: &gtk::Widget| row.state_flags().contains(gtk::StateFlags::SELECTED);
+        if focus_row_widget_where(&list_view, is_selected) {
+            return;
+        }
+        // Each frame that still lacks the row asks again: a reveal of a far row lands on
+        // an ESTIMATE of its offset, and the estimate improves as rows are laid out.
+        let reveal_from = scroller.clone();
+        focus_row_on_frames(
+            &list_view,
+            move |lv| {
+                focus_row_widget_where(lv, is_selected) || {
+                    reveal_selected_row(&reveal_from);
+                    false
+                }
+            },
+            |lv| {
+                let _ = lv.grab_focus();
+            },
+        );
+    });
+}
+
+/// Focus the first materialised ROW widget of `list_view` (the list's own child, not the
+/// factory's content) satisfying `is_target`.
+fn focus_row_widget_where(
+    list_view: &gtk::ListView,
+    is_target: impl Fn(&gtk::Widget) -> bool,
+) -> bool {
+    let mut row = list_view.first_child();
+    while let Some(r) = row {
+        if is_target(&r) {
+            return r.grab_focus();
+        }
+        row = r.next_sibling();
+    }
+    false
+}
+
+/// How long a deferred row focus keeps looking for its row before giving up. Wall clock,
+/// because the row appears only after a LAYOUT pass, which runs on the frame clock
+/// (GTK4Rs/AP-122, GTK4Rs/AP-261): counting idles is the wrong clock and can run out
+/// before a single frame has been drawn.
+const ROW_FOCUS_DEADLINE: std::time::Duration = std::time::Duration::from_millis(1000);
+
+/// Run `try_focus` once per frame of `list_view` until it reports success or the
+/// deadline passes, then `give_up` if it never did.
+fn focus_row_on_frames(
+    list_view: &gtk::ListView,
+    try_focus: impl Fn(&gtk::ListView) -> bool + 'static,
+    give_up: impl Fn(&gtk::ListView) + 'static,
+) {
+    let deadline =
+        glib::monotonic_time() + i64::try_from(ROW_FOCUS_DEADLINE.as_micros()).unwrap_or(i64::MAX);
+    list_view.add_tick_callback(move |widget, _| {
+        let Some(list_view) = widget.downcast_ref::<gtk::ListView>() else {
+            return glib::ControlFlow::Break;
+        };
+        if try_focus(list_view) {
+            return glib::ControlFlow::Break;
+        }
+        if glib::monotonic_time() >= deadline {
+            give_up(list_view);
+            return glib::ControlFlow::Break;
+        }
+        glib::ControlFlow::Continue
     });
 }
 

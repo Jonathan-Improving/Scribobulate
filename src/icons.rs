@@ -53,6 +53,10 @@ pub(crate) enum Icon {
     GoUp,
     /// Find-bar "next match".
     GoDown,
+    /// The sidebar panes' filter toggle (the outline's and the annotations viewer's
+    /// magnifier). GTK itself bundles this name in its own resources — `GtkSearchEntry`
+    /// draws it — so it resolves on every GTK 4 install whatever the host theme carries.
+    SystemSearch,
     /// Find-bar history drop-downs (recent searches / recent replacements).
     /// Bundled: the name is a *legacy* freedesktop action that this host's
     /// Adwaita 41 still carries, which proves nothing about the Adwaita 50 the
@@ -208,6 +212,7 @@ impl Icon {
             Icon::CollapseAll => "collapse-all-symbolic",
             Icon::GoUp => "go-up-symbolic",
             Icon::GoDown => "go-down-symbolic",
+            Icon::SystemSearch => "system-search-symbolic",
             Icon::DocumentOpenRecent => "document-open-recent-symbolic",
             Icon::DialogWarning => "dialog-warning-symbolic",
             Icon::ViewRefresh => "view-refresh-symbolic",
@@ -304,7 +309,8 @@ impl Icon {
             Icon::ExpandAll => Some(Icon::CollapseAll),
             Icon::CollapseAll => Some(Icon::GoUp),
             Icon::GoUp => Some(Icon::GoDown),
-            Icon::GoDown => Some(Icon::DocumentOpenRecent),
+            Icon::GoDown => Some(Icon::SystemSearch),
+            Icon::SystemSearch => Some(Icon::DocumentOpenRecent),
             Icon::DocumentOpenRecent => Some(Icon::DialogWarning),
             Icon::DialogWarning => Some(Icon::ViewRefresh),
             Icon::ViewRefresh => Some(Icon::DocumentSave),
@@ -399,6 +405,7 @@ impl Icon {
             | Icon::CollapseAll
             | Icon::GoUp
             | Icon::GoDown
+            | Icon::SystemSearch
             | Icon::DocumentOpenRecent
             | Icon::DialogWarning
             | Icon::ViewRefresh

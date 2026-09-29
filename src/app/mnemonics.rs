@@ -73,6 +73,10 @@ const MENU_MNEMONICS: &[(&str, &str)] = &[
     ("Previous Tab", "Pre_vious Tab"), ("Next Tab", "Ne_xt Tab"),
     ("Documents", "_Documents"), ("Outline", "_Outline"),
     ("Annotations", "_Annotations"),
+    // The sidebar filters. Every letter of "Filter Outline" / "Filter Annotations" is
+    // another View item's key, which is why the commands read "Jump to …": `j` and `c`
+    // are two of the three letters the View popover has left.
+    ("Jump to Heading…", "_Jump to Heading…"), ("Jump to Comment…", "Jump to _Comment…"),
     ("Go To Line…", "_Go To Line…"), ("Toolbar", "_Toolbar"),
     // "R"/"e"/"d"/"g" are all taken in View (Reset Zoom, Edit, Documents, Go To
     // Line), so Reading Theme takes "h". Its ITEMS are deliberately absent from this

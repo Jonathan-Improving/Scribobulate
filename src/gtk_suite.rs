@@ -130,6 +130,7 @@ mod readingpos;
 mod renderer;
 mod saferizer;
 mod session;
+mod sidebarfilter;
 mod span;
 mod suite_registry;
 mod swapfile;

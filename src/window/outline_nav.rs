@@ -24,15 +24,35 @@ pub(crate) fn refresh_outline(window: &ApplicationWindow) {
         .iter()
         .map(crate::outline::HeadingRef::from)
         .collect();
-    let roots = build_tree(&headings);
     // The durable name of every heading this build shows, cached beside the offsets above
     // and for the same reason — it comes from this same parse, and the capture hook below
     // would otherwise have to re-parse the document just to name a row it is looking at.
-    let paths = crate::outline::expansion::paths_in_document_order(&roots);
-    // What the reader had folded, translated from those durable names into the transient
-    // indexes this build uses (TDD 12.24). Empty for a document nobody has folded, which is
-    // the fully-open default of TDD 12.17.
-    let keep_collapsed = st.outline_collapsed.borrow().collapsed_indexes(&paths);
+    *st.outline_paths.borrow_mut() =
+        crate::outline::expansion::paths_in_document_order(&build_tree(&headings));
+    // …and the headings themselves, which a sidebar-filter keystroke re-filters without
+    // re-parsing (Hot-path CAM row 8).
+    *st.outline_headings.borrow_mut() = Rc::new(headings);
+    rebuild_outline_list(window);
+}
+
+/// Rebuild the outline LIST from the active document's cached headings and its sidebar
+/// filter, without re-parsing: the second half of [`refresh_outline`], and all a filter
+/// keystroke needs (TDD 12.26).
+///
+/// Unfiltered, the tree restores the reader's folding (TDD 12.24). Filtered, it shows
+/// only matches and their ancestors, fully open, and **writes no folding** — the
+/// `items-changed` capture below is skipped — so clearing the filter restores exactly the
+/// folding from before (TDD 12.27). Expand all / Collapse all are unavailable while
+/// filtered, decided here so every route to a filter change settles them.
+pub(crate) fn rebuild_outline_list(window: &ApplicationWindow) {
+    let Some(st) = state(window) else { return };
+    super::sidebarfilter::sync_to_tab(window, super::SidebarPaneKind::Outline, &st);
+    let headings = st.outline_headings.borrow().clone();
+    let query = st.outline_filter.borrow().query();
+    let filtered = query
+        .as_ref()
+        .map(|q| crate::outline::filter::filter_outline(&headings, q));
+    let paths = st.outline_paths.borrow();
     // Re-select the previously activated heading (if it still exists) so the panel
     // keeps its position across the rebuild; the initial selection is applied
     // inside build_outline_content *before* the navigation handler is connected,
@@ -46,15 +66,41 @@ pub(crate) fn refresh_outline(window: &ApplicationWindow) {
         .borrow()
         .as_ref()
         .and_then(|want| paths.iter().position(|p| p == want));
-    let content = build_outline_content(
-        &roots,
-        &paths,
-        make_outline_activate(window),
-        selected,
-        &keep_collapsed,
-    );
-    *st.outline_paths.borrow_mut() = paths;
-    st.chrome().outline_scroller.set_child(Some(&content));
+    let content = match &filtered {
+        Some(f) => build_outline_content(
+            &f.roots,
+            &paths,
+            make_outline_activate(window),
+            selected,
+            &std::collections::BTreeSet::new(),
+            Some(&f.marks),
+            crate::sidebarfilter::NO_MATCHING_HEADINGS,
+        ),
+        None => {
+            // What the reader had folded, translated from those durable names into the
+            // transient indexes this build uses (TDD 12.24). Empty for a document nobody
+            // has folded, which is the fully-open default of TDD 12.17.
+            let keep_collapsed = st.outline_collapsed.borrow().collapsed_indexes(&paths);
+            build_outline_content(
+                &build_tree(&headings),
+                &paths,
+                make_outline_activate(window),
+                selected,
+                &keep_collapsed,
+                None,
+                "No headings",
+            )
+        }
+    };
+    drop(paths);
+    let chrome = st.chrome();
+    chrome
+        .outline_filter
+        .set_count(filtered.as_ref().map(|f| (f.matched, f.total)));
+    for name in ["outline-expand-all", "outline-collapse-all"] {
+        set_action_enabled(window, name, filtered.is_none());
+    }
+    chrome.outline_scroller.set_child(Some(&content));
 
     // Keep the scroll-spy correct across expand/collapse. Any expand or collapse —
     // the Expand-all / Collapse-all header buttons, a chevron click, or keyboard
@@ -68,6 +114,10 @@ pub(crate) fn refresh_outline(window: &ApplicationWindow) {
     // settled before we scan it. The closure + its `pending` flag are owned by THIS
     // model instance, so the next `refresh_outline` (new model) drops them; the spy's
     // own `set_selected` changes no items, so this can't loop.
+    //
+    // A FILTERED tree records no folding: its shape is the filter's, not the reader's,
+    // and a chevron turned in it must not outlive the filter (TDD 12.27).
+    let records_folding = filtered.is_none();
     if let Some(model) = outline_tree_model(window) {
         let win_weak = window.downgrade();
         let pending = std::rc::Rc::new(std::cell::Cell::new(false));
@@ -80,12 +130,71 @@ pub(crate) fn refresh_outline(window: &ApplicationWindow) {
             glib::idle_add_local_once(move || {
                 pending.set(false);
                 if let Some(w) = win_weak.upgrade() {
-                    capture_outline_expansion(&w);
+                    if records_folding {
+                        capture_outline_expansion(&w);
+                    }
                     apply_scroll_spy(&w);
                 }
             });
         });
     }
+}
+
+/// The flat position and heading of the first MATCH row — the first row a filter did
+/// not keep only as context. With no filter active every row is a match, so this is the
+/// first row.
+fn first_outline_match(model: &gtk::TreeListModel) -> Option<(u32, HeadingObject)> {
+    (0..model.n_items()).find_map(|i| {
+        model
+            .item(i)
+            .and_downcast::<gtk::TreeListRow>()
+            .and_then(|row| row.item())
+            .and_downcast::<HeadingObject>()
+            .filter(|h| !h.is_context())
+            .map(|h| (i, h))
+    })
+}
+
+/// Enter in the outline's filter box: navigate to the first match, exactly as activating
+/// its row would (TDD 12.28), and select that row. The focus stays in the box, so the
+/// reader can refine the filter and try again.
+///
+/// Navigates directly rather than through the selection: a row the scroll-spy already
+/// owns cannot be re-selected into a navigation, and the reader asked to go there. The
+/// selection is set under the spy's own guards so it does not navigate a second time
+/// (GTK4Rs/AP-112).
+pub(crate) fn activate_first_outline_match(window: &ApplicationWindow) {
+    let Some(st) = state(window) else { return };
+    let Some(model) = outline_tree_model(window) else {
+        return;
+    };
+    let Some((pos, heading)) = first_outline_match(&model) else {
+        return;
+    };
+    let path = heading.path();
+    if let Some(sel) = super::sidebar::list_view_of(&st.chrome().outline_scroller)
+        .and_then(|lv| lv.model())
+        .and_then(|m| m.downcast::<gtk::SingleSelection>().ok())
+    {
+        *st.outline_spy_doc.borrow_mut() = Some(path.clone());
+        st.outline_spy_selecting.set(true);
+        sel.set_selected(pos);
+        st.outline_spy_selecting.set(false);
+    }
+    activate_heading(window, &path, heading.doc_index());
+}
+
+/// Down in the outline's filter box: select the FIRST match — which navigates, as an
+/// arrow key in the list does — and put the keyboard focus on its row (TDD 20.25). Never
+/// the highlighted row or an earlier dimmed ancestor. `false` when nothing matches.
+pub(crate) fn focus_first_outline_match(window: &ApplicationWindow) -> bool {
+    let Some(st) = state(window) else {
+        return false;
+    };
+    let Some((pos, _)) = outline_tree_model(window).and_then(|m| first_outline_match(&m)) else {
+        return false;
+    };
+    super::sidebar::select_and_focus_row(&st.chrome().outline_scroller, pos)
 }
 /// Record what the reader has folded, so the next rebuild can restore it (TDD 12.24).
 ///
@@ -147,13 +256,19 @@ fn make_outline_activate(window: &ApplicationWindow) -> Rc<dyn Fn(HeadingPath, u
         if spy_selecting || spy_owns {
             return;
         }
-        // Remember the activated heading so a later outline rebuild (mode switch,
-        // live edit, reload) can re-select it without losing the panel's position.
-        if let Some(st) = state(&window) {
-            *st.outline_selected.borrow_mut() = Some(path.clone());
-        }
-        navigate_to_heading(&window, &path, row_index);
+        activate_heading(&window, &path, row_index);
     })
+}
+
+/// Go to the heading a row names — the body of a row activation, shared with Enter in
+/// the filter box (TDD 12.28).
+fn activate_heading(window: &ApplicationWindow, path: &HeadingPath, row_index: usize) {
+    // Remember the activated heading so a later outline rebuild (mode switch,
+    // live edit, reload) can re-select it without losing the panel's position.
+    if let Some(st) = state(window) {
+        *st.outline_selected.borrow_mut() = Some(path.clone());
+    }
+    navigate_to_heading(window, path, row_index);
 }
 
 /// Where the heading a row names sits in the document **as it stands now** — its
@@ -396,8 +511,15 @@ pub(crate) fn wire_scroll_spy(window: &ApplicationWindow) {
             // mid-list). Only this post-wire idle — not every document
             // `value-changed` — so a user who scrolled the outline by hand is not
             // fought while reading. Uses `list.scroll-to-item` (4.6-safe; GTK4Rs/AP-143).
+            //
+            // Never while the reader is typing in the outline's filter box: the list is
+            // theirs to read then, and moving it under them is the spy fighting the
+            // reader (TDD 12.29).
             if let Some(st) = state(&w) {
-                super::sidebar::reveal_selected_row(&st.chrome().outline_scroller);
+                if !super::sidebarfilter::filter_box_has_focus(&w, super::SidebarPaneKind::Outline)
+                {
+                    super::sidebar::reveal_selected_row(&st.chrome().outline_scroller);
+                }
             }
         }
     ));
@@ -489,7 +611,7 @@ pub(crate) fn wire_persistent_editor_scroll_spy(split: &crate::window::SplitView
 /// scroll-spy and the header expand/collapse-all buttons all use. Returns `None`
 /// for the "No headings" placeholder (the scroller's child is a `GtkLabel`, not a
 /// `GtkListView`), so callers no-op safely on an empty outline.
-fn outline_tree_model(window: &ApplicationWindow) -> Option<gtk::TreeListModel> {
+pub(super) fn outline_tree_model(window: &ApplicationWindow) -> Option<gtk::TreeListModel> {
     let st = state(window)?;
     // `list_view_of` owns the "child might be the placeholder Label, not a ListView"
     // guard once (shared with the annotations pane).
@@ -730,7 +852,7 @@ fn deepest_visible_row_pos(
 /// Programmatically highlight the outline row for `doc_index` (or clear the
 /// selection when `None`) without triggering navigation.  The spy guard in
 /// `make_outline_activate` ensures the `selected-item` notify does not navigate.
-fn scroll_spy_set_selection(window: &ApplicationWindow, doc_index: Option<usize>) {
+pub(super) fn scroll_spy_set_selection(window: &ApplicationWindow, doc_index: Option<usize>) {
     let Some(st) = state(window) else { return };
     // Resolve the live TreeListModel (None on the "No headings" placeholder — a
     // GtkLabel, not a GtkListView — so bail). The SingleSelection is reached via

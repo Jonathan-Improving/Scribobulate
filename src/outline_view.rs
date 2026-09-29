@@ -18,10 +18,11 @@
 //! `outline/`, where they are unit-tested.
 
 use crate::outline::expansion::HeadingPath;
+use crate::outline::filter::RowMark;
 use crate::outline::HeadingNode;
 use gtk::prelude::*;
 use gtk::{gio, glib, pango};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
 mod imp {
@@ -40,6 +41,12 @@ mod imp {
         /// the same heading after the document has been edited (`outline::expansion`).
         pub(crate) path: RefCell<HeadingPath>,
         pub(crate) title: RefCell<String>,
+        /// The title as Pango markup with a sidebar filter's matches highlighted, or
+        /// `None` when the row shows its title plainly (no filter, or a context row).
+        pub(crate) markup: RefCell<Option<String>>,
+        /// Whether a sidebar filter keeps this row only as the path to a match below it
+        /// — shown dimmed and never highlighted (TDD 12.26).
+        pub(crate) context: Cell<bool>,
         /// Child headings nested under this one (empty for a leaf).
         pub(crate) children: gio::ListStore,
     }
@@ -51,6 +58,8 @@ mod imp {
                 doc_index: Cell::new(0),
                 path: RefCell::new(HeadingPath::new()),
                 title: RefCell::new(String::new()),
+                markup: RefCell::new(None),
+                context: Cell::new(false),
                 children: gio::ListStore::new::<super::HeadingObject>(),
             }
         }
@@ -77,7 +86,14 @@ impl HeadingObject {
     /// here: the rule for naming a heading (including how same-titled siblings are told
     /// apart) belongs to `outline::expansion` alone, and a second implementation of it
     /// would name the same heading two ways.
-    fn new(node: &HeadingNode, paths: &[HeadingPath]) -> Self {
+    ///
+    /// `marks` is a sidebar filter's verdict per `doc_index` (`outline::filter`), or
+    /// `None` for the unfiltered outline.
+    fn new(
+        node: &HeadingNode,
+        paths: &[HeadingPath],
+        marks: Option<&BTreeMap<usize, RowMark>>,
+    ) -> Self {
         use glib::subclass::prelude::*;
         let obj: Self = glib::Object::new();
         let imp = obj.imp();
@@ -87,8 +103,17 @@ impl HeadingObject {
             *imp.path.borrow_mut() = path.clone();
         }
         *imp.title.borrow_mut() = node.text.clone();
+        match marks.and_then(|m| m.get(&node.doc_index)) {
+            Some(RowMark::Match(ranges)) => {
+                *imp.markup.borrow_mut() =
+                    Some(crate::sidebarfilter::highlight_markup(&node.text, ranges));
+            }
+            Some(RowMark::Context) => imp.context.set(true),
+            None => {}
+        }
         for child in &node.children {
-            imp.children.append(&HeadingObject::new(child, paths));
+            imp.children
+                .append(&HeadingObject::new(child, paths, marks));
         }
         obj
     }
@@ -109,6 +134,16 @@ impl HeadingObject {
     pub(crate) fn path(&self) -> HeadingPath {
         use glib::subclass::prelude::*;
         self.imp().path.borrow().clone()
+    }
+    /// The title as highlighted markup, when a sidebar filter matched it.
+    pub(crate) fn markup(&self) -> Option<String> {
+        use glib::subclass::prelude::*;
+        self.imp().markup.borrow().clone()
+    }
+    /// Whether a sidebar filter shows this row only as context (see the field).
+    pub(crate) fn is_context(&self) -> bool {
+        use glib::subclass::prelude::*;
+        self.imp().context.get()
     }
     fn children(&self) -> gio::ListStore {
         use glib::subclass::prelude::*;
@@ -217,16 +252,23 @@ pub(crate) fn row_expansion_states(model: &gtk::TreeListModel) -> Vec<(usize, bo
 ///
 /// `keep_collapsed` names the headings to leave shut, so a rebuild restores what the reader
 /// had folded rather than springing the whole tree open (TDD 12.24).
+///
+/// `marks` is a sidebar filter's verdict per heading (`outline::filter`) when `roots` is
+/// a filtered outline — its matches are highlighted and its context rows dimmed — and
+/// `empty_label` is what an empty outline says: "No headings", or "No matching headings"
+/// under a filter that matched nothing (TDD 12.26).
 pub(crate) fn build_outline_content(
     roots: &[HeadingNode],
     paths: &[HeadingPath],
     on_activate: Rc<dyn Fn(HeadingPath, usize)>,
     initial_selected: Option<usize>,
     keep_collapsed: &BTreeSet<usize>,
+    marks: Option<&BTreeMap<usize, RowMark>>,
+    empty_label: &str,
 ) -> gtk::Widget {
     if roots.is_empty() {
         let placeholder = gtk::Label::builder()
-            .label("No headings")
+            .label(empty_label)
             .xalign(0.0)
             .margin_start(12)
             .margin_top(12)
@@ -238,7 +280,7 @@ pub(crate) fn build_outline_content(
 
     let root_store = gio::ListStore::new::<HeadingObject>();
     for r in roots {
-        root_store.append(&HeadingObject::new(r, paths));
+        root_store.append(&HeadingObject::new(r, paths, marks));
     }
 
     // passthrough=false ⇒ rows are GtkTreeListRow (required to drive a
@@ -347,8 +389,18 @@ pub(crate) fn build_outline_content(
         // set_list_row gives the disclosure triangle + depth indentation for free.
         expander.set_list_row(Some(&row));
         if let Some(heading) = row.item().and_downcast::<HeadingObject>() {
-            label.set_text(&heading.title());
-            label.set_css_classes(&[level_class(heading.level())]);
+            // `set_text` and `set_markup` each set `use-markup` themselves, so a recycled
+            // label never carries the previous row's mode over.
+            match heading.markup() {
+                Some(markup) => label.set_markup(&markup),
+                None => label.set_text(&heading.title()),
+            }
+            let level = level_class(heading.level());
+            if heading.is_context() {
+                label.set_css_classes(&[level, "dim-label"]);
+            } else {
+                label.set_css_classes(&[level]);
+            }
         }
     });
 

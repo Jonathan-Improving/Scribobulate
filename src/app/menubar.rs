@@ -318,6 +318,9 @@ fn build_view_menu(themes: &crate::theme::Themes) -> (Menu, Menu) {
     // win.outline, sharing the same section (both toggle a sidebar pane). F8, mirroring
     // Outline's F9.
     outline_section.append_item(&item("Annotations", "win.annotations"));
+    // The two sidebar filters, beside the panes they filter (Shift+F9 / Shift+F8).
+    outline_section.append_item(&item("Jump to Heading…", "win.filter-outline"));
+    outline_section.append_item(&item("Jump to Comment…", "win.filter-annotations"));
     outline_section.append_item(&item("Go To Line…", "win.go-to-line"));
 
     // View-chrome visibility toggles — boolean `win.show-*` actions render as
