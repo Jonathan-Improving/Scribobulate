@@ -490,6 +490,7 @@ pub(crate) fn wire_annotation_overlay(
     let entry = card.field.clone();
     bar.append(&card.area);
     bar.append(&card.save);
+    bar.append(&card.close);
 
     // Raise the comment-entry card over the CURRENT preview selection: capture the
     // selection offsets, dismiss the popover, reveal + position the entry, focus it.
@@ -615,9 +616,10 @@ pub(crate) fn wire_annotation_overlay(
         move |_| show_entry()
     });
 
-    // Escape on the entry bar dismisses it and returns focus to the preview (an
-    // in-surface overlay child has no popover autohide, so Escape is wired explicitly).
-    card.wire_escape(&bar, {
+    // Escape on the entry bar, or its corner ×, dismisses it and returns focus to the
+    // preview (an in-surface overlay child has no popover autohide, so this is wired
+    // explicitly).
+    card.wire_cancel(&bar, {
         let hide_entry = hide_entry.clone();
         let view = view.downgrade();
         move || {

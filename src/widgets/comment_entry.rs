@@ -57,6 +57,10 @@ pub(crate) struct CommentEntry {
     pub(crate) area: gtk::Overlay,
     pub(crate) field: sourceview::View,
     pub(crate) save: gtk::Button,
+    /// The corner **×** that cancels the card — the pointer twin of Escape. Only the
+    /// Create cards pack it; [`wire_cancel`](Self::wire_cancel) wires it and Escape to
+    /// the same `cancel`, so neither can be packed without the other working.
+    pub(crate) close: gtk::Button,
     /// The hint shown over an empty field. A `GtkTextView` has no placeholder of its own,
     /// so this is one, laid over the field and never a target for the pointer. Empty
     /// until [`style_as_card`](Self::style_as_card) gives it text.
@@ -114,6 +118,17 @@ impl CommentEntry {
         let save = gtk::Button::with_label("Save");
         save.add_css_class("suggested-action");
 
+        // Same chrome as the marker card's corner × (`codeview::markers`): the audited
+        // icon name (GTK4Rs/AP-48), `.flat` so it reads as chrome rather than a second
+        // action, and NOT focusable — clicking it must not steal focus from the field,
+        // or the card's focus-leave dismissal would race the click. Keyboard users have
+        // Escape, which this only duplicates for the pointer.
+        let close = gtk::Button::from_icon_name(crate::icons::Icon::WindowClose.name());
+        close.add_css_class("flat");
+        close.set_valign(gtk::Align::Start);
+        close.set_can_focus(false);
+        crate::a11y::name_with_tooltip(&close, "Cancel comment", "Cancel (Esc)");
+
         // ONE closure, BOTH routes — the whole point of this type.
         let commit: Rc<dyn Fn(&str)> = Rc::new(commit);
 
@@ -157,6 +172,7 @@ impl CommentEntry {
             area,
             field,
             save,
+            close,
             placeholder,
         }
     }
@@ -176,7 +192,9 @@ impl CommentEntry {
         self.field.set_size_request(char_px.max(1) * 34, -1);
     }
 
-    /// Wire Escape anywhere in `root`'s subtree to `cancel`.
+    /// Wire both cancel routes to `cancel`: Escape anywhere in `root`'s subtree, and the
+    /// [`close`](Self::close) button. One call, both routes, for the same reason `new`
+    /// wires Enter and Save together.
     ///
     /// For the in-surface cards only. They are `GtkOverlay` children rather than popovers
     /// (GTK4Rs/AP-83 — a popover hosting a typing entry is unwinnable on X11), so they gave up
@@ -186,7 +204,12 @@ impl CommentEntry {
     ///
     /// `cancel` owns the whole dismissal, including handing focus back to the pane: which
     /// widget that is differs per surface, and is not this type's business.
-    pub(crate) fn wire_escape(&self, root: &impl IsA<gtk::Widget>, cancel: impl Fn() + 'static) {
+    pub(crate) fn wire_cancel(&self, root: &impl IsA<gtk::Widget>, cancel: impl Fn() + 'static) {
+        let cancel: Rc<dyn Fn()> = Rc::new(cancel);
+        self.close.connect_clicked({
+            let cancel = cancel.clone();
+            move |_| cancel()
+        });
         let key = gtk::EventControllerKey::new();
         key.connect_key_pressed(move |_, keyval, _code, _mods| {
             if keyval == gtk::gdk::Key::Escape {
@@ -357,6 +380,27 @@ mod tests {
             ["typed by hand"],
             "the Save button must commit the field's text"
         );
+    }
+
+    /// The corner × cancels through `wire_cancel`'s closure and commits nothing. It is
+    /// named for assistive technology and kept out of the focus ring, so clicking it
+    /// cannot move focus off the field and fire the card's focus-leave dismissal first.
+    #[gtktest::test]
+    fn close_cancels_without_committing() {
+        let (log, sink) = recording();
+        let ce = CommentEntry::new("", sink);
+        let root = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        let cancelled = Rc::new(Cell::new(0));
+        ce.wire_cancel(&root, {
+            let cancelled = cancelled.clone();
+            move || cancelled.set(cancelled.get() + 1)
+        });
+        set_comment_text(&ce.field, "abandoned");
+        ce.close.emit_clicked();
+        assert_eq!(cancelled.get(), 1, "the × must run the cancel closure");
+        assert!(log.borrow().is_empty(), "the × must not commit");
+        assert!(crate::a11y::has_name(&ce.close));
+        assert!(!ce.close.can_focus());
     }
 
     /// Both routes reach the SAME commit and see the SAME text. The two must be

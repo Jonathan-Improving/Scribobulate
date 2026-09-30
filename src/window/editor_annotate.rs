@@ -101,6 +101,7 @@ pub(crate) fn wire_editor_annotate_card(
     let entry = card.field.clone();
     bar.append(&card.area);
     bar.append(&card.save);
+    bar.append(&card.close);
     overlay.add_overlay(&bar);
     // Clip the card to the overlay and keep it OUT of the overlay's size measurement — it
     // must never influence the editor's allocated size (same as the preview card).
@@ -163,9 +164,9 @@ pub(crate) fn wire_editor_annotate_card(
         }
     });
 
-    // Escape dismisses the card and returns focus to the editor (an in-surface overlay
-    // child has no popover autohide, so this is wired explicitly).
-    card.wire_escape(&bar, {
+    // Escape or the corner × dismisses the card and returns focus to the editor (an
+    // in-surface overlay child has no popover autohide, so this is wired explicitly).
+    card.wire_cancel(&bar, {
         let hide = hide.clone();
         let editor = editor.downgrade();
         move || {

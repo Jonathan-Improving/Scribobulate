@@ -2829,6 +2829,12 @@
 - **And** the caret rests at the end of the comment with nothing selected
 - **And** the card does not change size or close as the page switches, however long the comment
 
+### 17.58 A new comment can be abandoned with the pointer, not only with Escape
+- **Given** the comment entry opened to add a new annotation, from either the preview or the editor
+- **When** the reader clicks the **×** beside its Save button
+- **Then** the entry closes, nothing is written to the document, and the focus returns to the pane the annotation was started from — exactly as Escape does
+- **And** the × is never in the Tab order, so clicking it cannot move the focus off the field first
+
 ## 18. Preview reading themes
 
 The preview pane's purpose is reading. A *reading theme* restyles everything the

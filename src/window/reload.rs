@@ -1162,7 +1162,7 @@ mod gtk_integration_tests {
     /// Save button in an overlay child) is rebuilt inside `wire_annotation_overlay` on
     /// EVERY preview render. Its `hide_entry` closure once strong-captured the card's
     /// container `bar`, and that closure is held by controllers added to `bar` itself
-    /// (a focus `connect_leave` and `wire_escape`'s key controller) — an uncollectable
+    /// (a focus `connect_leave` and `wire_cancel`'s key controller) — an uncollectable
     /// `bar → controller → closure → hide_entry(Rc) → bar` cycle. The whole card, incl.
     /// the `GtkEntry` and its internal `GtkText` gestures/controllers, was therefore
     /// stranded per render, leaking RSS unbounded (~246 KiB/reload, measured). The fix
