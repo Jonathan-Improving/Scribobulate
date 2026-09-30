@@ -165,6 +165,21 @@ fn rows_for(group: &str, cmd_rows: &[(&str, &str)]) -> Vec<String> {
 #[cfg(test)]
 const MAX_GROUP_ROWS: usize = 12;
 
+/// Lines per column in the finished window.
+const MAX_HEIGHT: u32 = 10;
+
+/// The section's `max-height` while Builder adds the groups: tall enough that every
+/// group fits one page.
+///
+/// GtkShortcutsSection re-lays out its groups each time one is added, and each re-layout
+/// collects them page by page but PREPENDS every page's groups (gtkshortcutssection.c
+/// `reflow_groups`, 4.6.9 lines 544-565), so every re-layout of a multi-page section
+/// reverses its page order. Adding ten groups at the real height scrambled them (File and
+/// Edit landed on page 4 of 5). A single page has no order to reverse, so the groups are
+/// added at this height and the real [`MAX_HEIGHT`] is applied once, afterwards, in
+/// [`make_shortcuts_window`].
+const BUILD_MAX_HEIGHT: u32 = 1000;
+
 /// Format targets that change a block rather than a run of text.
 const BLOCK_TARGETS: [&str; 6] = [
     "code-block",
@@ -236,9 +251,9 @@ fn interface_xml() -> String {
            <object class=\"GtkShortcutsWindow\" id=\"shortcuts\">\
              <property name=\"modal\">1</property>\
              <child>\
-               <object class=\"GtkShortcutsSection\">\
+               <object class=\"GtkShortcutsSection\" id=\"section\">\
                  <property name=\"section-name\">shortcuts</property>\
-                 <property name=\"max-height\">10</property>\
+                 <property name=\"max-height\">{BUILD_MAX_HEIGHT}</property>\
                  {groups}\
                </object>\
              </child>\
@@ -252,7 +267,13 @@ fn interface_xml() -> String {
 /// creates the per-window `win.show-help-overlay` action, and hides (not
 /// destroys) it on close so it can reopen.
 pub(crate) fn make_shortcuts_window() -> gtk::ShortcutsWindow {
+    use gtk::prelude::ObjectExt;
     let builder = gtk::Builder::from_string(&interface_xml());
+    // One re-layout, from a single page, in declaration order (see BUILD_MAX_HEIGHT).
+    builder
+        .object::<gtk::ShortcutsSection>("section")
+        .expect("shortcuts section is defined in the interface XML")
+        .set_property("max-height", MAX_HEIGHT); // GObject property; no typed setter below 4.14
     builder
         .object::<gtk::ShortcutsWindow>("shortcuts")
         .expect("shortcuts window is defined in the interface XML")
@@ -432,6 +453,59 @@ mod gtk_integration_tests {
         let w = make_shortcuts_window();
         let (min, _, _, _) = w.measure(gtk::Orientation::Vertical, -1);
         assert!(min <= 720, "shortcuts window needs {min} px of height");
+    }
+
+    /// The groups reach the reader in the order they are declared, File and Edit first,
+    /// read off the section's pages as its page switcher presents them. GTK's own
+    /// re-layout reverses page order each time it runs on a multi-page section, which
+    /// had put File and Edit on page 4 of 5 (see `BUILD_MAX_HEIGHT`).
+    #[gtktest::test]
+    fn groups_appear_in_declaration_order() {
+        fn titles(w: &gtk::Widget, out: &mut Vec<String>) {
+            if let Some(g) = w.downcast_ref::<gtk::ShortcutsGroup>() {
+                out.push(g.property::<Option<String>>("title").unwrap_or_default());
+                return;
+            }
+            let mut c = w.first_child();
+            while let Some(ch) = c {
+                titles(&ch, out);
+                c = ch.next_sibling();
+            }
+        }
+        fn section_stack(w: &gtk::Widget) -> Option<gtk::Stack> {
+            if let Some(s) = w.downcast_ref::<gtk::Stack>() {
+                if s.parent().is_some_and(|p| p.is::<gtk::ShortcutsSection>()) {
+                    return Some(s.clone());
+                }
+            }
+            let mut c = w.first_child();
+            while let Some(ch) = c {
+                if let Some(s) = section_stack(&ch) {
+                    return Some(s);
+                }
+                c = ch.next_sibling();
+            }
+            None
+        }
+        let window = make_shortcuts_window();
+        let stack = section_stack(window.upcast_ref()).expect("the section's page stack");
+        let mut shown = Vec::new();
+        let mut pages = 0;
+        let mut page = stack.first_child();
+        while let Some(pg) = page {
+            titles(&pg, &mut shown);
+            pages += 1;
+            page = pg.next_sibling();
+        }
+        let declared: Vec<String> = group_rows(&[], &[], &[])
+            .into_iter()
+            .map(|(t, _)| t.to_string())
+            .collect();
+        assert_eq!(shown, declared, "groups are out of declaration order");
+        assert!(
+            pages > 1,
+            "expected the real column height to split the groups into pages"
+        );
     }
 
     #[gtktest::test]
