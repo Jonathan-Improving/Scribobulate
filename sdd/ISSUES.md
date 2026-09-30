@@ -37,8 +37,8 @@ described from a different vantage point.
 
 | ID | Platform | Scope | Issue | Severity |
 |----|----------|-------|-------|----------|
-| D | Any | Production | A large document leaves the process spinning a CPU core at ~100% while idle — a GTK/Pango relayout pass that re-shapes text every main-loop iteration and never converges | High |
-| I | Mac | Upstream | macOS only: every native file-chooser invocation (Open, Save, Export) grows RSS by ~1.1 MB and does not give it back. Roughly four fifths is AppKit's own price for presenting an `NSSavePanel` — reproduced with no GTK in the process — with about a fifth GTK-attributable. Caching the panel upstream would recover ~95% | Medium |
+| A | Any | Production | A large document leaves the process spinning a CPU core at ~100% while idle — a GTK/Pango relayout pass that re-shapes text every main-loop iteration and never converges | High |
+| B | Mac | Upstream | macOS only: every native file-chooser invocation (Open, Save, Export) grows RSS by ~1.1 MB and does not give it back. Roughly four fifths is AppKit's own price for presenting an `NSSavePanel` — reproduced with no GTK in the process — with about a fifth GTK-attributable. Caching the panel upstream would recover ~95% | Medium |
 
 ## Closed issues
 
@@ -151,7 +151,7 @@ free today, as the probe's control demonstrates — to un-break a minor limitati
 nobody has asked for. It would be a deliberate project chosen on product grounds, not an
 increment, and it should not be started from this entry.
 
-## D. A large document pegs a CPU core at ~100% while idle (GTK/Pango relayout loop that never converges)
+## A. A large document pegs a CPU core at ~100% while idle (GTK/Pango relayout loop that never converges)
 
 **Severity**: High (the symptom is a full CPU core held at ~100% **indefinitely while idle**,
 which directly contradicts the product's negligible-footprint thesis — but it is gated to
@@ -289,7 +289,7 @@ midway through a bisect.
   primary use case (large agent-generated documents) defeats the negligible-footprint thesis the
   project exists to honour.
 
-## I. Every native file chooser invocation grows RSS on macOS
+## B. Every native file chooser invocation grows RSS on macOS
 
 **Severity**: Medium. Monotonic within everything measured at the per-invocation scale, but the
 cost is overwhelmingly AppKit's own price for presenting an `NSSavePanel`, and it is not

@@ -89,7 +89,7 @@ struct PointerCmd {
 /// deliberately absent** — the Back/Forward thumb buttons are pointer buttons 8
 /// and 9 with no keystroke at all, and this window describes keys (TDD 23.6).
 const POINTER_CMDS: &[PointerCmd] = &[PointerCmd {
-    group: "View",
+    group: "Zoom",
     label: "Zoom Preview In / Out",
     // The same `<Primary>` the zoom accelerators declare, so the keycap drawn here
     // and the modifier `window::zoomwheel` tests for are one platform decision, not
@@ -137,21 +137,86 @@ fn group_xml(title: &str, rows: &str) -> String {
 /// CANONICAL (first) accelerator — the same one the menu hint / tooltip show —
 /// while `register_accelerators` binds all of its aliases, both from the one table
 /// (QA M-4).
-fn rows_for(group: &str, cmd_rows: &[(&str, &str)]) -> String {
-    let mut out = String::new();
+fn rows_for(group: &str, cmd_rows: &[(&str, &str)]) -> Vec<String> {
+    let mut out = Vec::new();
     for (title, accel) in cmd_rows {
         if !accel.is_empty() {
-            out += &shortcut_xml(title, accel);
+            out.push(shortcut_xml(title, accel));
         }
     }
     for cmd in INLINE_ACCEL_CMDS.iter().filter(|c| c.group == group) {
-        out += &shortcut_xml(cmd.label, cmd.accels[0]);
+        out.push(shortcut_xml(cmd.label, cmd.accels[0]));
     }
     // Last in the group: a gesture is a footnote to the keys above it, not a peer.
     for cmd in POINTER_CMDS.iter().filter(|c| c.group == group) {
-        out += &pointer_shortcut_xml(cmd);
+        out.push(pointer_shortcut_xml(cmd));
     }
     out
+}
+
+/// The most shortcuts one group may hold.
+///
+/// GtkShortcutsSection lays out whole groups, never splitting one, and every page of
+/// the section is as tall as its tallest group (both the window's and the section's
+/// internal stacks are `vhomogeneous`). The window is not resizable and cannot be
+/// shorter than that, so one long group pushes the page switcher off a short screen:
+/// a 22-row Format group made the window 1095 px tall. `max-height` cannot help,
+/// because it only decides which whole groups share a column.
+#[cfg(test)]
+const MAX_GROUP_ROWS: usize = 12;
+
+/// Format targets that change a block rather than a run of text.
+const BLOCK_TARGETS: [&str; 6] = [
+    "code-block",
+    "quote",
+    "bulleted-list",
+    "numbered-list",
+    "task-list",
+    "hr",
+];
+
+/// Format targets that insert something rather than format existing text.
+const INSERT_TARGETS: [&str; 3] = ["link", "image", "table"];
+
+/// Every group's title and its shortcut rows, in display order.
+fn group_rows(
+    file: &[(&str, &str)],
+    edit: &[(&str, &str)],
+    view: &[(&str, &str)],
+) -> Vec<(&'static str, Vec<String>)> {
+    // The Format menu is split across four groups to respect MAX_GROUP_ROWS: text
+    // styles, blocks, headings, insertions. Anything not named as a block or an
+    // insertion is a text style, so a new FORMAT_CMDS entry is never dropped.
+    let format_group = |pick: &dyn Fn(&str) -> bool| -> Vec<String> {
+        FORMAT_CMDS
+            .iter()
+            .filter(|c| !c.accel.is_empty() && pick(c.target))
+            .map(|c| shortcut_xml(c.label, c.accel))
+            .collect()
+    };
+    // The six heading accelerators are registered by setup.rs in a `1..=6` loop
+    // rather than from a table.
+    let headings: Vec<String> = (1..=6u8)
+        .map(|n| shortcut_xml(&format!("Heading {n}"), &format!("<Shift>F{n}")))
+        .collect();
+    vec![
+        ("File", rows_for("File", file)),
+        ("Edit", rows_for("Edit", edit)),
+        (
+            "Format",
+            format_group(&|t| !BLOCK_TARGETS.contains(&t) && !INSERT_TARGETS.contains(&t)),
+        ),
+        ("Blocks", format_group(&|t| BLOCK_TARGETS.contains(&t))),
+        ("Headings", headings),
+        ("Insert", format_group(&|t| INSERT_TARGETS.contains(&t))),
+        ("View", rows_for("View", view)),
+        ("Navigate", rows_for("Navigate", &[])),
+        ("Zoom", rows_for("Zoom", &[])),
+        // The Windows & Tabs group has no Cmd table behind it — every row comes from
+        // INLINE_ACCEL_CMDS (group "Windows & Tabs"), pulled in by rows_for's empty
+        // cmd slice.
+        ("Windows & Tabs", rows_for("Windows & Tabs", &[])),
+    ]
 }
 
 /// Build the interface XML for the whole shortcuts window.
@@ -160,31 +225,10 @@ fn interface_xml() -> String {
     let file: Vec<(&str, &str)> = FILE_CMDS.iter().map(|c| (c.label, c.accel)).collect();
     let edit: Vec<(&str, &str)> = EDIT_CMDS.iter().map(|c| (c.label, c.accel)).collect();
     let view: Vec<(&str, &str)> = VIEW_CMDS.iter().map(|c| (c.label, c.accel)).collect();
-    // Format: the inline FORMAT_CMDS plus the six heading accelerators, which
-    // setup.rs registers in a `1..=6` loop rather than from a table.
-    let mut format: Vec<(String, String)> = FORMAT_CMDS
-        .iter()
-        .filter(|c| !c.accel.is_empty())
-        .map(|c| (c.label.to_string(), c.accel.to_string()))
-        .collect();
-    for n in 1..=6u8 {
-        format.push((format!("Heading {n}"), format!("<Shift>F{n}")));
-    }
-    let format_rows: String = format
-        .iter()
-        .map(|(t, a)| shortcut_xml(t, a))
-        .collect::<String>();
-
     let mut groups = String::new();
-    groups += &group_xml("File", &rows_for("File", &file));
-    groups += &group_xml("Edit", &rows_for("Edit", &edit));
-    groups += &group_xml("Format", &format_rows);
-    groups += &group_xml("View", &rows_for("View", &view));
-    // The Windows & Tabs group has no Cmd table behind it — every row comes from
-    // INLINE_ACCEL_CMDS (group "Windows & Tabs"), pulled in by rows_for's empty
-    // cmd slice (its second loop). (Was a hand-mirrored EXTRA_ROWS list, retired
-    // into INLINE_ACCEL_CMDS — QA M-4.)
-    groups += &group_xml("Windows & Tabs", &rows_for("Windows & Tabs", &[]));
+    for (title, rows) in group_rows(&file, &edit, &view) {
+        groups += &group_xml(title, &rows.concat());
+    }
 
     format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\
@@ -232,10 +276,58 @@ mod tests {
     #[cfg(not(target_os = "macos"))]
     const OPEN_ACCEL_XML: &str = "&lt;Primary&gt;o";
 
+    /// No group may be taller than MAX_GROUP_ROWS: the tallest group sets the
+    /// window's minimum height, and the window cannot shrink below it (issue found
+    /// at 22 rows → 1095 px, switcher off a laptop screen).
+    #[test]
+    fn no_shortcut_group_is_taller_than_the_cap() {
+        let file: Vec<(&str, &str)> = FILE_CMDS.iter().map(|c| (c.label, c.accel)).collect();
+        let edit: Vec<(&str, &str)> = EDIT_CMDS.iter().map(|c| (c.label, c.accel)).collect();
+        let view: Vec<(&str, &str)> = VIEW_CMDS.iter().map(|c| (c.label, c.accel)).collect();
+        for (title, rows) in group_rows(&file, &edit, &view) {
+            assert!(!rows.is_empty(), "shortcut group {title:?} is empty");
+            assert!(
+                rows.len() <= MAX_GROUP_ROWS,
+                "shortcut group {title:?} has {} rows; the cap is {MAX_GROUP_ROWS}",
+                rows.len()
+            );
+        }
+    }
+
+    /// Every Format command with a shortcut is listed exactly once across the
+    /// split Format groups.
+    #[test]
+    fn every_format_shortcut_is_listed_once() {
+        let xml = interface_xml();
+        for c in FORMAT_CMDS.iter().filter(|c| !c.accel.is_empty()) {
+            let needle = format!(
+                "<property name=\"title\">{}</property>",
+                xml_escape(c.label)
+            );
+            assert_eq!(
+                xml.matches(&needle).count(),
+                1,
+                "{:?} listed wrongly",
+                c.label
+            );
+        }
+    }
+
     #[test]
     fn interface_xml_has_groups_and_escapes_accels() {
         let xml = interface_xml();
-        for group in ["File", "Edit", "Format", "View", "Windows &amp; Tabs"] {
+        for group in [
+            "File",
+            "Edit",
+            "Format",
+            "Blocks",
+            "Headings",
+            "Insert",
+            "View",
+            "Navigate",
+            "Zoom",
+            "Windows &amp; Tabs",
+        ] {
             assert!(xml.contains(group), "interface XML missing group {group:?}");
         }
         // Accelerators must be entity-escaped, never raw — and spelled for this
@@ -253,7 +345,7 @@ mod tests {
 
     /// Every inline-accelerator command must actually be *displayed* in the
     /// window, not merely bound. `interface_xml` renders a FIXED set of group
-    /// headings (File / Edit / Format / View / Windows & Tabs), so an
+    /// headings (see `group_rows`), so an
     /// `INLINE_ACCEL_CMDS` row tagged with a group outside that set — or any new
     /// off-table accelerator path — would be bound by `register_accelerators`
     /// yet silently never listed here: the accel works, the help window just
@@ -331,6 +423,17 @@ mod gtk_integration_tests {
     /// `GtkShortcutsShortcut` shows nothing / warns. Guards EVERY accelerator in
     /// the shared `INLINE_ACCEL_CMDS` table (the Cmd tables are guarded elsewhere)
     /// against a typo'd accel string.
+    /// The window must fit a short screen: its height is set by its tallest group and
+    /// it cannot be shrunk, so a group over MAX_GROUP_ROWS pushed the page switcher
+    /// off a laptop screen (a 22-row group measured 1095 px). Bounded well under a
+    /// 1366×768-class screen's usable height, with headroom for font metrics.
+    #[gtktest::test]
+    fn the_shortcuts_window_fits_a_short_screen() {
+        let w = make_shortcuts_window();
+        let (min, _, _, _) = w.measure(gtk::Orientation::Vertical, -1);
+        assert!(min <= 720, "shortcuts window needs {min} px of height");
+    }
+
     #[gtktest::test]
     fn inline_accel_cmds_are_parseable() {
         for cmd in INLINE_ACCEL_CMDS {

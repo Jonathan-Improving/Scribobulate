@@ -615,13 +615,13 @@ pub(crate) const INLINE_ACCEL_CMDS: &[InlineCmd] = &[
     // describes keys (TDD 23.6).
     InlineCmd {
         action: "win.nav-back",
-        group: "View",
+        group: "Navigate",
         label: "Back",
         accels: &["<Alt>Left", "XF86Back"],
     },
     InlineCmd {
         action: "win.nav-forward",
-        group: "View",
+        group: "Navigate",
         label: "Forward",
         accels: &["<Alt>Right", "XF86Forward"],
     },
@@ -663,7 +663,7 @@ pub(crate) const INLINE_ACCEL_CMDS: &[InlineCmd] = &[
     },
     InlineCmd {
         action: "win.go-to-line",
-        group: "View",
+        group: "Navigate",
         label: "Go To Line",
         accels: &["<Primary>g"],
     },
@@ -710,19 +710,19 @@ pub(crate) const INLINE_ACCEL_CMDS: &[InlineCmd] = &[
     // dropped from the shortcuts window / tooltip — QA M-4's live drift.)
     InlineCmd {
         action: "win.zoom-in",
-        group: "View",
+        group: "Zoom",
         label: "Zoom In",
         accels: &["<Primary>plus", "<Primary>equal"],
     },
     InlineCmd {
         action: "win.zoom-out",
-        group: "View",
+        group: "Zoom",
         label: "Zoom Out",
         accels: &["<Primary>minus"],
     },
     InlineCmd {
         action: "win.zoom-reset",
-        group: "View",
+        group: "Zoom",
         label: "Reset Zoom",
         accels: &["<Primary>0"],
     },

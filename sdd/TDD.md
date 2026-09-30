@@ -2406,8 +2406,9 @@
 ### 16.2 The shortcuts window is accurate and complete
 - **Given** the keyboard-shortcuts window is open
 - **When** the user reads it
-- **Then** every command that has a keyboard shortcut is listed, grouped by area (File, Edit, Format, View, Windows & Tabs), each showing its command name and its actual, platform-correct key combination — and a shortcut shown there really triggers that command
+- **Then** every command that has a keyboard shortcut is listed, grouped by area (File, Edit, Format, Blocks, Headings, Insert, View, Navigate, Zoom, Windows & Tabs), each showing its command name and its actual, platform-correct key combination — and a shortcut shown there really triggers that command
 - **And** a pointer gesture the reader performs **under a held key** is listed in its area too — Ctrl+wheel zoom (13.12) — showing the modifier as a keycap and naming the motion in words, because GTK's accelerator vocabulary has none for a wheel. A gesture with **no** key in it stays out (the Back/Forward thumb buttons, 23.6): the key is what makes it this window's business
+- **And** the whole window, including the control that switches between its pages, fits on a laptop-sized screen, with no part of it off the bottom of the screen
 
 ### 16.3 A clean auto-reload is announced in the status bar
 - **Given** the editor has no unsaved edits and auto-reload is enabled
