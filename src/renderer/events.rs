@@ -80,12 +80,6 @@ impl Renderer {
                     let segs = self.scripts.segments(self.event_src.start, &t);
                     let src = self.event_src.clone();
                     if let Some(ts) = &mut self.table {
-                        // Text outside a link in a cell that already has/had a link = mixed.
-                        if ts.in_link.is_none()
-                            && (ts.cell_sole_link.is_some() || !ts.cell_markup.is_empty())
-                        {
-                            ts.cell_mixed = true;
-                        }
                         let before = ts.cell_off;
                         for seg in &segs {
                             // A delimiter is source, never a glyph: it contributes

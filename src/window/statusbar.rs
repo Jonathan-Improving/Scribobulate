@@ -1076,8 +1076,8 @@ mod tests {
         window.destroy();
     }
 
-    /// TDD 2.9/16.14 — a link in a **table cell** shows its target too, in both cell
-    /// shapes (Document Rendering CAM row 2). The hover used to ask only the buffer's
+    /// TDD 2.9/16.14 — a link in a **table cell** shows its target too, whether it is
+    /// the cell's whole content or one word among others (Document Rendering CAM row 2). The hover used to ask only the buffer's
     /// link spans, which a cell does not have, so the footer stayed blank over every
     /// table link while the cell's own tooltip still showed the URL.
     ///
@@ -1085,10 +1085,14 @@ mod tests {
     /// body of `refresh_hover_after_paint` → the cursor hook → `set_hover_target`), with no motion fed to the cell: the
     /// mixed cell must be hit-tested from its layout, because `GtkLabel::current_uri`
     /// answers `None` for a link that was only hovered. Mutation-checked: answering only
-    /// from `link_at` fails both assertions; reading `current_uri` fails the second.
+    /// from `link_at` fails both assertions; reading `current_uri` fails them too.
+    ///
+    /// TDD 2.9a — only the caption is the link. The link-only cell's column is widened
+    /// by its header, and the empty right-hand part of that cell must answer nothing: a
+    /// link-only cell was once a `GtkLinkButton`, a link across its whole slot.
     #[gtktest::test]
     fn a_table_cell_link_shows_its_target_on_hover() {
-        const MD: &str = "| A | B |\n|---|---|\n| [Pure](https://pure.example/) | see [Mixed](https://mixed.example/) here |\n";
+        const MD: &str = "| A header wide enough to leave room | B |\n|---|---|\n| [Pure](https://pure.example/) | see [Mixed](https://mixed.example/) here |\n";
         let app = make_app("com.extollit.scribobulate.integrationtest.statusbar.cellhover");
         let window = new_window(&app, "w", MD, None);
         window.present();
@@ -1107,17 +1111,14 @@ mod tests {
             let view = super::super::zoom::get_preview_view(&window)?;
             let mut all = Vec::new();
             descendants(view.upcast_ref(), &mut all);
-            let pure = all
-                .iter()
-                .find_map(|w| w.downcast_ref::<gtk::LinkButton>().cloned())
-                .filter(|b| b.width() > 0)?;
-            let mixed = all
-                .iter()
-                .filter_map(|w| w.downcast_ref::<gtk::Label>())
-                .find(|l| l.label().contains("mixed.example"))
-                .filter(|l| l.width() > 0)
-                .cloned()?;
-            Some((view, pure, mixed))
+            let cell = |needle: &str| {
+                all.iter()
+                    .filter_map(|w| w.downcast_ref::<gtk::Label>())
+                    .find(|l| l.label().contains(needle))
+                    .filter(|l| l.width() > 0)
+                    .cloned()
+            };
+            Some((view, cell("pure.example")?, cell("mixed.example")?))
         };
         assert!(
             pump_until(|| find_cells().is_some()),
@@ -1149,22 +1150,36 @@ mod tests {
             shown
         };
 
-        let centre = |w: &gtk::Widget| (f64::from(w.width()) / 2.0, f64::from(w.height()) / 2.0);
-        let (px, py) = centre(pure.upcast_ref());
+        // Aim at the layout position of a caption's first glyph.
+        let glyph = |label: &gtk::Label, word: &str| {
+            let layout = label.layout();
+            let idx = layout.text().find(word).expect("caption laid out") as i32;
+            let rect = layout.index_to_pos(idx + 1);
+            let (ox, oy) = label.layout_offsets();
+            (
+                f64::from(ox) + f64::from(rect.x()) / f64::from(gtk::pango::SCALE),
+                f64::from(oy)
+                    + f64::from(rect.y() + rect.height() / 2) / f64::from(gtk::pango::SCALE),
+            )
+        };
+        let (px, py) = glyph(&pure, "Pure");
         let want = "https://pure.example/";
         assert_eq!(hover(pure.upcast_ref(), px, py, want), want);
 
-        // The mixed cell: the link caption is the last word run before " here", so aim
-        // at the label's layout position of the caption's first glyph.
-        let layout = mixed.layout();
-        let text = layout.text();
-        let idx = text.find("Mixed").expect("caption laid out") as i32;
-        let rect = layout.index_to_pos(idx + 1);
-        let (ox, oy) = mixed.layout_offsets();
-        let (lx, ly) = (
-            f64::from(ox) + f64::from(rect.x()) / f64::from(gtk::pango::SCALE),
-            f64::from(oy) + f64::from(rect.y() + rect.height() / 2) / f64::from(gtk::pango::SCALE),
+        // The same link-only cell, well to the right of its caption: plain cell, no link.
+        let (_, nat_w, _, _) = pure.measure(gtk::Orientation::Horizontal, -1);
+        assert!(
+            pure.width() > nat_w + 40,
+            "fixture no longer discriminates: the cell ({}px) is not much wider than \
+             its caption ({nat_w}px), so there is no empty part of it to hover",
+            pure.width()
         );
+        assert_eq!(
+            hover(pure.upcast_ref(), f64::from(pure.width() - 10), py, "base"),
+            "base"
+        );
+
+        let (lx, ly) = glyph(&mixed, "Mixed");
         let want = "https://mixed.example/";
         assert_eq!(hover(mixed.upcast_ref(), lx, ly, want), want);
 

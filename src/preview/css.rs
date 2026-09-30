@@ -184,28 +184,6 @@ fn rgba_css(c: gtk::gdk::RGBA, alpha: f32) -> String {
 /// (`font-size`), so the two providers never write the same lookup slot and cannot
 /// interact (GTK4Rs/AP-101). Only zoom, which is per-window, needs a scope.
 ///
-/// **Every widget shape a link can wear inside a table cell.**
-///
-/// THREE, not two, and the third was found by looking at a driven render rather than by
-/// a test: `color` inherits to a `GtkLinkButton`'s caption label but `text-decoration-*`
-/// does not, so a rule on the button node alone leaves a pure-link cell wearing whatever
-/// underline the DESKTOP theme drew.
-///
-/// The list is a `const` and both tests iterate it rather than restating it. Two
-/// test-local literal arrays used to mirror this one, which meant they asserted *these
-/// three exist* and not *the production list is covered* — a fourth selector added here
-/// would have failed neither. The comment beside the loop records that this list grows.
-///
-/// ⚠️ **`link` here is GTK's OWN CSS class on `GtkLinkButton`, not this project's
-/// `link_color` theme key**, and the two are one blanket rename apart. A sweep that
-/// respelled the theme vocabulary turned `button.cell.link` into
-/// `button.cell.link_color`, which is a well-formed selector that matches nothing: the
-/// rules still generated, every test still passed (they assert on the rule TEXT), and a
-/// link-only cell silently reverted to the desktop's link colour and underline while the
-/// mixed cell beside it stayed themed. A theme key never appears in a selector — the
-/// theme's *values* are interpolated into the declarations, and the selector names GTK's
-/// node tree. `a_link_only_cell_wears_the_themes_link_colour` is the guard, and it is a
-/// driven one for the same reason: only a real widget can say whether a selector matched.
 /// **Every widget shape the disclosure indicator wears**, plus the button that hosts
 /// them — `widgets::disclosure::indicator` returns a `GtkLabel` for a themed glyph, a
 /// `GtkImage` for the stock icon, and a `SpriteIcon` for a sprite (which carries its own
@@ -224,11 +202,18 @@ pub(crate) const DISCLOSURE_MARKER_SELECTORS: [&str; 3] = [
 // the node it draws on and does not compile when a shape is added, and its guard requires
 // a selector here for every node that mapping names.
 
-pub(crate) const LINK_CELL_SELECTORS: [&str; 3] = [
-    "scribtable .cell link",
-    "scribtable button.cell.link",
-    "scribtable button.cell.link label",
-];
+/// **The node a link inside a table cell is drawn on.** Every cell is a `GtkLabel`,
+/// which draws a CSS node literally named `link` for each `<a href>` range
+/// (`gtklabel.c:3447`), and that node owns the link's text, so `color` and
+/// `text-decoration-*` are both stated on it rather than reached by inheritance
+/// (GTK4Rs/AP-313, GTK4Rs/AP-322).
+///
+/// A list, and the tests iterate it rather than restating it, because it has held more
+/// than one shape before: a cell that was nothing but a link used to be a
+/// `GtkLinkButton`, which needed its own `button.cell.link` rule plus one on its caption
+/// label (`text-decoration-*` does not inherit to it). A shape added here is then covered
+/// by every test at once.
+pub(crate) const LINK_CELL_SELECTORS: [&str; 1] = ["scribtable .cell link"];
 
 /// Pure — takes its inputs, touches no display. Unit-tested headlessly.
 pub(crate) fn theme_css(theme: &Theme, palette: &Palette) -> String {
@@ -429,24 +414,21 @@ pub(crate) fn theme_css(theme: &Theme, palette: &Palette) -> String {
     // cell link keeps the *desktop* theme's blue on a sepia or neon page, which is
     // exactly the drift the CAM row exists to prevent.
     //
-    // Two selectors because a link renders in two widget shapes (`linkcell`): a mixed
-    // cell's `GtkLabel` draws a CSS node literally named `link` for each `<a href>`
-    // range (`gtklabel.c:3447`), while a pure-link cell IS a `GtkLinkButton` — css name
-    // `button`, css class `link` (`gtklinkbutton.c:223`/`:364`) — whose caption label
-    // inherits `color`. Both come last so they win over the `.cell-head` colour a
-    // themed heading sets: a link in a header cell is still a link.
+    // The selector is the `link` node a cell's `GtkLabel` draws for each `<a href>`
+    // range — see [`LINK_CELL_SELECTORS`]. It comes last so it wins over the
+    // `.cell-head` colour a themed heading sets: a link in a header cell is still a
+    // link.
     //
     // The underline is stated here rather than inherited from the desktop theme for
     // the same reason: the body's `link` GtkTextTag sets `Underline::Single`
     // explicitly (`tags.rs`), and a host theme that does not underline its `link` node
-    // left a mixed cell's link coloured-but-flat beside a pure-link cell the same
-    // theme *did* underline (MEASURED on Breeze-dark: the two cell shapes disagreed
-    // while the body agreed with neither — GTK4Rs/AP-102's "your art, not the user's" in
-    // reverse). Three paths, one appearance, none of them the desktop's opinion.
+    // left a cell's link coloured-but-flat beside a body link that was underlined
+    // (MEASURED on Breeze-dark — GTK4Rs/AP-102's "your art, not the user's" in reverse).
+    // Two paths, one appearance, neither of them the desktop's opinion.
     //
     // The underline's STYLE and COLOUR are themed too (TDD 18.23), from the same two
-    // keys the body `link` tag reads — so a `wavy` or a magenta underline reaches all
-    // three link shapes or none of them. `text-decoration-line` states `none` rather
+    // keys the body `link` tag reads — so a `wavy` or a magenta underline reaches both
+    // link paths or neither. `text-decoration-line` states `none` rather
     // than being omitted when the theme turns the line off, because omitting it would
     // hand the decision back to the desktop theme, which is the drift these rules exist
     // to prevent.
@@ -469,17 +451,6 @@ pub(crate) fn theme_css(theme: &Theme, palette: &Palette) -> String {
         "text-decoration-color",
         theme.link_underline_color.map(to_hex_opaque),
     );
-    // THREE selectors, not two — see [`LINK_CELL_SELECTORS`]. `color` inherits to a
-    // `GtkLinkButton`'s caption label,
-    // but `text-decoration-*` does not — GTK registers those unhinherited and builds the
-    // Pango attributes from the node that OWNS the text, and a button owns none. So a
-    // rule on the button node styles nothing, the caption keeps whatever underline the
-    // desktop theme drew on the label, and a pure-link cell reads differently from the
-    // mixed cell beside it. MEASURED on a driven render (a wavy green underline in body
-    // prose and in a mixed cell, a solid cyan one in the pure-link cell) — and invisible
-    // to any test that asserts on the generated rule TEXT rather than on the pixels,
-    // which is why this needed a look and not another assertion. The button rule stays:
-    // it is what the desktop theme's own `button.link` styling has to lose against.
     for selector in LINK_CELL_SELECTORS {
         out.push_str(&format!(
             "{selector} {{ color: {link_fg}; text-decoration-line: {link_line};\
@@ -673,22 +644,15 @@ mod tests {
     /// under Bedtime, that painted every selected glyph `#000000` on the themed fill.
     /// So the foreground is asserted here beside the background, and for the same
     /// parity reason: the two paths must agree on it too.
-    /// TDD 18.23 — a themed link underline reaches BOTH cell link shapes, and under a
-    /// theme that states neither key the rules are byte-identical to what they always
-    /// were (a solid underline, no stated colour).
-    ///
-    /// Both shapes are asserted because they are two different widgets — a mixed cell's
-    /// `GtkLabel` `link` node and a pure-link cell's `GtkLinkButton` — and a host theme
-    /// that decorates one and not the other is exactly what made two links in one table
-    /// look different before these rules existed.
+    /// TDD 18.23 — a themed link underline reaches a cell link, and under a theme that
+    /// states neither key the rule is byte-identical to what it always was (a solid
+    /// underline, no stated colour).
     #[test]
-    fn a_themed_link_underline_reaches_both_cell_link_shapes() {
+    fn a_themed_link_underline_reaches_a_cell_link() {
         // Iterated off the PRODUCTION list, never a copy of it: a mirrored array
-        // asserts "these three exist", which a fourth selector added to production
-        // would satisfy while going untested. ⚠️ Either way this assertion is over the
-        // generated rule TEXT — it CANNOT see whether the rule matched anything on
-        // screen, and the missing third selector was found by looking at a driven
-        // render, not here.
+        // asserts "these exist", which a selector added to production would satisfy
+        // while going untested. ⚠️ Either way this assertion is over the generated rule
+        // TEXT — it CANNOT see whether the rule matched anything on screen.
         let sys = css_for(crate::theme::SYSTEM_ID);
         for prefix in super::LINK_CELL_SELECTORS {
             let rule = sys
@@ -831,12 +795,12 @@ mod tests {
         );
     }
 
-    /// Document Rendering CAM row 12 — a link is one theme key feeding three render
-    /// paths, and the two that CSS owns must agree with the one a `GtkTextTag` owns.
+    /// Document Rendering CAM row 12 — a link is one theme key feeding two render
+    /// paths, and the one CSS owns must agree with the one a `GtkTextTag` owns.
     ///
     /// A link renders in the body as buffer text carrying the `link` tag (coloured from
-    /// `palette.link_fg` in `tags.rs`), in a mixed table cell as a `GtkLabel`'s `link`
-    /// CSS node, and in a pure-link cell as a `GtkLinkButton`. Cells are outside the
+    /// `palette.link_fg` in `tags.rs`), and in a table cell as a `GtkLabel`'s `link`
+    /// CSS node. Cells are outside the
     /// buffer, so no tag reaches them (ScrAP-36) — without these rules a cell link keeps
     /// the *desktop* theme's blue on a sepia or neon page while the identical link one
     /// line above is the theme's colour. Emitted for every theme, System included,
@@ -844,7 +808,7 @@ mod tests {
     ///
     /// The underline is asserted beside the colour because it is the same claim: the
     /// body tag sets `Underline::Single`, and leaving the cells to the desktop theme
-    /// made the two cell shapes disagree with each other on a real dark theme.
+    /// made cell links disagree with body links on a real dark theme.
     #[test]
     fn cell_link_colour_follows_the_same_theme_key_as_a_body_link() {
         let colour_of = |line: &str| {

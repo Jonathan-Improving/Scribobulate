@@ -11,7 +11,7 @@ but a link, and a cell holding a link beside other content (GTK4Rs/AP-239):
 
 | Shape | Jump |
 |-------|------|
-| pure-link cell | [#deep](#deep) |
+| link-only cell | [#deep](#deep) |
 | mixed cell | ☑ [Jump to Deep](#deep) tracked |
 | mixed cell, `&` in the URL | ☑ [query link](https://example.com/s?a=1&b=2) filed |
 

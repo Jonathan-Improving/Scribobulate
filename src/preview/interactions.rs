@@ -145,21 +145,14 @@ fn link_url_in(view: &CodePreviewView, rd: &RenderData, x: f64, y: f64) -> Optio
 
 /// The URL of the link in the table **cell** under `(x, y)`, or `None`.
 ///
-/// Both cell shapes answer here, because a reader cannot tell them apart: a cell that
-/// is *nothing but* a link is a `GtkLinkButton` carrying the URL as a property, and a
-/// cell holding a link *plus* other content is a `GtkLabel` whose markup carries a
-/// `<a href>` (`widgets::table::linkcell`). Missing either one produces the same bug —
-/// a visible, working link the app treats as plain text (GTK4Rs/AP-239).
-///
-/// The mixed cell is hit-tested against its own layout
-/// ([`crate::widgets::table::label_link_at`]), never read from
-/// `GtkLabel::current_uri`, which answers the hovered link only after a press.
+/// A cell is a `GtkLabel` whose markup carries any link as a `<a href>`
+/// (`widgets::table::linkcell`), hit-tested against its own layout
+/// ([`crate::widgets::table::label_link_at`]) — never read from
+/// `GtkLabel::current_uri`, which answers the hovered link only after a press
+/// (GTK4Rs/AP-342). Only the caption answers: the rest of the cell is text.
 fn cell_link_at(view: &CodePreviewView, x: f64, y: f64) -> Option<String> {
     let mut w = view.pick(x, y, gtk::PickFlags::DEFAULT);
     while let Some(node) = w {
-        if let Some(btn) = node.downcast_ref::<gtk::LinkButton>() {
-            return Some(btn.uri().to_string());
-        }
         if let Some(label) = node.downcast_ref::<Label>() {
             let p = view.compute_point(label, &gtk::graphene::Point::new(x as f32, y as f32))?;
             if let Some(url) =
@@ -180,12 +173,10 @@ fn cell_link_at(view: &CodePreviewView, x: f64, y: f64) -> Option<String> {
 /// decision every rendered link in this document goes through, whatever widget
 /// happened to carry it.
 ///
-/// It exists as a named seam because a link renders in three shapes here and they
+/// It exists as a named seam because a link renders in two shapes here and they
 /// must not diverge in what a click *does*: buffer text carrying the `link` tag
-/// (the body, headings, list items, blockquotes), a `GtkLabel`'s Pango `<a href>`
-/// (a table cell holding a link **plus** other content), and a `GtkLinkButton` (a
-/// cell that is nothing but a link — ScrAP-4). The two cell shapes used to call
-/// `links::open_url` directly, which is only step 2 of the policy: a `#fragment`
+/// (the body, headings, list items, blockquotes), and a `GtkLabel`'s Pango `<a href>`
+/// (a table cell — ScrAP-4). Table cells used to call `links::open_url` directly, which is only step 2 of the policy: a `#fragment`
 /// never scrolled and a relative `./other.md` was *refused* inside a table while
 /// the identical link in a paragraph opened a tab (Document Rendering CAM row 2 —
 /// GTK4Rs/AP-239).

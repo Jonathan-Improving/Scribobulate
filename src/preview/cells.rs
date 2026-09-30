@@ -7,7 +7,7 @@ use super::qdata::scrib_render_data;
 use crate::codeview::CodePreviewView;
 use crate::copymap::CopyTree;
 use crate::saferizer::qdata_key::QdataKey;
-use crate::widgets::table::{link_cell_caption, ScribTableWidget};
+use crate::widgets::table::ScribTableWidget;
 use gtk::prelude::*;
 use gtk::{Label, TextChildAnchor};
 use std::rc::Rc;
@@ -42,8 +42,7 @@ pub(super) fn collect_cell_labels(anchored: &[(TextChildAnchor, gtk::Widget)]) -
 /// copy-clipboard handler can resolve an in-cell selection to char-precise
 /// Markdown (bold/italic/code/link preserved). `cell_maps` is one tree per
 /// `TableCell` in document (row-major) order — the exact order the cell widgets
-/// are parented, so the k-th direct child pairs with `cell_maps[k]` (link-only
-/// `GtkLinkButton` cells consume an index but carry no label to tag).
+/// are parented, so the k-th direct child pairs with `cell_maps[k]`.
 pub(super) fn attach_cell_copymaps(
     anchored: &[(TextChildAnchor, gtk::Widget)],
     cell_maps: &[CopyTree],
@@ -163,18 +162,13 @@ pub(super) fn collect_table_anchors(
 /// each table's anchor offset live (the read-only preview buffer never shifts offsets
 /// after a render).
 ///
-/// **Both cell shapes count.** A plain or mixed cell IS a `GtkLabel` child of the
-/// table; a cell whose whole content is one link is a `GtkLinkButton` whose caption
-/// label sits *inside* it (ScrAP-4), and is reached through the seam that built it
-/// ([`link_cell_caption`]). Enumerating only the direct-child labels is what made find
-/// silently blind to link captions — text plainly visible on the page, reported as
-/// "No matches" (ScrAP-250).
-///
-/// Both shapes are equally navigable, so the count still equals what find can step to:
-/// the highlight is a Pango attribute overlay on the label (a caption label takes one
-/// exactly like a cell label), and the scroll resolves the row by transforming the
-/// label into its `ScribTableWidget` ancestor, which is an ancestor of a caption label
-/// too (GTK4Rs/AP-91).
+/// Every cell IS a `GtkLabel` child of the table — a cell that is nothing but a link
+/// included — so the direct children are the whole enumeration. (A link-only cell was
+/// once a `GtkLinkButton` holding its caption one level down, and a walk over direct
+/// children was blind to it: text plainly on the page, reported as "No matches",
+/// ScrAP-250.) The highlight is a Pango attribute overlay on the label, and the scroll
+/// resolves the row by transforming the label into its `ScribTableWidget` ancestor
+/// (GTK4Rs/AP-91).
 pub(crate) fn cell_search_targets(view: &CodePreviewView) -> Vec<(i32, Label)> {
     let Some(rd) = scrib_render_data(view) else {
         return Vec::new();
@@ -188,8 +182,6 @@ pub(crate) fn cell_search_targets(view: &CodePreviewView) -> Vec<(i32, Label)> {
             let next = c.next_sibling();
             if let Ok(label) = c.clone().downcast::<Label>() {
                 out.push((off, label));
-            } else if let Some(caption) = link_cell_caption(&c) {
-                out.push((off, caption));
             }
             child = next;
         }

@@ -93,7 +93,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 ## 4. Using Pango `<a href>` markup in GtkLabel for standalone link widgets
 **Symptom**: a link rendered via Pango `<a href>` in a `GtkLabel` was believed to style and activate but with no pointer cursor on hover and activation on button-*press* rather than *release*.
 **Root cause**: *(as recorded — since disproved)*: `GtkLabel` was thought to handle `<a href>` without `GtkLinkButton`'s full interaction model. **At 4.6.9 it does both**: `gtk_label_update_cursor` sets `"pointer"` over an active link (`gtklabel.c:737`) and `gtk_label_click_gesture_released` emits `activate-link` on **release** (`:4400`). See GTK4Rs/AP-239.
-**Resolution**: for a cell that IS a single link, use `GtkLinkButton` (`has_frame = false`) — now on its real merits (focusable, carries the URL as a property, frame-less button padding), not on an interaction deficit that does not exist.
+**Resolution**: a `GtkLabel` with `<a href>` markup, for every table cell including one that is nothing but a link. For a while a link-only cell was a `GtkLinkButton` (`has_frame = false`), chosen on the merits it does have (focusable, carries the URL as a property). It was retired because a button is a click target across its whole allocation and cannot have its caption selected: the whole cell followed the link and the reader could not swipe its text (TDD 2.9a). A label's link is exactly its caption.
 
 ## 6. Using a horizontal rule to indicate a blockquote
 **Retired**: merged/superseded — see the entry named in the title's successor; number kept as a landing spot.
@@ -318,7 +318,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 
 ## 250. A widget swapped in for one feature's sake moves its text out of every text-walker's reach
 **Symptom**: The find bar reports "No matches" for a word the reader can see on the page. In a table, `| [Handbook](…) |` — a cell that is *nothing but* a link — is never found; the same word written as `see [Handbook](…) again`, in the cell beside it, is found normally.
-**Scribobulate**: `widgets::table::linkcell` — `link_cell_button` (the only sanctioned way to build a link cell; `gtk4::LinkButton::with_label`/`::new` are banned in `clippy.toml`, the seam and the two GTK-emission probes in `renderer::end` carrying the only allows) and its twin `link_cell_caption`, consumed by `prev…
+**Scribobulate**: fixed at the root — every table cell, a link-only one included, is now a direct-child `GtkLabel` (`widgets::table::linkcell`, `cell_markup_label`), so there is no second shape for a walk to miss. `gtk4::LinkButton::with_label`/`::new` stay banned in `clippy.toml`, now pointing at the label route; `preview::cell_search_targets` walks direct children only.
 
 ## 255. A construct whose glyphs are buffered at its `End` event is not opaque — it is char-precise in a coordinate space nobody wrote down
 **Symptom**: Selecting a couple of words inside a rendered code block and choosing Copy — from the context menu, the Edit menu, or Ctrl+C, all one `win.copy` action — put the **entire fenced block, fences included** on the clipboard.

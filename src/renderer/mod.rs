@@ -291,12 +291,6 @@ pub(crate) struct TableState {
     pub(crate) cell_markup: String,
     /// Plain text for the current cell (no tags, no entity escapes).
     pub(crate) cell_plain: String,
-    /// URL of the sole link, if the cell contains ONLY one link and nothing else.
-    pub(crate) cell_sole_link: Option<String>,
-    /// True if content has appeared outside of any link (making this a mixed cell).
-    pub(crate) cell_mixed: bool,
-    /// URL of the link currently being accumulated, if any.
-    pub(crate) in_link: Option<String>,
     /// Content-event records for the current cell: `(src_start, src_end, buf_lo, buf_hi)`
     /// with cell-local `buf` coords (table-cell annotation display mapping).
     pub(crate) cell_content_evs: Vec<(usize, usize, i32, i32)>,

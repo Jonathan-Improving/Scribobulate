@@ -126,9 +126,6 @@ impl Renderer {
                     in_head: false,
                     cell_markup: String::new(),
                     cell_plain: String::new(),
-                    cell_sole_link: None,
-                    cell_mixed: false,
-                    in_link: None,
                     cell_content_evs: Vec::new(),
                     cell_off: 0,
                 });
@@ -147,9 +144,6 @@ impl Renderer {
                     ts.in_cell = true;
                     ts.cell_markup.clear();
                     ts.cell_plain.clear();
-                    ts.cell_sole_link = None;
-                    ts.cell_mixed = false;
-                    ts.in_link = None;
                     ts.cell_content_evs.clear();
                     ts.cell_off = 0;
                 }
@@ -214,19 +208,12 @@ impl Renderer {
             Tag::Link { dest_url, .. } => {
                 if self.in_table_cell() {
                     if let Some(ts) = &mut self.table {
-                        // If anything was already in the cell, it's mixed content.
-                        if !ts.cell_plain.is_empty() || ts.cell_sole_link.is_some() {
-                            ts.cell_mixed = true;
-                        }
-                        ts.in_link = Some(dest_url.to_string());
                         // Open a Pango `<a href>` around the caption, exactly as
                         // `<b>`/`<i>` above wrap theirs — so a link composes with inline
                         // formatting and with the tight `==`/`~~`/`^`/`~` constructs
                         // `Event::Text` scans (Document Rendering CAM row 3), and a link
-                        // inside a *mixed* cell is a real link and not inert text
-                        // (row 2 — GTK4Rs/AP-239). A cell that turns out to be nothing but
-                        // this link discards `cell_markup` for a `GtkLinkButton`, so the
-                        // tag emitted here is simply unused in that case.
+                        // is a real link and not inert text (row 2 — GTK4Rs/AP-239),
+                        // whether or not anything else shares the cell.
                         ts.cell_markup
                             .push_str(&crate::widgets::table::link_markup_open(&dest_url));
                     }

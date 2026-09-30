@@ -173,7 +173,7 @@
 - **When** it is rendered
 - **Then** it appears as a laid-out table with aligned columns and even cell borders, not raw pipe text
 - **And** it fits the preview pane width — wide cells wrap onto multiple lines (every cell border spans the full row height) rather than forcing a horizontal scrollbar; narrowing the window re-wraps the cells
-- *(Cells are selectable `GtkLabel`s with working links — §2.9 — but are per-cell selection islands.)*
+- *(Cells are selectable, with working links — §2.9, §2.9a — but are per-cell selection islands.)*
 
 ### 2.2·a11y Text views use a screen-reader-safe wrap mode (no AT-SPI abort)
 - **Given** GTK 4.6 with a screen reader (Orca/AT-SPI) reading the preview
@@ -202,8 +202,16 @@
 ### 2.9 Links within table cells
 - **Given** a table cell containing a Markdown hyperlink — **whether the link is the cell's entire content** (`[#1](https://github.com/…)`) **or sits beside other content** (`☑ [#1](…) filed`), which are the two shapes a reader cannot tell apart
 - **When** it is rendered
-- **Then** the link appears with the reading theme's link styling — the same colour and underline a link in body text has, and the same as the other cell shape — and hovering it shows a pointer cursor and its URL
-- **And** activating it does exactly what the same link does in body text: an external URL opens in the system browser, a same-document `#fragment` scrolls to that heading, and a local document reference opens or is visibly refused — never stripped, never rendered as inert text, and never routed to a different policy because of which cell shape it landed in
+- **Then** the link appears with the reading theme's link styling — the same colour and underline a link in body text has, whichever of the two cases it is — and hovering it shows a pointer cursor and its URL
+- **And** activating it does exactly what the same link does in body text: an external URL opens in the system browser, a same-document `#fragment` scrolls to that heading, and a local document reference opens or is visibly refused — never stripped, never rendered as inert text, and never routed to a different policy because of which case it is
+
+### 2.9a Selecting text in a table cell works the way it does in body text
+- **Given** a table cell in the preview, including one whose text is, or contains, a link
+- **When** the reader selects its text with the mouse
+- **Then** a triple-click selects the whole cell, a double-click selects a word and dragging on from it extends the selection by whole words, and a drag selects from where it started to where the pointer is
+- **And** a drag that starts inside text already selected makes a new selection; it never picks the selected text up to drag it somewhere else
+- **And** a link in a cell is only its text: clicking the link follows it, clicking elsewhere in the cell does not, and a drag across the link's text selects it without following it, so its caption can be copied
+- **And** clicking a link whose text is selected clears the selection without following the link, as its text cursor promises; the next click follows it
 
 ### 2.13 Blockquote bar color adapts to the desktop theme
 - **Given** a document containing a blockquote, rendered under the **System** reading theme (§18) on a light or dark desktop theme
@@ -3120,9 +3128,9 @@ appearance that predates the feature; `Sepia` is the book-like reading theme.
 
 ### 18.45 A themed rule reaches the widget, not only the stylesheet
 - **Given** a reading theme that states a `link_color` (and, where it states them, `link_underline` / `link_underline_color`)
-- **When** a table cell whose ENTIRE content is a link is rendered — the `GtkLinkButton` shape, not the mixed cell's label
-- **Then** the button node RESOLVES to the theme's link ink, and its caption carries the theme's underline, exactly as the body link and the mixed cell beside it do
-- **And** the check reads the resolved style off a real widget, never the generated rule text: a selector naming a class no widget carries generates, formats and asserts identically to one that matches, so rule-text assertions are blind to the whole failure (a blanket rename of the theme vocabulary spelled GTK's own `link` class as this project's `link_color` key, and 1279 tests stayed green)
+- **When** a table cell whose ENTIRE content is a link is rendered
+- **Then** its link is drawn in the theme's link ink and carries the theme's underline, exactly as the body link and a link beside other text in the next cell do
+- **And** the check is made against what is drawn, never the generated rule text: a selector naming a node no widget carries generates, formats and asserts identically to one that matches, so rule-text assertions are blind to the whole failure (a blanket rename of the theme vocabulary spelled GTK's own `link` class as this project's `link_color` key, and 1279 tests stayed green)
 - **Rationale** a stylesheet is an instruction, not an effect; a test of the instruction is a test of the same defect one layer up
 
 ### 18.47 Two decorations that overlap composite in one stated order

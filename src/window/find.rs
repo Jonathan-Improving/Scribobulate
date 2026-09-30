@@ -2059,23 +2059,18 @@ mod gtk_integration_tests {
     /// find highlights BOTH a buffer body match and a `GtkLabel` cell match.
     const MD: &str = "A cell in the body here.\n\n| Feature | Description |\n|---|---|\n| Sel | Each cell is selectable. |\n";
 
-    /// A table whose data cells are **pure links** — a cell whose entire content is one
-    /// link renders as a `GtkLinkButton` (ScrAP-4), not a selectable `GtkLabel`. The
-    /// caption is the only place that text appears on screen in preview mode, so find
-    /// must reach it exactly as it reaches a plain cell.
+    /// A table whose data cells include a **link-only** cell. Its caption is the only
+    /// place that text appears on screen in preview mode, so find must reach it exactly
+    /// as it reaches a plain cell.
     const MD_LINK_CELL: &str = "| Doc | Notes |\n|---|---|\n| [Handbook](https://example.com/handbook) | the guide |\n| plain | see [Handbook](https://example.com/h2) again |\n";
 
-    /// Find matches the caption of a **pure-link table cell**.
+    /// Find matches the caption of a **link-only table cell** (ScrAP-250).
     ///
-    /// A cell that is nothing but a link is a `GtkLinkButton`; its caption lives in a
-    /// `GtkLabel` *inside* that button, not as a direct child of the table and not in
-    /// the buffer, so a target walk that only downcasts direct children to `GtkLabel`
-    /// skips it entirely — the reader sees "Handbook" on screen and find reports no
-    /// match (the mixed cell on the next row matched, which is what made it look
-    /// arbitrary).
-    ///
-    /// Mutation check: restoring the direct-children-only walk drops the count to 1
-    /// (the mixed cell alone) and fails here.
+    /// A cell that is nothing but a link used to be a `GtkLinkButton` holding its
+    /// caption in a `GtkLabel` one level inside it, so a walk over the table's direct
+    /// children skipped it: the reader saw "Handbook" on screen and find reported no
+    /// match, while the same link beside other text on the next row matched. Every cell
+    /// is a direct-child `GtkLabel` now; this pins that a link-only cell stays one.
     #[gtktest::test]
     fn find_matches_a_pure_link_cell_caption() {
         let view = view_of(crate::preview::render(

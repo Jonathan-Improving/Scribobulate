@@ -39,6 +39,8 @@ described from a different vantage point.
 |----|----------|-------|-------|----------|
 | A | Any | Production | A large document leaves the process spinning a CPU core at ~100% while idle — a GTK/Pango relayout pass that re-shapes text every main-loop iteration and never converges | High |
 | B | Mac | Upstream | macOS only: every native file-chooser invocation (Open, Save, Export) grows RSS by ~1.1 MB and does not give it back. Roughly four fifths is AppKit's own price for presenting an `NSSavePanel` — reproduced with no GTK in the process — with about a fifth GTK-attributable. Caching the panel upstream would recover ~95% | Medium |
+| C | Any | Production | Selected link text disappears in the preview: a selected link's glyphs are drawn in the same colour as the selection highlight, in body text and in table cells alike. Seen under the **System** reading theme; the theme may be a factor | Low |
+| D | Any | Production | The preview's Annotate bubble sits over the line above a selection, so a click there can land on the bubble: in a table, a double- or triple-click on the cell above a selected cell can lose a press and act as a single click | Low |
 
 ## Closed issues
 
@@ -330,6 +332,58 @@ here because this entry exists in order to be deleted when the defect is fixed, 
 evidence must outlive it. Do not restate its figures here; several carry caveats that do not
 survive summarising, and the transferable lessons already have permanent homes in
 `sdd/ANTI-PATTERNS.md`.
+
+## C. Selected link text disappears into the selection highlight
+
+**Severity**: Low (legibility only; copy and activation are unaffected).
+
+**Observed** (2026-09-30, Linux, Xvfb with GTK's fallback theme, **System** reading theme):
+select a passage containing a link in the preview — with Ctrl+A in the body, or by a drag
+inside a table cell — and the link's caption vanishes. The highlight is drawn and the
+surrounding text stays legible on it; only the link's glyphs cannot be seen, because they
+are the same blue as the highlight. Found while verifying TDD 2.9a, which does not cause it
+(it is visible in body text, which that change does not touch).
+
+**Not established**: which colour is at fault, and whether other reading themes do it.
+Under System the link ink and the selection fill may both come from the desktop accent,
+which would make the collision theme-dependent rather than universal — an inference, not
+a measurement. Check each installed reading theme and a light desktop before choosing a fix.
+Filed `Any` because nothing about it looks platform-specific; macOS and Windows have not
+been checked.
+
+**Mitigation options**:
+- Give selected link text the selection's foreground colour, in both paths — the body's
+  `link` text tag and the cell labels' `link` CSS node — so a link reads as selected text
+  while selected. Keeps the one-theme-key rule if both paths take the same key.
+- Pick a link ink that is guaranteed to contrast with the selection fill when the theme
+  derives both from the same source. Narrower, and only fixes the System case.
+- Accept it: the text is still selected and copies correctly.
+
+## D. The Annotate bubble covers the line above a selection and can swallow a click there
+
+**Severity**: Low (a click lands on the bubble instead of the text beneath it; nothing is lost).
+
+**Observed** (2026-09-30, Linux, bare Xvfb, GTK 4.6.9): select text in a table cell, so the
+preview's **Annotate** bubble appears above the selection. The bubble's window covers the
+text of the cell above. Double-click and drag in that cell, and only the first press
+reaches it (instrumented at the cell's own click gesture): the double-click becomes a
+single click and a drag that should extend by words selects characters. The same drive with
+the bubble dismissed first behaves correctly. Probably what spoiled a triple-click the
+operator reported. In body text the bubble covers the line above in the same way; not
+separately driven there.
+
+**Not established**: why the first press still reaches the cell while the second does not —
+whether the bubble's window takes the second press, or its hiding/re-showing on the first
+press resets the click count. Measure before choosing between the options below. Filed `Any` because the bubble's
+placement is shared code; macOS and Windows have not been driven.
+
+**Mitigation options**:
+- Keep the bubble out of the pointer's way while a mouse button is down or a multi-click is
+  still possible (show it after the double-click time has passed since the last press).
+  Slightly slower to appear after a mouse selection; keyboard selection unaffected.
+- Place the bubble clear of any text the reader may click next, e.g. in the margin or below
+  the selection. Changes a placement other features and tests rely on.
+- Accept it: the reader can dismiss the bubble by clicking elsewhere first.
 
 ## CLSD-02. A paragraph that mixes fonts lays out wider than the wrap width it was given
 

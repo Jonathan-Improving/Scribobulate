@@ -1,90 +1,26 @@
-//! **A link in a table cell** — both widget shapes one renders in, the single
-//! activation path they share with every other link in the document, and the one way
-//! to read a cell's caption back.
+//! **A link in a table cell** — the one widget shape it renders in, the single
+//! activation path it shares with every other link in the document, and the hit-test
+//! a hover needs.
 //!
-//! A cell whose *entire* content is one link (`| [Handbook](https://example.com) |`)
-//! renders as a `GtkLinkButton`; a cell holding a link **and** anything else
-//! (`| ☑ [#6378](…) |`) renders as a `GtkLabel` whose markup carries a Pango
-//! `<a href>` (ScrAP-4). Both shapes exist because `GtkLinkButton` is a *widget* and
-//! cannot be one word inside a wrapping sentence — but a reader cannot tell them
-//! apart and must not be able to: same colour, same pointer cursor, same URL tooltip,
-//! same activation, same Copy Link Location.
+//! Every cell is a selectable `GtkLabel` whose markup carries any link as a Pango
+//! `<a href>` (ScrAP-4), whether the link is the cell's whole content
+//! (`| [Handbook](https://example.com) |`) or one word among others
+//! (`| ☑ [#6378](…) |`). A link is then exactly its caption: the rest of the cell is
+//! text, a click on the caption follows it, and a swipe across it selects it
+//! (TDD 2.9a). A cell that is nothing but a link was once a `GtkLinkButton`, which
+//! made the whole cell one click target whose caption could not be selected, and whose
+//! caption lived one level inside the button where find could not see it (ScrAP-250).
 //!
-//! Keeping that true is what this module is for. Two hazards make each shape fail
-//! silently on its own, and both are sealed here rather than at the call site:
-//!
-//! * **The caption escapes the walkers.** A `GtkLinkButton` puts its caption in a
-//!   label *inside* itself instead of on a direct child of the table. Find-in-preview
-//!   enumerates cell text by downcasting each of a table's direct children to
-//!   `GtkLabel` (cell text lives in labels, not the buffer — ScrAP-36), so a pure-link
-//!   cell matched nothing: the reader could see "Handbook" on the page while the find
-//!   bar reported "No matches", and an identical link *beside other text* in the next
-//!   cell matched normally. Hence a builder and its matching reader, defined together
-//!   (ScrAP-250).
-//! * **The containment gate is bypassable.** *Both* shapes ship a default
-//!   `activate-link` handler that calls `gtk_show_uri` with the raw href
-//!   (`gtk_label_activate_link`, `gtktextview`-independent; `gtk_link_button_activate_link`),
-//!   so a handler that forgets to return [`glib::Propagation::Stop`] hands
-//!   `file:///etc/passwd` straight to the desktop. Hence one activation function both
-//!   connections delegate to, which cannot return anything else (GTK4Rs/AP-239).
+//! **The containment gate is bypassable**, and sealing it is what this module is for.
+//! `GtkLabel` ships a default `activate-link` handler that calls `gtk_show_uri` with
+//! the raw href (`gtk_label_activate_link`), so a handler that forgets to return
+//! [`glib::Propagation::Stop`] hands `file:///etc/passwd` straight to the desktop.
+//! Hence one activation function the cell's connection delegates to, which cannot
+//! return anything else (GTK4Rs/AP-239).
 
 use crate::codeview::CodePreviewView;
-use crate::mdtable::Align;
 use gtk::prelude::*;
-use gtk::{glib, Label, LinkButton};
-
-/// Build a pure-link cell's button, captioned so that every consumer of a table's
-/// cell text can treat its label exactly like a plain cell's.
-///
-/// The caption is installed as **escaped Pango markup**, not plain text. Every other
-/// cell label in a table is a markup label, and find's cell path relies on that
-/// uniformly: it forces an anchored child to re-snapshot by toggling a transient
-/// no-attr `<span>` wrapper around the label's own markup (GTK4Rs/AP-45/GTK4Rs/AP-92), which
-/// on a plain-text label would silently reinterpret the caption AS markup — a caption
-/// like `R&D notes` or `<draft>` then fails `pango_parse_markup` and the label renders
-/// EMPTY, with no crash and no compile error (ScrAP-163). One `set_markup` of an
-/// escaped string is the whole fix, and it renders the identical glyphs.
-///
-/// Activation is wired **here**, not at the call site: the default handler this
-/// overrides bypasses the containment gate, so the one thing that must never be
-/// forgotten is the one thing a caller cannot be trusted to remember. Only the
-/// `.cell` styling classes stay with the render path that knows the cell's context.
-///
-/// **The column's alignment is applied to the caption, never to the button.** The
-/// button keeps GTK's default `halign`/`valign` of `Fill`, so it is allocated the whole
-/// grid slot `ScribTableWidget` computed for it and the `.cell` border it carries spans
-/// that slot — the table's column rules stay continuous down the page. Setting a
-/// non-Fill `halign` instead shrinks the allocation to the caption's natural width, and
-/// the border shrink-wraps the text and floats inside the column, a different width on
-/// every row. That is the same reasoning the plain-cell branch already
-/// applies with `valign(Fill)` + `yalign`, and it is enforced here rather than at the
-/// call site because the alignment and the box-filling invariant are one decision that
-/// was split across two — which is exactly how they came apart.
-pub(crate) fn link_cell_button(url: &str, caption: &str, align: Align) -> LinkButton {
-    // This function IS the sanctioned route the clippy ban names.
-    #[allow(clippy::disallowed_methods)]
-    let btn = LinkButton::with_label(url, caption);
-    btn.connect_activate_link(|btn| activate_cell_link(btn.upcast_ref(), &btn.uri()));
-    match link_cell_caption(btn.upcast_ref::<gtk::Widget>()) {
-        // `set_markup` sets the text and `use-markup` in one call, so the label is
-        // never briefly holding an unescaped string with markup parsing already on.
-        // `xalign` — NOT the button's `halign` — carries the column's alignment, for
-        // the reason in this function's doc comment.
-        Some(label) => {
-            label.set_markup(&glib::markup_escape_text(caption));
-            label.set_xalign(align.xalign());
-        }
-        // GtkButton has built its label child from `set_label` since GTK4's first
-        // release; if that ever changes, the caption is simply unreachable to find,
-        // which is the silent failure this module exists to end — so say so loudly.
-        None => log::error!(
-            "link cell: GtkLinkButton's caption child is not a GtkLabel, so its text \
-             is invisible to find-in-preview and to every other cell-text consumer \
-             (url={url})"
-        ),
-    }
-    btn
-}
+use gtk::{glib, Label};
 
 /// The Pango markup that opens an inline link inside a cell's label, and its closing
 /// tag [`LINK_MARKUP_CLOSE`]. Everything between them is the link's caption, which the
@@ -110,10 +46,10 @@ pub(crate) const LINK_MARKUP_CLOSE: &str = "</a>";
 /// Build a table cell's `GtkLabel` from its finished Pango `markup`, with link
 /// activation already wired.
 ///
-/// Every cell that is not a pure-link cell comes through here — including cells with
-/// no link at all — because "does this cell contain a link?" is a question about the
-/// markup string, and answering it at the call site is exactly how one shape of cell
-/// ends up with the gate and the other without it. Wiring `activate-link`
+/// Every cell comes through here — including cells with no link at all — because
+/// "does this cell contain a link?" is a question about the markup string, and
+/// answering it at the call site is exactly how one cell ends up with the gate and
+/// another without it. Wiring `activate-link`
 /// unconditionally costs one signal connection on a label that will never emit it.
 ///
 /// The caller owns the rest: `.cell` classes, wrapping, selection, alignment — the
@@ -124,8 +60,8 @@ pub(crate) fn cell_markup_label(markup: &str) -> Label {
     label
 }
 
-/// Open `url`, clicked on a link inside table cell `cell` — the single activation both
-/// cell shapes delegate to, and the reason neither can diverge from a body link.
+/// Open `url`, clicked on a link inside table cell `cell` — the single activation every
+/// cell delegates to, and the reason none can diverge from a body link.
 ///
 /// It resolves the preview view from the cell's own ancestry rather than taking one as
 /// an argument, because a cell is built by the renderer *before* it is anchored: there
@@ -133,12 +69,10 @@ pub(crate) fn cell_markup_label(markup: &str) -> Label {
 /// stale reference across a re-render.
 ///
 /// **Always returns [`glib::Propagation::Stop`], and that return is the security
-/// property.** Both `GtkLabel` and `GtkLinkButton` ship a default `activate-link`
-/// handler that calls `gtk_show_uri` with the raw href (`gtklabel.c:2081`,
-/// `gtklinkbutton.c:483`), gate and all bypassed — so `Proceed` here would hand
-/// `file:///etc/passwd` in a table cell straight to the desktop. Pinned by the
-/// measured tests in `renderer::end`, which use `:visited` as a proxy for the default
-/// handler having run.
+/// property.** `GtkLabel` ships a default `activate-link` handler that calls
+/// `gtk_show_uri` with the raw href (`gtklabel.c:2081`), gate and all bypassed — so
+/// `Proceed` here would hand `file:///etc/passwd` in a table cell straight to the
+/// desktop. Pinned by the measured tests in `renderer::end`.
 fn activate_cell_link(cell: &gtk::Widget, url: &str) -> glib::Propagation {
     match cell
         .ancestor(CodePreviewView::static_type())
@@ -152,18 +86,6 @@ fn activate_cell_link(cell: &gtk::Widget, url: &str) -> glib::Propagation {
         None => crate::links::open_url(url),
     }
     glib::Propagation::Stop
-}
-
-/// The caption label of a pure-link cell, or `None` for any other cell widget.
-///
-/// The reader half of [`link_cell_button`]: a walk over a table's cells resolves each
-/// child either as a plain cell `GtkLabel` or through this, and both answers are a
-/// `GtkLabel` carrying the cell's on-screen text with markup semantics.
-pub(crate) fn link_cell_caption(cell: &gtk::Widget) -> Option<Label> {
-    cell.downcast_ref::<LinkButton>()?
-        .child()?
-        .downcast::<Label>()
-        .ok()
 }
 
 /// The URL of the link under `(x, y)` (the label's own widget coordinates) in a cell
@@ -404,90 +326,7 @@ mod tests {
 
 #[cfg(all(test, feature = "gtk-integration-tests"))]
 mod gtk_integration_tests {
-    use super::{link_cell_button, link_cell_caption};
-    use crate::mdtable::Align;
-    use gtk::prelude::*;
-
-    /// The builder and the reader agree: what goes in as a caption comes back out as
-    /// the label's plain text, so a cell-text consumer reads the same characters the
-    /// reader sees on screen.
-    #[gtktest::test]
-    fn a_link_cells_caption_is_readable_back_as_plain_text() {
-        let btn = link_cell_button("https://example.com/h", "Handbook", Align::None);
-        let label = link_cell_caption(btn.upcast_ref::<gtk::Widget>())
-            .expect("a pure-link cell exposes its caption label");
-        assert_eq!(label.text(), "Handbook");
-    }
-
-    /// A caption containing markup metacharacters survives verbatim — it is escaped
-    /// on the way in, so Pango renders the literal `&` and `<…>` (ScrAP-163). A plain
-    /// `set_markup` of the raw caption would fail to parse and leave the label EMPTY,
-    /// which is what the `text()` assertion below would catch.
-    #[gtktest::test]
-    fn a_caption_with_markup_metacharacters_renders_literally() {
-        let btn = link_cell_button("https://example.com/h", "R&D <draft> notes", Align::None);
-        let label = link_cell_caption(btn.upcast_ref::<gtk::Widget>())
-            .expect("a pure-link cell exposes its caption label");
-        assert_eq!(
-            label.text(),
-            "R&D <draft> notes",
-            "the caption must render as literal characters, not be parsed as markup"
-        );
-        assert!(
-            label.uses_markup(),
-            "the caption label must be a MARKUP label: find's repaint force wraps its \
-             own markup in a transient <span>, which a plain-text label would then \
-             show literally or fail to parse (GTK4Rs/AP-45/ScrAP-163)"
-        );
-    }
-
-    /// **The column's alignment lands on the caption, and the button stays Fill.**
-    ///
-    /// The button's `.cell` border is the table's column rule, so the button must be
-    /// allocated the whole grid slot; a non-Fill `halign` shrinks it to the caption and
-    /// the rules break up row to row (the live half of this is pinned in
-    /// `widgets::table`'s `a_link_cells_border_box_fills_its_column`). Both halves are
-    /// asserted here because they are one decision: alignment must be expressed in a
-    /// way that does NOT resize the box.
-    #[gtktest::test]
-    fn a_link_cells_alignment_moves_the_caption_not_the_button() {
-        for (align, xalign) in [
-            (Align::None, 0.0_f32),
-            (Align::Left, 0.0),
-            (Align::Center, 0.5),
-            (Align::Right, 1.0),
-        ] {
-            let btn = link_cell_button("https://example.com/h", "#295", align);
-            let caption = link_cell_caption(btn.upcast_ref::<gtk::Widget>())
-                .expect("a pure-link cell exposes its caption label");
-            assert_eq!(
-                caption.xalign(),
-                xalign,
-                "{align:?} must be carried by the caption's xalign"
-            );
-            assert_eq!(
-                btn.halign(),
-                gtk::Align::Fill,
-                "{align:?} must not be expressed as the button's halign: a non-Fill \
-                 halign shrink-wraps the cell's border to the caption"
-            );
-            assert_eq!(
-                btn.valign(),
-                gtk::Align::Fill,
-                "{align:?} must leave the button filling its row height"
-            );
-        }
-    }
-
-    /// The reader answers `None` for a cell that is not a pure-link cell, so a walk
-    /// cannot mistake a plain cell's label for a caption (or double-count it).
-    #[gtktest::test]
-    fn a_plain_cell_is_not_read_as_a_link_cell() {
-        let label = gtk::Label::new(Some("plain"));
-        assert!(link_cell_caption(label.upcast_ref::<gtk::Widget>()).is_none());
-    }
-
-    /// A mixed cell's markup is **consumed by `GtkLabel`'s link parser**, which is
+    /// A cell's link markup is **consumed by `GtkLabel`'s link parser**, which is
     /// what makes the caption a link rather than decorated text.
     ///
     /// The rendered text is the whole oracle, and it discriminates because of what
@@ -501,7 +340,7 @@ mod gtk_integration_tests {
     /// parsed, not when the label is drawn. The URL carries an `&`, so a title that
     /// only survives one escape shows up here as a parse failure and a blank cell.
     #[gtktest::test]
-    fn a_mixed_cells_markup_is_parsed_as_a_link_not_as_text() {
+    fn a_cells_link_markup_is_parsed_as_a_link_not_as_text() {
         use super::{cell_markup_label, link_markup_open, LINK_MARKUP_CLOSE};
         const URL: &str = "https://example.com/i?a=1&b=2";
         let label = cell_markup_label(&format!(

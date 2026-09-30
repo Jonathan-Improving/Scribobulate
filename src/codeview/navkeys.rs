@@ -11,8 +11,8 @@
 //! Measured, GTK 4.6.9 / X11, with capture- and bubble-phase controllers on the view:
 //! with a selectable cell label focused those six keys reach the view's **capture**
 //! phase and never its bubble phase, and `move-cursor` never fires; the vertical and
-//! page keys bubble through normally, and a `GtkLinkButton` cell (the pure-link cell
-//! shape) swallows nothing.
+//! page keys bubble through normally. (A `GtkLinkButton` swallows nothing, which is
+//! why a link-only cell, when it was one, behaved differently from its neighbours.)
 //!
 //! So the repair is sited exactly where the key was last seen: a **capture-phase**
 //! `GtkEventControllerKey` on the view, which by definition runs before any
