@@ -2,7 +2,8 @@
 //! colour, as selected body text is. Two different selections reach a cell, and each
 //! needed its own lever.
 //!
-//! **1. A selection made inside the cell — only its LINKS were wrong.** A `GtkTextView`
+//! **1. A selection made inside the cell — its LINKS were wrong, and under System its
+//! whole text.** A `GtkTextView`
 //! draws every selected glyph in its `text selection` node's `color`, a tag's
 //! `foreground` included, so a selected body link reads as selected text. A `GtkLabel`
 //! turns each `link` node's `color` into a Pango foreground ATTRIBUTE over the link's
@@ -13,8 +14,10 @@
 //! the `selection` node has no `link` child, so `link:selected` and `selection link`
 //! match nothing (measured). The lever that works is the label's own `attributes`,
 //! which GTK lays over the link attributes it builds: a foreground over exactly the
-//! selected part of a link wins there and nowhere else, so the unselected part of a
-//! half-selected link keeps its link colour.
+//! selected text wins there and nowhere else, so the unselected part of a half-selected
+//! link keeps its link colour. The ink laid there is the BODY's selected-text ink, not
+//! the label's own, because GTK 4.6's Adwaita inks a label's selection white over the
+//! same pale fill the body's dark selected text sits on (see [`cell_selection_ink`]).
 //!
 //! **2. A body selection that spans the table — the whole cell was wrong.** The cells
 //! are not selected at all (a table is one `U+FFFC` to the buffer's selection), but the
@@ -26,27 +29,28 @@
 //! alone: its own fill sits over the selection's, so its ink is still on its own fill.
 //!
 //! MEASURED (GTK 4.6.9, Xvfb, every built-in reading theme and three desktop themes):
-//! case 1 hit every theme; case 2 put the System theme's cell link at 3.1:1 on
-//! Adwaita's fill and Pixel Quest's cell text and links near the fill's own colour.
+//! case 1's links hit every theme, and under System on Adwaita a cell's plain selected
+//! text was white on the pale fill at ~1.5:1; case 2 put the System theme's cell link at
+//! 3.1:1 on Adwaita's fill and Pixel Quest's cell text and links near the fill's own colour.
 //!
 //! **The colour is READ, never chosen.** On a themed page both selection nodes take
 //! `palette.selection_fg` from `preview::css`; under the System reading theme the app
 //! states nothing and the DESKTOP theme decides, differently per theme. Any colour picked
 //! here would be a second owner of a value the stylesheet already owns, and wrong under
 //! System. So the ink is resolved from stand-in nodes with the same names and parents as
-//! the real ones — `label > selection` for case 1, `textview > text > selection` for
-//! case 2; the real nodes are private to GTK. The ink therefore matches the selected
+//! the real ones — `textview > text > selection` for both cases (`label > selection`
+//! only for a label outside any view); the real nodes are private to GTK. The ink therefore matches the selected
 //! text beside it by construction, on every theme and in every window state.
 //!
 //! The ink is one LAYER of the cell's attributes ([`super::cellattrs`]), so it composes
 //! with find's match washes rather than replacing them.
 //!
-//! Re-applied only when the inked ranges or the ink actually change, so a drag over a
-//! cell's plain text costs one range intersection per selection change and no relayout.
+//! Re-applied only when the inked range or the ink actually changes, and the ink is read
+//! once per cell until the window's state changes, so a drag costs one attribute
+//! replacement per step that moves the selection and no style resolution.
 //! Case 1 is driven by [`refresh_cell_selection_ink`], case 2 by the table.
 
 use super::cellattrs::{set_layer, Layer};
-use super::linkcell::markup_links;
 use crate::saferizer::qdata_key::QdataKey;
 use gtk::prelude::*;
 use gtk::subclass::prelude::*;
@@ -61,11 +65,8 @@ const INK_STATE: QdataKey<Rc<InkState>> = QdataKey::new("scrib-cell-ink");
 /// Make `label`'s selected text take the selection's ink — see the module header.
 pub(crate) fn track_selection_ink(label: &Label) {
     let state = Rc::new(InkState {
-        links: markup_links(&label.label())
-            .into_iter()
-            .map(|link| link.text)
-            .collect(),
         body_ink: std::cell::Cell::new(None),
+        own_ink: std::cell::Cell::new(None),
         applied: RefCell::new(None),
     });
     INK_STATE.set(label, state.clone());
@@ -83,6 +84,7 @@ pub(crate) fn track_selection_ink(label: &Label) {
         if state.body_ink.get().is_some() {
             state.body_ink.set(body_selection_ink(label));
         }
+        state.own_ink.set(None);
         state.refresh(label);
     });
 }
@@ -133,12 +135,13 @@ pub(crate) fn set_body_selection_ink(label: &Label, ink: Option<gtk::gdk::RGBA>)
     }
 }
 
-/// What one cell knows: its links' ranges (fixed for the widget's life — a re-render
-/// builds a new cell), the body's selection ink while a body selection spans its table,
-/// and what it last applied, so an unchanged answer costs nothing.
+/// What one cell knows: the body's selection ink while a body selection spans its
+/// table, the ink its own selection takes (read on first use and dropped when the
+/// window's state changes, so a drag does not re-read it per step), and what it last
+/// applied, so an unchanged answer costs nothing.
 struct InkState {
-    links: Vec<Range<usize>>,
     body_ink: std::cell::Cell<Option<gtk::gdk::RGBA>>,
+    own_ink: std::cell::Cell<Option<gtk::gdk::RGBA>>,
     applied: RefCell<Option<Applied>>,
 }
 
@@ -165,36 +168,52 @@ impl InkState {
         self.applied.replace(next);
     }
 
-    /// Case 1: the selected parts of this cell's links, in the cell's selection ink.
+    /// Case 1: the cell's own selected text, links included, in the ink the body's
+    /// selected text takes — see [`cell_selection_ink`].
     fn own_selection(&self, label: &Label) -> Option<Applied> {
-        if self.links.is_empty() {
-            return None;
-        }
         let text = label.text();
         let (a, b) = label.selection_bounds()?;
-        let (a, b) = (byte_at(&text, a), byte_at(&text, b));
-        let ranges = selected_link_ranges(&self.links, &(a.min(b)..a.max(b)));
-        (!ranges.is_empty()).then(|| Applied {
-            ink: probe_ink(
-                label.upcast_ref(),
-                &[glib::Object::new::<SelectionNodeProbe>().upcast()],
-            ),
-            ranges,
+        let range = selected_bytes(&text, a, b)?;
+        let ink = match self.own_ink.get() {
+            Some(ink) => ink,
+            None => {
+                let ink = cell_selection_ink(label);
+                self.own_ink.set(Some(ink));
+                ink
+            }
+        };
+        Some(Applied {
+            ranges: vec![range],
+            ink,
         })
     }
 }
 
-/// The parts of `links` that `selected` covers, in order. Pure — the whole decision
-/// this module makes, so it is the part under unit test.
-pub(crate) fn selected_link_ranges(
-    links: &[Range<usize>],
-    selected: &Range<usize>,
-) -> Vec<Range<usize>> {
-    links
-        .iter()
-        .map(|link| link.start.max(selected.start)..link.end.min(selected.end))
-        .filter(|overlap| overlap.start < overlap.end)
-        .collect()
+/// The byte range a label selection between characters `a` and `b` covers, in either
+/// order; `None` when it is empty. Pure, so it is the part under unit test.
+pub(crate) fn selected_bytes(text: &str, a: i32, b: i32) -> Option<Range<usize>> {
+    let (a, b) = (byte_at(text, a), byte_at(text, b));
+    (a != b).then(|| a.min(b)..a.max(b))
+}
+
+/// The ink a cell's own selected text takes: the BODY's selected-text ink when the cell
+/// sits in a preview, else (a label outside any text view) its own `selection` node's.
+///
+/// Not the label's own node, because a desktop theme may ink the two selections
+/// differently over the SAME fill. GTK 4.6's Adwaita gives `label > selection` and
+/// `textview > text > selection` one pale fill (`$selected_text_bg_color`, the accent at
+/// 30%) but states `color: $selected_fg_color` (white) on the label's alone, so a
+/// label's selected text was white at ~1.5:1 while the body's beside it stayed the
+/// ordinary dark text. On a themed page the two rules are the same `palette.selection_fg`
+/// (`preview::css`), and Breeze states the same fill and ink on both, so reading the
+/// body's changes nothing there and fixes Adwaita.
+fn cell_selection_ink(label: &Label) -> gtk::gdk::RGBA {
+    body_selection_ink(label).unwrap_or_else(|| {
+        probe_ink(
+            label.upcast_ref(),
+            &[glib::Object::new::<SelectionNodeProbe>().upcast()],
+        )
+    })
 }
 
 /// The byte offset of character `index` in `text` — a label's selection is counted in
@@ -319,7 +338,7 @@ mod imp {
 
 #[cfg(test)]
 mod tests {
-    use super::{byte_at, ink_attributes, selected_link_ranges, Applied};
+    use super::{byte_at, ink_attributes, selected_bytes, Applied};
     use gtk::pango;
 
     #[test]
@@ -350,13 +369,11 @@ mod tests {
     }
 
     #[test]
-    fn only_the_selected_part_of_a_link_takes_the_selection_ink() {
-        let links = [5..13, 20..24];
-        // Wholly selected, half selected, untouched.
-        assert_eq!(selected_link_ranges(&links, &(0..30)), vec![5..13, 20..24]);
-        assert_eq!(selected_link_ranges(&links, &(9..22)), vec![9..13, 20..22]);
-        assert!(selected_link_ranges(&links, &(13..20)).is_empty());
-        assert!(selected_link_ranges(&links, &(0..0)).is_empty());
+    fn a_cell_selection_maps_to_one_byte_range_in_either_direction() {
+        let text = "é a ☑ b";
+        assert_eq!(selected_bytes(text, 1, 4), Some(2..5));
+        assert_eq!(selected_bytes(text, 4, 1), Some(2..5));
+        assert_eq!(selected_bytes(text, 3, 3), None);
     }
 
     #[test]
@@ -405,9 +422,9 @@ mod gtk_integration_tests {
         label
     }
 
-    /// Case 1: selecting part of a cell's link gives exactly that part the ink of the
-    /// label's own `selection` node, and dropping the selection takes it away — even
-    /// once focus has left the cell. Mutation: inking the whole link rather than its
+    /// Case 1, outside a view: selecting part of a cell's link gives exactly the selected
+    /// text the ink of the label's own `selection` node, and dropping the selection takes
+    /// it away — even once focus has left the cell. Mutation: inking the whole link rather than its
     /// selected part, or forgetting the last-inked cell, fails this.
     #[gtktest::test]
     fn the_selected_part_of_a_cell_link_takes_the_selection_ink() {
@@ -419,10 +436,10 @@ mod gtk_integration_tests {
         let window = gtk::Window::new();
         window.set_child(Some(&label));
         GtkWindowExt::set_focus(&window, Some(&label));
-        // "a link b": the link is bytes 2..6; select "in" (chars 3..5) and past it.
+        // "a link b": the link is bytes 2..6; select from "in" (char 3) to the end.
         label.select_region(3, 8);
         refresh_cell_selection_ink(&label);
-        assert_eq!(foregrounds(label.attributes()), vec![(3..6, ink)]);
+        assert_eq!(foregrounds(label.attributes()), vec![(3..8, ink)]);
         // Focus elsewhere: the cell that took the ink is still the one given it back.
         GtkWindowExt::set_focus(&window, None::<&gtk::Widget>);
         label.select_region(0, 0);
@@ -494,5 +511,29 @@ mod gtk_integration_tests {
             );
         }
         table.unparent();
+    }
+
+    /// Case 1, in a preview: a cell's own selected plain text takes the BODY's selected
+    /// ink, not the label's `selection` node's — the two differ under System on GTK
+    /// 4.6's Adwaita (white over the same pale fill the body's dark ink sits on).
+    /// Mutation: probing `label > selection` instead fails this on Adwaita.
+    #[gtktest::test]
+    fn a_cell_selection_in_a_view_takes_the_body_selection_ink() {
+        let plain = cell_markup_label("plain text");
+        plain.set_selectable(true);
+        let view = gtk::TextView::new();
+        plain.set_parent(&view);
+        let window = gtk::Window::new();
+        window.set_child(Some(&view));
+        let body = rgb(super::body_selection_ink(&plain).expect("inside a view"));
+        GtkWindowExt::set_focus(&window, Some(&plain));
+        plain.select_region(0, 5);
+        refresh_cell_selection_ink(&plain);
+        assert_eq!(foregrounds(plain.attributes()), vec![(0..5, body)]);
+        plain.select_region(0, 0);
+        refresh_cell_selection_ink(&plain);
+        assert!(plain.attributes().is_none());
+        plain.unparent();
+        window.destroy();
     }
 }

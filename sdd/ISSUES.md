@@ -41,7 +41,6 @@ described from a different vantage point.
 | B | Mac | Upstream | macOS only: every native file-chooser invocation (Open, Save, Export) grows RSS by ~1.1 MB and does not give it back. Roughly four fifths is AppKit's own price for presenting an `NSSavePanel` — reproduced with no GTK in the process — with about a fifth GTK-attributable. Caching the panel upstream would recover ~95% | Medium |
 | D | Any | Production | The preview's Annotate bubble sits over the line above a selection, so a click there can land on the bubble: in a table, a double- or triple-click on the cell above a selected cell can lose a press and act as a single click | Low |
 | E | Any | Test | Flaky test: closing the outline's filter sometimes leaves the outline scrolled to the top rather than to the highlighted row. Failed twice on Linux CI, green on rerun and locally; cause not established | Low |
-| F | Any | Production | Under the **System** reading theme on Adwaita, selected text inside a table cell is drawn white on a pale fill (~1.5:1), while selected body text is black | Low |
 | G | Windows | Upstream | After an edit the editor's scrollbar slider is sometimes not drawn until the next scroll (2 of 40 Enters); a GTK defect still open upstream | Low |
 | J | Windows | Test | Flaky test: overwriting a crash-recovery snapshot sometimes finds the old, shorter snapshot still on disk after the write loop ends | Low |
 | L | Any | Production | After a link jump, Back or Cmd+Home sometimes scrolls only part of the way to its target (reported once; not reproduced on Linux or macOS) | Low |
@@ -380,24 +379,6 @@ the frame-clock wait the test makes, which waits only for focus.
 - Make the test wait for the scroll itself rather than for focus.
 - Find whether the restore scroll is genuinely racy in the app; if it is, this is a
   Production defect rather than a test one, and the fix belongs there.
-
-## F. Selected text in a table cell is low-contrast under System on Adwaita
-
-**Severity**: Low (legible with effort; copying and selection are unaffected).
-
-**Observed** (2026-09-30, Linux, Xvfb, GTK 4.6.9, the Default/Adwaita desktop theme, the
-**System** reading theme): text selected inside a table cell is drawn white on the
-selection's pale fill, about 1.5:1, while selected body text on the same fill is black.
-This is the desktop theme's own styling of a label's selection — under System the app
-states no selection colours — and it predates the fix that made a selected cell link take
-the same colour as the selected text beside it. Only Linux with Adwaita was measured;
-Breeze draws near-white on a saturated fill there, which reads well.
-
-**Mitigation options**:
-- State the selection foreground for cell labels from the same source the body's selected
-  text uses, so the two paths agree under System too (one theme key, every application
-  path).
-- Accept it under System as the desktop theme's choice.
 
 ## G. On Windows the editor's scrollbar slider sometimes goes missing after an edit
 

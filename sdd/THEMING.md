@@ -188,9 +188,12 @@ does not get that for free where the body does.** A text view draws every select
 in its selection node's colour, a link tag's included; a `GtkLabel` keeps a link's own
 colour inside the selection, and a body selection spanning a table does not select the
 cells at all — its fill just shows through them. `widgets::table::linkink` closes both, and
-it READS the ink from the selection node (through stand-ins for GTK's private nodes)
-rather than taking `selection_fg`, so it is also right under System, where the desktop
-theme decides.
+it READS the ink from the body's selection node (through stand-ins for GTK's private
+nodes) rather than taking `selection_fg`, so it is also right under System, where the
+desktop theme decides. It reads the BODY's node even for a selection made inside a cell,
+because a desktop theme can ink the two differently over one fill: GTK 4.6's Adwaita gives
+a label's selection white text on the same pale fill the body's dark selected text sits on
+(~1.5:1).
 
 **Why a key on top of a working derivation** — the same question applies to `mark_fg`,
 and the answer is the same for both: **the derivation optimises for contrast, and

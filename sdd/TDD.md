@@ -2950,6 +2950,7 @@ appearance that predates the feature; `Sepia` is the book-like reading theme.
 - **And** a theme may state that ink outright (`selection_fg`); omitted, it is derived from the page and its own ink, so a theme that states only a fill still cannot strand its selected text
 - **And** under System, where no page is stated, both paths keep the desktop's own selection colours together, exactly as before themes existed (18.2)
 - **And** a link is selected text like any other, under every theme including System: the selected part of a link — in body text or inside a table cell — is drawn in the same ink as the selected text beside it, while any unselected part of it keeps the link colour
+- **And** text selected inside a table cell is drawn in the same ink as selected body text, under every theme including System — a desktop theme that inks a label's selection differently over the same fill (GTK 4.6's Adwaita: white on its pale fill, where the body's selected text stays dark) does not leave a cell's selection low-contrast
 - **And** a selection that spans a whole table (e.g. Select All in the preview) draws the text and links of the table's body cells as selected text, as it does the paragraphs around the table; a header cell, whose own fill covers the selection's, keeps its own ink
 
 ### 18.18 A table cell and the export sinks render themed emphasis identically to the body
