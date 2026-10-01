@@ -38,6 +38,7 @@ mod plan;
 /// it. Pure; the marks and the buffer reads are here in the parent.
 mod scope;
 
+use crate::widgets::table::cellattrs;
 pub(crate) use history::{row_label, FindHistory};
 use matcher::Matcher;
 pub(crate) use matcher::{editor_pattern, engine_applies_word_boundaries};
@@ -735,29 +736,16 @@ fn apply_preview_highlights(
     // Apply per cell: a matched cell gets its match-only list, every other cell is
     // cleared. Force the repaint on any cell that HAS or HAD an overlay (an unmatched,
     // never-highlighted cell is left untouched — nothing to paint or clear).
+    // The wash is find's LAYER of the cell's attributes, so it composes with the
+    // selected-text ink rather than erasing it (`widgets::table::cellattrs`), and that
+    // module owns the forced repaint.
     for (_, label) in targets {
         let want = matched.get(&(label.as_ptr() as usize));
-        let had = label.attributes().is_some();
-        if want.is_none() && !had {
+        if want.is_none() && !cellattrs::has_layer(label, cellattrs::Layer::Find) {
             continue;
         }
-        label.set_attributes(want);
-        force_cell_repaint(label);
+        cellattrs::set_layer(label, cellattrs::Layer::Find, want.cloned());
     }
-}
-
-/// Force a `GtkTextView`-anchored cell `GtkLabel` to re-snapshot after its find overlay
-/// was added, recoloured, or removed. A `set_attributes` change that shrinks or removes
-/// ink does NOT repaint an anchored child on its own (GTK4Rs/AP-45 / GTK4Rs/AP-45), and a same-string
-/// `set_markup` is a no-op (GTK4Rs/AP-92). Toggle a transient no-attr `<span>` wrapper: a markup
-/// string that differs (so the child re-snapshots) but renders pixel-identically — no
-/// glyphs, no size change, so no reflow and no scroll shift — then revert to the clean
-/// markup so no wrapper accumulates. `set_markup` does not clear a `set_attributes`
-/// overlay (ScrAP-36), so any just-applied match highlight survives the toggle.
-fn force_cell_repaint(label: &Label) {
-    let markup = label.label();
-    label.set_markup(&format!("<span>{markup}</span>"));
-    label.set_markup(markup.as_str());
 }
 
 /// Highlight every occurrence of `text` in the preview (body + table cells) and
@@ -911,7 +899,7 @@ pub(super) fn clear_preview_highlight(window: &ApplicationWindow) {
 /// no-attr `<span>` wrapper: a different string that renders identically (no glyphs,
 /// no size change ⇒ no reflow, no scroll shift), then revert to the original clean
 /// markup — different again, so it repaints, and no leftover wrapper accumulates
-/// across repeated find open/close cycles (see `force_cell_repaint`).
+/// across repeated find open/close cycles (`widgets::table::cellattrs::force_cell_repaint`).
 ///
 /// Expressed as **an application of the empty hit list**, not as a second implementation:
 /// clearing is exactly "apply no matches", and writing it out separately meant two copies

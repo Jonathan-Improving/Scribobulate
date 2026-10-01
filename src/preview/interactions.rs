@@ -14,20 +14,41 @@ use gtk::{glib, GestureClick, Label, TextBuffer, TextView};
 use std::cell::RefCell;
 use std::rc::Rc;
 
-/// Toggle each image's selection tint when the buffer selection changes: an image is
-/// "selected" when its anchor offset falls inside the selection (the `GtkTextView`
-/// highlights surrounding text but never an anchored widget). Connected per buffer (the
-/// buffer is swapped on re_render), reading the live `RenderData.image_tints`.
-pub(super) fn connect_image_tints(buf: &TextBuffer, render_data: &Rc<RefCell<RenderData>>) {
+/// Mark each anchored widget that falls inside the buffer selection, when the selection
+/// changes: an anchored child is "selected" when its anchor offset falls inside the
+/// selection, and the `GtkTextView` highlights surrounding text but never draws the
+/// child as selected. An image shows its tint; a table inks its body cells as selected
+/// text, since the view's fill already shows through them (`widgets::table::linkink`).
+/// Connected per buffer (the buffer is swapped on re_render), reading the live
+/// `RenderData.image_tints` / `table_anchors`.
+///
+/// A hot path (CAM Hot-path row 9): per emission it compares one offset per anchored
+/// image and table, and a table touches its cells only when its answer changes.
+pub(super) fn connect_selection_marks(buf: &TextBuffer, render_data: &Rc<RefCell<RenderData>>) {
     let rd = Rc::clone(render_data);
     buf.connect_mark_set(move |buf, _iter, _mark| {
         let sel = buf.selection_bounds();
-        for (anchor, tint) in &rd.borrow().image_tints {
-            let on = sel.as_ref().is_some_and(|(s, e)| {
+        let selected = |anchor: &gtk::TextChildAnchor| {
+            sel.as_ref().is_some_and(|(s, e)| {
                 let off = buf.iter_at_child_anchor(anchor).offset();
                 off >= s.offset() && off < e.offset()
-            });
-            tint.set_visible(on);
+            })
+        };
+        let rd = rd.borrow();
+        for (anchor, tint) in &rd.image_tints {
+            tint.set_visible(selected(anchor));
+        }
+        // The body's selection ink is read once, by the first table the selection spans,
+        // and handed to every table — a Select All over hundreds of tables would
+        // otherwise read it once per cell.
+        let mut ink = None;
+        for (anchor, table) in &rd.table_anchors {
+            let cell_ink = if selected(anchor) {
+                *ink.get_or_insert_with(|| crate::widgets::table::body_selection_ink(table))
+            } else {
+                None
+            };
+            table.set_in_body_selection(cell_ink);
         }
     });
 }

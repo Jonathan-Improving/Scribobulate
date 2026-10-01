@@ -183,7 +183,14 @@ of the page ink or the page itself reads better on the fill, walking toward whit
 black only if both fail AA — and overridable by a `selection_fg` key. The derivation is
 what keeps it right per theme rather than per author (the page ink would strand Sepia,
 brown on brown at 1.5:1; the page would strand Bedtime). Both the body buffer and the
-table cells' own `selection` node take it, by the ScrAP-36 parity rule above.
+table cells' own `selection` node take it, by the ScrAP-36 parity rule above. ⚠️ **A cell
+does not get that for free where the body does.** A text view draws every selected glyph
+in its selection node's colour, a link tag's included; a `GtkLabel` keeps a link's own
+colour inside the selection, and a body selection spanning a table does not select the
+cells at all — its fill just shows through them. `widgets::table::linkink` closes both, and
+it READS the ink from the selection node (through stand-ins for GTK's private nodes)
+rather than taking `selection_fg`, so it is also right under System, where the desktop
+theme decides.
 
 **Why a key on top of a working derivation** — the same question applies to `mark_fg`,
 and the answer is the same for both: **the derivation optimises for contrast, and

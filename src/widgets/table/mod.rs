@@ -33,10 +33,13 @@
 // column-fitting RULE (Document Rendering CAM row 17 — an export shows what the preview
 // showed), and its test cross-checks the two implementations against each other. The
 // widget half of this directory stays private.
+pub(crate) mod cellattrs;
 mod cellselect;
 pub(crate) mod layout;
 mod linkcell;
+mod linkink;
 pub(crate) use cellselect::make_cell_selectable;
+pub(crate) use linkink::{body_selection_ink, refresh_cell_selection_ink};
 
 pub(crate) use linkcell::{cell_markup_label, label_link_at, link_markup_open, LINK_MARKUP_CLOSE};
 
@@ -73,6 +76,10 @@ mod imp {
         pub(crate) ncols: std::cell::Cell<usize>,
         pub(crate) nrows: std::cell::Cell<usize>,
         pub(crate) layout: RefCell<Layout>,
+        /// The body's selection ink while a body selection spans this table — the
+        /// last answer [`super::ScribTableWidget::set_in_body_selection`] was given, so
+        /// the cells are touched only when it changes.
+        pub(crate) body_ink: std::cell::Cell<Option<gdk::RGBA>>,
         /// Left inset (px) this table inherits from an enclosing list item and/or
         /// blockquote — the view bounds every anchored child to `content − 1` as if it
         /// started at the content edge, but a table nested in a list/quote actually
@@ -273,6 +280,28 @@ impl ScribTableWidget {
         imp.nrows.set(nrows);
         *imp.cells.borrow_mut() = cells;
         obj
+    }
+
+    /// Tell the table whether the preview's selection spans it — `Some` carrying the
+    /// body's selection ink ([`body_selection_ink`], read once per selection change by
+    /// the caller rather than once per cell) — so its body cells ink their text as
+    /// selected body text is inked (`linkink`, case 2). A header cell is skipped: its own
+    /// fill covers the selection's, so its ink is still on that fill. Called on every
+    /// selection change; touches the cells only when the answer changes.
+    pub(crate) fn set_in_body_selection(&self, ink: Option<gdk::RGBA>) {
+        use gtk::subclass::prelude::*;
+        let imp = self.imp();
+        if imp.body_ink.replace(ink) == ink {
+            return;
+        }
+        for cell in imp.cells.borrow().iter() {
+            if cell.widget.has_css_class("cell-head") {
+                continue;
+            }
+            if let Some(label) = cell.widget.downcast_ref::<gtk::Label>() {
+                linkink::set_body_selection_ink(label, ink);
+            }
+        }
     }
 
     /// Set the content-column width the table must fit into (from the view's live

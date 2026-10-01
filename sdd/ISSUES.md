@@ -39,8 +39,9 @@ described from a different vantage point.
 |----|----------|-------|-------|----------|
 | A | Any | Production | A large document leaves the process spinning a CPU core at ~100% while idle — a GTK/Pango relayout pass that re-shapes text every main-loop iteration and never converges | High |
 | B | Mac | Upstream | macOS only: every native file-chooser invocation (Open, Save, Export) grows RSS by ~1.1 MB and does not give it back. Roughly four fifths is AppKit's own price for presenting an `NSSavePanel` — reproduced with no GTK in the process — with about a fifth GTK-attributable. Caching the panel upstream would recover ~95% | Medium |
-| C | Any | Production | Selected link text disappears in the preview: a selected link's glyphs are drawn in the same colour as the selection highlight, in body text and in table cells alike. Seen under the **System** reading theme; the theme may be a factor | Low |
 | D | Any | Production | The preview's Annotate bubble sits over the line above a selection, so a click there can land on the bubble: in a table, a double- or triple-click on the cell above a selected cell can lose a press and act as a single click | Low |
+| E | Any | Test | Flaky test: closing the outline's filter sometimes leaves the outline scrolled to the top rather than to the highlighted row. Failed twice on Linux CI, green on rerun and locally; cause not established | Low |
+| F | Any | Production | Under the **System** reading theme on Adwaita, selected text inside a table cell is drawn white on a pale fill (~1.5:1), while selected body text is black | Low |
 
 ## Closed issues
 
@@ -333,32 +334,6 @@ evidence must outlive it. Do not restate its figures here; several carry caveats
 survive summarising, and the transferable lessons already have permanent homes in
 `sdd/ANTI-PATTERNS.md`.
 
-## C. Selected link text disappears into the selection highlight
-
-**Severity**: Low (legibility only; copy and activation are unaffected).
-
-**Observed** (2026-09-30, Linux, Xvfb with GTK's fallback theme, **System** reading theme):
-select a passage containing a link in the preview — with Ctrl+A in the body, or by a drag
-inside a table cell — and the link's caption vanishes. The highlight is drawn and the
-surrounding text stays legible on it; only the link's glyphs cannot be seen, because they
-are the same blue as the highlight. Found while verifying TDD 2.9a, which does not cause it
-(it is visible in body text, which that change does not touch).
-
-**Not established**: which colour is at fault, and whether other reading themes do it.
-Under System the link ink and the selection fill may both come from the desktop accent,
-which would make the collision theme-dependent rather than universal — an inference, not
-a measurement. Check each installed reading theme and a light desktop before choosing a fix.
-Filed `Any` because nothing about it looks platform-specific; macOS and Windows have not
-been checked.
-
-**Mitigation options**:
-- Give selected link text the selection's foreground colour, in both paths — the body's
-  `link` text tag and the cell labels' `link` CSS node — so a link reads as selected text
-  while selected. Keeps the one-theme-key rule if both paths take the same key.
-- Pick a link ink that is guaranteed to contrast with the selection fill when the theme
-  derives both from the same source. Narrower, and only fixes the System case.
-- Accept it: the text is still selected and copies correctly.
-
 ## D. The Annotate bubble covers the line above a selection and can swallow a click there
 
 **Severity**: Low (a click lands on the bubble instead of the text beneath it; nothing is lost).
@@ -384,6 +359,42 @@ placement is shared code; macOS and Windows have not been driven.
 - Place the bubble clear of any text the reader may click next, e.g. in the margin or below
   the selection. Changes a placement other features and tests rely on.
 - Accept it: the reader can dismiss the bubble by clicking elsewhere first.
+
+## E. The sidebar filter's focus-restore test is flaky
+
+**Severity**: Low (a test fails intermittently; no user-visible failure has been observed).
+
+**Observed** (2026-09-30 and 2026-10-01, Linux CI): `window::sidebarfilter::gtk_integration_tests::closing_the_filter_returns_the_focus_to_the_highlighted_row`
+failed twice — once on master (run 36750840804) and once on `bug/selection-color` under
+coverage leg B (run 36804063069) — and passed on rerun and locally. The first failure
+panicked at "the highlighted row is scrolled into view, not the top of the list": the
+outline scroller's vertical adjustment was still `0.0` after the filter closed.
+
+**Not established**: the cause. Suspected: the restore scroll lands on a later frame than
+the frame-clock wait the test makes, which waits only for focus.
+
+**Mitigation options**:
+- Make the test wait for the scroll itself rather than for focus.
+- Find whether the restore scroll is genuinely racy in the app; if it is, this is a
+  Production defect rather than a test one, and the fix belongs there.
+
+## F. Selected text in a table cell is low-contrast under System on Adwaita
+
+**Severity**: Low (legible with effort; copying and selection are unaffected).
+
+**Observed** (2026-09-30, Linux, Xvfb, GTK 4.6.9, the Default/Adwaita desktop theme, the
+**System** reading theme): text selected inside a table cell is drawn white on the
+selection's pale fill, about 1.5:1, while selected body text on the same fill is black.
+This is the desktop theme's own styling of a label's selection — under System the app
+states no selection colours — and it predates the fix that made a selected cell link take
+the same colour as the selected text beside it. Only Linux with Adwaita was measured;
+Breeze draws near-white on a saturated fill there, which reads well.
+
+**Mitigation options**:
+- State the selection foreground for cell labels from the same source the body's selected
+  text uses, so the two paths agree under System too (one theme key, every application
+  path).
+- Accept it under System as the desktop theme's choice.
 
 ## CLSD-02. A paragraph that mixes fonts lays out wider than the wrap width it was given
 

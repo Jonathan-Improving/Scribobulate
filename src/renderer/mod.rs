@@ -538,7 +538,7 @@ pub(crate) struct Renderer {
     /// to a bare alt string (`image_placeholder_tooltip`) — IS the alt.
     image_alt_depth: u32,
     /// (anchor, tint widget) for each rendered image — the click-through overlay box
-    /// shown when the image is inside the buffer selection (preview `connect_image_tints`).
+    /// shown when the image is inside the buffer selection (preview `connect_selection_marks`).
     pub image_tints: Vec<(TextChildAnchor, gtk::Widget)>,
     /// Raw HTML accumulated across the per-line `Event::Html` events of one block
     /// (pulldown-cmark emits block HTML line-by-line, wrapped in `Tag::HtmlBlock`

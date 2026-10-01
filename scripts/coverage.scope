@@ -206,9 +206,11 @@ src/widgets/disclosure.rs
 src/widgets/mod.rs
 src/widgets/rule.rs
 src/widgets/tab/layout.rs
+src/widgets/table/cellattrs.rs
 src/widgets/table/cellselect.rs
 src/widgets/table/layout.rs
 src/widgets/table/linkcell.rs
+src/widgets/table/linkink.rs
 src/widgets/textfield.rs
 src/widgets/wrapbox.rs
 src/window/find/bodytext.rs

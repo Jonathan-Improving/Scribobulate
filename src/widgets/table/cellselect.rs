@@ -411,5 +411,13 @@ mod gtk_integration_tests {
                 "press {n} changed the selection before the label saw it"
             );
         }
+        // Release PRIMARY before the label dies: a selection claims the display's
+        // PRIMARY clipboard, and an UNREALIZED label keeps owning it past its death (GTK
+        // releases it only in `unrealize`, which a never-realized label never runs — so
+        // the app's own realized cells are safe). A label finalized still owning it is called back
+        // by the NEXT claim — a later test focusing a label — as a dead widget
+        // (`gtk_widget_queue_draw: assertion 'GTK_IS_WIDGET (widget)' failed`, fatal
+        // under the suite's criticals; measured, intermittent on CI).
+        label.select_region(0, 0);
     }
 }

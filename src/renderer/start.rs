@@ -771,7 +771,7 @@ impl Renderer {
         // Wrap in an overlay so a selection tint can be drawn OVER the image when it
         // falls inside the buffer selection — the GtkTextView highlights surrounding
         // text but never an anchored widget. The tint is a click-through box (toggled
-        // by the preview's connect_image_tints); the overlay's size is the picture's
+        // by the preview's connect_selection_marks); the overlay's size is the picture's
         // (constant), so it still paints.
         let tint = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         tint.add_css_class("scrib-image-sel");

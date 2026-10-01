@@ -57,6 +57,7 @@ pub(crate) const LINK_MARKUP_CLOSE: &str = "</a>";
 pub(crate) fn cell_markup_label(markup: &str) -> Label {
     let label = Label::builder().label(markup).use_markup(true).build();
     label.connect_activate_link(|label, uri| activate_cell_link(label.upcast_ref(), uri));
+    super::linkink::track_selection_ink(&label);
     label
 }
 

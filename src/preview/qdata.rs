@@ -68,7 +68,7 @@ pub(crate) struct RenderData {
     /// thing to aim at, which is why the hit target is the line and not the glyph.
     pub disclosure_lines: Vec<(i32, gtk::ToggleButton)>,
     /// (anchor, tint widget) for every rendered image: the click-through overlay box
-    /// shown when the image is inside the buffer selection (`connect_image_tints`).
+    /// shown when the image is inside the buffer selection (`connect_selection_marks`).
     pub image_tints: Vec<(TextChildAnchor, gtk::Widget)>,
     /// (anchor, table widget) for every rendered table, document order — lets
     /// find-in-preview search the cell `GtkLabel`s (whose text is not in the

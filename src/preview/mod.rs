@@ -18,7 +18,7 @@
 //! * [`build`] — the shared parse-and-render core: [`RenderProducts`] +
 //!   `build_render_products` + `apply_preview_margins`.
 //! * [`interactions`] — the buffer/gesture wiring split out of `render`
-//!   (`connect_image_tints`, the table-click / link / copy-clipboard gestures).
+//!   (`connect_selection_marks`, the table-click / link / copy-clipboard gestures).
 //! * [`render`] — the public `render` (fresh view) and `re_render` (in-place swap).
 //! * [`scroll`] — the scroll-position / restore helpers (validation-safe, GTK4Rs/AP-22/65).
 //! * [`css`] — the preview/table/outline/tab-strip CSS.

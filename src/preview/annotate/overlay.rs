@@ -918,10 +918,20 @@ pub(crate) fn wire_annotation_overlay(
     // `schedule`'s timer, which is the only place that can distinguish noise from a genuine
     // re-anchor — and which also covers the `mark-set` route this guard could never reach.
     // One choke point, not two half-guards.
+    //
+    // The same emission re-inks a table cell's selected link text (`widgets::table::
+    // linkink`, case 1) — immediately rather than through `schedule`, since it is the
+    // paint of the selection itself and must not trail the drag that makes it.
     {
         let clip = view.primary_clipboard();
         let schedule = schedule.clone();
-        let id = clip.connect_changed(move |_| schedule());
+        let weak_view = view.downgrade();
+        let id = clip.connect_changed(move |_| {
+            if let Some(view) = weak_view.upgrade() {
+                crate::widgets::table::refresh_cell_selection_ink(&view);
+            }
+            schedule();
+        });
         view.store_primary_sel_handler(&clip, id);
     }
 

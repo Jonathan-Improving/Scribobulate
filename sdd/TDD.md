@@ -2944,6 +2944,8 @@ appearance that predates the feature; `Sepia` is the book-like reading theme.
 - **Then** the selected text is drawn in a colour the THEME owns — never the desktop's selected-text ink — and its contrast against that theme's selection fill clears the same legibility floor as body text (18.8), on both the body and the in-cell path
 - **And** a theme may state that ink outright (`selection_fg`); omitted, it is derived from the page and its own ink, so a theme that states only a fill still cannot strand its selected text
 - **And** under System, where no page is stated, both paths keep the desktop's own selection colours together, exactly as before themes existed (18.2)
+- **And** a link is selected text like any other, under every theme including System: the selected part of a link — in body text or inside a table cell — is drawn in the same ink as the selected text beside it, while any unselected part of it keeps the link colour
+- **And** a selection that spans a whole table (e.g. Select All in the preview) draws the text and links of the table's body cells as selected text, as it does the paragraphs around the table; a header cell, whose own fill covers the selection's, keeps its own ink
 
 ### 18.18 A table cell and the export sinks render themed emphasis identically to the body
 - **Given** a document with bold, superscript, or subscript both in body prose and inside a table cell, under a theme setting `bold_weight` and `supsub_scale`

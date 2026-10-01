@@ -10,7 +10,7 @@ use super::build::{
 };
 use super::cells::{attach_cell_marker_widgets, collect_cell_labels, collect_table_anchors};
 use super::interactions::{
-    connect_image_tints, wire_checkbox_toggle_gesture, wire_copy_button_gesture,
+    connect_selection_marks, wire_checkbox_toggle_gesture, wire_copy_button_gesture,
     wire_copy_clipboard, wire_disclosure_click_gesture, wire_link_gestures,
     wire_table_click_gesture,
 };
@@ -101,8 +101,9 @@ pub(crate) fn render(
         image_tints,
         table_anchors,
     )));
-    // Tint images that fall inside the buffer selection (the buffer was just built).
-    connect_image_tints(&buf, &render_data);
+    // Mark images and tables that fall inside the buffer selection (the buffer was just
+    // built).
+    connect_selection_marks(&buf, &render_data);
 
     let view = CodePreviewView::new();
     view.add_css_class("scrib-preview");
