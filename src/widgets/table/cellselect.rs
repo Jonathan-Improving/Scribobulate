@@ -122,12 +122,25 @@ pub(crate) fn make_cell_selectable(label: &Label) {
                 return;
             };
             if !taken.get() {
-                if !label.drag_check_threshold(
-                    sx as i32,
-                    sy as i32,
-                    (sx + dx) as i32,
-                    (sy + dy) as i32,
-                ) {
+                // Deny the label's drag on every armed update short of a real in-label
+                // drag. From GTK 4.8 a double/triple press does not set the label's
+                // `in_drag`, and any update whose index differs from its
+                // `selection_anchor` CLAIMS (4.22.4 `gtklabel.c:4822`), cancelling the
+                // click group and zeroing its press count. GTK delivers such an update
+                // with no pointer motion: the release itself (`gtkgesture.c:675-687`),
+                // or a synthesized `gdk_surface_ensure_motion` on a frame-clock flush.
+                // So a 120 ms triple read its third press as a single (macOS seat,
+                // 4.22.4/Quartz). A point outside the label (a parked anchor) is
+                // denied too, so it never takes the `reset()` below.
+                let (px, py) = (sx + dx, sy + dy);
+                let inside = px >= 0.0
+                    && py >= 0.0
+                    && px < f64::from(label.width())
+                    && py < f64::from(label.height());
+                if !label.drag_check_threshold(sx as i32, sy as i32, px as i32, py as i32)
+                    || !inside
+                {
+                    own_drag.set_state(EventSequenceState::Denied);
                     return;
                 }
                 own_drag.set_state(EventSequenceState::Denied);
