@@ -44,6 +44,7 @@ described from a different vantage point.
 | G | Windows | Upstream | After an edit the editor's scrollbar slider is sometimes not drawn until the next scroll (2 of 40 Enters); a GTK defect still open upstream | Low |
 | J | Windows | Test | Flaky test: overwriting a crash-recovery snapshot sometimes finds the old, shorter snapshot still on disk after the write loop ends | Low |
 | L | Any | Production | After a link jump, Back or Cmd+Home sometimes scrolls only part of the way to its target (reported once; not reproduced on Linux or macOS) | Low |
+| M | Windows | Test | Flaky test: a cancelled snapshot write sometimes leaves its temporary file behind on Windows, though the previous snapshot is intact | Low |
 
 ## Closed issues
 
@@ -458,6 +459,29 @@ preview was scrolling were not recorded, and the original document and steps wer
 - Make Back to the top of a document land at absolute 0, like Ctrl+Home, if the padding
   offset above is judged a defect.
 - Accept until it is reproduced.
+
+## M. A cancelled snapshot write sometimes leaves its temp file on Windows
+
+**Severity**: Low (the test's cleanup check; the previous snapshot stayed intact).
+
+`window::swap::close_semantics_tests::a_cancelled_close_discards_the_temp_instead_of_promoting_it`
+failed on the GitHub Windows runner on 2026-10-01: the destination still held the previous
+snapshot, as the test requires, but its second check found GIO's temporary file
+(`.goutputstream-XXXXXX`) still in the directory. The same commit passed on rerun, and on
+Linux and macOS. Seen once.
+
+**Not established**: why the temp was still listed. Unlike J, this test has no wait loop:
+it writes, closes with a cancelled `Cancellable`, and reads the directory in one synchronous
+stretch. One candidate is Windows completing the delete late (a file deleted while another
+process, such as a virus scanner, holds a handle stays listed until that handle closes); it
+was not measured. J is a different test with a different suspected cause (its wait loop
+can end before the write starts); both are Windows-only and read a file straight after a GIO
+operation, so check whether one mechanism explains both before fixing either.
+
+**Mitigation options**:
+- Poll the directory briefly for the temp to disappear before asserting, keeping the
+  destination check strict.
+- Accept until it recurs, and capture what holds the file then.
 
 ## CLSD-02. A paragraph that mixes fonts lays out wider than the wrap width it was given
 

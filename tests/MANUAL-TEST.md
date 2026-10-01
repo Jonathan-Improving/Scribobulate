@@ -2505,12 +2505,14 @@ for the run rather than teaching the tests to ignore it.
 
 **Before any driven run, check the BINARY, not just the tree.** `cargo test` proves
 the working tree and says nothing about `target\release\scribobulate.exe`. Confirm
-`(Get-Item target\release\scribobulate.exe).LastWriteTime` is newer than the commit
-under test, and rebuild release if it is not — a stale binary yields a confident,
+`(Get-Item target\release\scribobulate.exe).LastWriteTime` is newer than
+`git log -1 --date=local --format=%cd` — `--date=local` matters: a bare `git log` prints
+the COMMITTING seat's zone while `LastWriteTime` is this host's, so with the seats an hour
+apart a fresh binary reads stale, or a stale one fresh. Rebuild release if it is not — a stale binary yields a confident,
 entirely wrong result, and it bites hardest on the change whose subject is the code
 path being tested (see also §22's pre-flight).
 
-**2. Drive loop.** Four parts, all stock PowerShell.
+**2. Drive loop.** Five parts, all stock PowerShell.
 
 ⚠️ **Forcing an over-wide window (the precondition for §9.21's overflow clause).** A plain
 resize cannot reach it here: GDK-Win32 clamps a resize to the monitor width in
@@ -2590,6 +2592,49 @@ $bmp.Save($out, [System.Drawing.Imaging.ImageFormat]::Png); $g.Dispose(); $bmp.D
 
 Add `[DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr dc, uint f);`
 to the `P.W` member definition above.
+
+*Point and swipe:* add to the `P.W` member definition above:
+
+```powershell
+[DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+[DllImport("user32.dll")] public static extern void mouse_event(uint f, uint x, uint y, uint d, IntPtr e);
+```
+
+A point read off a `PrintWindow` capture is **window-relative**, and `GetWindowRect` is
+its origin, so `screen = (r.L + x, r.T + y)`. ⚠️ Do **not** reach for `ClientToScreen`
+here: the capture's origin is the WINDOW rect, not the client rect, and the frame between
+them (16px on the Windows seat) puts every click short by exactly the border, on the
+wrong widget — which reads as the app ignoring the pointer.
+
+```powershell
+function Swipe([IntPtr] $H, [int] $X1, [int] $Y1, [int] $X2, [int] $Y2, [int] $Steps = 12) {
+  $r = New-Object 'P.W+RECT'; [void][P.W]::GetWindowRect($H, [ref]$r)
+  [void][P.W]::SetCursorPos(($r.L + $X1), ($r.T + $Y1)); Start-Sleep -Milliseconds 150
+  [P.W]::mouse_event(0x0002, 0, 0, 0, [IntPtr]::Zero); Start-Sleep -Milliseconds 90
+  for ($i = 1; $i -le $Steps; $i++) {
+    [void][P.W]::SetCursorPos(
+      [int]($r.L + $X1 + (($X2 - $X1) * $i / $Steps)),
+      [int]($r.T + $Y1 + (($Y2 - $Y1) * $i / $Steps)))
+    Start-Sleep -Milliseconds 35
+  }
+  Start-Sleep -Milliseconds 90
+  [P.W]::mouse_event(0x0004, 0, 0, 0, [IntPtr]::Zero); Start-Sleep -Milliseconds 300
+}
+```
+
+A single click is the same without the loop (`0x0002` then `0x0004` at one point).
+
+⚠️ **A press-release with NO intermediate motion selects NOTHING, and fails silently** —
+the click lands, the caret moves, and the capture shows an unselected widget. GTK builds
+a selection from motion events, not from the down/up pair, so "move, press, move,
+release" is not a swipe. MEASURED (Win10 19045, GTK 4.22.4, release, swiping a table
+cell's text): same endpoints, 0 intermediate steps left the cell's fill `255,255,255`
+(nothing selected), 12 steps gave `194,218,247` (selected). Read the FILL back to confirm
+a selection exists before grading the text's colour — otherwise an unselected cell grades
+as a passing one.
+
+The pointer is this desktop's real cursor, shared with anything else running in the
+guest; scope it the way step 4 scopes the kill.
 
 **Still activate first** — focus changes what is DRAWN (an accent border, a caret), just
 not what is captured. And note the one thing a `PrintWindow` of the MAIN window cannot
