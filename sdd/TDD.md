@@ -1339,6 +1339,9 @@
 - **When** they make any further discrete edit — a **format** command (Bold, Italic, a heading, a list), a smart-newline list/quote continuation, or an annotation — and then press Undo exactly once
 - **Then** only that further edit is reverted; the redone edit survives. The two are independent undo steps and are never merged into one group, whichever routine made the second edit (`GtkTextBuffer`'s built-in undo leaves no barrier after a `redo()`, so a discrete edit must flush one itself before it records — see the undo-group seam below)
 - **And** this holds by construction rather than by each routine remembering to do it: every routine that edits the buffer as a discrete undo step goes through one guard (`window::undo::UndoGroup`) that flushes the barrier and opens the action, and the raw `begin_user_action`/`end_user_action` calls are banned (`clippy.toml`), so a newly-added edit routine cannot re-introduce the merge
+- **And given** the editor is on screen and the edit being undone or redone lies outside its viewport, above or below
+- **When** the user invokes Undo or Redo, from any surface
+- **Then** the editor scrolls so the caret, which the undo or redo places on the changed text, is on screen, and the user sees what was reverted or re-applied; a change already on screen does not move the view, and a change far into a document still being laid out is reached rather than abandoned part-way
 
 ### 9.18 Help > About opens the About dialog
 - **Given** a document window

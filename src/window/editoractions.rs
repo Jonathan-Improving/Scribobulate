@@ -91,6 +91,7 @@ pub(super) fn register_editor_actions(window: &ApplicationWindow, heading_btn: &
         move |_, _| {
             if let Some(st) = state(&w) {
                 st.editor_buf.undo();
+                reveal_editor_caret(&st.editor);
             }
             refresh_preview_after_undo_redo(&w);
         }
@@ -105,6 +106,7 @@ pub(super) fn register_editor_actions(window: &ApplicationWindow, heading_btn: &
         move |_, _| {
             if let Some(st) = state(&w) {
                 st.editor_buf.redo();
+                reveal_editor_caret(&st.editor);
             }
             refresh_preview_after_undo_redo(&w);
         }
@@ -479,6 +481,30 @@ pub(super) fn register_editor_actions(window: &ApplicationWindow, heading_btn: &
 /// already re-renders on that same `changed`; edit mode has no preview. Uses the
 /// live-buffer re-render (with the annotation-in-place fast path), the same one the
 /// Annotate flow uses.
+/// Bring the editor's caret into view after an undo or redo, so the reader sees what
+/// was reverted or re-applied (TDD 9.16).
+///
+/// The buffer's history already puts the caret on the change (it selects re-inserted
+/// text and parks the caret at a removal), but nothing scrolls to it: GTK's own
+/// `text.undo`/`text.redo` follow the undo with `scroll_mark_onscreen` on the insert
+/// mark (`gtktextview.c:10135-10147` at 4.6.9), and this window action replaces them
+/// with a bare `buffer.undo()`. This restores that step with the same minimal scroll
+/// (no alignment, so a change already on screen does not move the view), through
+/// `farscroll` so a change far away in a document still being laid out is reached
+/// rather than discarded (GTK4Rs/AP-260).
+///
+/// Skipped when the editor is not on screen (preview mode): there is no viewport to
+/// scroll, and the next switch to the editor restores its position from the
+/// document (Reading-Position CAM row 5).
+fn reveal_editor_caret(editor: &sourceview::View) {
+    if !editor.is_mapped() {
+        return;
+    }
+    let view = editor.upcast_ref::<gtk::TextView>();
+    let insert = view.buffer().get_insert();
+    crate::farscroll::scroll_to_mark_when_ready(view, &insert, 0.0, false, 0.0, 0.0);
+}
+
 fn refresh_preview_after_undo_redo(window: &ApplicationWindow) {
     if current_mode(window) == ViewMode::Preview {
         rerender_preview_from_live_edit(window);
@@ -732,6 +758,94 @@ mod gtk_integration_tests {
         assert!(
             undo_enabled(),
             "undo must come back once focus returns to the editor"
+        );
+        window.destroy();
+    }
+
+    /// Undo and Redo bring the editor's caret into view (TDD 9.16): an edit far below
+    /// the viewport, undone and redone while the reader is at the top, scrolls the
+    /// editor to the change each time — as GTK's own `text.undo` does, and as the
+    /// window action replacing it did not.
+    ///
+    /// The precondition asserts the change is off screen before each command, so the
+    /// test cannot pass by the change having been visible already. Mutation: dropping
+    /// `reveal_editor_caret` from either action fails the matching half.
+    #[gtktest::test]
+    fn undo_and_redo_scroll_the_editor_to_the_change() {
+        let app = gtk::Application::new(
+            Some("com.extollit.scribobulate.integrationtest.editoractions.undoreveal"),
+            gtk::gio::ApplicationFlags::NON_UNIQUE,
+        );
+        app.register(gtk::gio::Cancellable::NONE)
+            .expect("register (emits startup) before building any window");
+        let doc: String = (1..=400).map(|n| format!("line {n}\n")).collect();
+        let window = crate::window::new_window(&app, "IT", &doc, None);
+        window.set_default_size(700, 400);
+        window.present();
+        pump_until(|| window.is_mapped(), "toplevel to map");
+        let st = state(&window).expect("state registered after new_window");
+        change_action_state(&window, "view-mode", &"edit".to_variant());
+        let view = st.editor.upcast_ref::<gtk::TextView>().clone();
+        let buf = st.editor_buf.clone();
+        pump_until(
+            || view.visible_rect().height() > 0,
+            "the editor to be allocated",
+        );
+
+        let caret_on_screen = || {
+            let (y, h) = view.line_yrange(&buf.iter_at_mark(&buf.get_insert()));
+            let r = view.visible_rect();
+            y + h > r.y() && y < r.y() + r.height()
+        };
+        let to_top = || {
+            buf.place_cursor(&buf.start_iter());
+            crate::farscroll::scroll_to_mark_when_ready(
+                &view,
+                &buf.get_insert(),
+                0.0,
+                true,
+                0.0,
+                0.0,
+            );
+            crate::testpump::until(
+                crate::testpump::Clock::Frame,
+                "the editor to reach the top",
+                || view.vadjustment().is_some_and(|a| a.value() == 0.0),
+            );
+        };
+        let end_on_screen = || {
+            let (y, _) = view.line_yrange(&buf.end_iter());
+            let r = view.visible_rect();
+            y < r.y() + r.height()
+        };
+
+        buf.insert(&mut buf.end_iter(), "appended");
+        to_top();
+        assert!(
+            !end_on_screen(),
+            "precondition: the change must start off screen"
+        );
+        simple_action(&window, "undo")
+            .expect("win.undo")
+            .activate(None);
+        crate::testpump::until(
+            crate::testpump::Clock::Frame,
+            "undo to bring the caret into view",
+            &caret_on_screen,
+        );
+
+        to_top();
+        assert!(
+            !end_on_screen(),
+            "precondition: the change must start off screen"
+        );
+        simple_action(&window, "redo")
+            .expect("win.redo")
+            .activate(None);
+        crate::testpump::until(
+            crate::testpump::Clock::Frame,
+            "redo to bring the caret into view",
+            &caret_on_screen,
         );
         window.destroy();
     }
