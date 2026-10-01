@@ -16,7 +16,8 @@ a rule here on your own initiative.
   test, a coverage floor — to make another platform pass.
 - Release builds are the reference for behaviour and footprint.
 - Every clone runs `git config core.hooksPath scripts/git-hooks` once. Its pre-push hook
-  runs the pipeline's format and lint steps and refuses a push that fails them.
+  runs the pipeline's format and lint steps on the commits being pushed (not the working
+  tree) and refuses a push that fails them.
 
 ## Build pipeline
 

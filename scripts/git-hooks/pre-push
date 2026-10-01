@@ -8,10 +8,19 @@
 # about a minute. This hook runs those two steps and nothing else; the full pipeline
 # stays the gate before a merge (POLICY § Build pipeline).
 #
+# It checks the COMMITS BEING PUSHED, not the working tree. A push sends commits; an
+# uncommitted fix in the tree would otherwise pass a push whose commits fail, and an
+# uncommitted mess would refuse a push whose commits are clean. When the pushed commit
+# is HEAD and the tree holds nothing uncommitted (untracked files included), the tree IS
+# that commit and is checked in place. Otherwise each pushed commit is checked out into
+# a temporary detached worktree, sharing this clone's target directory so dependencies
+# are not rebuilt, and checked there.
+#
 # The commands are READ from scripts/pipeline.steps for this platform, through the same
 # parser every runner uses, never written here: a second copy of a step's command is a
 # copy that drifts (POLICY § Build pipeline, "A number has one owner" and the contract
-# rule). Git for Windows runs hooks under its own bash, so one script serves all three
+# rule). They are read from the pushed commit's own copy, since that is what CI will
+# run. Git for Windows runs hooks under its own bash, so one script serves all three
 # platforms.
 #
 # Enable once per clone:   git config core.hooksPath scripts/git-hooks
@@ -25,7 +34,8 @@
 
 set -uo pipefail
 
-cd "$(git rev-parse --show-toplevel)" || exit 1
+TOP="$(git rev-parse --show-toplevel)" || exit 1
+cd "$TOP" || exit 1
 
 case "$(uname -s)" in
     Linux*) PLATFORM=linux ;;
@@ -39,20 +49,66 @@ esac
 CONTRACT="scripts/pipeline.steps"
 export PLATFORM CONTRACT
 
-# shellcheck source=scripts/pipeline-lib.sh
-source scripts/pipeline-lib.sh
+# Git feeds one line per pushed ref: <local ref> <local oid> <remote ref> <remote oid>.
+# An all-zero local oid is a deletion, which sends no commits to check.
+oids=()
+while read -r _lref loid _rref _roid; do
+    [[ "$loid" =~ ^0+$ ]] && continue
+    [[ " ${oids[*]-} " == *" $loid "* ]] && continue
+    oids+=("$loid")
+done
+[ "${#oids[@]}" -eq 0 ] && exit 0
 
-for id in fmt clippy; do
-    cmd="$(contract_value "cmd.$PLATFORM" "$id")"
-    if [ -z "$cmd" ]; then
-        echo "pre-push: scripts/pipeline.steps has no cmd.$PLATFORM for '$id'; refusing" \
-            "to push unchecked." >&2
-        exit 1
+# Runs fmt and clippy in the current directory, reading their commands from that tree's
+# contract. A subshell, so sourcing the library and exporting nothing leaks between runs.
+check_tree() (
+    # shellcheck source=scripts/pipeline-lib.sh
+    source scripts/pipeline-lib.sh
+    for id in fmt clippy; do
+        cmd="$(contract_value "cmd.$PLATFORM" "$id")"
+        if [ -z "$cmd" ]; then
+            echo "pre-push: scripts/pipeline.steps has no cmd.$PLATFORM for '$id';" \
+                "refusing to push unchecked." >&2
+            exit 1
+        fi
+        echo "pre-push: $id — $cmd"
+        eval "$cmd" || {
+            echo "pre-push: '$id' failed, so the push was refused. Fix it, or override" \
+                "this one push with --no-verify." >&2
+            exit 1
+        }
+    done
+)
+
+HEAD_OID="$(git rev-parse HEAD)"
+TMP_TREES=()
+cleanup() {
+    for t in "${TMP_TREES[@]-}"; do
+        [ -n "$t" ] || continue
+        git -C "$TOP" worktree remove --force "$t" >/dev/null 2>&1 || rm -rf "$t"
+    done
+    git -C "$TOP" worktree prune >/dev/null 2>&1
+}
+trap cleanup EXIT
+
+for oid in "${oids[@]}"; do
+    short="$(git rev-parse --short "$oid")"
+    if [ "$oid" = "$HEAD_OID" ] && [ -z "$(git status --porcelain)" ]; then
+        echo "pre-push: checking $short (HEAD, clean tree) in place"
+        check_tree || exit 1
+        continue
     fi
-    echo "pre-push: $id — $cmd"
-    if ! eval "$cmd"; then
-        echo "pre-push: '$id' failed, so the push was refused. Fix it, or override this" \
-            "one push with --no-verify." >&2
+    tmp="$(mktemp -d "${TMPDIR:-/tmp}/scrib-prepush.XXXXXX")" || exit 1
+    TMP_TREES+=("$tmp")
+    echo "pre-push: checking $short in a temporary worktree ($tmp)"
+    git worktree add --detach --quiet "$tmp" "$oid" || {
+        echo "pre-push: could not check out $short; refusing to push unchecked." >&2
         exit 1
-    fi
+    }
+    (
+        cd "$tmp" || exit 1
+        unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+        export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$TOP/target}"
+        check_tree
+    ) || exit 1
 done
