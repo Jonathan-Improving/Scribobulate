@@ -43,6 +43,7 @@ described from a different vantage point.
 | E | Any | Test | Flaky test: closing the outline's filter sometimes leaves the outline scrolled to the top rather than to the highlighted row. Failed twice on Linux CI, green on rerun and locally; cause not established | Low |
 | F | Any | Production | Under the **System** reading theme on Adwaita, selected text inside a table cell is drawn white on a pale fill (~1.5:1), while selected body text is black | Low |
 | G | Windows | Upstream | After an edit the editor's scrollbar slider is sometimes not drawn until the next scroll (2 of 40 Enters); a GTK defect still open upstream | Low |
+| J | Windows | Test | Flaky test: overwriting a crash-recovery snapshot sometimes finds the old, shorter snapshot still on disk after the write loop ends | Low |
 
 ## Closed issues
 
@@ -426,6 +427,24 @@ Any pointer motion brings it back. Judged negligible by the operator.
 - Accept it until GTK fixes gtk#6057.
 - Give the editor non-overlay scrollbars, as the preview has. Untested whether a classic
   scrollbar shows the same lag.
+
+## J. A crash-recovery overwrite test is flaky on Windows
+
+**Severity**: Low (the test; nothing shows the snapshot write itself is wrong).
+
+`window::swap::tests::overwriting_a_snapshot_never_exposes_a_partial_file` failed on the
+GitHub Windows runner on 2026-10-01 with "the new snapshot is the longer one": after the
+test's wait loop ended, the file on disk still held the first, shorter snapshot. The same
+commit passed on rerun, and on Linux and macOS. Seen once.
+
+The wait loop ends as soon as the tab reports no write in flight. If it checks before the
+second write has started, it ends at once and reads the old file; whether that is what
+happened was not established.
+
+**Mitigation options**:
+- Wait for the snapshot file to change (or for a write-complete signal) rather than for
+  "nothing in flight", which is also true before the write begins.
+- Accept until it recurs, and capture the timing then.
 
 ## CLSD-02. A paragraph that mixes fonts lays out wider than the wrap width it was given
 

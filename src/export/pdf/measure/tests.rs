@@ -262,7 +262,18 @@ fn png(w: u32, h: u32, rgb: [u8; 3]) -> Vec<u8> {
 /// fixture whose ROWS must be told apart (a tile carrying a marker row, so an assertion
 /// can see where the tile's grid starts).
 fn png_rows(w: u32, rows: &[[u8; 3]]) -> Vec<u8> {
-    let h = rows.len() as u32;
+    let mut raw = Vec::new();
+    for rgb in rows {
+        raw.push(0); // filter: none
+        raw.extend_from_slice(&rgb.repeat(w as usize));
+    }
+    png_rgb(w, rows.len() as u32, &raw)
+}
+
+/// An 8-bit RGB PNG from filtered scanlines (each row a filter byte, then `w` RGB
+/// triples). Stored (uncompressed) deflate blocks, so no compressor is needed; split at
+/// 65,535 bytes, the stored-block maximum, so a full page fits.
+fn png_rgb(w: u32, h: u32, raw: &[u8]) -> Vec<u8> {
     fn chunk(tag: &[u8], data: &[u8]) -> Vec<u8> {
         let mut out = (data.len() as u32).to_be_bytes().to_vec();
         let body: Vec<u8> = tag.iter().chain(data).copied().collect();
@@ -284,13 +295,18 @@ fn png_rows(w: u32, rows: &[[u8; 3]]) -> Vec<u8> {
         }
         !crc
     }
-    // zlib stream, stored (uncompressed) blocks — no compressor needed.
     fn zlib(raw: &[u8]) -> Vec<u8> {
         let mut out = vec![0x78, 0x01];
-        out.push(0x01);
-        out.extend_from_slice(&(raw.len() as u16).to_le_bytes());
-        out.extend_from_slice(&(!(raw.len() as u16)).to_le_bytes());
-        out.extend_from_slice(raw);
+        let blocks: Vec<&[u8]> = raw.chunks(65_535).collect();
+        if blocks.is_empty() {
+            out.extend_from_slice(&[0x01, 0x00, 0x00, 0xff, 0xff]);
+        }
+        for (i, block) in blocks.iter().enumerate() {
+            out.push(u8::from(i + 1 == blocks.len()));
+            out.extend_from_slice(&(block.len() as u16).to_le_bytes());
+            out.extend_from_slice(&(!(block.len() as u16)).to_le_bytes());
+            out.extend_from_slice(block);
+        }
         let (mut a, mut b) = (1u32, 0u32);
         for &x in raw {
             a = (a + u32::from(x)) % 65521;
@@ -302,16 +318,28 @@ fn png_rows(w: u32, rows: &[[u8; 3]]) -> Vec<u8> {
     let mut ihdr = w.to_be_bytes().to_vec();
     ihdr.extend_from_slice(&h.to_be_bytes());
     ihdr.extend_from_slice(&[8, 2, 0, 0, 0]); // 8-bit RGB
-    let mut raw = Vec::new();
-    for rgb in rows {
-        raw.push(0); // filter: none
-        raw.extend_from_slice(&rgb.repeat(w as usize));
-    }
     let mut png = b"\x89PNG\r\n\x1a\n".to_vec();
     png.extend(chunk(b"IHDR", &ihdr));
-    png.extend(chunk(b"IDAT", &zlib(&raw)));
+    png.extend(chunk(b"IDAT", &zlib(raw)));
     png.extend(chunk(b"IEND", b""));
     png
+}
+
+/// The page as an RGB PNG. The page is drawn onto white, so every pixel is opaque and
+/// the premultiplied BGRA bytes are the colour itself.
+fn page_png(page: &cairo::ImageSurface) -> Option<Vec<u8>> {
+    let (w, h, stride) = (page.width(), page.height(), page.stride() as usize);
+    let mut raw = Vec::with_capacity((w as usize * 3 + 1) * h as usize);
+    page.with_data(|data| {
+        for row in data.chunks_exact(stride).take(h as usize) {
+            raw.push(0);
+            for px in row[..w as usize * 4].chunks_exact(4) {
+                raw.extend_from_slice(&[px[2], px[1], px[0]]);
+            }
+        }
+    })
+    .ok()?;
+    Some(png_rgb(w as u32, h as u32, &raw))
 }
 
 #[test]
@@ -403,6 +431,61 @@ fn colour_rows(surface: cairo::ImageSurface, rgb: (u8, u8, u8)) -> Vec<Vec<usize
                 .collect()
         })
         .collect()
+}
+
+/// A rendered page saved for a person to inspect, under
+/// `target/test-artifacts/<name>/`: written as `last-run.png` when made, then renamed on
+/// drop — to `fail-<unix-ms>-<pid>.png` if the test is panicking, else to `pass.png`. The
+/// failures accumulate; the pass is the latest one, kept for comparison.
+///
+/// Exists because an intermittent pixel assertion is cheaper to diagnose by looking at the
+/// page than by reading numbers about it, and a failure that only happens inside a busy
+/// suite run cannot be re-rendered on demand afterwards.
+struct KeptPage {
+    dir: std::path::PathBuf,
+    written: Option<std::path::PathBuf>,
+}
+
+impl KeptPage {
+    fn new(name: &str, page: &cairo::ImageSurface) -> Self {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("target")
+            .join("test-artifacts")
+            .join(name);
+        let file = dir.join(format!("last-run-{}.png", std::process::id()));
+        let written = std::fs::create_dir_all(&dir)
+            .ok()
+            .and_then(|()| page_png(page))
+            .and_then(|png| std::fs::write(&file, png).ok())
+            .map(|()| file);
+        if written.is_none() {
+            eprintln!(
+                "note: could not keep the rendered page under {}",
+                dir.display()
+            );
+        }
+        Self { dir, written }
+    }
+}
+
+impl Drop for KeptPage {
+    fn drop(&mut self) {
+        let Some(from) = self.written.take() else {
+            return;
+        };
+        let to = if std::thread::panicking() {
+            let ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis());
+            self.dir
+                .join(format!("fail-{ms}-{}.png", std::process::id()))
+        } else {
+            self.dir.join("pass.png")
+        };
+        if std::fs::rename(&from, &to).is_ok() && std::thread::panicking() {
+            eprintln!("the page this assertion read is kept at {}", to.display());
+        }
+    }
 }
 
 /// The page box every layout test lays out against, in points — a US-Letter page
@@ -1820,7 +1903,17 @@ fn a_blockquote_bar_sprite_tiles_down_the_bar_on_the_page() {
 fn a_blockquote_panel_sprite_tiles_across_the_page_and_keeps_one_grid() {
     const MARGIN: f64 = 54.0;
     const FLAT: (u8, u8, u8) = (0x00, 0xcc, 0x00);
-    const MARK: (u8, u8, u8) = (0xff, 0x00, 0x00);
+    // YELLOW, not red, and the choice is the fix for this test's long-running
+    // intermittent failure. The page's text is antialiased with the host's subpixel (LCD)
+    // mode, which colours each glyph edge per channel; black ink can only darken channels,
+    // so over the magenta panel (255,0,255) a fringe pixel can be any colour with green 0
+    // — including pure red, the old marker. A saved failing page compared with a pass
+    // showed exactly that: a few o/d/b/y fringes landing on (255,0,0) and read as extra
+    // marker rows. No fringe over magenta can raise green above 0, and darkening the
+    // marker band itself never leaves it exactly yellow, so no text pixel can match this.
+    // (Asking cairo/pango for greyscale antialiasing was measured NOT to help; why was not
+    // established.)
+    const MARK: (u8, u8, u8) = (0xff, 0xff, 0x00);
     // 16px tall, so the page lattice is 12pt and differs from the pixel height, which
     // is what lets the assertion below tell a point-space grid from a pixel-space one.
     const TILE: u32 = 16;
@@ -1848,7 +1941,7 @@ fn a_blockquote_panel_sprite_tiles_across_the_page_and_keeps_one_grid() {
     let path = dir.path().join("panel.png");
     let mut rows = vec![[255, 0, 255]; TILE as usize];
     for row in rows.iter_mut().take(MARK_PX) {
-        *row = [255, 0, 0];
+        *row = [MARK.0, MARK.1, MARK.2];
     }
     std::fs::write(&path, png_rows(TILE, &rows)).unwrap();
     let mut tiled = flat.clone();
@@ -1883,7 +1976,11 @@ fn a_blockquote_panel_sprite_tiles_across_the_page_and_keeps_one_grid() {
     // a container with that image's exact cairo/pango/pixman (1.18.0 / 1.52.1 /
     // 0.42.2), at two cores — 40 of this module, 25 of the whole library suite — never
     // reproduced it.
-    let rows_with_x = colour_rows(drawn_page(md, &tiled, &p, MARGIN), MARK);
+    let page = drawn_page(md, &tiled, &p, MARGIN);
+    // Keep the page this assertion reads, for a person to look at: every failure is kept
+    // under its own name, and the latest pass overwrites one file for comparison.
+    let _kept = KeptPage::new("pdf-tiling", &page);
+    let rows_with_x = colour_rows(page, MARK);
     let widths = |ys: &[usize]| -> Vec<String> {
         ys.iter()
             .map(|y| match rows_with_x.get(*y) {
@@ -1938,7 +2035,7 @@ fn a_blockquote_panel_sprite_tiles_across_the_page_and_keeps_one_grid() {
          4/3 oversize.\n\
          \n\
          residues mod {pitch}: {residues:?}\n\
-         every red row, with its pixel count and x extent:\n  {}\n\
+         every marker row, with its pixel count and x extent:\n  {}\n\
          \n\
          ⚠️ READ THE WIDTHS BEFORE THEORISING. A start whose row carries a few pixels \
          is not a displaced lattice — the fill cannot produce one, because the vertical \

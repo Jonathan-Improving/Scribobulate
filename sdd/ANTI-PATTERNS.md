@@ -9,7 +9,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 2. General engineering discipline that survives deleting every Scribobulate noun? → route it to `general-engineering-principles` and cite `GEP-N` at the site. **Nothing here** either — the `**Routed**` tombstones were retired 2026-09-24 the same way as the gtk4-rs stubs.
 3. Neither — Scribobulate internals, or a non-gtk4-rs dependency (Pango, GtkSourceView, pulldown-cmark, librsvg, syntect, serde/toml, the toolchain)? → it stays here, **in ≤ 6 lines**: Symptom · Root cause · Resolution · Lesson · Scribobulate · See. Extend an existing entry rather than minting a sibling for the same root cause. Route a Pango lesson on whose API *contract* it is about, and raise it before routing.
 
-**Numbers are frozen** (check 9): never renumbered, never reused; a retired entry keeps its `## N.` heading as a landing spot. Reserved gaps — do not fill: **176–179** (Windows port; holder gone, held pending operator resolution), **186** (`feat/spelling`, inbound), **276–289** (unmerged branches). **Next free number: 358**+ — check this table and announce the range you claim; never derive it from the highest heading below. (It read 354 while 354 and 355 both had bodies, so a writer who obeyed it minted a duplicate — and the same sentence forbids the one check a reader would otherwise make. Check 9 can only see a duplicate after it exists. **Check 21 now asserts the one relation the header must satisfy whatever the reserved gaps are — strictly above the highest heading present** — so this line is no longer guarded by prose alone; move it in the same change that mints.)
+**Numbers are frozen** (check 9): never renumbered, never reused; a retired entry keeps its `## N.` heading as a landing spot. Reserved gaps — do not fill: **176–179** (Windows port; holder gone, held pending operator resolution), **186** (`feat/spelling`, inbound), **276–289** (unmerged branches). **Next free number: 360**+ (358 is in use on an unmerged branch on the `improving` remote) — check this table and announce the range you claim; never derive it from the highest heading below. (It read 354 while 354 and 355 both had bodies, so a writer who obeyed it minted a duplicate — and the same sentence forbids the one check a reader would otherwise make. Check 9 can only see a duplicate after it exists. **Check 21 now asserts the one relation the header must satisfy whatever the reserved gaps are — strictly above the highest heading present** — so this line is no longer guarded by prose alone; move it in the same change that mints.)
 
 **Growth** is gated in bytes (check 11). The ratchet only tightens; consolidate in the change that trips it.
 
@@ -87,6 +87,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 | 354 | A reachability probe whose PRECONDITION names an asset that does not resolve — the key reads as reaching nothing | C |
 | 355 | Solving a themed fill against the surface it is MIXED from rather than the page it is READ on | C |
 | 356 | Deriving a text run's own fill from the PAGE when the preview draws a surface behind it | C |
+| 359 | A pixel test that counts an exact colour over antialiased text — a glyph fringe can forge it | C |
 
 ---
 
@@ -507,3 +508,11 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **Lesson**: a decoration derived from the page inherits the page's assumption that nothing else is drawn there; and toward-the-ink is a move DOWN the ink's own contrast, so a surface already at the floor must be tinted the other way.
 **Scribobulate**: `palette::codechips` (resolution + precedence), `tags::CODE_INLINE_SURFACES`, `pangospan::code`, `export::html::code_surface_css`.
 **See**: TDD 18.61; kin ScrAP-355, GTK4Rs/AP-84.
+
+## 359. A pixel test that counts an exact colour over antialiased text — a glyph fringe can forge it
+**Symptom**: a PDF test that counts rows of an exact marker colour on a rasterised page failed intermittently for weeks, only inside a full parallel suite run (locally and on CI), with a few short marker-coloured runs inside the quoted text; never on demand. Dropped from ISSUES once for not reproducing, and it recurred.
+**Root cause**: the host's subpixel (LCD) text antialiasing darkens each glyph edge one channel at a time, and over a magenta panel (255,0,255) an edge darkened only in blue IS pure red (255,0,0) — the marker. Which edges land exactly there varies run to run under parallel load. Asking pangocairo/cairo for greyscale antialiasing (on the layout context or the cairo context) was measured to change nothing; why was not established.
+**Resolution**: a marker no darkened edge can produce — yellow (255,255,0) over magenta, whose green is 0 and which ink only darkens. Found by saving the asserted page on every run and diffing a failing page against a passing one: only a few letters' edges differed.
+**Lesson**: an exact-colour oracle on a raster that also carries text must use a colour outside everything the text's antialiasing can produce over that background; and keep the rendered output of an intermittent pixel test, because a picture shows in seconds what numbers about it hid for weeks.
+**Scribobulate**: `export::pdf::measure::tests` — the blockquote tiling test's `MARK` and its `KeptPage` (pages under `target/test-artifacts/`).
+**See**: GTK4Rs/AP-56 (headless pixels prove less than they look).
