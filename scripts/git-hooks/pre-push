@@ -15,7 +15,13 @@
 # platforms.
 #
 # Enable once per clone:   git config core.hooksPath scripts/git-hooks
+# Run without pushing:     git push --dry-run
 # Override for one push:   git push --no-verify
+#
+# On Windows, push from a shell that carries the GTK build environment
+# (packaging/windows/README.md). From a bare shell clippy fails in the -sys crates'
+# build scripts with "The pkg-config command could not be found" and the push is
+# refused; that is the environment, not the hook.
 
 set -uo pipefail
 

@@ -42,6 +42,7 @@ described from a different vantage point.
 | D | Any | Production | The preview's Annotate bubble sits over the line above a selection, so a click there can land on the bubble: in a table, a double- or triple-click on the cell above a selected cell can lose a press and act as a single click | Low |
 | E | Any | Test | Flaky test: closing the outline's filter sometimes leaves the outline scrolled to the top rather than to the highlighted row. Failed twice on Linux CI, green on rerun and locally; cause not established | Low |
 | F | Any | Production | Under the **System** reading theme on Adwaita, selected text inside a table cell is drawn white on a pale fill (~1.5:1), while selected body text is black | Low |
+| G | Windows | Upstream | After an edit the editor's scrollbar slider is sometimes not drawn until the next scroll (2 of 40 Enters); a GTK defect still open upstream | Low |
 
 ## Closed issues
 
@@ -395,6 +396,36 @@ Breeze draws near-white on a saturated fill there, which reads well.
   text uses, so the two paths agree under System too (one theme key, every application
   path).
 - Accept it under System as the desktop theme's choice.
+
+## G. On Windows the editor's scrollbar slider sometimes goes missing after an edit
+
+**Severity**: Low (the slider alone, occasionally, and the next scroll brings it back).
+
+**Observed** (2026-10-01, Windows, GTK 4.22.4 gvsbuild, release build, edit-only mode,
+`sdd/POLICY.md`, scripted Enter-then-scroll drive): after an Enter, the editor's overlay
+scrollbar draws its trough but not its slider. 2 of 40 Enters with the repair below in
+place, 7 of 40 without it; 0 of 40 with no edit. Scrolling brings it back, as does a resize.
+`Trying to snapshot GtkGizmo … without a current allocation` is logged with or without the
+repair, and macOS logs it too with the scrollbar still drawn, so the warning does not
+discriminate.
+
+**Cause**: GTK, still open upstream — GtkTextView changes its scroll range from inside
+paint (GNOME/gtk#6057, merge request !5222 unmerged), which leaves the scrollbar a frame
+behind. Linux on GTK 4.6 had a worse, separate defect (the scrollbar stayed undrawn until a
+resize, 24 of 25 Enters; fixed upstream in GTK 4.10 by !5564). The editor now hides and
+re-shows its scrollbar after every scroll-range or position change
+(`window::splitview::relink_vscrollbar_after_range_changes`), which ended the Linux defect
+(0 of 30) and reduced this one. Not seen on macOS (0 of 20).
+
+**Known cost of that repair, accepted**: the hide/show resets GTK's record that the pointer
+is over the scrollbar, so with the pointer resting perfectly still on the scrollbar the
+scrollbar now fades 1–2 s after each edit (Windows, 13 of 20) where it used to stay shown.
+Any pointer motion brings it back. Judged negligible by the operator.
+
+**Mitigation options**:
+- Accept it until GTK fixes gtk#6057.
+- Give the editor non-overlay scrollbars, as the preview has. Untested whether a classic
+  scrollbar shows the same lag.
 
 ## CLSD-02. A paragraph that mixes fonts lays out wider than the wrap width it was given
 

@@ -326,6 +326,7 @@ impl SplitView {
         let editor_trigger =
             super::editor_annotate::wire_editor_annotate_card(&editor_overlay, editor);
         imp.editor_annotate_trigger.replace(Some(editor_trigger));
+        relink_vscrollbar_after_range_changes(&editor_scroller);
         let _ = imp.editor_scroller.set(editor_scroller);
         let _ = imp.editor_overlay.set(editor_overlay);
 
@@ -609,5 +610,147 @@ impl SplitView {
         // (GTK4Rs/AP-104). The clamp against pane minima happens in `size_allocate`,
         // so an over-drag simply pins at the limit.
         self.queue_resize();
+    }
+}
+
+/// Re-attach the editor's vertical scrollbar to GTK's layout after its range or position
+/// changes — the repair for a scrollbar that stops being drawn after an edit adds a line.
+///
+/// On GTK 4.6 every change to the scroll range or position asks for the scrollbar's trough
+/// to be laid out again. When that request lands while an ancestor is still mid-layout, the
+/// ancestor clears its "a child needs layout" flag on the way out and the trough's request
+/// is orphaned: GTK skips painting it (`Trying to snapshot GtkGizmo … without a current
+/// allocation`) and no same-size relayout reaches it, only a real size change. Fixed
+/// upstream in GTK 4.10.0 (merge request !5564); GTK 4.22 still shows a milder form that
+/// heals on the next scroll (GNOME/gtk#6057). Runs on every version.
+///
+/// MEASURED (GTK 4.6.9, scripted Enter-then-scroll drive): 24 of 25 edits lost the
+/// scrollbar without this, 0 of 30 with it. Only a hide/show repairs it. A same-size
+/// `size_allocate` and a one-pixel size bump both measured 24 of 25 — the orphaned trough
+/// is below a widget whose own flags are already clear, so neither reaches it. Hooked to
+/// `value-changed` as well as `changed`: on `changed` alone it measured 11 of 12, because
+/// the orphaning also happens when the view scrolls. Repeated once ~120 ms later because
+/// one pass measured 1 of 30. Cost measured as nil: CPU over 300 wheel notches on a
+/// 4,000-line document varied more between runs than between on and off, and the
+/// scrollbar stays painted through a continuous scroll.
+///
+/// Known cost, accepted by the operator as negligible: the hide/show resets GTK's record
+/// that the pointer is over the scrollbar, so a pointer resting perfectly still on it no
+/// longer holds the overlay scrollbar shown after an edit — it fades 1–2 s later, and any
+/// motion brings it back (measured on Windows, GTK 4.22.4). On GTK 4.22 the repair also
+/// only reduces a milder, separate lag (gtk#6057): measured 7 of 40 Enters to 2 of 40.
+///
+/// Coalesced to one repair per main-loop turn, and run from a timeout, never inside a
+/// layout pass, where toggling `:visible` would itself be the hazard (GTK4Rs/AP-104).
+fn relink_vscrollbar_after_range_changes(scroller: &gtk::ScrolledWindow) {
+    let pending = std::rc::Rc::new(std::cell::Cell::new(false));
+    let weak = scroller.downgrade();
+    let schedule = move |_: &gtk::Adjustment| {
+        if pending.replace(true) {
+            return;
+        }
+        let pending = pending.clone();
+        let weak = weak.clone();
+        glib::idle_add_local_once(move || {
+            pending.set(false);
+            let Some(bar) = weak.upgrade().map(|s| s.vscrollbar()) else {
+                return;
+            };
+            relink_vscrollbar(&bar);
+            let bar = bar.downgrade();
+            glib::timeout_add_local_once(RELINK_REPEAT, move || {
+                if let Some(bar) = bar.upgrade() {
+                    relink_vscrollbar(&bar);
+                }
+            });
+        });
+    };
+    let adj = scroller.vadjustment();
+    let on_value = schedule.clone();
+    adj.connect_value_changed(move |a| on_value(a));
+    adj.connect_changed(move |a| schedule(a));
+}
+
+/// How long after the first repair the second runs.
+const RELINK_REPEAT: std::time::Duration = std::time::Duration::from_millis(120);
+
+/// Hide then show the scrollbar, which re-lays it out from a zero size. Does nothing to a
+/// scrollbar that is not on screen.
+fn relink_vscrollbar(bar: &gtk::Widget) {
+    if !bar.is_mapped() {
+        return;
+    }
+    bar.set_visible(false);
+    bar.set_visible(true);
+}
+
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+mod gtk_integration_tests {
+    use super::relink_vscrollbar_after_range_changes;
+    use crate::testpump::{drain_for, until, Clock};
+    use gtk::prelude::*;
+    use std::cell::Cell;
+    use std::rc::Rc;
+    use std::time::Duration;
+
+    /// A mapped scrolled window around a text view long enough to scroll, with the repair
+    /// wired, and a counter of the vertical scrollbar's hide/show transitions.
+    fn scroller_with_counter() -> (gtk::Window, gtk::ScrolledWindow, Rc<Cell<u32>>) {
+        let view = gtk::TextView::new();
+        let body: String = (0..400).map(|i| format!("line {i}\n")).collect();
+        view.buffer().set_text(&body);
+        let scroller = gtk::ScrolledWindow::builder().child(&view).build();
+        relink_vscrollbar_after_range_changes(&scroller);
+        let window = gtk::Window::new();
+        window.set_default_size(400, 300);
+        window.set_child(Some(&scroller));
+        window.present();
+        until(Clock::Frame, "the scrollbar maps", || {
+            scroller.vscrollbar().is_mapped() && scroller.vadjustment().page_size() > 0.0
+        });
+        drain_for(Clock::Frame, Duration::from_millis(400));
+        let toggles = Rc::new(Cell::new(0));
+        let t = toggles.clone();
+        scroller
+            .vscrollbar()
+            .connect_notify_local(Some("visible"), move |_, _| t.set(t.get() + 1));
+        (window, scroller, toggles)
+    }
+
+    /// TDD 4.14 — the editor's scrollbar is re-laid out after its range changes AND after
+    /// its position changes, twice each time. Both triggers are load-bearing: the orphaned
+    /// trough this repairs was measured forming on a scroll as well as on an edit, and the
+    /// repair hooked to the range alone left 11 of 12 edits without a scrollbar.
+    ///
+    /// The orphaning itself cannot be reproduced in a test process (GTK 4.6's layout
+    /// ordering is not driven here), so this pins the repair's wiring; the effect is the
+    /// manual check MANUAL-TEST 9.39. Mutation: dropping either `connect_*` fails the
+    /// matching half; dropping the repeat halves the count.
+    #[gtktest::test]
+    fn a_range_or_position_change_relinks_the_scrollbar_twice() {
+        let (window, scroller, toggles) = scroller_with_counter();
+        let adj = scroller.vadjustment();
+
+        let before = toggles.get();
+        crate::saferizer::scrollpos::jump(&adj, adj.value() + 40.0);
+        drain_for(Clock::Frame, Duration::from_millis(400));
+        assert_eq!(
+            toggles.get() - before,
+            4,
+            "a scroll must hide and show the scrollbar twice (two transitions each)"
+        );
+
+        let before = toggles.get();
+        adj.set_upper(adj.upper() + 200.0);
+        drain_for(Clock::Frame, Duration::from_millis(400));
+        assert!(
+            toggles.get() - before >= 4,
+            "a range change must relink the scrollbar too"
+        );
+        assert!(
+            scroller.vscrollbar().is_visible(),
+            "the scrollbar ends visible"
+        );
+        window.destroy();
     }
 }

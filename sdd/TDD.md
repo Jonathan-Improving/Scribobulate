@@ -5,7 +5,7 @@
 | 1 | Opening & displaying documents | 1.1 – 1.11a |
 | 2 | Rendering fidelity | 2.1 – 2.27 |
 | 3 | Live reload (external edits) | 3.1 – 3.6 |
-| 4 | Editing & saving | 4.1 – 4.9 |
+| 4 | Editing & saving | 4.1 – 4.14 |
 | 5 | Reconciliation (conflict handling) | 5.1 – 5.4 |
 | 6 | Resource footprint (viability gate) | 6.1 – 6.10 |
 | 7 | Window & layout | 7.0b – 7.25 |
@@ -777,6 +777,11 @@
 - **And** when the batch finishes, the tab the user had focused when they invoked Save All is active again
 
 ---
+
+### 4.14 The editor keeps its scrollbar while you edit
+- **Given** the editor pane holding a document longer than the pane, in any view mode
+- **When** the reader edits it in a way that changes its length or scrolls it, such as pressing Enter to add a line
+- **Then** the editor's scrollbar is still drawn whenever it would be drawn for an unedited document — on hover and while scrolling — without needing the window or the splitter to be resized to bring it back
 
 ## 5. Reconciliation (conflict handling)
 
