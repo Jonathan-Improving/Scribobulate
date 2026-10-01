@@ -1455,8 +1455,8 @@ function Invoke-ContractStep {
 
     # A non-applicable step is DECLARED here, in the run output, with its kind and reason
     # -- not omitted, and not left in a source comment where the pipeline's user cannot
-    # see it. The hand-written version of this file declared step 6 at runtime but left 7
-    # and 8 in comments, so a reader of the run saw a gap with no explanation.
+    # see it. The hand-written version of this file declared the coverage step at runtime but left the
+    # two steps after it in comments, so a reader of the run saw a gap with no explanation.
     if ($na) {
         $naParts = $na -split '\s+', 2
         $kind    = $naParts[0]

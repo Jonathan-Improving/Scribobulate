@@ -77,7 +77,7 @@ plutil -lint "$APP/Contents/Info.plist" >/dev/null
 
 # --- Bundled GTK runtime ------------------------------------------------------
 #
-# WHY: step 10's intent is an artefact a NON-DEVELOPER can install with no toolchain.
+# WHY: step 9's intent is an artefact a NON-DEVELOPER can install with no toolchain.
 # Linked against Homebrew, this bundle does not launch for such a person at all -- it
 # dies in dyld before main(). So the runtime travels with it.
 #

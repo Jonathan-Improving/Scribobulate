@@ -21,21 +21,21 @@
 #
 # THE CONTRACT PINS INTENT, NOT COMMANDS. `intent` is the invariant; `cmd.<platform>` is
 # how that platform satisfies it. This is deliberate and was measured: `xmllint`, `bash`
-# and `cargo llvm-cov` are all absent from the PowerShell PATH, so POLICY step 8 as
+# and `cargo llvm-cov` are all absent from the PowerShell PATH, so POLICY's diagram step as
 # written (`xmllint --noout`) cannot run on Windows — but its intent is satisfiable there
 # with a built-in and no new dependency. A contract of COMMANDS would have forced Windows
 # to install xmllint or file a false non-applicable declaration, and both are wrong.
 #
 # A NON-APPLICABLE STEP IS DECLARED IN THE RUN OUTPUT, NOT OMITTED. An unexplained
 # asymmetry is what the next contributor "fixes" into a bug. And the declaration must
-# reach the pipeline's USER: pipeline.ps1 declared step 6 at runtime with its reason but
-# declared steps 7 and 8 only in a source comment, so someone reading the run saw
-# `1, 2, 3, 4, 4b, 5, 6, 9` with no indication that 7 and 8 existed. A declaration only a
+# reach the pipeline's USER: pipeline.ps1 once declared the coverage step at runtime with
+# its reason but declared the two steps after it only in a source comment, so someone
+# reading the run saw a numbered list with a gap in it and no indication those steps existed. A declaration only a
 # code reader can find is not a declaration.
 #
 # RECORD THE SEMANTIC REASON, NEVER THE TOOLING ONE. `na.<platform>` carries a KIND
 # because the two kinds are acted on differently: `permanent` is true even with perfect
-# tooling; `tooling` is fixable by installing something. Step 6 is the worked example and
+# tooling; `tooling` is fixable by installing something. Step 5c is the worked example and
 # shows why it matters — it is non-applicable on Windows for BOTH reasons (semantically,
 # unix-only code shifts numerator and denominator so a Windows figure can legitimately
 # fall below the floor with no regression; incidentally, cargo llvm-cov is not installed
@@ -125,7 +125,7 @@
 #
 # CLASSES. `required` fails the run. `informational` never fails it. `review` is a human
 # obligation with no command — announced in the run output so it cannot be silently
-# forgotten, but not something a script can judge. Step 7 is the only `review` step and
+# forgotten, but not something a script can judge. Step 6 is the only `review` step and
 # it is honest about that: pretending a script can decide whether a behaviour change
 # carries its MANUAL-TEST.md check would be a gate that always passes. `packaging` is
 # `required` that is also OPT-IN — it fails the run when asked for and does not run
@@ -138,7 +138,7 @@
 # would be paternalistic about two flags the operator passed deliberately. But the
 # packaging step MUST then name what did not run:
 #
-#     10. package — WARNING: built without step 5 (integration), skipped by --skip-integration
+#     9. package — WARNING: built without step 5 (integration), skipped by --skip-integration
 #
 # so that whoever ends up holding the installer can tell what gated it. Silence here is
 # the same failure as omitting a non-applicable step: the run looks identical to one where
@@ -273,7 +273,7 @@ cmd.windows skipreport  cargo test -- --nocapture
 # are private and unbound, and masking that domain would also silence a latent defect in the
 # same file at the version macOS ships (GTK4Rs/AP-305).
 #
-# LINUX DELEGATES TO `scripts/run-integration.sh`, for the same reason step 6 delegates to
+# LINUX DELEGATES TO `scripts/run-integration.sh`, for the same reason step 5c delegates to
 # `scripts/coverage.sh`: the step owns several things a command line cannot carry, and the
 # helper's header is the authority on all of them. NO COUNT HERE — this sentence said
 # "three" and the list has since grown to four, which is the same rot the gate's check
@@ -314,7 +314,7 @@ intent integration  The GTK integration suite passes against a real display, thr
 verdict integration  exit
 class  integration  required
 surface integration  SKIPPED [
-cmd.linux   integration  scripts/run-integration.sh
+na.linux    integration  permanent  Step 5c (coverage) runs this same suite on Linux, instrumented, on the same throwaway display, and fails on any test failure, so running it here too only repeats it (POLICY build pipeline step 5). scripts/run-integration.sh still runs it uninstrumented by hand.
 cmd.macos   integration  cargo test --features gtk-integration-tests $(scripts/macos-integration-targets.sh)
 cmd.windows integration  G_DEBUG=fatal-criticals cargo test --features gtk-integration-tests -- --test-threads=1
 disarm.macos integration  permanent  G_DEBUG=fatal-criticals is absent from the macOS command above, and this line is why: GDK's Quartz backend freezes a surface once per CONSTRUCTION and thaws once per MAP, and gdk_macos_surface_hide never freezes, so the second map thaws at zero and the suite emits gdk_surface_thaw_updates assertions on every popover open or dismiss. Present 4.22.4 through main; the freeze/thaw pair is private and absent from the gdk4 bindings, so no application-side fix exists. Do NOT arm it by masking Gdk-CRITICAL: that would also silence GTK4Rs/AP-305, a leaked update-freeze that stops a surface repainting, which is the only signal anybody would get if it happened. See also GTK4Rs/AP-268 before reaching for a g_log_set_writer_func allowlist.
@@ -339,7 +339,13 @@ cmd.macos   memory  cargo test --release --features memory-gates --test gtk_suit
 cmd.windows memory  cargo test --release --features memory-gates --test gtk_suite memgate
 
 # ---------------------------------------------------------------------------
-# Step 6 — coverage ratchet
+# Step 5c — coverage ratchet, and on Linux the GTK integration suite
+#
+# POLICY folds integration, memory growth and coverage into its one step 5; the contract
+# keeps three entries (5, 5b, 5c) because each has its own commands, classes and
+# non-applicable declarations. On Linux this step's leg B is the ONLY run of the GTK
+# suite: step 5 is declared non-applicable there because leg B runs the same suite,
+# instrumented, and refuses on any failure.
 #
 # Linux-canonical BY DESIGN. See the header's "record the semantic reason" note: the
 # declarations below cite the semantics, never the missing tool.
@@ -350,7 +356,7 @@ cmd.windows memory  cargo test --release --features memory-gates --test gtk_suit
 # arrive disguised as a change in coverage, and a ratchet compared across two different
 # scopes measures nothing. The script owns both; this line states the invariant.
 # ---------------------------------------------------------------------------
-step   6  coverage
+step   5c  coverage
 intent coverage  The measured file set is the one recorded in scripts/coverage.scope, and scoped line coverage over that set has not regressed below the ratchet floor
 verdict coverage  exit
 class  coverage  required
@@ -359,26 +365,26 @@ na.macos    coverage  permanent  src/platform/mac/*.rs compiles only here and is
 na.windows  coverage  permanent  Some unix-only code and tests (parts of atomic_io.rs, gated #[cfg(unix)] within a file that IS otherwise compiled here) are not built here, shifting both numerator and denominator, so a Windows figure can legitimately fall below the Linux floor with no regression. Never lower the Linux floor to make a Windows run pass.
 
 # ---------------------------------------------------------------------------
-# Step 7 — UI-behaviour coverage alignment
+# Step 6 — UI-behaviour coverage alignment
 #
 # A `review` step: a human obligation, announced so it cannot be silently forgotten. No
 # script can decide whether a change altered user-visible behaviour, and a gate that
 # always passes is worse than an honest announcement.
 # ---------------------------------------------------------------------------
-step   7  uibehaviour
+step   6  uibehaviour
 intent uibehaviour  A change to user-visible behaviour carries its tests/MANUAL-TEST.md check, tracing to the sdd/TDD.md rubric it verifies
 verdict uibehaviour  review
 class  uibehaviour  review
 
 # ---------------------------------------------------------------------------
-# Step 8 — architecture diagram
+# Step 7 — architecture diagram
 #
 # The Windows command is the worked example for intent-not-command. It uses a .NET
 # built-in with no new dependency, and it DISCRIMINATES — fed `<svg><g></svg>` it rejects
 # with a parse error, which was mutation-tested rather than assumed, because an XML check
 # that accepts anything is worse than none.
 # ---------------------------------------------------------------------------
-step   8  diagram
+step   7  diagram
 intent diagram  The architecture SVG parses as well-formed XML, so librsvg does not reject what a browser recovers from
 verdict diagram  exit
 class  diagram  required
@@ -387,7 +393,7 @@ cmd.macos   diagram  xmllint --noout sdd/system-overview.svg
 cmd.windows diagram  powershell -NoProfile -Command "$d = New-Object System.Xml.XmlDocument; $d.Load('sdd/system-overview.svg')"
 
 # ---------------------------------------------------------------------------
-# Step 9 — cross-reference gate
+# Step 8 — cross-reference gate
 #
 # ONE COMMAND ON ALL THREE PLATFORMS, which is the whole point of it being a cargo
 # subcommand. This step used to be a bash script plus a hand-synced PowerShell port —
@@ -403,7 +409,7 @@ cmd.windows diagram  powershell -NoProfile -Command "$d = New-Object System.Xml.
 # A gate is its pattern AND the set of files it runs over. That set is still a data file,
 # scripts/lint-references.scan, which the binary READS rather than restates.
 # ---------------------------------------------------------------------------
-step   9  references
+step   8  references
 intent references  Every cross-reference in the tree resolves, and the citation-form rules hold
 verdict references  exit
 class  references  required
@@ -412,7 +418,7 @@ cmd.macos   references  cargo xtask lint-references
 cmd.windows references  cargo xtask lint-references
 
 # ---------------------------------------------------------------------------
-# Step 10 — the installer artefact
+# Step 9 — the installer artefact
 #
 # ONE step, not a bundle/installer pair. Windows and macOS do stage-then-wrap in two
 # phases; Linux's dpkg-deb and rpmbuild each stage and package in one call. Splitting
@@ -450,7 +456,7 @@ cmd.windows references  cargo xtask lint-references
 # Developer Program membership and a notarization step), not a standard to lower. See
 # POLICY § "Artefact signing".
 # ---------------------------------------------------------------------------
-step   10  package
+step   9  package
 intent package  A transferable installer artefact a non-developer can install with no toolchain, versioned from Cargo.toml
 verdict package  exit
 class  package  packaging

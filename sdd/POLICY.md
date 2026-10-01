@@ -15,32 +15,40 @@ a rule here on your own initiative.
 - Linux is the canonical platform for the gates. Never weaken a shared gate — a lint, a
   test, a coverage floor — to make another platform pass.
 - Release builds are the reference for behaviour and footprint.
+- Every clone runs `git config core.hooksPath scripts/git-hooks` once. Its pre-push hook
+  runs the pipeline's format and lint steps and refuses a push that fails them.
 
 ## Build pipeline
 
-Run `scripts/pipeline.sh` (macOS: `packaging/macos/pipeline.sh`; Windows:
-`packaging/windows/pipeline.ps1`) **after every change**, not at session end. A task is
-not complete until every step passes. The steps:
+After every change lands run formatting, lint and any affected tests. Then before signing off on a branch, 
+in preparation for merging to master, run the following, typically (but not always) at session end:
+- **Linux**: `scripts/pipeline.sh`
+- **macOS**: `packaging/macos/pipeline.sh`
+- **Windows**: `packaging/windows/pipeline.ps1`
+A task is not complete until every step passes, and the remote Github CI is the final ratifying gate for all three platforms. 
+
+The steps in detail are:
 
 1. Format check.
 2. Clippy, zero warnings, with every feature enabled so gated test code is linted too.
    Fix a warning; an `#[allow]` needs its reason in a comment on the same line.
 3. Release build.
 4. Unit tests.
-5. GTK integration tests, on a throwaway display and session bus.
-5b. Per-render memory-growth tests.
-6. Coverage gate — a no-regression ratchet, not a target. Floors are whole numbers, and
-   one drops only in a change that raises the other. Fractional drift is noise: do not
-   report it or adjust for it. When adding logic to a file excluded from coverage (GTK wiring), extract the
-   decision into a pure module so it is measured.
-7. Manual-test alignment — a change to user-visible behaviour updates
+5. Integration and coverage steps, and all platforms run the per-render memory-growth tests.  Per platform instructions are as follows:
+   - **macOS and Windows**: Run the GTK integration tests
+   - **Linux**: Coverage gate — a no-regression ratchet, not a target. Floors are whole numbers, and
+     one drops only in a change that raises the other. Fractional drift is noise: do not
+     report it or adjust for it. When adding logic to a file excluded from coverage (GTK wiring), extract the
+     decision into a pure module so it is measured.  The GTK tests must pass.
+6. Manual-test alignment — a change to user-visible behaviour updates
    `tests/MANUAL-TEST.md` in the same change, and the TDD rubric too if the contract
    itself changed.
-8. Diagram alignment — a change to the architecture updates the system diagram in the
+7. Diagram alignment — a change to the architecture updates the system diagram in the
    same change.
-9. Cross-reference lint — citations, document paths and numbered entries must resolve.
-10. Installer artefact — the one opt-in step.
+8. Cross-reference lint — citations, document paths and numbered entries must resolve.
+9. Installer artefact — the one opt-in step.
 
+- All platforms must perform GTK tests on a throwaway display and session bus.
 - The step list lives in one contract file that every runner and the CI workflow derive
   from. Change a step there — never in a runner, and never by naming steps in CI.
 - Never skip a step. A step that does not apply on a platform is announced in the run
@@ -59,6 +67,7 @@ not complete until every step passes. The steps:
   carries the right version — not by the packaging tool's exit code.
 - A workflow runs against the shared repository whichever branch it sits on, so its
   triggers are the operator's decision.
+- The remote Github pipeline is slow, do not rely upon it when targeted / surgical testing suffices for verification of a change mid-task.
 
 ## Third-party attribution
 
@@ -94,6 +103,8 @@ success, and that announcement is removed in the same change that introduces sig
   only by them carry the same gate.
 - Use `#[gtktest::test]` — never `#[gtk::test]` or a manual `gtk::init()` — so the test
   also runs where GTK is main-thread-only.
+- A new top-level module in `src/lib.rs` is also added to `src/gtk_suite.rs`'s list, or
+  its GTK tests silently drop out of the main-thread run.
 - Fail loudly when there is no display; never pass vacuously.
 - A test that asserts on process-global GTK state gets its own standalone target, says
   why in its doc comment, and is added to the macOS integration step, which runs an
@@ -115,9 +126,6 @@ render-free-measure, which a correct implementation cannot pass.
 - **A regression fix needs both** an automated test and a manual-test check that was
   actually run. One without the other is incomplete.
 - A new TDD section lands together with its manual-test section.
-- A change touching the filesystem, IPC, packaging or paths is ratified only once the
-  macOS and Windows seats have run it. Reproduce a defect on Linux before calling it
-  platform-specific.
 
 ### Footprint verification
 
@@ -149,22 +157,16 @@ project's reason to exist.
 - Group a platform's code by the cause it answers, not by the API it happens to call.
 - Prefer hand-rolled FFI over a new binding crate for a handful of calls.
 
-### Verifying on every platform: the pipeline first, a seat when it cannot answer
-
-- Verify a change on all three platforms by pushing its branch and reading the GitHub
-  pipeline. It runs every platform's runner whole, costs no seat's time, and a red run is
-  the cheapest way to catch a platform-specific break.
-- Hand a change to the macOS or Windows seat only when the pipeline cannot ratify it:
-  a check that needs a **real user desktop** rather than a display (other applications
+### Verifying on every platform
+- Verify changes on each of the three platforms, locally in your environment, before merging your branch
+- The pipeline is not sufficient to test changes that require a **real user desktop** rather than a display (other applications
   running, real input devices and input methods, clipboard readers, focus and
   fullscreen behaviour), a look at the rendered UI, interactive diagnosis (sampling,
   bisecting, probes, many reruns), or timing on real hardware. The runners do have a
   display and run real windows; what they lack is everything a person's machine has
   around the application.
-- The pipeline is broad but slower per question; a seat is targeted but costs far more.
-  Judge which answers the question first.
 
-### When a UI change needs a platform seat, and when it does not
+### When a UI change needs a check on macOS or Windows, and when it does not
 
 **Moving existing widgets around does not re-open a ratified feature.** The one thing a
 rearrangement reliably breaks is machine-gated on the Linux host:
@@ -172,7 +174,7 @@ rearrangement reliably breaks is machine-gated on the Linux host:
 asserts the window's minimum is exactly `MIN_WINDOW_WIDTH` with every toolbar section
 shown, both sidebars open, the find bar open with its replace row, and a document whose
 headings stretch anything that stretches. A control that raises the floor fails there.
-That is worth more than a seat's eye, because the macOS failure mode is silent — the
+That is worth more than a look on another platform, because the macOS failure mode is silent — the
 window is **not** grown to meet a risen minimum, so the control is simply not drawn (TDD
 9.38). Accessibility naming is gated the same way: `clippy.toml` bans the bare tooltip
 setter, so a control not named through `a11y::` fails the build.
@@ -180,16 +182,16 @@ setter, so a control not named through `a11y::` fails the build.
 So a pure rearrangement needs a green pipeline and nothing else. **These are not
 rearrangements, and each owes a narrow check** — narrow, not a repeat of a full pass:
 
-| Change | Who has to look | Why Linux cannot answer it |
+| Change | Check on | Why a Linux run cannot answer it |
 |---|---|---|
-| A new glyph or non-ASCII character in a label | both seats | Different font stacks. A `▾` once used on the history buttons had to be confirmed as not tofu in the bundled macOS font. |
-| A new ICON NAME | neither, **if it is bundled** | `tests/icon_resolution.rs` answers per platform, but only for the theme that machine has. Bundling under the requested name settles it before a seat sees a placeholder, and the host theme still wins where it has one. ⚠️ MEASURED consequence: when every host theme *does* carry the name, the bundled copy is shadowed everywhere and **nothing in the fleet exercises the fallback**. Know that before "simplifying" one away. |
-| A new control, or a changed widget CLASS | this seat first | Construction details do not show in a layout test. `set_label` builds `box[label, arrow]`, which drew a second chevron beside the toolkit's own — identical on every platform and caught only by looking. A widget-tree dump plus a screenshot here is the check. ⚠️ The tree alone can mislead: a `GtkMenuButton` arrow node reports present, visible and allocated while painting nothing. **The render is the witness, not the tree.** |
-| A new KEY BINDING, or a window-level event controller | both seats | **Not because the toolkit's propagation differs — it was MEASURED not to.** A bubble-phase window controller for Escape behaved identically on X11/GTK 4.6, GDK-Win32/GTK 4.22 and Quartz: every in-toolkit claimant (popover, drop-down, in-window card, GTK dialog) answered first on all three. Two *other* things did differ and are what a seat is for: a **native** surface may swallow the key before the toolkit sees it (macOS's native menu bar consumes Escape entirely — same visible outcome, different mechanism), and **where focus lands after an action is platform-specific** (after Enter in the find field, Windows returns focus to the document and macOS keeps it in the entry), which decides whether a key even reaches the controller under test. The two rules themselves are platform-INDEPENDENT: take a window-level key on the **bubble** phase so every other claimant answers first, and never report a key handled on the assumption that the handler's action worked — check that it did, or a failed handler swallows that key for the rest of the process. |
-| Anything touching the titlebar | `windows` | Windows requires a NATIVE frame; a `GtkHeaderBar` or `set_titlebar()` silently defeats `GTK_CSD=0` (MANUAL-TEST §7.0a). |
+| A new glyph or non-ASCII character in a label | macOS and Windows | Different font stacks. A `▾` once used on the history buttons had to be confirmed as not tofu in the bundled macOS font. |
+| A new ICON NAME | nowhere else, **if it is bundled** | `tests/icon_resolution.rs` answers per platform, but only for the theme that machine has. Bundling under the requested name settles it before anyone sees a placeholder, and the host theme still wins where it has one. ⚠️ MEASURED consequence: when every host theme *does* carry the name, the bundled copy is shadowed everywhere and **no machine exercises the fallback**. Know that before "simplifying" one away. |
+| A new control, or a changed widget CLASS | any one platform, by looking | Construction details do not show in a layout test. `set_label` builds `box[label, arrow]`, which drew a second chevron beside the toolkit's own — identical on every platform and caught only by looking. A widget-tree dump plus a screenshot on any platform is the check. ⚠️ The tree alone can mislead: a `GtkMenuButton` arrow node reports present, visible and allocated while painting nothing. **The render is the witness, not the tree.** |
+| A new KEY BINDING, or a window-level event controller | macOS and Windows | **Not because the toolkit's propagation differs — it was MEASURED not to.** A bubble-phase window controller for Escape behaved identically on X11/GTK 4.6, GDK-Win32/GTK 4.22 and Quartz: every in-toolkit claimant (popover, drop-down, in-window card, GTK dialog) answered first on all three. Two *other* things did differ and are what the macOS and Windows checks are for: a **native** surface may swallow the key before the toolkit sees it (macOS's native menu bar consumes Escape entirely — same visible outcome, different mechanism), and **where focus lands after an action is platform-specific** (after Enter in the find field, Windows returns focus to the document and macOS keeps it in the entry), which decides whether a key even reaches the controller under test. The two rules themselves are platform-INDEPENDENT: take a window-level key on the **bubble** phase so every other claimant answers first, and never report a key handled on the assumption that the handler's action worked — check that it did, or a failed handler swallows that key for the rest of the process. |
+| Anything touching the titlebar | Windows | Windows requires a NATIVE frame; a `GtkHeaderBar` or `set_titlebar()` silently defeats `GTK_CSD=0` (MANUAL-TEST §7.0a). |
 
 ⚠️ **If a floor is ever re-measured by hand rather than by that test, converge first.**
-Both seats independently established that a single resize reports the *pre-wrap* floor —
+It was established independently on both platforms that a single resize reports the *pre-wrap* floor —
 macOS by a coarse drag that stops short, Windows by a `SetWindowPos` refused at the
 unwrapped minimum — and the window reports the short width faithfully, so nothing looks
 wrong. Repeat the resize until it stops changing before reading it. Per-platform recipes
@@ -300,28 +302,37 @@ functional modifications and/or feature additions.  Failure to do this can resul
 - Even data loss and/or corruption
 
 ## Version control
+When making Git commits, larger conglomerated commits with multiple disjoint (not disjunct) changes are
+preferable to a long string of small and isolated commits because the former is easier for the operator
+to follow and make sense of. 
 
-- Work that shares a mechanism, fixture or test rig lands as **one squashed commit** on
-  the integration branch. Never fast-forward or cherry-pick part of it. Sharing a
-  subsystem does not make a batch; work that will not fit one commit is more than one
-  batch.
-- Platform seats push directly into the Linux seat's clone: push with an explicit
-  refspec, never a bare `git push`. Verify an integration by diffing trees.
+Roll documentation changes into the latest commit instead of committing them,
+separately, unless there are code changes that are significantly disjoint, which is defined as having
+less than 20% overlap in terms of both code and UX, at which point a separate commit is warranted. 
+Keep documentation changes in the working copy if they pertain to new work that is about to commence.
+
+Work that shares a mechanism, fixture or test rig lands as **one squashed commit** on the branch. 
+Never fast-forward or cherry-pick part of it. Sharing a subsystem does not make a batch; work that will 
+not fit one commit is more than one batch.
+
 - Work happens on a branch — `feature/<name>`, `bug/<name>`, or `mitigations` for
   unrelated small tasks — never directly on `master`.
-- A branch merges to `master` only once the GitHub pipeline has passed on it in full.
+- Merge a branch to `master` only once the GitHub pipeline has passed on it in full.
   Every push triggers it. When a commit needs fixing, amend it and force-push the branch
   rather than stacking follow-up commits, so each commit on `master` is one that passed.
+- When merging a branch to master, just do a fast-forward merge if there's only one commit on the branch
 
 ## SDD register writes
 
-- **ANTI-PATTERNS.md and ISSUES.md have one writer — the Linux seat.** Other seats send
-  entry content; the writer allocates the ID. Do not cite an ID until the register
-  carrying it has reached your clone.
-- Route a lesson when it is written: about gtk4-rs → the `gtk4-rs` skill; general
-  engineering discipline → the `general-engineering-principles` skill; anything else →
-  ANTI-PATTERNS.md.
+- A lesson learned the hard way on this project is recorded in ANTI-PATTERNS.md when it
+  is learned, not at the end of the work.
 - Read an entry before citing it.
+- **Citation forms.** `ScrAP-N` is an entry in `sdd/ANTI-PATTERNS.md`. `GTK4Rs/AP-N` and
+  `GEP-N` are entries in two private knowledge bases (the `gtk4-rs` and
+  `general-engineering-principles` skills). They are not in this repository and not
+  published anywhere, deliberately, so a contributor without them cannot look these up. A
+  bare `AP-N` is not allowed. Never rewrite a citation's prefix in bulk: the registers number the same lessons differently,
+  so re-derive each number at each site.
 - **Never cite a git commit hash** — squashing orphans them, and an orphaned hash still
   resolves in the clone that wrote it while resolving nowhere else, so the citation looks
   sound exactly where it is checked. Cite the fact itself, a register entry, or the

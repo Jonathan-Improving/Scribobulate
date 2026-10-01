@@ -47,7 +47,7 @@ themselves.
   for example, is all three: an Edit action, a Document Rendering feature, and —
   because the annotations viewer projects it — a Derived-view change.
 - **Every applicable CAM cell must be covered by a `tests/MANUAL-TEST.md`
-  check.** This is where the matrix gets teeth: build-pipeline step 7 already
+  check.** This is where the matrix gets teeth: build-pipeline step 6 already
   requires a manual-test edit for any behaviour change — for a CAM change, derive
   those checks *from the cells* so no cell ships unverified. The manual-test plan
   keeps its own procedure and format; the CAM only dictates which checks must

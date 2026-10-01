@@ -3,7 +3,7 @@
 //! for a URL that failed to fetch. Generic over the cached value (`V`) so this
 //! module needs no GTK type at all — [`super`] is the only place that
 //! instantiates it over `gtk::gdk::Texture` — which is what keeps it inside the
-//! coverage gate's scope (POLICY § Build pipeline step 6's "extract the decision
+//! coverage gate's scope (POLICY § Build pipeline step 5's "extract the decision
 //! core" rule) and lets every rule below be proven by a plain unit test with no
 //! display.
 //!

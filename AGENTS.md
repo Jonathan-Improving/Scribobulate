@@ -1,113 +1,76 @@
 # AGENTS.md
 
-Scribobulate: a native GTK4 Markdown viewer/editor for **Linux, macOS and
-Windows** that renders on the CPU (zero GPU memory) and live-reloads files as
-they change on disk. All three are supported build targets from one source tree;
-Linux remains the canonical platform for the POLICY gates.
+Scribobulate: a native GTK4 Markdown viewer/editor for **Linux, macOS and Windows** that
+renders on the CPU (zero GPU memory) and live-reloads files as they change on disk.
 
 ## SDD skill
 
-This project uses Spec-Driven Development (SDD). If you have access to the SDD
-skill, load it before taking any action on this project — it governs how to read,
-write, and maintain all project documentation. If the skill is unavailable, read
-the files in `sdd/` directly.
-
-## The `gtk4-rs` skill
-
-Scribobulate was built alongside the **`gtk4-rs` skill** — a standing GTK4/Rust
-knowledge base of idiomatic patterns and the hard-won anti-patterns behind them.
-It is **highly recommended (though not required)** when working here: every gtk4-rs
-lesson this project learned lives *only* there — the code and the SDD documents cite it
-as `GTK4Rs/AP-N` at the site, and `sdd/ANTI-PATTERNS.md` holds no copy and no stub. Load
-it whenever you touch GTK, rendering, layout, or scrolling code.
-
-Refer to it **by name only, never by a filesystem path** — it may not be installed
-on the machine this repo currently lives on, so a path would rot. If it is
-unavailable, this repo's git history (which holds the original self-contained essays,
-last in full before 2026-08-28 and as stubs until 2026-09-24) carries enough to
-proceed. The registers' citation convention (`ScrAP-N` here, `GTK4Rs/AP-N`
-in that skill, `GEP-N` in a third) is under **Task triggers** below.
-
-## Three registers, and knowing which one a lesson belongs to
-
-A lesson learned here lands in exactly one of three places, decided **when you mint it**:
-
-- **About gtk4-rs itself** → the `gtk4-rs` skill, do not stub here citing `GTK4Rs/AP-N`.
-- **General engineering discipline** — verification and gate design, experiment method,
-  claims and relay hygiene, cross-platform toolchain hazards, trust-boundary design →
-  the **`general-engineering-principles`** skill, do not stub here citing `GEP-N`. Route it via
-  the `gep` member in the `skills` ToasterTalk room; **they allocate the number, never
-  this seat.**
-- **Anything else** — this project's own internals, and every dependency that is not
-  gtk4-rs → a full entry in `sdd/ANTI-PATTERNS.md`.
-
-The middle one is the one that gets missed, and it has been missed in a run of nine
-consecutive entries. It is worth knowing *why*: the register's own routing note said that
-destination was "under consideration but undecided" long after 59 entries were citing
-`GEP-N`, so agents who read the note and believed it filed general lessons as project
-entries. If a routing note and the practice disagree, the practice is the evidence.
-
-When submitting skill improvement submissions to the associated maintainer, ensure to include
- a brief audit trail of the steps and inferences taken that warranted the submission. This will help
-the skill maintainer maximize skill routing and dynamic discoverability.
+This project uses Spec-Driven Development (SDD). If you have access to the SDD skill, load
+it before taking any action on this project — it governs how to read, write, and maintain
+all project documentation. If the skill is unavailable, read the files in `sdd/` directly.
 
 ## Documentation
 
-Project documentation lives in the `sdd/` directory. Every rule and detail lives in
-the document that owns it; this page only routes you there.
+Project documentation lives in the `sdd/` directory.
 
 ### If you are exploring this project
 
-Read these files first:
-- [`sdd/PRODUCT.md`](sdd/PRODUCT.md) — What this project is and why it exists
-- [`sdd/TDD.md`](sdd/TDD.md) — Behavioral contract (test rubrics in Given/When/Then format)
+- [`sdd/PRODUCT.md`](sdd/PRODUCT.md) — what this project is and why it exists
+- [`sdd/TDD.md`](sdd/TDD.md) — the behavioural contract (Given/When/Then rubrics)
+- [`sdd/TECH.md`](sdd/TECH.md) — read its module map before grepping source to answer how
+  something works or where it lives
 
-To answer how the project works or how components connect or hand off, read
-[`sdd/TECH.md`](sdd/TECH.md)'s module map first, before grepping source — it is a
-curated index over the code, so reconstructing the same picture from source is
-slower and misses the ownership and boundaries the map records. (When the SDD
-skill is loaded this is already enforced; this line carries the rule for the
-skill-unavailable fallback above.)
+### If you are building, running, or testing this project
 
-### If you are contributing to this project
+- [`sdd/POLICY.md`](sdd/POLICY.md) — build commands, the build pipeline, testing rules and
+  prohibited actions. Read it in full before running anything; do not infer the build from
+  `Cargo.toml`.
+- [`scripts/pipeline.steps`](scripts/pipeline.steps) — the executable step list every
+  platform's pipeline runner derives from. Read its header before changing any runner,
+  packaging or the CI workflow ([`.github/workflows/pipeline.yml`](.github/workflows/pipeline.yml)).
+- [`tests/MANUAL-TEST.md`](tests/MANUAL-TEST.md) — checks that need a running window; read
+  its header, and §A on macOS or Windows, before any manual or GUI verification.
+- Packaging: [`packaging/linux/`](packaging/linux/), [`packaging/macos/README.md`](packaging/macos/README.md),
+  [`packaging/windows/README.md`](packaging/windows/README.md).
+
+### If you are changing code in this project
 
 Read all of the above, plus:
-- [`sdd/POLICY.md`](sdd/POLICY.md) — Development rules, the build pipeline, and constraints you must follow. Authoritative for every rule: the other documents describe, this one prescribes.
-- [`sdd/CAM.md`](sdd/CAM.md) — Change accountability matrices: completeness checklists for command-surface, markup/rendering, derived-view, reading-position-preservation, document-reference, deferred-operation and status-notice changes. POLICY makes satisfying every applicable cell binding; this holds the matrices. Read it before adding or altering a command, a markup/rendering feature, a surface that mirrors document state, anything that holds an offset or index into the document across time, anything that perturbs a text pane's geometry or buffer, anything whose completion lands later (any document read or write), anything that pushes a transient status-bar notice, or anything wired to a signal that fires continuously (a scroll adjustment, a caret move, a keystroke, an allocation, a frame tick, a paint).
-- [`sdd/TECH.md`](sdd/TECH.md) — Architecture, dependencies, and module responsibilities. It leads with the embedded `sdd/system-overview.svg` — read the diagram first to orient.
-- [`sdd/SCHEMA.md`](sdd/SCHEMA.md) — Exact shapes of what crosses the app's boundaries: the GAction interface, the CriticMarkup annotation storage format, the reading-theme file. TECH.md says where the boundaries fall; this says the structure of what crosses them.
-- [`sdd/ANTI-PATTERNS.md`](sdd/ANTI-PATTERNS.md) — Register of the GTK4/Rust pitfalls already hit here, most pointing into the `gtk4-rs` skill for the full lesson. Read the table of contents first, then only the matching entries; scan it *before* troubleshooting, not after getting stuck.
+- [`sdd/CAM.md`](sdd/CAM.md) — the change accountability matrices POLICY makes binding. Its
+  opening lists the kinds of change each matrix covers; check it before any change to
+  commands, rendering, derived views, positions held in the document, document I/O,
+  status notices, or handlers on continuously firing signals.
+- [`sdd/SCHEMA.md`](sdd/SCHEMA.md) — exact shapes of what crosses the app's boundaries.
+- [`sdd/ANTI-PATTERNS.md`](sdd/ANTI-PATTERNS.md) — lessons from past mistakes. A register:
+  read its table of contents, then only the matching entries; scan it before
+  troubleshooting, not after.
 
 ### Additional documents (read when relevant)
 
-- [`sdd/THEMING.md`](sdd/THEMING.md) — The reading-theme rules (TECH.md's theme row points here): resolution order, the `themes.toml` search path and its XDG trap, the three mechanisms a key reaches the screen by, untrusted-input handling, and per-platform change detection. It also holds the **zoom** rules, because the theme/zoom boundary (disjoint CSS properties; the theme owns SCALE, never SIZE) is one invariant about both. Read it before changing any preview colour, typography, or decoration geometry — or anything about zoom.
-- [`sdd/ISSUES.md`](sdd/ISSUES.md) — Known unresolved issues. A register: scan its table of contents the moment you hit a bug, before you start searching. **Read its header before picking work off it** — it carries the two things that cost this project real time: that a recorded root cause ages worse than the symptom (four have been measured and found wrong), and that one defect can be filed twice from two vantage points.
-- [`tests/MANUAL-TEST.md`](tests/MANUAL-TEST.md) — the manual/GUI verification plan, for checks that need a running window and so cannot be made by `cargo test`. Read it before any manual/GUI verification, and whenever a change alters user-visible behaviour (POLICY build pipeline step 7). Its own header states how to run it — including its §A "Platform procedures", which is where every OS-specific command lives; on macOS or Windows read that before assuming a check that will not drive is a defect in the app.
-- [`packaging/macos/README.md`](packaging/macos/README.md) — How the `.app` bundle is built and what still separates it from a redistributable. Read before touching `packaging/macos/`, or when an icon appears correct in-window but wrong in the Dock (they are two independent icon paths).
-- [`packaging/windows/README.md`](packaging/windows/README.md) — how a Windows build and installer are produced, plus the two environment traps that make the toolchain look broken when it isn't. Read it before touching the Windows build pipeline.
-- [`scripts/pipeline.steps`](scripts/pipeline.steps) — **the build pipeline is executable, and this file is the contract**: the ordered step list, each step's intent, its verdict rule, its class, and the per-platform command. Every platform's runner (`scripts/pipeline.sh`, `packaging/macos/pipeline.sh`, `packaging/windows/pipeline.ps1`) *derives* its step list from it and prints that list via `--list-steps`/`-ListSteps` so the ports can be diffed. **Read its header before writing or altering any platform's pipeline or packaging** — it carries why the contract pins each step's *intent* rather than its command, why a non-applicable step is declared in the run output, and why derivation rather than comparison is what proves the ports conform. POLICY § Build pipeline stays the authority on *why* each gate exists.
-- [`.github/workflows/pipeline.yml`](.github/workflows/pipeline.yml) — CI. It **invokes the runners and names no step**, so adding a step to the contract must never require editing it; provisioning is the only thing it may gain. Two jobs answering two claims: `parity` diffs all three ports' derived step lists and all three platforms' lint scan sets (the comparison no single machine could perform), `execute-linux` runs `scripts/pipeline.sh` whole. Read its header before adding a job — it records why `G_DEBUG=fatal-criticals` is deliberately absent, and that a workflow file is not scoped by the branch it sits on. POLICY § Continuous integration is the authority; `scripts/pipeline-parity.sh` is the comparator, and its `--self-test` is why the gate is trusted.
-- **The build pipeline and its CI are DONE and their rules live in POLICY** — see [§ Continuous integration](sdd/POLICY.md#continuous-integration), [§ Third-party attribution](sdd/POLICY.md#third-party-attribution) and [§ Artefact signing](sdd/POLICY.md#artefact-signing). Three rules bind any new CI job and are not optional: **invoke the runner and name no step** (a workflow that lists steps is a fourth restatement of a contract whose design is derivation), **show the gate failing before trusting it** (including the vacuous pass a packaging job invites — one that uploads nothing must not report success), and **verify the artefact as an artefact, not as an exit code**. The plan that produced all this was retired once it landed; its history is in git.
-- [`packaging/linux/`](packaging/linux/) — **all three Linux install routes**: the `.deb` and `.rpm` builders and `install.sh`, the from-source install into `~/.local`. `payload.sh` defines what gets installed where **once** and all three read it — the packages anchor it at `/usr`, `install.sh` at `~/.local`, which works because XDG's user tree is shaped like `/usr`. Read it before changing what a Linux install contains, and add to `payload.sh` rather than to any one route. Its one manual counterpart is the sibling `uninstall.sh`, which must gain a removal whenever `payload.sh` gains a file.
-- [`sdd/PLAN.accessibility.md`](sdd/PLAN.accessibility.md) — deferred: structural accessibility (roles/relations on tables, tab rows, sidebars, toasts) and the preview's self-drawn content (task checkboxes, list markers, annotation chips), which has no accessible object at all because it is painted rather than built. **Read it before adding any accessibility markup beyond a control name** — the plan records two GTK-4.6 floor constraints that decide the design rather than the estimate, and one architectural route (widgets at anchors) that is closed to this project. Control *naming* is already done and is not part of it: `src/a11y.rs` is the choke point, `clippy.toml` bans the bare tooltip setter, and TDD §16.7 is the contract.
-- **Held references are implemented, not planned** — the held-references plan retired 2026-09-21 once the code, the rows and the gate landed. **Read [`sdd/CAM.md`](sdd/CAM.md) § Document-Reference CAM before giving any widget, closure, idle callback or cached row a source offset, a buffer offset, or an index into a document-derived collection**, and use [`src/docref.rs`](src/docref.rs)'s `AnchoredSpan` rather than inventing a second way to hold a place: `cargo xtask lint-references` check 24 fails the build if a construction site of it has no row in that matrix, which is the only form of "this construct never got a row" that arrives in time to matter. The one distinction the design turns on: an unresolvable reference must make the holder **re-derive** the view, never refuse — the same mechanism is correct in `PreviewFindCache` and was broken in the retired `fold_epoch`, differing only in that arm. Contracts: [`sdd/TDD.md`](sdd/TDD.md) 2.26m-o, 11.12, 12.25, 20.23.
-- [`sdd/PLAN.profiling.md`](sdd/PLAN.profiling.md) — deferred: a CPU and memory profiling strategy. TDD §6 gates *ceilings* (VRAM, RSS) proven once as a viability spike; nothing asks whether a change made a main-loop turn slower or made something leak per cycle, which are the two failures a single-threaded GTK application actually produces. **Read it before profiling anything, before proposing a performance gate, and before reaching for any GTK debug channel** — it records, host-measured, that a distribution GTK has its entire introspection surface compiled out (GTK4Rs/AP-251), including one channel that reports a healthy-looking `0` while dark, and it carries the tier ladder, the escalation order for leak attribution, and what is reachable with no change to the tree.
-- **Image decoding and animation are implemented, not planned** — the memory-gates plan retired 2026-09-16 once both phases were delivered and ratified. Before touching an image decode path, the animation machinery, or the per-render memory-growth step (5b), read **ScrAP-351 and ScrAP-352** (why a third-party gdk-pixbuf loader module leaks on every decode, why only growth across many renders can see it, and why two entry points into one module behave as two decoders) together with [`sdd/TECH.md`](sdd/TECH.md)'s `imagedecode/` and `animation/` entries, [POLICY's per-render memory-growth class](sdd/POLICY.md#per-render-memory-growth-class), and [`sdd/TDD.md`](sdd/TDD.md) §6.6–6.12 and §27. **Step 5b's predicate measures the growth ONE allocation cannot explain, never a half-mean**: a single retained allocation and a per-render climb move a half-mean identically, and which one a run looks like then depends on where in the run it landed — that is what put the step red on CI and green on all three development hosts. Its bounds live in `memgate::footprint::GROWTH_BOUNDS` and are derived from the clean traces the gate prints on every run, including passing ones. `src/imagedecode` is the one decode choke point and `clippy.toml` bans every GTK entry point that routes around it.
-- **A narrow window is implemented, not planned** — the narrow-window plan retired 2026-09-17 once all three seats ratified it. The toolbar wraps per button, every section is decomposed (Format included — it was the last opaque one and alone set the window's minimum width), and no chrome sets the width floor: with everything shown the window's minimum is `MIN_WINDOW_WIDTH` itself. Before adding any chrome, read [`sdd/TDD.md`](sdd/TDD.md) §9.38 — its last clause is a hard constraint, not a description — together with [`sdd/TECH.md`](sdd/TECH.md)'s `widgets/wrapbox.rs` and `window/editbar/formatbar.rs` entries. **Any control whose width is decided by a document, a user-supplied string, or an untranslated label must be capped at the point it is built**; an uncapped one puts the window's floor above a narrow screen, and on macOS the window is not grown to meet a risen minimum, so the control is silently not drawn.
-- **Export is implemented, not planned** — its plan retired 2026-08-20 after all three seats verified it. Before building any second representation of a rendered document, read [`sdd/TECH.md`](sdd/TECH.md)'s `export/` entry: an export is a function of the document *source* and the same normalised event stream the preview is built from, **never of the preview widget** — a deferred tab has no preview, off-screen anchored children are parked at negative coordinates, and an unallocated geometry read answers the buffer's last line. `pulldown_cmark::html::push_html` is a *different, more permissive renderer* rather than a shortcut to the same output: it is blind to the constructs a second tokeniser owns, never consults the scheme allowlist or the image containment gate, and emits raw HTML verbatim. The behavioural contract is [`sdd/TDD.md`](sdd/TDD.md) §25; the traps are GTK4Rs/AP-298 through GEP-60.
+- [`sdd/THEMING.md`](sdd/THEMING.md) — before changing any preview colour, typography,
+  decoration geometry or zoom.
+- [`sdd/ISSUES.md`](sdd/ISSUES.md) — known unresolved issues. A register: scan its table of
+  contents the moment you hit a bug, and read its header before picking work off it.
+- [`sdd/PLAN.accessibility.md`](sdd/PLAN.accessibility.md) — before adding accessibility
+  markup beyond a control name.
+- [`sdd/PLAN.profiling.md`](sdd/PLAN.profiling.md) — before profiling, proposing a
+  performance gate, or reaching for a GTK debug channel.
 
+## Task triggers
 
-### Task triggers
+Read the named document before doing any of these:
 
-- **Writing or rewriting an anti-pattern citation** — an entry in `sdd/ANTI-PATTERNS.md` is cited `ScrAP-N`; one in the `gtk4-rs` skill is cited `GTK4Rs/AP-N`; one in the `general-engineering-principles` skill is cited `GEP-N`; **a bare `AP-N` is illegal** and `cargo xtask lint-references` check 8 fails on it. Note check 8 gates the `AP-N` form only — **nothing mechanically checks a `GEP-N`**, so its correctness rests on the same human audit as `GTK4Rs/AP-N`. Never bulk-rewrite a citation's prefix: the two registers number the same lessons differently (79 and 88 hold each other's), so a prefix-only sweep silently re-points citations at real-but-unrelated entries and no lint can see it — re-derive each number against the lesson, per site, and prefer `ScrAP-N` when both registers hold it. GEP-24 records what the laxer version of this rule cost. (Inside `sdd/ANTI-PATTERNS.md`'s own body a bare `#N` is the local shorthand for an entry *in that file*; everywhere else write `ScrAP-N` in full.)
-- **Adding a theme key, proposing a new preview decoration, or changing any preview colour, typography, or decoration geometry** (`palette.rs`, `tags.rs`, `preview/css.rs`, `theme/`, `sprite.rs`) — read [THEMING.md](sdd/THEMING.md) for what each mechanism can reach and what it costs, and POLICY's "No hard-coded styling" (whose Bounds state the closed decoration vocabulary), "One theme key, every application path" and "Bundled decoration art" rules first.
-- **Reaching for a Git commit hash to cite something** — don't. A hash is ephemeral, this project squashes each batch, and an orphaned hash still resolves in the clone that wrote it while resolving nowhere else, so the citation looks sound exactly where it is checked. Cite the fact, a register entry (`ScrAP-N`/`GTK4Rs/AP-N`/`GEP-N`/`TDD §N`), or the commit SUBJECT plus its date. The full rule, and the two carve-outs that are not citations (the generated crash-report build stamp; a transient instruction about the working tree), are in POLICY § SDD register writes.
-- **Changing the architecture** — update `sdd/system-overview.svg` in the same change; see POLICY build pipeline step 8 for the validation gate.
-- **Fetching anything over the network** — it goes through `src/imagefetch.rs`, and never through a `GFile`. Read that module's header first: `gio::File::for_uri("https://…")` looks dependency-free and resolves only where some backend claims the scheme, which is a Linux daemon (`gvfsd-http`), an in-DLL VFS on Windows (`GWinHttpVfs`), and **nothing on macOS** — so it is a whole feature that silently does not exist on one platform, reporting `NOT_SUPPORTED` that an `.ok()` then swallows (GTK4Rs/AP-292). Replacing a toolkit transport also means inheriting its configuration surface — trust store, proxy, timeouts — so the client verifies against the machine's own store deliberately; do not "simplify" that to bundled roots. The rule is in POLICY § Architecture rules, the contract is [TDD 14.2](sdd/TDD.md), the check is `tests/MANUAL-TEST.md` §14.2a.
-- **Touching crash/panic handling, the logging sink, or anything a crash report must survive** (`src/forensics/`, `src/logging.rs`) — read `src/forensics/mod.rs`'s header first — it lists the artefacts and the constraints on the crash path. Everything on that path is constrained by what a signal handler may do (no allocation, no locks), and the constraint is invisible from the call site. When investigating an unexplained crash of the installed build, start from the crash report in the state directory; GEP-36 is the method for resolving a frame from a kernel log alone. **No report at all is itself evidence** — it means the death was not one of the five signals `forensics::signal::FATAL_SIGNALS` takes, which is a shorter list than the ways a process can die and was one entry short until GTK4Rs/AP-268 (the pointer here used to be to an ISSUES entry that no longer exists, which is why SDD principle 6 forbids the form).
-- **Touching the crash-recovery snapshot write path** (`src/window/swap.rs`, `src/swapfile/`, `src/window/swaprecovery.rs`) — read GTK4Rs/AP-167 first. `replace_contents_async` destroys the previous snapshot on an ordinary disk-full; the shipped write owns the promote (co-located temp, rename only after a complete write). The contract is [TDD §22](sdd/TDD.md), the format is [SCHEMA.md](sdd/SCHEMA.md) § "Crash-recovery swap file", the surfaces are [CAM.md](sdd/CAM.md) rows 8/10.
-- **Renaming a file through GIO, or cancelling/re-attaching a `gio::FileMonitor`** — read the `src/docio/rename.rs` module header first. It records, source-traced, that **no GIO primitive refuses an existing rename destination atomically** (both `set_display_name` and `move_` are `g_lstat` + plain `g_rename`; Windows always passes `MOVEFILE_REPLACE_EXISTING`), so the shipped seam narrows a race rather than closing it; and that a rename of a watched file delivers **three** events on the old monitor on Linux/Windows and **two** on macOS/kqueue — which is why the save path's self-delete guard, consuming one, is insufficient and `g_file_monitor_cancel()` before the rename is the sole mechanism (GTK4Rs/AP-269). Before trusting any name GIO hands back, note that neither the returned `GFile` nor a `query_info` reads the directory (GTK4Rs/AP-270) and the `id::file` identity scan that fixes it is not unique per entry (GTK4Rs/AP-271). The contract is [TDD §24](sdd/TDD.md), the checks are `tests/MANUAL-TEST.md` §24, the surfaces are [CAM.md](sdd/CAM.md) § Document-Identity, and the remaining lessons are GEP-67 and GEP-20.
-- **Writing an offset, a byte range, a line number or a collection index into a struct field, a closure capture, a widget's state or a queued idle** — that is a held reference into the document, whatever it is called at the call site, and it takes a Document-Reference CAM row ([`sdd/CAM.md`](sdd/CAM.md)) plus `docref::AnchoredSpan` rather than a bare integer. The trigger is worded for the ACT because the category is what gets missed: a sweep found 28 such references in `src/` and seven at risk, **none with a row** — nobody read "anything holding a position in the document" and decided to skip it, they simply did not recognise a `usize` captured into a closure as entering a category. Check 24 counts the construction sites so the recognition failure has a mechanical backstop.
-- **Writing a GTK test** — the attribute is `#[gtktest::test]`, never `#[gtk::test]`. It is a drop-in, and it registers the body with both harnesses: libtest, and `src/gtk_suite.rs`'s main-thread run, which is the only one available where GTK initialises solely on the main thread. Choosing the old attribute is invisibly wrong (the test still passes on Linux while vanishing from the portable run), so `cargo xtask lint-references` check 5 rejects it. A check whose assertion is *about* process-global GTK state — icon theme, `GtkSettings`, focus, the default display — needs its own `harness = false` target instead; see POLICY's testing section.
-- **Adding a top-level module to `src/lib.rs`** — add it to `src/gtk_suite.rs`'s list too, or every test body inside it silently disappears from the main-thread suite. `cargo xtask lint-references` check 4 is the gate.
-- **Retiring a plan, or deleting/renaming any document** — the pointers to it are scattered across file types a sweep does not think of (`Cargo.toml`, `build.rs`, `data/*.xml`, the packaging and pipeline scripts), not just `.md` and `.rs`. Do not sweep by hand and declare it done: `cargo xtask lint-references` check 6 resolves every referenced document path and is the only thing that can tell you the sweep is complete. Where a pointer was carrying a real fact, replace it with the fact or a `ScrAP-N`; a plan is deleted by design, so the citation has to become durable, not relocated.
+| When you are… | Read first |
+|---|---|
+| Writing an anti-pattern citation, or a lesson worth recording | POLICY § SDD register writes |
+| Holding an offset, line number or index into the document in a field, closure, widget or idle | CAM § Document-Reference CAM, and `src/docref.rs` |
+| Fetching anything over the network | `src/imagefetch.rs`'s header (POLICY § Architecture rules) |
+| Touching crash handling or logging (`src/forensics/`, `src/logging.rs`) | `src/forensics/mod.rs`'s header |
+| Touching the crash-recovery snapshot (`src/window/swap.rs`, `src/swapfile/`) | TDD §22 and SCHEMA § Crash-recovery swap file |
+| Renaming a file through GIO, or cancelling a `gio::FileMonitor` | `src/docio/rename.rs`'s header |
+| Building a second representation of a rendered document (export) | TECH's `export/` entry |
+| Touching image decoding, animation or the memory-growth step | TECH's `imagedecode/` and `animation/` entries; POLICY § Per-render memory-growth class |
+| Adding window chrome | TDD §9.38 (no control may set the window's width floor) |
+| Writing a GTK test, or adding a module to `src/lib.rs` | POLICY § GTK-object integration tests |
+| Retiring a plan, or deleting/renaming any document | run `cargo xtask lint-references`; a hand sweep is never complete |
+| Changing the architecture | update `sdd/system-overview.svg` in the same change |

@@ -62,7 +62,7 @@
             # created by a MERGE rather than by packaging work: `master` added the
             # themes.toml staging while `ci` added this gate, so neither branch could
             # fail on its own and the defect was born at the conflict resolution that
-            # brought them together. Worth knowing before trusting a green run: step 10
+            # brought them together. Worth knowing before trusting a green run: step 9
             # is opt-in (--package), so no default pipeline run exercises this table at
             # all, and any future change that stages a file is equally invisible to
             # everyone who does not pass the flag.

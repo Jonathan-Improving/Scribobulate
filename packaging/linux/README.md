@@ -13,9 +13,9 @@ packaging/linux/install.sh            # build from source -> ~/.local, no root
 packaging/linux/install.sh --no-build # install an existing release binary
 ```
 
-The two builders are also step 10 of the build pipeline (`scripts/pipeline.sh
+The two builders are also step 9 of the build pipeline (`scripts/pipeline.sh
 --package`), which is opt-in — see `scripts/pipeline.steps`. `install.sh` is not part
-of any gate: it is a developer convenience, and the property step 10 defends is
+of any gate: it is a developer convenience, and the property step 9 defends is
 precisely the one it cannot demonstrate.
 
 ## `payload.sh` is the single definition — add there, not to a route

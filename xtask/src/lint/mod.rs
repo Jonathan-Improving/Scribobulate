@@ -1,4 +1,4 @@
-//! Cross-reference gate — build-pipeline step 9. POLICY § "Build pipeline" states the
+//! Cross-reference gate — build-pipeline step 8. POLICY § "Build pipeline" states the
 //! rule; THIS CRATE is the source of truth for what is checked.
 //!
 //! DELIBERATELY NO COUNT HERE, and no count in POLICY.md either. The bash port's header

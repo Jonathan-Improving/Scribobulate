@@ -8,7 +8,7 @@
 //! context, so the only way to ask "what happens at 26 nested quotes" was to build a
 //! document, build a context, and run the whole measurement pass.
 //!
-//! That is the extraction POLICY § Build pipeline step 6 describes: the decision core
+//! That is the extraction POLICY § Build pipeline step 5 describes: the decision core
 //! comes out, and comes out testable, rather than staying behind machinery that has
 //! nothing to do with the decision.
 //!

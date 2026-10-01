@@ -11,8 +11,8 @@
 #
 # ── WHY THIS IS A SCRIPT AND NOT FOUR WORDS ON A COMMAND LINE ─────────────────────────
 #
-# Two pipeline steps need this session — step 5 (the GTK integration suite) and step 6's
-# full-suite coverage leg — and every one of the four concerns below was measured the
+# Two runs need this session — the GTK integration suite (`scripts/run-integration.sh`) and
+# pipeline step 5's full-suite coverage leg — and every one of the four concerns below was measured the
 # hard way. A second hand-written copy of them is a copy that will be right on the day it
 # is written and wrong afterwards: the nesting order in particular FAILS FAVOURABLY, so a
 # green run in the wrong order is not evidence of anything.

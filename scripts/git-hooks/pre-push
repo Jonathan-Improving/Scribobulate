@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+#
+# Pre-push gate: the build pipeline's format and lint steps, before anything leaves this
+# clone.
+#
+# A full pipeline run costs ~20 minutes locally and ~27 on CI, and two of the cheapest
+# ways to waste one are a formatting slip and a clippy warning — both caught here in
+# about a minute. This hook runs those two steps and nothing else; the full pipeline
+# stays the gate before a merge (POLICY § Build pipeline).
+#
+# The commands are READ from scripts/pipeline.steps for this platform, through the same
+# parser every runner uses, never written here: a second copy of a step's command is a
+# copy that drifts (POLICY § Build pipeline, "A number has one owner" and the contract
+# rule). Git for Windows runs hooks under its own bash, so one script serves all three
+# platforms.
+#
+# Enable once per clone:   git config core.hooksPath scripts/git-hooks
+# Override for one push:   git push --no-verify
+
+set -uo pipefail
+
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+case "$(uname -s)" in
+    Linux*) PLATFORM=linux ;;
+    Darwin*) PLATFORM=macos ;;
+    MINGW* | MSYS* | CYGWIN*) PLATFORM=windows ;;
+    *)
+        echo "pre-push: unrecognised platform '$(uname -s)'; not checking." >&2
+        exit 0
+        ;;
+esac
+CONTRACT="scripts/pipeline.steps"
+export PLATFORM CONTRACT
+
+# shellcheck source=scripts/pipeline-lib.sh
+source scripts/pipeline-lib.sh
+
+for id in fmt clippy; do
+    cmd="$(contract_value "cmd.$PLATFORM" "$id")"
+    if [ -z "$cmd" ]; then
+        echo "pre-push: scripts/pipeline.steps has no cmd.$PLATFORM for '$id'; refusing" \
+            "to push unchecked." >&2
+        exit 1
+    fi
+    echo "pre-push: $id — $cmd"
+    if ! eval "$cmd"; then
+        echo "pre-push: '$id' failed, so the push was refused. Fix it, or override this" \
+            "one push with --no-verify." >&2
+        exit 1
+    fi
+done

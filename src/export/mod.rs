@@ -14,7 +14,7 @@
 //!    (GTK4Rs/AP-260); a geometry read taken before allocation answers the buffer's
 //!    *last* line, silently (GTK4Rs/AP-263).
 //! 3. **Only a display-free pipeline is inside the coverage gate** (POLICY § Build
-//!    pipeline step 6). The suite runs without a display, so a widget-reading
+//!    pipeline step 5). The suite runs without a display, so a widget-reading
 //!    exporter would sit permanently outside the coverage number with its
 //!    correctness resting on a human opening the file.
 //!

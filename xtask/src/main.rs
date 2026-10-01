@@ -1,6 +1,6 @@
 //! `cargo xtask <gate>` — the build-pipeline gates that are not a `cargo` subcommand.
 //!
-//! Today there is one: `lint-references`, build-pipeline step 9. It replaced a bash
+//! Today there is one: `lint-references`, build-pipeline step 8. It replaced a bash
 //! script and a PowerShell script implementing the same fourteen checks, ~3,400 lines
 //! kept in step by hand — an arrangement that produced seven defects in a single QA
 //! round, every one of them a divergence between the two ports rather than a bug in the

@@ -4102,7 +4102,7 @@ up doing.
 
 ## 26. Self-contained macOS bundle
 
-> The `.dmg` exists to satisfy build-pipeline step 10's stated intent: *an artefact a
+> The `.dmg` exists to satisfy build-pipeline step 9's stated intent: *an artefact a
 > non-developer can install with no toolchain*. A bundle that resolves its libraries out
 > of `/opt/homebrew` fails that intent outright rather than narrowly — the recipient has
 > no Homebrew, so it does not launch at all.

@@ -24,7 +24,7 @@
 #     The names are DERIVED from the manifest by scripts/macos-integration-targets.sh
 #     rather than written out, so a target added later cannot be absent from this port
 #     while the step still prints PASS. That difference lives in the contract, not here.
-#   - Step 6 (coverage) is declared `na.macos permanent` in the contract: this
+#   - Step 5c (coverage) is declared `na.macos permanent` in the contract: this
 #     runner does not special-case it, it just prints whatever the contract says.
 #
 # Usage:

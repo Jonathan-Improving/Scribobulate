@@ -182,7 +182,7 @@ meets it before a recipient does — and when notarization does land, that warni
 out in the same change, since an artefact that is notarized and still says it is not is
 the same defect pointed the other way.
 
-**So step 10's intent is partially met.** Self-containment: met. *An artefact a
+**So step 9's intent is partially met.** Self-containment: met. *An artefact a
 non-developer can install with no toolchain*: met only with the override above documented,
 which is why it is documented here rather than in a commit message.
 

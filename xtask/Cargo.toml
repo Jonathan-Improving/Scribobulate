@@ -3,7 +3,7 @@
 # interpreter all three already have: eighteen contract commands invoke it and a Rust
 # toolchain is a prerequisite everywhere. A shell or Perl port adds a locate-it step on
 # Windows even where the interpreter is present, which is what the two hand-synced ports
-# this crate replaced were paying for (POLICY § Build pipeline step 9).
+# this crate replaced were paying for (POLICY § Build pipeline step 8).
 [package]
 name = "xtask"
 version = "0.1.0"

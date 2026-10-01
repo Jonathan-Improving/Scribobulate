@@ -1500,7 +1500,7 @@ mod tests {
     /// [`install`] publishes into process-wide state and has no uninstall, so before
     /// [`ArmedHandler`] existed the two tests above left the *whole rest of the suite*
     /// running with this module's handler armed and this module's leaked `Ring`
-    /// published. What that cost was a coverage run — POLICY's build-pipeline step 6 —
+    /// published. What that cost was a coverage run — POLICY's build-pipeline step 5 —
     /// dying by SIGSEGV and printing a complete, plausible Scribobulate crash report
     /// whose breadcrumbs were the fixture two tests up. The report named the wrong
     /// process, the wrong activity, and an application defect that did not exist, and

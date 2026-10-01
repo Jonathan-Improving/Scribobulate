@@ -56,7 +56,7 @@ function Find-Iscc {
     # producing `ISCC.exe C:\...\ISCC.exe C:\...\ISCC.exe` and a failure whose message
     # names Inno Setup twice and explains nothing. MEASURED on a GitHub windows-latest
     # runner, which ships ISCC via Chocolatey on PATH: a second, user-scope install put a
-    # sibling ahead of it and step 10 died with both paths concatenated. Two installs is
+    # sibling ahead of it and step 9 died with both paths concatenated. Two installs is
     # an ordinary state for a developer box too; the first match is the one PATH order
     # already chose.
     $onPath = Get-Command iscc -CommandType Application -ErrorAction SilentlyContinue |

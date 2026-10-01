@@ -24,7 +24,7 @@ description = "A native Linux Markdown viewer/editor that renders on the CPU wit
 license = "Apache-2.0"
 publish = false
 # Which binary a bare `cargo run` means. Required, not cosmetic: putting `xtask` in
-# `default-members` above (contract step 9's gate) put a SECOND binary in the default
+# `default-members` above (contract step 8's gate) put a SECOND binary in the default
 # set, and cargo then refuses to guess — `cargo run` fails with "could not determine
 # which binary to run" on every platform. Nothing in the pipeline catches that, because
 # no gate runs the app: fmt, clippy, build and the whole test suite pass either way.

@@ -171,7 +171,7 @@ jobs:
   #
   # This job's whole content is `scripts/pipeline.sh`. Everything above it is provisioning
   # for the steps the contract already names: the GTK/GtkSourceView headers step 3 builds
-  # against, Xvfb for step 5's real windows, xmllint for step 8, cargo-llvm-cov for step 6.
+  # against, Xvfb for step 5's real windows, xmllint for step 7, cargo-llvm-cov for step 5's coverage.
   # When the contract gains a step, this job gains its provisioning and nothing else.
   #
   # G_DEBUG=fatal-criticals IS NOT SET, and its absence is deliberate rather than an
@@ -247,7 +247,7 @@ jobs:
           key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: cargo-${{ runner.os }}-
 
-      # A dev subcommand, not a crate dependency — POLICY § Build pipeline step 6. Cached
+      # A dev subcommand, not a crate dependency — POLICY § Build pipeline step 5. Cached
       # as a binary because building it costs minutes and it changes only when pinned.
       - uses: actions/cache@v4
         id: llvmcov
@@ -297,7 +297,7 @@ jobs:
   #
   # WHY MACOS BEFORE WINDOWS, against the ordering the original plan recommended. That
   # ordering ranked macOS hardest because of `codesign` and bundling — but that difficulty
-  # is entirely step 10, which is `packaging`-class and absent from a default run. An
+  # is entirely step 9, which is `packaging`-class and absent from a default run. An
   # execution job never reaches it. Once packaging is set aside the two invert: macOS needs
   # `brew install`, minutes and no build, where Windows needs a multi-gigabyte gvsbuild.
   #
@@ -309,7 +309,7 @@ jobs:
   # first automated evidence for GTK4Rs/AP-159's dual-harness split, which until now was
   # measured only by hand on the operator's own machine.
   #
-  # STEP 6 IS DECLARED NON-APPLICABLE HERE by the contract itself (`na.macos coverage`,
+  # STEP 5c (COVERAGE) IS DECLARED NON-APPLICABLE HERE by the contract itself (`na.macos coverage`,
   # with the semantic reason beside it), so this job installs no coverage tooling. That is
   # the contract deciding, not the workflow: nothing below names a step.
   #
@@ -590,7 +590,7 @@ jobs:
       # windows-latest image ALREADY CARRIES ISCC, via Chocolatey, on PATH. The first
       # version of this step installed a second copy unconditionally via winget and put
       # its directory on GITHUB_PATH, which made `Get-Command iscc` return TWO matches
-      # and step 10 die with both paths concatenated into one command line. Provisioning
+      # and step 9 die with both paths concatenated into one command line. Provisioning
       # a tool the image already has is not free; it is a way to break the tool.
       #
       # So: probe first, install only on a miss, and never reorder what is already there.

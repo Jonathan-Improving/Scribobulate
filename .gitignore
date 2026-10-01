@@ -22,6 +22,7 @@ probes/svg-rasterise-rs/target/
 tests/reports
 docs
 .claude/agents/
+.claude/bin/
 
 # macOS Finder metadata (created by any Finder visit to the tree)
 .DS_Store

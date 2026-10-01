@@ -4,7 +4,7 @@
 //! Both are small, and both were previously unreachable without a live window —
 //! which is the whole reason they moved. `window/navhistory/` is GTK
 //! signal-wiring and is outside the coverage gate's scope by design (POLICY
-//! § Build pipeline step 6), so a branch that lives there is a branch nothing
+//! § Build pipeline step 5), so a branch that lives there is a branch nothing
 //! headless can assert. Extracting the *decision* and leaving the widget calls
 //! behind is the mechanism that rule names for keeping such logic testable.
 //!
