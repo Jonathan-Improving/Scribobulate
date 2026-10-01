@@ -225,10 +225,14 @@ rename carries that mode to the destination.
 
 An orphaned `.swap.tmp` is therefore, by definition, a write that never completed — there
 is nothing in it worth keeping and no way to distinguish a truncated one from a whole one
-— so the startup scan **deletes it outright**. That is the only deletion the scan
-performs, and it matches the full `.swap.tmp` suffix precisely: a stray `.tmp` belonging
-to anything else in this shared directory is left alone, as is a foreign `.swap`, as is a
-*damaged* `.swap` of ours (which may be the only surviving copy of the user's work).
+— so the startup scan **deletes it outright**. It matches the full `.swap.tmp` suffix
+precisely: a stray `.tmp` belonging to anything else in this shared directory is left
+alone, as is a foreign `.swap`, as is a *damaged* `.swap` of ours (which may be the only
+surviving copy of the user's work).
+
+The scan's one other deletion is a readable `.swap` of ours, not owned by a live
+instance, whose body is byte-for-byte the content of the file its `path` names: it holds
+nothing to recover, and kept, it would be recovered again on every launch (TDD 22.19).
 
 A future version bump is readable-by-refusal: a file whose version this build does not
 understand is left untouched for the build that does.

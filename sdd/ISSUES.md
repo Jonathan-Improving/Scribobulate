@@ -43,8 +43,8 @@ described from a different vantage point.
 | E | Any | Test | Flaky test: closing the outline's filter sometimes leaves the outline scrolled to the top rather than to the highlighted row. Failed twice on Linux CI, green on rerun and locally; cause not established | Low |
 | F | Any | Production | Under the **System** reading theme on Adwaita, selected text inside a table cell is drawn white on a pale fill (~1.5:1), while selected body text is black | Low |
 | G | Windows | Upstream | After an edit the editor's scrollbar slider is sometimes not drawn until the next scroll (2 of 40 Enters); a GTK defect still open upstream | Low |
-| I | Mac | Upstream | On macOS the first press into an unfocused table cell is lost: a swipe or double-click there selects nothing, a triple-click selects one word; the second attempt works | Low |
 | J | Windows | Test | Flaky test: overwriting a crash-recovery snapshot sometimes finds the old, shorter snapshot still on disk after the write loop ends | Low |
+| L | Any | Production | After a link jump, Back or Cmd+Home sometimes scrolls only part of the way to its target (reported once; not reproduced on Linux or macOS) | Low |
 
 ## Closed issues
 
@@ -429,28 +429,6 @@ Any pointer motion brings it back. Judged negligible by the operator.
 - Give the editor non-overlay scrollbars, as the preview has. Untested whether a classic
   scrollbar shows the same lag.
 
-## I. On macOS the first press into an unfocused table cell is lost
-
-**Severity**: Low (the second attempt works).
-
-**Observed** (macOS 26, GTK 4.22.4/Quartz, release build, clicks at 120 ms gaps): with focus
-elsewhere (body text, a button), the first press on a table cell does nothing. A swipe
-selects nothing, a double-click selects nothing, and a triple-click selects one word — the
-press count is one behind. It reproduces in a standalone window with a bare
-`set_selectable(true)` `GtkLabel` and no text view, so it is GTK's, not this project's.
-Not seen on Linux (GTK 4.6.9) or Windows (GTK 4.22.4).
-
-**Suspected mechanism** (source-read, unmeasured): the label grabs focus on a press into an
-unfocused label; on Quartz focus arms a synthesized pointer motion on the next frame, which
-either moves the label's layout index or trips the click gesture's own movement threshold,
-ending the gesture and zeroing its press count. Which of the two is not established.
-
-**Mitigation options**:
-- Keep a private press count in the cell's own click handler (a press inside the
-  double-click time and distance of the last one counts up, else 1) and drive word and
-  whole-cell selection from it. Unmeasured.
-- Accept it as a GTK defect on macOS.
-
 ## J. A crash-recovery overwrite test is flaky on Windows
 
 **Severity**: Low (the test; nothing shows the snapshot write itself is wrong).
@@ -468,6 +446,37 @@ happened was not established.
 - Wait for the snapshot file to change (or for a write-complete signal) rather than for
   "nothing in flight", which is also true before the write begins.
 - Accept until it recurs, and capture the timing then.
+
+## L. After a link jump, Back or Cmd+Home sometimes scrolls only part of the way
+
+**Severity**: Low (navigation lands short; nothing is lost or changed).
+
+Reported by the macOS seat, 2026-10-01: after following a link within a document, pressing
+Back, or Cmd+Home to go to the top, sometimes stops part-way instead of reaching the
+earlier position or the top. Frequency, document shape and whether the editor or the
+preview was scrolling were not recorded, and the original document and steps were lost.
+
+**Not reproduced** (2026-10-01, master at "Keep a table cell's triple-click count on GTK
+4.8 and later"). Fixture: 1000 sections and 333 tables
+(~470 KB), a link at the top to `#section-900`, preview mode, a fresh launch per run.
+- Linux (GTK 4.6.9, private Xvfb, release): link then Back, and link then Ctrl+Home, both
+  reach the top, warm and while the preview was still laying out (CPU ~100%).
+- macOS (GTK 4.22.4/Quartz): Back (toolbar), Ctrl+Home and Cmd+Up all reach the top at
+  0.3, 1 and 3 s after the jump, including a link followed at window map with the key
+  0.3 s later, and in split mode.
+- **Cmd+Home is not bound on macOS**: the view does not move at all. If the report used
+  Cmd+Home, what was seen may have been "did not move" rather than "part-way".
+- Back lands with the first heading at the viewport top and the page's top padding (a
+  few pixels) scrolled off, where Ctrl+Home lands at absolute 0. Whether that is the
+  "part-way" reported is not established.
+- Windows not checked.
+
+**Mitigation options**:
+- Ask the reporter for the document and exact keys the next time it is seen, and
+  reproduce from those before changing anything.
+- Make Back to the top of a document land at absolute 0, like Ctrl+Home, if the padding
+  offset above is judged a defect.
+- Accept until it is reproduced.
 
 ## CLSD-02. A paragraph that mixes fonts lays out wider than the wrap width it was given
 

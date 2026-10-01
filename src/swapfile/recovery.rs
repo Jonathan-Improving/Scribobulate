@@ -124,9 +124,27 @@ pub(crate) fn baseline_is_current(header: &SwapHeader, on_disk: Option<&[u8]>) -
     }
 }
 
+/// Whether a snapshot holds nothing the file on disk does not already hold (TDD 22.19).
+///
+/// Such a snapshot is removed rather than recovered. Applying it would leave the tab
+/// clean, and a clean tab is never saved, discarded or edited back to its baseline — the
+/// only routes that delete a snapshot — so it would be re-applied on every launch, and
+/// once the file changed elsewhere it would put the old text back over the new. One
+/// arises when a document whose file vanished was snapshotted (TDD 22.18) and the file
+/// came back with the same content before the next launch.
+///
+/// Exact bytes, deliberately: a snapshot that differs in any byte is recovered as before,
+/// and losing the user's work is the failure this feature exists to prevent. An untitled
+/// snapshot has no file to compare with and is never redundant.
+pub(crate) fn holds_nothing_new(header: &SwapHeader, body: &str, on_disk: Option<&[u8]>) -> bool {
+    !header.untitled && header.path.is_some() && on_disk == Some(body.as_bytes())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{baseline_is_current, disposition, sync_action, SwapDisposition, SwapSync};
+    use super::{
+        baseline_is_current, disposition, holds_nothing_new, sync_action, SwapDisposition, SwapSync,
+    };
     use crate::swapfile::{content_digest, DocId, SwapHeader};
 
     fn id(nibble: char) -> DocId {
@@ -281,5 +299,35 @@ mod tests {
             !baseline_is_current(&h, None),
             "a deleted file must route into the conflict flow, not apply silently"
         );
+    }
+
+    #[test]
+    fn a_snapshot_identical_to_its_file_holds_nothing_new() {
+        let h = header(id('a'));
+        assert!(holds_nothing_new(&h, "on disk", Some(b"on disk")));
+    }
+
+    #[test]
+    fn a_snapshot_differing_in_any_byte_is_still_recovered() {
+        let h = header(id('a'));
+        assert!(!holds_nothing_new(&h, "on disk\n", Some(b"on disk")));
+        assert!(!holds_nothing_new(&h, "on disk", Some(b"on disk\n")));
+    }
+
+    #[test]
+    fn a_snapshot_whose_file_is_gone_is_the_only_copy() {
+        let h = header(id('a'));
+        assert!(
+            !holds_nothing_new(&h, "", None),
+            "an empty snapshot of a deleted file is still recovered (TDD 22.18)"
+        );
+    }
+
+    #[test]
+    fn an_untitled_snapshot_is_never_redundant() {
+        let mut h = header(id('a'));
+        h.path = None;
+        h.untitled = true;
+        assert!(!holds_nothing_new(&h, "on disk", Some(b"on disk")));
     }
 }

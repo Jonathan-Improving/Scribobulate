@@ -3726,6 +3726,12 @@ buffer holds the only copy.
 - **Then** the content comes back marked unsaved, as any unsaved work does (22.1), and the file on disk is left as it was
 - **And** the recovery data goes away as soon as the file is restored — by a Save, a Reload, or the file reappearing with the content last loaded (3.6)
 
+### 22.19 Recovery data that matches the file is not recovered, and does not outlive the launch
+- **Given** recovery data whose content is exactly what the file on disk now holds — for example a 22.18 snapshot whose file came back unchanged before the next launch
+- **When** the application starts
+- **Then** nothing is recovered for it: no tab is opened for it, no notice or recovered count mentions it, and its recovery data is removed
+- **And** recovery data that leaves its tab with no unsaved changes once applied is removed and goes unannounced the same way, so no later launch can restore that content over a file that has since changed
+
 ## 23. Back / Forward navigation history
 
 The browser gesture, applied to documents: a per-window history of *which
