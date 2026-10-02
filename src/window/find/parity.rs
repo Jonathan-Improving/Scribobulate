@@ -41,13 +41,12 @@ fn editor_count(hay: &str, query: &str, opts: FindOptions) -> Result<i32, String
     let settings = sourceview::SearchSettings::new();
     // Exactly what the find bar hands the engine — the application's own wrapping for a
     // whole-word regular expression, and the engine's own for a literal
-    // (`window::findbar::refresh_find` / `push_options_to_engine`). Setting the RAW
+    // (`matcher::configure_engine_options` / `configure_engine_query`, the functions the
+    // find bar itself calls). Setting the RAW
     // query here instead would measure an engine the application never drives, which is
     // how this file came to record a false conclusion once already.
-    settings.set_case_sensitive(opts.case_sensitive);
-    settings.set_at_word_boundaries(super::matcher::engine_applies_word_boundaries(opts));
-    settings.set_regex_enabled(opts.regex);
-    settings.set_search_text(Some(super::matcher::editor_pattern(query, opts).as_str()));
+    super::matcher::configure_engine_options(&settings, opts);
+    super::matcher::configure_engine_query(&settings, query, opts);
     let sc = sourceview::SearchContext::new(&buf, Some(&settings));
     crate::testpump::until(
         crate::testpump::Clock::Idle,

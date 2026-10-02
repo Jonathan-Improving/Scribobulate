@@ -579,7 +579,7 @@ pub(crate) struct Renderer {
     /// misaligns from the first one (GTK4Rs/AP-320). Writing at a mark means the
     /// renderer creates the anchors itself, which is why this is the seam rather than a
     /// buffer-to-buffer copy.
-    at: Option<WriteMark>,
+    at: Option<OwnedMark>,
     /// Buffer offset a REGION render began writing at, `None` for a full render.
     ///
     /// Kept because [`Self::finish_region`] needs the region's own extent and the write
@@ -873,25 +873,37 @@ pub(crate) struct CollapsedSite {
 #[derive(Debug, Clone)]
 pub(crate) struct RegionSeed(InterBlock);
 
-/// A region render's write mark, which deletes itself from the buffer when the render
-/// that made it goes away.
+/// A `GtkTextMark` this program created, which deletes itself from its buffer when the
+/// owner goes away. A region render's write mark and a find bar's captured passage both
+/// hold one.
 ///
-/// **A wrapper rather than a `Drop` on [`Renderer`]**, and the reason is mechanical:
-/// `Renderer` has its maps moved out of it field by field when a render finishes
-/// (`preview::build`), and a type that implements `Drop` cannot be partially moved
-/// from. Owning the mark in a one-field guard keeps the guarantee and costs the
-/// callers nothing.
+/// **Why the delete must be owned rather than called.** An anonymous mark belongs to the
+/// BUFFER until `delete_mark` runs; dropping the Rust handle only unrefs the wrapper. The
+/// create and the last use are in different functions, so a delete at each exit is the
+/// rule the next exit forgets. The marks live in a LIVE buffer, which a tab keeps for its
+/// whole life, so one left behind is never collected, and a `GtkTextMark` has no visible
+/// effect until something enumerates them, which is why both accumulated silently, one
+/// per splice and two per "Search in selection" capture.
 ///
-/// The guarantee itself is `ReaderAnchor`'s argument one module over: the create and
-/// the last use are in different functions, so a delete at each exit is the rule the
-/// next exit forgets. The mark lives in the LIVE buffer, which a tab keeps for its
-/// whole life, so one left behind is never collected — and a `GtkTextMark` has no
-/// visible effect until something enumerates them, which is why it accumulated
-/// silently, one per splice (F-AP2-003).
+/// **A wrapper rather than a `Drop` on the owner**, because an owner such as
+/// [`Renderer`] has fields moved out of it when a render finishes (`preview::build`),
+/// and a type that implements `Drop` cannot be partially moved from.
 #[derive(Debug)]
-pub(crate) struct WriteMark(gtk::TextMark);
+pub(crate) struct OwnedMark(gtk::TextMark);
 
-impl Drop for WriteMark {
+impl OwnedMark {
+    /// Take ownership of `mark`, which the caller has just created.
+    pub(crate) fn new(mark: gtk::TextMark) -> Self {
+        Self(mark)
+    }
+
+    /// The mark, for resolving against its buffer.
+    pub(crate) fn mark(&self) -> &gtk::TextMark {
+        &self.0
+    }
+}
+
+impl Drop for OwnedMark {
     fn drop(&mut self) {
         use gtk::prelude::{TextBufferExt, TextMarkExt};
         if self.0.is_deleted() {
@@ -959,7 +971,7 @@ impl Renderer {
         let iter = self.buf.iter_at_offset(offset);
         // Assigning over an existing mark drops it, and dropping it deletes it: a
         // second `write_at` cannot strand the first.
-        self.at = Some(WriteMark(self.buf.create_mark(None, &iter, false)));
+        self.at = Some(OwnedMark::new(self.buf.create_mark(None, &iter, false)));
         self.region_start = Some(offset);
     }
 
@@ -971,7 +983,7 @@ impl Renderer {
     pub(super) fn tip(&self) -> gtk::TextIter {
         use gtk::prelude::TextBufferExt;
         match &self.at {
-            Some(mark) => self.buf.iter_at_mark(&mark.0),
+            Some(mark) => self.buf.iter_at_mark(mark.mark()),
             None => self.buf.end_iter(),
         }
     }
