@@ -72,10 +72,13 @@ pub(crate) struct TickFit {
 /// box — the caller then draws the default checkmark, so the checked state never goes
 /// blank.
 pub(crate) fn tick_fit(ink: Ink, bx: Square) -> Option<TickFit> {
-    let longer = ink.w.max(ink.h);
-    if longer <= 0.0 || bx.side <= 0.0 {
+    // BOTH extents: an ink rectangle with no width (or no height) draws nothing, and
+    // Pango reports exactly that for an empty or zero-width run (w=0, h=1 MEASURED on
+    // Windows), which a longer-side test let through as a tick to draw.
+    if ink.w <= 0.0 || ink.h <= 0.0 || bx.side <= 0.0 {
         return None;
     }
+    let longer = ink.w.max(ink.h);
     let scale = bx.side * TICK_FILL / longer;
     let (cx, cy) = (bx.x + bx.side / 2.0, bx.y + bx.side / 2.0);
     Some(TickFit {
@@ -115,7 +118,7 @@ fn ink_of(cr: &cairo::Context, text: &str) -> (gtk::pango::Layout, Ink) {
     (layout, ink)
 }
 
-/// Whether a themed tick draws anything at all. A glyph with no ink (U+2800, U+200B)
+/// Whether a themed tick draws anything at all. A glyph with no ink (U+200B)
 /// gets the default checkmark instead in every sink, so a checked box is never empty
 /// (TDD 18.63). The same predicate [`tick_fit`] applies, asked of a unit box.
 pub(crate) fn tick_has_ink(text: &str) -> bool {
@@ -237,16 +240,35 @@ mod tests {
         assert!((ink_cy - (BOX.y + BOX.side / 2.0)).abs() < 1e-9);
     }
 
-    /// An ink-less glyph is detected as one: U+2800 (braille blank) and U+200B (zero
-    /// width space) parse as theme glyphs and draw nothing, and a visible tick draws.
+    /// An ink-less glyph is detected as one: U+200B (zero width space) parses as a theme
+    /// glyph and draws nothing in every font, and a visible tick draws.
+    ///
+    /// Not U+2800 (braille blank): blank where a font carries it, but on Windows the
+    /// default face lacks it and Pango draws a placeholder box, which has ink (MEASURED,
+    /// w=20 h=21). Whether a glyph is ink-less is a property of the font stack, so the
+    /// fixture must be blank in all of them.
     #[test]
     fn an_inkless_glyph_is_measured_as_having_no_ink() {
-        assert!(!tick_has_ink("\u{2800}"), "braille blank draws nothing");
         assert!(
             !tick_has_ink("\u{200B}"),
             "a zero width space draws nothing"
         );
         assert!(tick_has_ink("x"), "a visible glyph draws");
+    }
+
+    /// An ink rectangle with no width draws nothing, whatever its height, so it is no
+    /// tick to fit (Pango's answer for an empty run is w=0, h=1).
+    ///
+    /// Mutation: test only the longer side again and this fails.
+    #[test]
+    fn a_zero_width_ink_fits_nothing() {
+        let sliver = Ink {
+            x: 0.0,
+            y: 0.0,
+            w: 0.0,
+            h: 1.0,
+        };
+        assert!(tick_fit(sliver, BOX).is_none());
     }
 
     /// TDD 18.63 in the PDF's raster: an ink-less tick still draws the default checkmark,
@@ -262,7 +284,7 @@ mod tests {
             bytes
         };
         let empty = pixels(None);
-        let inkless = pixels(Some("\u{2800}"));
+        let inkless = pixels(Some("\u{200B}"));
         assert_ne!(
             inkless, empty,
             "the checked raster must not be the empty box"

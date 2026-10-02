@@ -2169,7 +2169,7 @@ mod html_sink_tests {
     fn an_inkless_themed_tick_falls_back_to_the_default_checkmark() {
         let (_, mut theme) = style();
         let mut themes = crate::theme::Themes::builtin();
-        themes.merge_over_for_test("[themes.tick]\nlist_task_tick_glyph = \"\u{2800}\"\n");
+        themes.merge_over_for_test("[themes.tick]\nlist_task_tick_glyph = \"\u{200B}\"\n");
         theme.list_glyphs = themes.resolve("tick").list_glyphs;
         assert!(
             theme.list_glyphs.task_tick.is_some(),

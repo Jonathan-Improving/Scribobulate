@@ -79,13 +79,32 @@ pub(crate) fn total_growth(samples: &[u64]) -> i64 {
     }
 }
 
-/// Growth that the single largest allocation does not account for.
+/// Growth that the single largest allocation does not account for, over the worst
+/// STRETCH of the window.
 ///
 /// This is the whole shape test. One retained allocation, flat either side,
 /// leaves zero here whatever its size and wherever it sits; `x` added on every
 /// one of `n` samples leaves `(n − 1)·x`.
+///
+/// **Every contiguous stretch is judged, not only first-to-last** (operator decision,
+/// 2026-10-02). Judged end to end, one fall inside the window was subtracted from the
+/// climb around it: a ~1 MB-per-render leak with a single 6 MB release in the middle
+/// read as no growth. A stretch before or after the fall still shows its climb. A fall
+/// itself is never growth, so a footprint the OS trims (Windows) passes; the cost is
+/// that memory rising over several samples and then released is judged on the rise.
 pub(crate) fn residual_growth(samples: &[u64]) -> i64 {
-    total_growth(samples) - largest_rise(samples) as i64
+    let mut worst = i64::MIN;
+    for start in 0..samples.len() {
+        for end in start + 1..samples.len() {
+            let stretch = &samples[start..=end];
+            worst = worst.max(total_growth(stretch) - largest_rise(stretch) as i64);
+        }
+    }
+    if worst == i64::MIN {
+        0
+    } else {
+        worst
+    }
 }
 
 /// `Ok(())` when the series after `warmup` grew no more than
@@ -296,6 +315,21 @@ mod tests {
     #[test]
     fn a_plateau_passes() {
         assert_no_growth(&[100, 180, 200, 200, 201, 200, 200, 201], 2, BOUNDS).unwrap();
+    }
+
+    /// A climb with one large fall inside it still fails: judged first-to-last, a fall
+    /// that cancels the climb (here 100 000 against nine rises of 12 000) left a negative
+    /// residual and the gate passed on the leak.
+    ///
+    /// Mutation: judge `residual_growth` over the whole window only and this passes.
+    #[test]
+    fn a_climb_with_one_large_fall_still_fails() {
+        let mut series = climbing(13, 12_000);
+        for sample in series.iter_mut().skip(7) {
+            *sample -= 100_000;
+        }
+        let err = assert_no_growth(&series, 3, BOUNDS).unwrap_err();
+        assert!(err.contains("a climb, not a step"), "{err}");
     }
 
     /// Footprint that falls, because the allocator returned pages, is not growth
