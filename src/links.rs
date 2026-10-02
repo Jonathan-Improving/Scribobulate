@@ -384,7 +384,7 @@ pub(crate) fn scheme_of(url: &str) -> Option<&str> {
 /// `gtkshow.c:118`), and passing one would call `gtk_window_export_handle`, whose
 /// unexport half has no X11 branch on 4.6 — logging
 /// `Couldn't unexport handle for GdkX11Toplevel surface` on **every link click**, on
-/// real X11, not just headless (fixed upstream in 4.8.0 by a1d03e69a4, never
+/// real X11, not just headless (fixed upstream in GTK 4.8.0 by a1d03e69a4, never
 /// backported to 4.6). The only thing a parent buys is `PARENT_WINDOW_ID`, which
 /// parents a *portal* chooser dialog — and no chooser appears when a default handler
 /// is set, which is the case a link click is.

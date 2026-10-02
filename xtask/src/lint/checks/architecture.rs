@@ -343,19 +343,25 @@ pub fn parser_dispatch_exhaustive(tree: &Tree) -> bool {
 /// the keystroke a held reference is a `usize` captured into a closure, and nothing about
 /// writing that line announces a category.
 ///
-/// What makes it countable is that the codebase now has exactly ONE held-reference type
-/// (`crate::docref::AnchoredSpan`), so its construction sites are enumerable. Every file
-/// that builds one in production code must be named by the matrix — which is the point at
-/// which the author has to answer the row's questions: what the identity is, which
+/// WHAT IT SEES, AND WHAT IT DOES NOT. It recognises ONE constructor,
+/// `crate::docref::AnchoredSpan::capture`, because that is the one held-reference type
+/// whose construction sites are enumerable by a textual match. It is NOT the codebase's
+/// only held reference: `FindScope` (its editor `TextMark`s and its preview character
+/// range) and `FindCursor::Preview { at }` hold positions in the document too, and their
+/// CAM rows were written by hand — this check could not have prompted any of them, and a
+/// PASS here says nothing about a reference built some other way. Every file that builds
+/// an `AnchoredSpan` in production code must be named by the matrix — which is the point
+/// at which the author has to answer the row's questions: what the identity is, which
 /// invalidation classes reach it, and what an unresolvable reference does.
 ///
-/// TESTS ARE EXCLUDED, by skipping each `#[cfg(…test…)]` module from its attribute to the
-/// first `}` in column zero. The obvious cheaper rule — cut the file at its first such
-/// attribute — is WRONG here and was measured wrong on the first run: `src/preview/render.rs`
-/// gates a test-only helper at line 43 and builds a real held reference at line 1066, so
-/// that rule hid the one site this check exists to see, and the check passed by seeing
-/// nothing. A gate that goes quiet when its input disappears is the failure mode this whole
-/// lint is written against.
+/// TESTS ARE EXCLUDED, by skipping each `#[cfg(…test…)]` INLINE module to its own closing
+/// brace (see [`production_lines`]). The obvious cheaper rule — cut the file at its first
+/// such attribute — is WRONG here and was measured wrong on the first run:
+/// `src/preview/render.rs` gates a test-only helper at line 43 and builds a real held
+/// reference at line 1066, so that rule hid the one site this check exists to see, and the
+/// check passed by seeing nothing. A gate that goes quiet when its input disappears is the
+/// failure mode this whole lint is written against — and the skipper's own corpus is
+/// `corpus_heldref.rs`, because its first per-module version went quiet the same way.
 ///
 /// PROVEN TO FIRE: delete the disclosure control's row from the matrix and this check
 /// names `src/preview/render.rs`, with the capture's own line.
@@ -379,20 +385,7 @@ pub fn held_reference_rows(tree: &Tree) -> bool {
     let mut findings = Vec::new();
     for (name, text) in tree.subset_texts(|path| path.starts_with("src/") && path.ends_with(".rs"))
     {
-        // The type's own module defines and exercises it; a row would name the mechanism
-        // rather than a reference into a document.
-        if name == "src/docref.rs" {
-            continue;
-        }
-        for (index, line) in production_lines(text) {
-            if !line.contains("AnchoredSpan::capture") {
-                continue;
-            }
-            if section.contains(name) {
-                break;
-            }
-            findings.push(format!("{name}:{}: {}", index + 1, line.trim()));
-        }
+        findings.extend(unrowed_captures(name, text, section));
     }
     if findings.is_empty() {
         return pass();
@@ -409,26 +402,83 @@ pub fn held_reference_rows(tree: &Tree) -> bool {
     )
 }
 
-/// A Rust file's lines with every `#[cfg(…test…)]` module skipped — see
+/// Check 24's per-file predicate: the production `AnchoredSpan::capture` lines in `text`
+/// (the file `name`) when the matrix `section` does not name the file. Pure, so the corpus
+/// calls exactly what the check calls.
+pub(crate) fn unrowed_captures(name: &str, text: &str, section: &str) -> Vec<String> {
+    // The type's own module defines and exercises it; a row would name the mechanism
+    // rather than a reference into a document.
+    if name == "src/docref.rs" || section.contains(name) {
+        return Vec::new();
+    }
+    production_lines(text)
+        .into_iter()
+        .filter(|(_, line)| line.contains("AnchoredSpan::capture"))
+        .map(|(index, line)| format!("{name}:{}: {}", index + 1, line.trim()))
+        .collect()
+}
+
+/// A Rust file's lines with every `#[cfg(…test…)]` INLINE module skipped — see
 /// [`held_reference_rows`] for why the cut is per module rather than per file.
 ///
-/// The module ends at the first `}` in column zero, which is this codebase's layout for a
-/// test module. `#[cfg(not(test))]` is deliberately not treated as one: it gates the
-/// PRODUCTION half of a pair.
+/// A skip opens only where the gate decorates `mod <name> {`, possibly past further
+/// attributes, and closes where that module's own brace closes — by depth, with braces
+/// in strings, char literals and comments ignored. The first version opened a skip at ANY
+/// such attribute and ran it to the next column-zero `}`, so a `#[cfg(test)] mod t;`
+/// declaration, a gated field or a gated `fn` hid the whole next top-level item: about
+/// 5,400 production lines of `src/` when measured, the blind spot the cut-per-file rule
+/// had, moved. Any other gated item opens no skip at all: a one-item over-read can only
+/// make the check louder, never quieter.
+///
+/// `#[cfg(not(test))]` is deliberately not treated as a gate: it marks the PRODUCTION
+/// half of a pair.
 fn production_lines(text: &str) -> Vec<(usize, &str)> {
+    let lines: Vec<&str> = text.lines().collect();
+    let depths = rx::line_end_depths(text);
     let mut out = Vec::new();
-    let mut in_test = false;
-    for (index, line) in text.lines().enumerate() {
-        if in_test {
-            in_test = line != "}";
+    let mut index = 0;
+    while index < lines.len() {
+        if let Some(end) = test_module_end(&lines, &depths, index) {
+            index = end + 1;
             continue;
         }
-        let trimmed = line.trim_start();
-        if trimmed.starts_with("#[cfg(") && trimmed.contains("test") && !trimmed.contains("not(") {
-            in_test = true;
-            continue;
-        }
-        out.push((index, line));
+        out.push((index, lines[index]));
+        index += 1;
     }
     out
+}
+
+/// If line `at` is a test gate on an inline module, the line that closes the module.
+fn test_module_end(lines: &[&str], depths: &[i32], at: usize) -> Option<usize> {
+    let gate = lines[at].trim_start();
+    if !(gate.starts_with("#[cfg(") && gate.contains("test") && !gate.contains("not(")) {
+        return None;
+    }
+    // Past any further attributes (a multi-line one included) and comments to the item.
+    let mut item = at + 1;
+    let mut open_brackets = 0i32;
+    while let Some(line) = lines.get(item) {
+        let trimmed = line.trim_start();
+        if open_brackets > 0 || trimmed.starts_with("#[") || trimmed.starts_with("//") {
+            if !trimmed.starts_with("//") {
+                open_brackets += bracket_balance(trimmed);
+            }
+            item += 1;
+            continue;
+        }
+        break;
+    }
+    if !rx::inline_mod_rx().is_match(lines.get(item)?) {
+        return None;
+    }
+    let base = if item == 0 { 0 } else { depths[item - 1] };
+    (item..lines.len()).find(|&line| depths.get(line).is_some_and(|&d| d <= base))
+}
+
+fn bracket_balance(line: &str) -> i32 {
+    line.chars().fold(0, |n, c| match c {
+        '[' => n + 1,
+        ']' => n - 1,
+        _ => n,
+    })
 }

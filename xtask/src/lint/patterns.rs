@@ -59,7 +59,18 @@ pub fn issues_rx() -> &'static Regex {
         // live citation inside `sdd/TDD.md`. The register's letters are positional and
         // a numbered variant is exactly the shape someone reaches for.
         //
-        r#"\bISSUES(\.md)?([ .:_-]*([a-z]+ )?[A-Z][0-9]*\b|[ .:_-]*#[A-Z]+[0-9]*\b|[ .:_-]*"[^"]+")|\bCLSD-[0-9]+\b"#,
+        // The separator between `ISSUES(.md)` and the designator takes the Markdown and
+        // prose forms too: a closing backtick, a quote, a possessive `'s`, a comma, an
+        // opening paren. It was `[ .:_-]*`, and the commonest Markdown form of all — the
+        // path in backticks, then the connector and the letter — walked through it, with
+        // a live instance in `probes/`. The TITLE alternative's separator has no quote in
+        // it and must be NON-EMPTY, so a file name that is itself quoted, followed later
+        // by another quoted name, is not read as a quoted title.
+        //
+        // The fourth alternative is the DESCRIPTION form, a title pointer without the
+        // quotes: the register's file name, a possessive, then "entry on <subject>". That
+        // was the live instance.
+        r#"\bISSUES(\.md)?((?:[ .:_,(`"*-]|'s?)*([a-z]+ )?[A-Z][0-9]*\b|(?:[ .:_,(`"*-]|'s?)*#[A-Z]+[0-9]*\b|[ .:_,(`*-]+"[^"]+"|(?:[ .:_,(`"*-]|'s?)*(entry|item|issue) (on|about|for|covering|describing)\b)|\bCLSD-[0-9]+\b"#,
     )
 }
 
@@ -313,7 +324,7 @@ fn commit_hash_rx() -> &'static Regex {
 /// verifying it is standing in. So the discriminator is whether the text AROUND the hash
 /// says whose commit it is.
 ///
-/// # Why these four, and why the list used to be longer
+/// # Why so few, and why the list used to be longer
 ///
 /// It began as twelve, including a bare lowercase `gtk`, tested with a WHOLE-LINE
 /// `contains`. In a GTK project that is close to a blanket exemption, and it was: the
@@ -323,13 +334,30 @@ fn commit_hash_rx() -> &'static Regex {
 /// by a `GTK4Rs/AP-N` citation beside it. A gate green over its own motivating instances,
 /// while its documentation asserted it had found them.
 ///
-/// So: four markers that name a REPOSITORY rather than a toolkit, matched
-/// case-insensitively, and matched POSITIONALLY — see [`WINDOW_BEFORE`].
-const FOREIGN_SOURCE_MARKERS: &[&str] = &["gnome/", "upstream", "http://", "https://"];
+/// So: markers that name a REPOSITORY rather than a toolkit, matched case-insensitively,
+/// and matched POSITIONALLY — see [`WINDOW_BEFORE`]. The bare word `upstream` was one of
+/// them until round 5, and it is a word rather than a repository: *"not upstream yet;
+/// landed locally in `…`"* was exempt by position. It now counts only followed by the
+/// project it means — [`upstream_repo_rx`].
+const FOREIGN_SOURCE_MARKERS: &[&str] = &["gnome/", "http://", "https://"];
+
+/// `upstream` followed by a named upstream project, optionally through `in`/`by`/`at`.
+fn upstream_repo_rx() -> &'static Regex {
+    static RX: OnceLock<Regex> = OnceLock::new();
+    rx(
+        &RX,
+        r"(?i)\bupstream\s+((in|by|at)\s+)?(gtk|glib|gnome|gdk-pixbuf|libadwaita|pango|cairo|librsvg|harfbuzz|gtk-rs|gtk4-rs)\b",
+    )
+}
 
 /// Contexts where a hex run is DATA rather than any kind of citation — a parser's own
 /// fixture, or an identifier being decoded. Narrow on purpose: each names a construct in
 /// this tree, not a shape a citation might coincidentally take.
+///
+/// POSITIONAL, like the foreign markers, and for the same reason: each exempts only the
+/// hex value it GOVERNS — the one right next to it, see [`DATA_GAP_BEFORE`] — never every
+/// hash on the line. Until round 5 this list was a whole-line veto, so *"the archive's
+/// SHA-256 is `51bd…`; the loader fix landed in `4b97c84`"* reported nothing.
 const HEX_DATA_MARKERS: &[&str] = &[
     // A document identifier being parsed or asserted on.
     "from_hex", "DocId", "doc_id",
@@ -355,6 +383,26 @@ const WINDOW_BEFORE: usize = 80;
 /// ``fixed by commit `b30…` (GNOME/gtk#4134)``.
 const WINDOW_AFTER: usize = 40;
 
+/// How far a data marker's END may sit before the value it governs: `SHA-256 is \``,
+/// `doc_id = "`, `from_hex("`. Short on purpose — a governed value is the marker's own
+/// operand, and a marker a clause away governs nothing.
+const DATA_GAP_BEFORE: usize = 16;
+
+/// And after, for the `/proc/<pid>/maps` fixture, whose permission triplet FOLLOWS the
+/// address range it makes unmistakable (`7f2c1a0a0000 r--p`).
+const DATA_GAP_AFTER: usize = 4;
+
+/// Is the hex value at `at..end` the operand of a data marker right beside it?
+fn data_marker_adjacent(line: &str, at: usize, end: usize) -> bool {
+    HEX_DATA_MARKERS.iter().any(|marker| {
+        line.match_indices(marker).any(|(start, m)| {
+            let marker_end = start + m.len();
+            (marker_end <= at && line[marker_end..at].chars().count() <= DATA_GAP_BEFORE)
+                || (start >= end && line[end..start].chars().count() <= DATA_GAP_AFTER)
+        })
+    })
+}
+
 /// Is the hash at `at..end` attributed to another repository by the text around it?
 fn attributed_nearby(line: &str, at: usize, end: usize) -> bool {
     let from = line[..at]
@@ -370,6 +418,7 @@ fn attributed_nearby(line: &str, at: usize, end: usize) -> bool {
         .map_or(end, |(i, c)| end + i + c.len_utf8());
     let window = line[from..to].to_ascii_lowercase();
     FOREIGN_SOURCE_MARKERS.iter().any(|m| window.contains(m))
+        || upstream_repo_rx().is_match(&window)
 }
 
 /// A hex run that is not a commit hash however it looks./// A hex run that is not a commit hash however it looks.
@@ -429,9 +478,6 @@ pub fn commit_hash_citations(line: &str) -> Vec<String> {
     if line.contains("SCRIB_GIT_COMMIT") {
         return Vec::new();
     }
-    if HEX_DATA_MARKERS.iter().any(|m| line.contains(m)) {
-        return Vec::new();
-    }
     // Blank out the shapes that are hex but never object names, PRESERVING LENGTH, so
     // every offset below still indexes the original line and the attribution window is
     // read from the real text rather than from a rewritten copy.
@@ -455,12 +501,27 @@ pub fn commit_hash_citations(line: &str) -> Vec<String> {
             if attributed_nearby(line, at, at + hit.len()) {
                 return None;
             }
+            // Data, by the marker that governs THIS value — not by one elsewhere on the
+            // line. See `data_marker_adjacent`.
+            if data_marker_adjacent(line, at, at + hit.len()) {
+                return None;
+            }
             Some(hit.to_string())
         })
         .collect();
     found.sort();
     found.dedup();
     found
+}
+
+/// Check 24's skipper: an INLINE module's opening line, `mod <name> {`, with any
+/// visibility. A `mod <name>;` declaration is not one — it is a one-line item.
+pub fn inline_mod_rx() -> &'static Regex {
+    static RX: OnceLock<Regex> = OnceLock::new();
+    rx(
+        &RX,
+        r"^\s*(pub(\([^)]*\))?\s+)?mod\s+[A-Za-z_][A-Za-z0-9_]*\s*\{",
+    )
 }
 
 /// Check 22's reader: a `disallowed-methods` entry's path in `clippy.toml`.
@@ -695,9 +756,10 @@ fn opens_char_literal(chars: &[char], quote: usize) -> bool {
     }
 }
 
-pub fn parser_dispatch_wildcards(text: &str) -> Vec<usize> {
-    const VOCABULARY: [&str; 3] = ["Event::", "Tag::", "TagEnd::"];
-    let bytes: Vec<char> = text.chars().collect();
+/// The brace depth AFTER every character of `bytes`, and whether each character sits
+/// inside a comment or a string/char literal — so a brace in one cannot move the depth.
+/// Shared by check 15 and check 24's test-module skipper; its corpus is check 15's.
+fn brace_model(bytes: &[char]) -> (Vec<i32>, Vec<bool>) {
     // Depth of every character, with comments and literals blanked so a brace inside
     // one cannot move it. `None` marks a character that is inside a comment/literal.
     let mut depth = vec![0i32; bytes.len()];
@@ -739,7 +801,7 @@ pub fn parser_dispatch_wildcards(text: &str) -> Vec<usize> {
         } else if c == '"' {
             string = true;
             inert[i] = true;
-        } else if c == '\'' && opens_char_literal(&bytes, i) {
+        } else if c == '\'' && opens_char_literal(bytes, i) {
             // Rust spells a CHARACTER LITERAL and a LIFETIME with the same delimiter, so
             // this arm cannot be a bare `c == '\''` — that would open a "literal" at the
             // first `'a` and blank the rest of the file, which is why the arm was simply
@@ -758,6 +820,36 @@ pub fn parser_dispatch_wildcards(text: &str) -> Vec<usize> {
         depth[i] = d;
         i += 1;
     }
+    (depth, inert)
+}
+
+/// The brace depth at the END of each line of `text`, indexed as `text.lines()` is — so a
+/// caller can find where a block opened on line `j` closes: the first line whose end depth
+/// is back at line `j - 1`'s.
+pub fn line_end_depths(text: &str) -> Vec<i32> {
+    let chars: Vec<char> = text.chars().collect();
+    let (depth, _) = brace_model(&chars);
+    let mut out = Vec::new();
+    let mut current = 0;
+    let mut open_line = false;
+    for (i, c) in chars.iter().enumerate() {
+        current = depth[i];
+        open_line = true;
+        if *c == '\n' {
+            out.push(current);
+            open_line = false;
+        }
+    }
+    if open_line {
+        out.push(current);
+    }
+    out
+}
+
+pub fn parser_dispatch_wildcards(text: &str) -> Vec<usize> {
+    const VOCABULARY: [&str; 3] = ["Event::", "Tag::", "TagEnd::"];
+    let bytes: Vec<char> = text.chars().collect();
+    let (depth, inert) = brace_model(&bytes);
 
     // Line starts, and each line's depth at its first non-space character.
     // Collected up front (not a plain `.enumerate()` over the iterator) so an annotated

@@ -419,7 +419,7 @@ fn toggle_at(
 ///
 /// GTK 4.6–4.18 compensates an edit above the viewport by writing back
 /// `first_para_top`'s delta on every layout `::changed`, and each of those passes lands
-/// `top_margin` pixels short (fixed upstream in 4.19.3, commit `b300698629`). The
+/// `top_margin` pixels short (fixed upstream in GTK 4.19.3, commit `b300698629`). The
 /// tempting fix is to add the missing quantum back — `emissions × top_margin` — and it
 /// is wrong: the emission count is MEASURED BIMODAL at a fixed dose (55 or 63 for the
 /// identical toggle), so a fixed correction is wrong some of the time whatever value it
