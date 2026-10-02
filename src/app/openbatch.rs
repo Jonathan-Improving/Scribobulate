@@ -104,7 +104,16 @@ pub(super) fn on_open(app: &Application, files: &[gtk::gio::File], hint: &str) {
             docs.push(crate::docio::read_document(f.path().as_deref()).await);
         }
         build_opened_batch(&app, docs, &hint, cold_start).await;
+        #[cfg(test)]
+        BATCHES_BUILT.with(|n| n.set(n.get() + 1));
     });
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many open batches have finished building on this thread, so a test can wait
+    /// for the event that ends a race between two batches rather than for a time.
+    pub(crate) static BATCHES_BUILT: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 /// Turn already-read documents into windows and tabs. Runs to completion without

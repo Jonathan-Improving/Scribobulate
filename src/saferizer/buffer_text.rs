@@ -94,12 +94,7 @@ impl BufferText {
 /// both. Neither sibling used the `0` as a sentinel — each computed it locally
 /// and placed a cursor with it — so nothing depended on the old behaviour.
 pub(crate) fn char_offset_at_byte(text: &str, byte_off: usize) -> i32 {
-    let mut b = byte_off.min(text.len());
-    // `str::floor_char_boundary` is unstable, so walk down by hand. Terminates:
-    // byte 0 is always a boundary.
-    while !text.is_char_boundary(b) {
-        b -= 1;
-    }
+    let b = crate::strbound::floor_char_boundary(text, byte_off);
     text[..b].chars().count() as i32
 }
 

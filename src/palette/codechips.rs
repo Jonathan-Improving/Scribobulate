@@ -61,6 +61,28 @@ pub(crate) enum CodeRunSurface {
 }
 
 impl CodeRunSurface {
+    /// Every surface, in order, walked through [`successor`](Self::successor) from
+    /// `Page`. The one enumeration the tag vocabulary's completeness test compares
+    /// `tags::CODE_INLINE_SURFACES` against.
+    #[cfg(test)]
+    pub(crate) fn all() -> Vec<Self> {
+        std::iter::successors(Some(CodeRunSurface::Page), |s| s.successor()).collect()
+    }
+
+    /// The next surface in [`all`](Self::all)'s order. An exhaustive match, so a new
+    /// variant does not compile until it is placed in the walk.
+    #[cfg(test)]
+    fn successor(self) -> Option<Self> {
+        match self {
+            CodeRunSurface::Page => Some(CodeRunSurface::Heading(0)),
+            CodeRunSurface::Heading(level) if level + 1 < HEADING_LEVELS => {
+                Some(CodeRunSurface::Heading(level + 1))
+            }
+            CodeRunSurface::Heading(_) => Some(CodeRunSurface::Quote),
+            CodeRunSurface::Quote => None,
+        }
+    }
+
     /// The colour question this position asks.
     pub(crate) fn fill(self) -> CodeSurface {
         match self {

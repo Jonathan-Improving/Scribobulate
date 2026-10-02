@@ -1127,7 +1127,11 @@ fn wire_disclosure_toggles(
 /// is excluded and [`crate::docref::Ambiguity`] for why proximity is not consulted.
 /// A control that ends up with no reference is not left holding a bare offset: its
 /// activation re-derives the pane instead (see [`connect_disclosure_toggle`]).
-fn anchor_disclosure_control(toggle: &gtk::ToggleButton, cleaned: &str, key: crate::fold::FoldKey) {
+fn anchor_disclosure_control(
+    toggle: &gtk::ToggleButton,
+    cleaned: &str,
+    key: crate::fold::FoldKey,
+) -> bool {
     let span = crate::renderer::disclosure::opening_delimiter(cleaned, key.source_offset())
         .and_then(|at| {
             // In context, for the fast path only (see `AnchoredSpan::resolve`): an
@@ -1140,14 +1144,23 @@ fn anchor_disclosure_control(toggle: &gtk::ToggleButton, cleaned: &str, key: cra
             )
         });
     match span {
-        Some(span) => crate::widgets::disclosure::set_reference(toggle, span),
-        None => log::warn!(
-            "preview: a disclosure control at cleaned byte {} names no construct in \
-             the source this render walked ({} bytes); its activations will re-derive \
-             the pane rather than act",
-            key.source_offset(),
-            cleaned.len()
-        ),
+        Some(span) => {
+            crate::widgets::disclosure::set_reference(toggle, span);
+            true
+        }
+        None => {
+            // Cleared, not left: a reference kept from the previous render names a
+            // document that is no longer the one shown.
+            crate::widgets::disclosure::clear_reference(toggle);
+            log::warn!(
+                "preview: a disclosure control at cleaned byte {} names no construct in \
+                 the source this render walked ({} bytes); its activations will re-derive \
+                 the pane rather than act",
+                key.source_offset(),
+                cleaned.len()
+            );
+            false
+        }
     }
 }
 
@@ -1200,10 +1213,23 @@ pub(super) fn remint_disclosure_references(
         );
         return false;
     };
-    for (toggle, key) in paired {
-        anchor_disclosure_control(toggle, &rd.md_owned, key);
+    // Each control exactly once: two blocks resolving to one summary line would leave
+    // another control unpaired, holding its previous render's reference.
+    let mut seen: Vec<&gtk::ToggleButton> = Vec::with_capacity(paired.len());
+    for (toggle, _) in &paired {
+        if seen.contains(toggle) {
+            log::warn!("preview: two drawn disclosure blocks share one control — re-rendering");
+            return false;
+        }
+        seen.push(toggle);
     }
-    true
+    // Every re-mint must take; one that names no construct has its stale reference
+    // cleared, and the route then answers with the full re-render.
+    let mut all_minted = true;
+    for (toggle, key) in paired {
+        all_minted &= anchor_disclosure_control(toggle, &rd.md_owned, key);
+    }
+    all_minted
 }
 
 /// The same wiring after a SPLICE, where most of the controls are survivors.

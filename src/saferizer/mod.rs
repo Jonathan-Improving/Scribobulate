@@ -29,6 +29,8 @@ pub(crate) mod qdata_key;
 pub(crate) mod native_dialog;
 
 pub(crate) mod buffer_mark;
+/// A text mark that deletes itself from its buffer on drop.
+pub(crate) mod owned_mark;
 
 pub(crate) mod click_activation;
 pub(crate) use click_activation::ClickActivation;

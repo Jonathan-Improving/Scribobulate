@@ -103,22 +103,6 @@ struct Context {
 /// them; short enough that an edit a few words away does not disturb it.
 const CONTEXT_BYTES: usize = 24;
 
-/// The largest `char` boundary in `s` at or below `i`.
-fn floor_boundary(s: &str, mut i: usize) -> usize {
-    while !s.is_char_boundary(i) {
-        i -= 1;
-    }
-    i
-}
-
-/// The smallest `char` boundary in `s` at or above `i`.
-fn ceil_boundary(s: &str, mut i: usize) -> usize {
-    while !s.is_char_boundary(i) {
-        i += 1;
-    }
-    i
-}
-
 impl AnchoredSpan {
     /// Capture `at` from `source`.
     ///
@@ -176,8 +160,9 @@ impl AnchoredSpan {
         on_ambiguity: Ambiguity,
     ) -> Option<Self> {
         let mut span = Self::capture_with(source, at.clone(), on_ambiguity)?;
-        let from = floor_boundary(source, at.start.saturating_sub(CONTEXT_BYTES));
-        let to = ceil_boundary(source, (at.end + CONTEXT_BYTES).min(source.len()));
+        let from =
+            crate::strbound::floor_char_boundary(source, at.start.saturating_sub(CONTEXT_BYTES));
+        let to = crate::strbound::ceil_char_boundary(source, at.end + CONTEXT_BYTES);
         span.context = Some(Context {
             before: source[from..at.start].to_string(),
             after: source[at.end..to].to_string(),

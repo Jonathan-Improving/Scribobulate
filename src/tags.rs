@@ -97,8 +97,8 @@ const CODE_INLINE_QUOTE_NAME: &str = "code-inline-quote";
 /// **The inline-code chip's whole surface family, in one place.**
 ///
 /// [`setup_tags_with_theme`] registers from this and every test that walks the family
-/// reads it, and `the_code_chip_family_lists_every_surface` fails to compile on a new
-/// `CodeRunSurface` variant until it is listed, so a surface cannot reach the vocabulary
+/// reads it, and `the_code_chip_family_lists_every_surface` checks it against
+/// `CodeRunSurface::all`, which does not compile on a new variant until it is walked, so a surface cannot reach the vocabulary
 /// while missing a registration — or reach a registration while missing the checks that hold
 /// the family's invariants (the wrap mode GTK4Rs/AP-136 is about, and the annotation
 /// highlight's priority over every chip).
@@ -788,21 +788,13 @@ pub(crate) fn setup_tags_with_theme(buf: &TextBuffer, palette: &Palette, zoom: f
 #[cfg(test)]
 mod list_depth_tests {
 
-    /// `CODE_INLINE_SURFACES` holds every `CodeRunSurface` there is. The witness match is
-    /// exhaustive, so a new variant stops this test compiling until it is enumerated
-    /// below, and the enumeration is then checked against the list.
+    /// `CODE_INLINE_SURFACES` holds exactly the surfaces `CodeRunSurface::all` walks,
+    /// which is an exhaustive match beside the enum: a new variant does not compile
+    /// until it is placed in that walk, and then this fails until the tag list has it.
     #[test]
     fn the_code_chip_family_lists_every_surface() {
-        use crate::palette::CodeRunSurface;
-        fn witness(surface: CodeRunSurface) {
-            match surface {
-                CodeRunSurface::Page | CodeRunSurface::Heading(_) | CodeRunSurface::Quote => {}
-            }
-        }
-        let mut every = vec![CodeRunSurface::Page, CodeRunSurface::Quote];
-        every.extend((0..crate::theme::HEADING_LEVELS).map(CodeRunSurface::Heading));
+        let every = crate::palette::CodeRunSurface::all();
         for surface in &every {
-            witness(*surface);
             assert!(
                 super::CODE_INLINE_SURFACES.contains(surface),
                 "{surface:?} has no registration in CODE_INLINE_SURFACES"

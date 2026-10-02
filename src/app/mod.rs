@@ -12,6 +12,8 @@ mod menubar;
 mod mnemonics;
 mod open;
 mod openbatch;
+#[cfg(test)]
+pub(crate) use openbatch::BATCHES_BUILT;
 mod openselection;
 mod setup;
 mod shortcuts;

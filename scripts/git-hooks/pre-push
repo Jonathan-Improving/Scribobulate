@@ -23,6 +23,8 @@
 # directory, so dependencies are not rebuilt and successive commits build incrementally.
 # A commit older than scripts/pipeline.steps has no contract to read; it is reported as
 # UNCHECKED rather than refused, so pushing history to a fresh remote is possible at all.
+# "Older" means no ancestor ever had the file: a commit that DELETES or renames the contract
+# also lacks it, and is refused rather than mistaken for history (R6-AP-04).
 #
 # The commands are READ from scripts/pipeline.steps for this platform, through the same
 # parser every runner uses, never written here: a second copy of a step's command is a
@@ -51,7 +53,9 @@ set -uo pipefail
 # --self-test: build a throwaway repo whose contract's fmt step fails when a file named BAD
 # is present, push two histories at a throwaway bare remote through THIS hook, and assert
 # the verdicts: a BAD commit behind a clean tip is refused (the tip-only defect this hook
-# had), and a clean history is accepted (so "refuses everything" cannot pass). It needs no
+# had), a clean history is accepted (so "refuses everything" cannot pass), a commit that
+# deletes the contract is refused, and an orphan history that never had one is accepted
+# UNCHECKED (so the deletion refusal is not "no contract, no push"). It needs no
 # cargo; the hook is command-agnostic, so a stand-in command exercises the enumeration.
 if [ "${1-}" = "--self-test" ]; then
     hook="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
@@ -94,6 +98,11 @@ if [ "${1-}" = "--self-test" ]; then
             echo "pre-push self-test: FAILED — a new ref carrying a failing commit was accepted" >&2
             exit 1
         fi
+        grep -q "'fmt' failed" "$st/new.log" || {
+            echo "pre-push self-test: FAILED — new ref refused, but not by the fmt step:" >&2
+            tail -3 "$st/new.log" >&2
+            exit 1
+        }
         # The positive: rewrite away the bad commit; a clean history must go through.
         git reset -q --hard HEAD~2
         echo ok >GOOD && git add GOOD && git commit -qm "good 1"
@@ -103,8 +112,35 @@ if [ "${1-}" = "--self-test" ]; then
             tail -3 "$st/pos.log" >&2
             exit 1
         }
+        # A commit that DELETES the contract has no contract either, and must not pass as
+        # one that predates it (R6-AP-04).
+        git rm -q scripts/pipeline.steps && git commit -qm "drop the contract"
+        if git push -q origin main >"$st/del.log" 2>&1; then
+            echo "pre-push self-test: FAILED — a commit deleting the contract was accepted" >&2
+            exit 1
+        fi
+        grep -q "removed the contract" "$st/del.log" || {
+            echo "pre-push self-test: FAILED — contract deletion refused, but not as one:" >&2
+            tail -3 "$st/del.log" >&2
+            exit 1
+        }
+        git reset -q --hard HEAD~1
+        # ...while history that genuinely predates it (no ancestor ever had the file) still
+        # goes through, UNCHECKED, so the refusal above is not "no contract, no push".
+        git checkout -q --orphan prehistory
+        git rm -rq --cached . && git clean -fdxq
+        echo old >OLD && git add OLD && git commit -qm "before the contract"
+        git push -q origin prehistory >"$st/old.log" 2>&1 || {
+            echo "pre-push self-test: FAILED — history predating the contract was refused:" >&2
+            tail -3 "$st/old.log" >&2
+            exit 1
+        }
+        grep -q "UNCHECKED" "$st/old.log" || {
+            echo "pre-push self-test: FAILED — predating history passed without UNCHECKED" >&2
+            exit 1
+        }
     ) || exit 1
-    echo "pre-push self-test: ok (buried failing commit refused on an existing and a new ref; clean history accepted)"
+    echo "pre-push self-test: ok (buried failing commit refused on an existing and a new ref; clean history accepted; contract deletion refused; pre-contract history accepted UNCHECKED)"
     exit 0
 fi
 
@@ -240,6 +276,17 @@ trap cleanup EXIT
 for oid in "${oids[@]}"; do
     short="$(git rev-parse --short "$oid")"
     if ! git cat-file -e "$oid:$CONTRACT" 2>/dev/null; then
+        # "No contract in this commit" means two different things, and only one of them is
+        # harmless (R6-AP-04). If NOTHING in the commit's ancestry ever touched the path, the
+        # commit predates the contract and has no steps to run. If an ancestor touched it,
+        # this commit (or one before it) DELETED or renamed it — and waving that through as
+        # "predates" would let one commit switch the gate off for every commit after it.
+        if [ -n "$(git log -1 --format=%H "$oid" -- "$CONTRACT")" ]; then
+            echo "pre-push: $short has no $CONTRACT, but its history does — this commit" \
+                "or an ancestor removed the contract, so the push is refused. Restore it," \
+                "or override this one push with --no-verify." >&2
+            exit 1
+        fi
         echo "pre-push: UNCHECKED $short — it predates $CONTRACT, so it has no steps to run." >&2
         continue
     fi

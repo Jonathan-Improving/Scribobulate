@@ -17,7 +17,7 @@
 //!
 //! QA round-1 H2: it resolves its target window AND label fresh from the tab's own `content_box` on every fire (`tabs::resolve_tab_window` + `winstate::chrome`) instead of a captured `window`/`match_count_label` pair, which would go stale the moment the tab moves to a different window.
 use super::*;
-use crate::renderer::OwnedMark;
+use crate::saferizer::owned_mark::OwnedMark;
 
 /// Wire the window-shared find bar widgets carried in `chrome`. Every closure
 /// looks the active tab's search engine up fresh via `state(window)`, so this

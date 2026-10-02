@@ -208,8 +208,8 @@ pub(crate) enum FindScope {
     /// Each mark deletes itself from the buffer when the scope is dropped, so every
     /// release path frees them.
     Editor {
-        start: crate::renderer::OwnedMark,
-        end: crate::renderer::OwnedMark,
+        start: crate::saferizer::owned_mark::OwnedMark,
+        end: crate::saferizer::owned_mark::OwnedMark,
     },
     /// The preview buffer, held as a character range against the render it was taken
     /// from. Nothing to track: a re-render replaces the text, and the honest answer is

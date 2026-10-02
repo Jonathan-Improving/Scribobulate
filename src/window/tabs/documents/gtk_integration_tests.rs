@@ -508,6 +508,7 @@ fn two_overlapping_invocations_naming_one_file_open_it_once() {
     let _cold = crate::app::coldstart::force_for_test(false);
     // Back to back, with no main-loop turn between: the first batch's reads cannot
     // have completed when the second invocation runs its pre-read check.
+    let built_before = crate::app::BATCHES_BUILT.with(std::cell::Cell::get);
     app.open(&[gtk::gio::File::for_path(&file)], "interactive");
     app.open(&[gtk::gio::File::for_path(&file)], "interactive");
 
@@ -524,15 +525,13 @@ fn two_overlapping_invocations_naming_one_file_open_it_once() {
             })
             .count()
     };
+    // Both batches must have FINISHED building before counting — the event that ends
+    // the race, not a time a slow second batch could outlast.
     assert!(
-        crate::docio::settle(|| backing_this_file() >= 1),
-        "the file must open"
-    );
-    // Both batches must have finished before counting: the second builds after the
-    // first, so settle on time rather than on the first tab appearing.
-    crate::testpump::drain_for(
-        crate::testpump::Clock::Worker,
-        std::time::Duration::from_millis(500),
+        crate::docio::settle(
+            || crate::app::BATCHES_BUILT.with(std::cell::Cell::get) >= built_before + 2
+        ),
+        "precondition: both open batches ran to the end"
     );
     assert_eq!(
         backing_this_file(),

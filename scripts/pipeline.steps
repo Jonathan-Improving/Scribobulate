@@ -422,13 +422,23 @@ cmd.windows diagram  powershell -NoProfile -Command "$d = New-Object System.Xml.
 #
 # A gate is its pattern AND the set of files it runs over. That set is still a data file,
 # scripts/lint-references.scan, which the binary READS rather than restates.
+#
+# THE PRE-PUSH GATE'S SELF-TEST RIDES HERE (R6-AP-04, R6-TST-17). scripts/git-hooks/pre-push
+# --self-test is the proof that the hook refuses a failing commit buried behind a clean tip
+# and a commit that deletes this contract; a proof nothing executes turns nothing red when
+# the hook regresses (GEP-67). It is a repository gate checking a repository gate, which is
+# this step's business, it needs no cargo, and it costs a few seconds. The hook is bash, so
+# on Windows it needs Git-for-Windows' bash, which is NOT on the PowerShell PATH the
+# `cmd /c` executor inherits, so cmd.windows does not run it: the contract-windows CI job
+# runs it under Git-for-Windows bash instead, until this runner can locate that bash and
+# the Windows seat has proven a cmd.windows line both runs and discriminates.
 # ---------------------------------------------------------------------------
 step   8  references
 intent references  Every cross-reference in the tree resolves, and the citation-form rules hold
 verdict references  exit
 class  references  required
-cmd.linux   references  cargo xtask lint-references
-cmd.macos   references  cargo xtask lint-references
+cmd.linux   references  cargo xtask lint-references && scripts/git-hooks/pre-push --self-test
+cmd.macos   references  cargo xtask lint-references && scripts/git-hooks/pre-push --self-test
 cmd.windows references  cargo xtask lint-references
 
 # ---------------------------------------------------------------------------

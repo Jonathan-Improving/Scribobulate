@@ -70,7 +70,15 @@ pub fn issues_rx() -> &'static Regex {
         // The fourth alternative is the DESCRIPTION form, a title pointer without the
         // quotes: the register's file name, a possessive, then "entry on <subject>". That
         // was the live instance.
-        r#"\bISSUES(\.md)?((?:[ .:_,(`"*-]|'s?)*([a-z]+ )?[A-Z][0-9]*\b|(?:[ .:_,(`"*-]|'s?)*#[A-Z]+[0-9]*\b|[ .:_,(`*-]+"[^"]+"|(?:[ .:_,(`"*-]|'s?)*(entry|item|issue) (on|about|for|covering|describing)\b)|\bCLSD-[0-9]+\b"#,
+        //
+        // Three alternatives answer MEASURED blind spots of round 6 (R6-AP-11): every
+        // alternative anchored on `ISSUES` and looked rightwards, so the designator
+        // could not precede the file name, nor could the bare noun with `in`/`of`, nor
+        // could prose sit between the file name and a trailing designator. The corpus
+        // holds the measured lines; quoting them here would trip this very check.
+        // `[^.]` bounds each to one sentence. The separator also takes the typographic apostrophe `’`, which
+        // `sdd/TDD.md` uses, and the description form an adjective before its noun.
+        r#"\bISSUES(\.md)?((?:[ .:_,(`"*-]|['’]s?)*([a-z]+ )?[A-Z][0-9]*\b|(?:[ .:_,(`"*-]|['’]s?)*#[A-Z]+[0-9]*\b|[ .:_,(`*-]+"[^"]+"|(?:[ .:_,(`"*-]|['’]s?)*([a-z]+ )?(entry|item|issue) (on|about|for|covering|describing)\b|[^.]{0,40}\b(entry|item|issue) [A-Z][0-9]*\b)|\b(entry|item|issue) [A-Z][0-9]*\b[^.]{0,40}\bISSUES|\bentry (in|of) [^.]{0,20}ISSUES|\bCLSD-[0-9]+\b"#,
     )
 }
 
@@ -355,7 +363,7 @@ fn upstream_repo_rx() -> &'static Regex {
 /// this tree, not a shape a citation might coincidentally take.
 ///
 /// POSITIONAL, like the foreign markers, and for the same reason: each exempts only the
-/// hex value it GOVERNS — the one right next to it, see [`DATA_GAP_BEFORE`] — never every
+/// hex value it GOVERNS — the marker's own operand, see [`data_gap_rx`] — never every
 /// hash on the line. Until round 5 this list was a whole-line veto, so *"the archive's
 /// SHA-256 is `51bd…`; the loader fix landed in `4b97c84`"* reported nothing.
 const HEX_DATA_MARKERS: &[&str] = &[
@@ -383,10 +391,18 @@ const WINDOW_BEFORE: usize = 80;
 /// ``fixed by commit `b30…` (GNOME/gtk#4134)``.
 const WINDOW_AFTER: usize = 40;
 
-/// How far a data marker's END may sit before the value it governs: `SHA-256 is \``,
-/// `doc_id = "`, `from_hex("`. Short on purpose — a governed value is the marker's own
-/// operand, and a marker a clause away governs nothing.
-const DATA_GAP_BEFORE: usize = 16;
+/// What may sit between a data marker's END and the value it governs: `SHA-256 is \``,
+/// `doc_id = "`, `from_hex("`, `SHA-256 of \``. GRAMMATICAL, not a distance: separators
+/// and the words `is`/`of`, nothing else. A governed value is the marker's own operand,
+/// and any other word between them means the hash belongs to a different phrase. Until
+/// round 6 this was "any 16 characters", so *"the SHA-256 fix in `4b97c84`"* was exempt
+/// (R6-AP-10): a few words of prose fit inside a window, never inside this grammar. The
+/// backslash is a separator too, for the escaped quote of a value inside a Rust string
+/// literal — `src/swapfile/codec.rs` holds a swap-file fixture written exactly that way.
+fn data_gap_rx() -> &'static Regex {
+    static RX: OnceLock<Regex> = OnceLock::new();
+    rx(&RX, r#"^[\s:=(`"'\\]*(?:(?:is|of)[\s:=(`"'\\]+)*$"#)
+}
 
 /// And after, for the `/proc/<pid>/maps` fixture, whose permission triplet FOLLOWS the
 /// address range it makes unmistakable (`7f2c1a0a0000 r--p`).
@@ -397,7 +413,7 @@ fn data_marker_adjacent(line: &str, at: usize, end: usize) -> bool {
     HEX_DATA_MARKERS.iter().any(|marker| {
         line.match_indices(marker).any(|(start, m)| {
             let marker_end = start + m.len();
-            (marker_end <= at && line[marker_end..at].chars().count() <= DATA_GAP_BEFORE)
+            (marker_end <= at && data_gap_rx().is_match(&line[marker_end..at]))
                 || (start >= end && line[end..start].chars().count() <= DATA_GAP_AFTER)
         })
     })
@@ -421,7 +437,7 @@ fn attributed_nearby(line: &str, at: usize, end: usize) -> bool {
         || upstream_repo_rx().is_match(&window)
 }
 
-/// A hex run that is not a commit hash however it looks./// A hex run that is not a commit hash however it looks.
+/// A hex run that is not a commit hash however it looks.
 ///
 /// Every term is a real construct this tree contains, not a hypothetical. Without them
 /// the check reports colour literals and digests as citations, which is the failure mode

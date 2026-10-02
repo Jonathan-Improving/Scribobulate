@@ -132,6 +132,7 @@ mod saferizer;
 mod session;
 mod sidebarfilter;
 mod span;
+mod strbound;
 mod suite_registry;
 mod swapfile;
 mod tags;

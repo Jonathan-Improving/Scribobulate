@@ -154,6 +154,22 @@ fn percent_encode_path(s: &str) -> String {
     String::from_utf8(out).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
 }
 
+/// The gates' one filesystem resolution — every call that can reach a path, and so a
+/// network share, goes through here. Counted in tests, so a test can assert that a
+/// refusal touched the filesystem not at all, which holds on any host however fast
+/// its network fails.
+fn canonicalize(path: &Path) -> std::io::Result<PathBuf> {
+    #[cfg(test)]
+    CANONICALIZE_CALLS.with(|n| n.set(n.get() + 1));
+    dunce::canonicalize(path)
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many times [`canonicalize`] has run on this thread.
+    static CANONICALIZE_CALLS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
 /// The canonicalized on-disk file a Markdown destination denotes, or `None` when
 /// nothing is there. The single place a destination becomes a path, so the image gate,
 /// the unsafe-images branch and the link resolver cannot drift on what one means.
@@ -177,13 +193,11 @@ fn canonical_local_target(src: &str, doc_dir: Option<&Path>) -> Option<PathBuf> 
     }
     let decoded = percent_decode(src);
     if decoded != src {
-        if let Some(hit) =
-            local_candidate(&decoded, doc_dir).and_then(|c| dunce::canonicalize(c).ok())
-        {
+        if let Some(hit) = local_candidate(&decoded, doc_dir).and_then(|c| canonicalize(&c).ok()) {
             return Some(hit);
         }
     }
-    local_candidate(src, doc_dir).and_then(|c| dunce::canonicalize(c).ok())
+    local_candidate(src, doc_dir).and_then(|c| canonicalize(&c).ok())
 }
 
 // ── external link opening ──────────────────────────────────────────────────────
@@ -479,7 +493,7 @@ fn local_candidate(src: &str, doc_dir: Option<&Path>) -> Option<PathBuf> {
 /// resolve to nothing and land on `Missing` rather than `Refused`.
 pub(crate) fn resolve_contained_image(src: &str, doc_dir: Option<&Path>) -> Option<PathBuf> {
     let doc_dir = doc_dir?;
-    let base = dunce::canonicalize(doc_dir).ok()?;
+    let base = canonicalize(doc_dir).ok()?;
     let target = canonical_local_target(src, Some(doc_dir))?;
     target.starts_with(&base).then_some(target)
 }
@@ -1353,6 +1367,7 @@ mod tests {
             r"\\203.0.113.1@SSL@443\DavWWWRoot\x.png",
         ] {
             let started = std::time::Instant::now();
+            let calls_before = super::CANONICALIZE_CALLS.with(std::cell::Cell::get);
             // With each opt-in OFF and ON: neither toggle is consent to a network share.
             for unsafe_on in [false, true] {
                 let verdict = resolve_image(src, Some(dir.path()), unsafe_on);
@@ -1366,6 +1381,11 @@ mod tests {
                     "{src} (outside links {unsafe_on}): {link:?}"
                 );
             }
+            assert_eq!(
+                super::CANONICALIZE_CALLS.with(std::cell::Cell::get),
+                calls_before,
+                "{src}: the refusal must not resolve anything on the filesystem"
+            );
             assert!(
                 started.elapsed() < std::time::Duration::from_secs(1),
                 "{src} took {:?}, so something reached for the network",

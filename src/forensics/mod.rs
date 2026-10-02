@@ -182,15 +182,7 @@ pub(crate) fn make_path_private(path: &std::path::Path) {
 /// and `ring` is not, so neither can depend on the other (GEP-25: put the shared
 /// thing where every consumer can reach it, or it is not shared).
 pub(crate) fn floor_char_boundary(s: &str, limit: usize) -> usize {
-    if limit >= s.len() {
-        return s.len();
-    }
-    let bytes = s.as_bytes();
-    let mut i = limit;
-    while i > 0 && bytes[i] & 0xC0 == 0x80 {
-        i -= 1;
-    }
-    i
+    crate::strbound::floor_char_boundary(s, limit)
 }
 
 /// The process-wide breadcrumb ring.

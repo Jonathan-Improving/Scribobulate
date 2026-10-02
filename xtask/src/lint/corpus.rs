@@ -76,6 +76,15 @@ const ISSUES_MUST_MATCH: &[&str] = &[
     // passed under the gate, in `probes/native-chooser-rss-investigation.md`.
     "The full investigation behind `sdd/ISSUES.md`'s entry on native",
     "see the ISSUES entry about the rename suite",
+    // MEASURED blind spots, round 6: every alternative above anchored on `ISSUES` and
+    // looked rightwards, and the corpus was written in exactly those forms. The
+    // designator-first, noun-first, adjective-before-noun, typographic-apostrophe and
+    // ISSUES-then-prose forms each passed.
+    "see entry B in `sdd/ISSUES.md`",
+    "the entry in ISSUES.md on native chooser RSS",
+    "`sdd/ISSUES.md`'s open entry on native chooser",
+    "ISSUES.md’s entry B",
+    "ISSUES.md lists it as entry B",
 ];
 
 /// Prose ABOUT the register, which must stay legal: the rule is against citing an ENTRY,
@@ -375,6 +384,14 @@ const COMMIT_HASH_MUST_FLAG: &[&str] = &[
     "reading /proc/self/maps was rewritten in 4b97c84 to avoid the race",
     "DocId parsing was hardened in 4b97c84",
     "a doc_id collision was fixed in `4b97c84`",
+    // ── the data markers' 16-character window, as MEASURED in round 6 ───────────
+    //
+    // "Governs" was a distance: any 16 characters between the marker and the hash, so a
+    // marker exempted a citation a few words later in the same clause. Each of these was
+    // green under that version; only separators and `is`/`of` may sit between now.
+    "the SHA-256 fix in `4b97c84`",
+    "doc_id fix in 4b97c84",
+    "the SHA-256 check moved in 4b97c84",
     // `upstream` is a word, not a repository: it says nothing checkable about whose
     // commit follows.
     "not upstream yet; landed locally in 4b97c84",
@@ -402,6 +419,13 @@ const COMMIT_HASH_MUST_NOT_FLAG: &[&str] = &[
     "let mask = 0xdeadbeef;",
     "sha256: 1f95a92d037f5292da05e6ab1037032ff21ddb7b20d4ac8e83e3674c864c07b0",
     "doc_id = \"3f2ac91b4d5e6f708192a3b4c5d6e7f8\"",
+    // The marker's own operand, through the grammar the narrowed window still admits:
+    // separators, and `is`/`of`.
+    "doc_id = \"abc1234\"",
+    // The same, escaped inside a Rust string literal, as the swap-file codec's fixture is.
+    "let bytes = b\"+++scribobulate-swap 1\\ndoc_id = \\\"3f2ac91b4d5e6f708192a3b4c5d6e7f8\\\"\\n\";",
+    "the archive's SHA-256 is `51bd9f60c7d23a66…`",
+    "the SHA-256 of `51bd9f60c7d23a66…` matches",
     "assert!(DocId::from_hex(\"3f2ac91b4d5e6f70/192a3b4c5d6e7f8\").is_none());",
     "b\"7f2c1a09b000-7f2c1a0a0000 r--p 000c0000 08:02 1 /usr/lib/x.so\"",
     "commit: \"0badc0de\",",

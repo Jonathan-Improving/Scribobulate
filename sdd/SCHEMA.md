@@ -33,6 +33,7 @@ member. For a stateful action the work is driven by `change-state`, not
 | `app.new` | — | — | Open a new empty document window. |
 | `app.open` | — | — | Present the file chooser and open the chosen file. |
 | `app.quit` | — | — | Quit the application, prompting for unsaved documents. |
+| `app.play-animations` | — | `b` | Whether animated images play (TDD 27.5). |
 | `app.about` | — | — | Show the About dialog. |
 | `app.markdown-help` | — | — | Show the bundled Markdown reference. |
 | `app.preview-theme` | `s` | `s` | The active reading theme, identified by theme id. Radio group backing the theme menu. |
