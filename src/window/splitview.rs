@@ -668,13 +668,7 @@ fn relink_vscrollbar_after_range_changes(scroller: &gtk::ScrolledWindow) -> Reli
             let Some(bar) = weak.upgrade().map(|s| s.vscrollbar()) else {
                 return;
             };
-            gate.relink(&bar);
-            let bar = bar.downgrade();
-            glib::timeout_add_local_once(RELINK_REPEAT, move || {
-                if let Some(bar) = bar.upgrade() {
-                    gate.relink(&bar);
-                }
-            });
+            gate.relink_twice(&bar);
         });
     };
     let adj = scroller.vadjustment();
@@ -684,8 +678,8 @@ fn relink_vscrollbar_after_range_changes(scroller: &gtk::ScrolledWindow) -> Reli
     wired
 }
 
-/// Holds the scrollbar repair while a pointer button is down on the bar, and runs one
-/// repair after the release if any was held. See [`relink_vscrollbar_after_range_changes`].
+/// Holds the scrollbar repair while a pointer button is down on the bar, and runs the
+/// held repair after the release (or a broken grab, or the bar unmapping). See [`relink_vscrollbar_after_range_changes`].
 #[derive(Clone, Default)]
 struct RelinkGate {
     pressed: std::rc::Rc<std::cell::Cell<bool>>,
@@ -704,14 +698,21 @@ impl RelinkGate {
                 gdk::EventType::ButtonPress | gdk::EventType::TouchBegin => {
                     on_event.pressed.set(true);
                 }
+                // A broken grab is a release that never arrives as one: the press
+                // would otherwise hold the repair off for good (R6-GTK-01).
                 gdk::EventType::ButtonRelease
                 | gdk::EventType::TouchEnd
-                | gdk::EventType::TouchCancel => on_event.release(&weak_bar),
+                | gdk::EventType::TouchCancel
+                | gdk::EventType::GrabBroken => on_event.release(&weak_bar),
                 _ => {}
             }
             glib::Propagation::Proceed
         });
         bar.add_controller(legacy);
+        // An unmapped bar receives no release either (the pane hidden, the mode switched
+        // mid-press), so unmapping ends the press too.
+        let on_unmap = gate.clone();
+        bar.connect_unmap(move |bar| on_unmap.release(&bar.downgrade()));
         gate
     }
 
@@ -725,6 +726,20 @@ impl RelinkGate {
         let bar = bar.clone();
         let gate = self.clone();
         glib::idle_add_local_once(move || {
+            if let Some(bar) = bar.upgrade() {
+                gate.relink_twice(&bar);
+            }
+        });
+    }
+
+    /// The repair as measured to be needed: once now and once [`RELINK_REPEAT`] later,
+    /// because one pass alone measured 1 of 30 left orphaned. A held repair replays both
+    /// passes, not one (R6-GTK-02).
+    fn relink_twice(&self, bar: &gtk::Widget) {
+        self.relink(bar);
+        let bar = bar.downgrade();
+        let gate = self.clone();
+        glib::timeout_add_local_once(RELINK_REPEAT, move || {
             if let Some(bar) = bar.upgrade() {
                 gate.relink(&bar);
             }
@@ -860,15 +875,33 @@ mod gtk_integration_tests {
         assert_eq!(toggles.get(), before, "a held scrollbar must not be hidden");
 
         gate.release(&scroller.vscrollbar().downgrade());
-        drain_for(Clock::Frame, Duration::from_millis(200));
+        drain_for(Clock::Frame, Duration::from_millis(400));
         assert_eq!(
             toggles.get() - before,
-            2,
-            "the held repair must run once after the release"
+            4,
+            "the held repair must run after the release, both passes of it"
         );
         assert!(
             scroller.vscrollbar().is_visible(),
             "the scrollbar ends visible"
+        );
+        window.destroy();
+    }
+
+    /// A press whose release never reaches the bar (it was unmapped mid-press) must
+    /// not hold the repair off for good: unmapping ends the press.
+    ///
+    /// Mutation: drop the `connect_unmap` in `RelinkGate::install` and the press stays.
+    #[gtktest::test]
+    fn unmapping_the_bar_ends_a_press_whose_release_never_came() {
+        let (window, scroller, _toggles, gate) = scroller_with_gate();
+        gate.pressed.set(true);
+        let bar = scroller.vscrollbar();
+        bar.set_visible(false);
+        bar.set_visible(true);
+        assert!(
+            !gate.pressed.get(),
+            "the press must end when the bar unmaps"
         );
         window.destroy();
     }

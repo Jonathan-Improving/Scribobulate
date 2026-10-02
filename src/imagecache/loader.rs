@@ -53,7 +53,7 @@ pub(crate) fn load_texture(resolution: &ImageResolution, zoom: f64) -> Option<Lo
     match resolution {
         ImageResolution::Local(path) => load_local(path, zoom),
         ImageResolution::Remote(uri) => load_remote_texture(uri),
-        ImageResolution::Refused | ImageResolution::Missing => None,
+        ImageResolution::Refused | ImageResolution::NetworkShare | ImageResolution::Missing => None,
     }
 }
 

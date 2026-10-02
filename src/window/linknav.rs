@@ -65,6 +65,10 @@ pub(crate) fn activate_doc_link(view: &crate::codeview::CodePreviewView, url: &s
              (File ▸ Load Unsafe Linked Documents to permit it)"
                 .to_string(),
         ),
+        LinkResolution::NetworkShare => show_link_error(
+            &tab,
+            "Not opened: links to network shares are never followed".to_string(),
+        ),
         LinkResolution::Missing => {
             show_link_error(&tab, format!("Link target not found: {url}"));
         }

@@ -87,14 +87,24 @@ pub(crate) fn reload_from_disk(window: &ApplicationWindow) {
 ///   flight describes a document that no longer exists.
 /// - **A recorded backing loss is cleared**: the buffer is no longer the only copy.
 pub(crate) fn adopt_disk_text(window: &ApplicationWindow, st: &Rc<TabState>, content: &str) {
+    *st.saved_baseline.borrow_mut() = content.to_string();
+    write_loaded_text(window, st, content);
+    crate::window::clear_backing_loss(st);
+}
+
+/// The write half of [`adopt_disk_text`], for a route that brings text in WITHOUT
+/// adopting it as the saved baseline: crash recovery, whose tab must stay dirty
+/// against the file. Releases the find passage, sets the source, writes the buffer
+/// under the loading guard as a non-undoable load with the caret at the start, and
+/// bumps the read epoch. A caller that also adopts the baseline sets it BEFORE calling
+/// this, for the reason `adopt_disk_text` gives.
+pub(crate) fn write_loaded_text(window: &ApplicationWindow, st: &Rc<TabState>, content: &str) {
     findbar::release_find_scope(window, st);
     st.set_source(content);
-    *st.saved_baseline.borrow_mut() = content.to_string();
     st.loading.set(true);
     load_into_editor(&st.editor_buf, content);
     st.loading.set(false);
     st.doc_epoch.bump();
-    crate::window::clear_backing_loss(st);
 }
 
 /// The synchronous half of [`reload_from_disk`]: everything after the read.

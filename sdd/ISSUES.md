@@ -46,6 +46,8 @@ described from a different vantage point.
 | L | Any | Production | After a link jump, Back or Cmd+Home sometimes scrolls only part of the way to its target (reported once; not reproduced on Linux or macOS) | Low |
 | M | Windows | Test | Flaky test: a cancelled snapshot write sometimes leaves its temporary file behind on Windows, though the previous snapshot is intact | Low |
 | N | Windows | Test | Flaky test: the GTK suite sometimes aborts on Windows on a `g_signal_handler_disconnect` critical near the comment-card tests (1 run in 7) | Low |
+| O | Mac | Production | A document's `/net/<host>/…` image is canonicalized on render, which reaches the host through the automounter — but only where the user has enabled `/net`, which stock macOS 27 does not | Low |
+| P | Any | Production | In Preview, Find Next can repeat a match inside a table after an external reload adds a match earlier in that table | Low |
 
 ## Closed issues
 
@@ -511,6 +513,42 @@ which points at the card's popover surface but proves nothing about Windows.
   changing anything.
 - Make the card tests destroy what they build and pump until disposed, so no teardown
   crosses into the next test.
+
+## O. A `/net` image path reaches its host through the macOS automounter
+
+**Severity**: Low (needs a non-default macOS setting).
+
+macOS maps `/net/<host>` to the host's NFS exports when `/etc/auto_master` enables
+`/net -hosts`. The image and link gates canonicalize a local path before deciding, so a
+document naming `/net/<host>/x.png` would make the automounter contact that host as the
+preview renders: an open-tracking beacon and a main-thread stall, not a credential leak.
+The Windows UNC refusal does not reach it: `/net` is an ordinary absolute path to Rust's
+path parser.
+
+**Checked**: on stock macOS 27 the `/net` line is commented out and `/net` does not exist;
+canonicalizing `/net/203.0.113.1/…` returns NotFound in microseconds (mac seat,
+2026-10-02). The enabled case was not measured (it needs root).
+
+**Mitigation options**:
+- Refuse an absolute candidate that is lexically outside the document folder before
+  canonicalizing it. That also closes any future automounted path, at the cost of the
+  "blocked" versus "not found" distinction for local escapes, which then cannot be told
+  apart without touching the filesystem.
+- Accept: the exposure needs a setting the user chose.
+
+## P. In Preview, Find Next can repeat a match inside a table after a reload
+
+**Severity**: Low (one repeated step; the count stays right).
+
+A preview find hit is held by its buffer position, but every cell hit of one table shares
+the table's anchor position. When an external reload adds a match earlier in the same
+table, the held hit resolves one place early and Find Next lands on the match already
+shown. Hidden hits in a collapsed block share their block's summary position the same way.
+Found by QA review (round 5); declined as costing more than it is worth, and recorded so
+the limit is not rediscovered.
+
+**Mitigation**: give each cell hit a stable key (row, column, byte offset) and compare on
+it when resuming.
 
 ## CLSD-02. A paragraph that mixes fonts lays out wider than the wrap width it was given
 

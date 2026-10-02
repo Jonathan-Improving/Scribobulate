@@ -166,6 +166,15 @@ fn percent_encode_path(s: &str) -> String {
 /// re-checks `starts_with(base)` on whatever comes back — a `%2e%2e%2f` traversal
 /// decodes to `../` and is refused exactly as the literal form is.
 fn canonical_local_target(src: &str, doc_dir: Option<&Path>) -> Option<PathBuf> {
+    // **The choke point every route passes through touches the network for a remote
+    // namespace, so it refuses one itself**, from the text alone and whatever either
+    // opt-in toggle says: canonicalizing `\\host\share\x` IS the SMB session (and NTLM
+    // handshake) the refusal exists to prevent. Callers that report a verdict check
+    // `reaches_a_foreign_remote_namespace` first, to say WHY; this is the backstop that
+    // makes forgetting to impossible to turn into a connection.
+    if reaches_a_foreign_remote_namespace(src, doc_dir) {
+        return None;
+    }
     let decoded = percent_decode(src);
     if decoded != src {
         if let Some(hit) =
@@ -514,11 +523,9 @@ enum Containment {
 /// Run the containment gate and report *why* it answered as it did. See
 /// [`Containment`].
 fn containment_of(src: &str, doc_dir: Option<&Path>) -> Containment {
-    // Decided on the path's text alone, before anything below touches the filesystem:
-    // canonicalizing a UNC path IS the network connection the gate exists to prevent.
-    if reaches_a_foreign_remote_namespace(src, doc_dir) {
-        return Containment::Escapes;
-    }
+    // A foreign remote namespace never gets here as anything but `Absent`: the verdict
+    // callers report it first (`NetworkShare`), and `canonical_local_target` refuses it
+    // before any filesystem call.
     if let Some(target) = resolve_contained_image(src, doc_dir) {
         return Containment::Inside(target);
     }
@@ -626,6 +633,12 @@ pub(crate) enum ImageResolution {
     /// admit — the placeholder says so, so anything else here misdirects the reader
     /// into lifting a gate that was never what stopped them.
     Refused,
+    /// A path into a remote or device namespace outside the document's folder — a
+    /// Windows `\\host\share` — which is never loaded, whatever Show Unsafe Images says:
+    /// reaching it opens an SMB session that authenticates with the user's credentials,
+    /// which neither toggle describes consent to. Decided from the text alone, so
+    /// nothing touched the network to answer.
+    NetworkShare,
     /// Cannot resolve: no `doc_dir` for a relative path, or the file simply
     /// does not exist (canonicalize error) — including a path that would be
     /// perfectly *contained* if anything were there. The renderer shows a
@@ -690,7 +703,11 @@ pub(crate) fn resolve_image(
         }
     }
 
-    // Local path (no scheme).
+    // Local path (no scheme). A remote namespace is refused before either branch, so
+    // the opt-in cannot reach it (`ImageResolution::NetworkShare`).
+    if reaches_a_foreign_remote_namespace(src, doc_dir) {
+        return ImageResolution::NetworkShare;
+    }
     if allow_unsafe_images {
         // Containment gate lifted: canonicalize and admit any existing path.
         // `local_candidate` tilde-expands and supplies doc_dir as the base for a
@@ -740,6 +757,9 @@ pub(crate) enum LinkResolution {
     /// Resolved outside the document's folder and the per-tab "Load Unsafe
     /// Linked Documents" toggle is off.
     Refused,
+    /// A path into a remote or device namespace outside the document's folder, never
+    /// opened whatever the toggle says. See [`ImageResolution::NetworkShare`].
+    NetworkShare,
     /// Could not resolve: no `doc_dir` (untitled buffer), an empty path, or the
     /// target simply does not exist (canonicalize error).
     Missing,
@@ -778,6 +798,9 @@ pub(crate) fn resolve_doc_link(
     let Some(doc_dir) = doc_dir else {
         return LinkResolution::Missing;
     };
+    if reaches_a_foreign_remote_namespace(path_part, Some(doc_dir)) {
+        return LinkResolution::NetworkShare;
+    }
 
     // Reuse the image gate's exact resolve-and-contain logic when containment
     // is enforced; when the toggle lifts it, still canonicalize (so a symlink
@@ -1330,13 +1353,19 @@ mod tests {
             r"\\203.0.113.1@SSL@443\DavWWWRoot\x.png",
         ] {
             let started = std::time::Instant::now();
-            let verdict = resolve_image(src, Some(dir.path()), false);
-            assert!(
-                matches!(verdict, ImageResolution::Refused),
-                "{src}: {verdict:?}"
-            );
-            let link = resolve_doc_link(src, Some(dir.path()), false);
-            assert!(matches!(link, LinkResolution::Refused), "{src}: {link:?}");
+            // With each opt-in OFF and ON: neither toggle is consent to a network share.
+            for unsafe_on in [false, true] {
+                let verdict = resolve_image(src, Some(dir.path()), unsafe_on);
+                assert!(
+                    matches!(verdict, ImageResolution::NetworkShare),
+                    "{src} (unsafe images {unsafe_on}): {verdict:?}"
+                );
+                let link = resolve_doc_link(src, Some(dir.path()), unsafe_on);
+                assert!(
+                    matches!(link, LinkResolution::NetworkShare),
+                    "{src} (outside links {unsafe_on}): {link:?}"
+                );
+            }
             assert!(
                 started.elapsed() < std::time::Duration::from_secs(1),
                 "{src} took {:?}, so something reached for the network",

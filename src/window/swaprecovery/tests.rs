@@ -327,6 +327,50 @@ fn a_clean_recovery_on_a_stale_baseline_raises_no_conflict() {
     });
 }
 
+/// A recovery is written as a load, not an edit: one Ctrl+Z cannot revert the recovered
+/// work to the file (the way back is Discard recovery), and the caret starts at the top
+/// like every other load.
+///
+/// Mutation: write the buffer with a raw `set_text` again and `can_undo` turns true.
+#[gtktest::test]
+fn a_recovery_is_a_load_that_undo_cannot_revert() {
+    use gtk::prelude::TextBufferExt;
+    let dir = tempfile::tempdir().unwrap();
+    with_isolated_state_home(dir.path(), || {
+        let app =
+            super::super::gtk_integration_tests::test_app("com.extollit.scribobulate.it.recundo");
+        let doc = dir.path().join("notes.md");
+        std::fs::write(&doc, "on disk").unwrap();
+        let win = new_window(&app, "IT", "on disk", Some(&doc));
+        let tab = winstate::state(&win).expect("a tab");
+        let doc_id = DocId::generate();
+        tab.adopt_doc_id(doc_id.clone());
+        seed_swap(
+            dir.path(),
+            &header(doc_id, Some(&doc), b"on disk"),
+            "recovered work\nline two",
+        );
+
+        gtk::glib::MainContext::default().block_on(recover_after_restore(&app));
+
+        assert_eq!(
+            tab.editor_text(),
+            "recovered work\nline two",
+            "precondition: recovered"
+        );
+        assert!(
+            !tab.editor_buf.can_undo(),
+            "Undo must not revert a recovery to the file"
+        );
+        let caret = tab.editor_buf.iter_at_mark(&tab.editor_buf.get_insert());
+        assert_eq!(
+            caret.offset(),
+            0,
+            "the caret starts at the top, as on every load"
+        );
+    });
+}
+
 /// TDD 22.6: a snapshot the session never restored is recovered anyway.
 ///
 /// The rubric that makes the header authoritative rather than advisory. Reversing the

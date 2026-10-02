@@ -96,6 +96,7 @@ pub(crate) use outline_nav::{outline_collapse_all, outline_expand_all};
 pub(crate) use reload::adopt_disk_text;
 pub(crate) use reload::check_and_reload;
 pub(crate) use reload::check_and_reload_tab;
+pub(crate) use reload::write_loaded_text;
 pub(crate) use restore::{apply_tab_layout, restore_session};
 pub(crate) use save::refresh_dirty_status;
 pub(crate) use scrollsync::content_reading_position;
