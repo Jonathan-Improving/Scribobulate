@@ -960,6 +960,28 @@ function Invoke-SelfTest {
                                       -Add @('cmd.windows probe  powershell -File packaging/windows/no-such-script.ps1'))
            Want = $false; Expect = @("names 'packaging/windows/no-such-script.ps1', which does not exist") },
 
+        # A SCRIPT INSIDE A COMMAND SUBSTITUTION IS STILL A SCRIPT THIS COMMAND NAMES, and
+        # the substitution is the position where a missing one is WORST: its failure is
+        # silent -- the shell puts an empty string in its place and the step runs a command
+        # SHORTER than the contract states, which for a test selection means a run WIDER
+        # than intended rather than a run that fails. That is why the rule extracts paths
+        # with a regex over the whole line instead of matching whitespace tokens; a token
+        # glob strips a bare `$(` and `)` but passes `"$(scripts/x.sh)"` silently.
+        #
+        # Both spellings, because they fail a token-splitting implementation DIFFERENTLY:
+        # unquoted, the path arrives glued to `$(` and `)`; quoted, glued to `"` as well.
+        # The bash port gained the same two cases (R5-AP1-12), so one grammar is proven on
+        # both sides rather than asserted to be shared.
+        @{ Rule = 'a script named inside an unquoted command substitution'
+           Lines = (New-ProbeContract -Drop @('cmd.windows') `
+                                      -Add @('cmd.windows probe  echo $(packaging/windows/no-such-script.ps1)'))
+           Want = $false; Expect = @("names 'packaging/windows/no-such-script.ps1', which does not exist") },
+
+        @{ Rule = 'a script named inside a quoted command substitution'
+           Lines = (New-ProbeContract -Drop @('cmd.windows') `
+                                      -Add @('cmd.windows probe  echo "$(packaging/windows/no-such-script.ps1)"'))
+           Want = $false; Expect = @("names 'packaging/windows/no-such-script.ps1', which does not exist") },
+
         @{ Rule = 'ordinals that decrease in file order'
            Lines = (New-ProbeContract -Add @('step    0  omega',
                                              'intent  omega  a synthetic step used only by -SelfTest',
@@ -1598,9 +1620,103 @@ function Invoke-ContractStep {
 }
 
 # --------------------------------------------------------------------------------------
+# Client-area animation -- PROVISIONING for the animation half of the GTK suite, and the
+# whole half depends on it. A hosted Windows image has it OFF, which is a real
+# accessibility preference and the one `src/platform/win32/reduced_motion.rs` reads. With
+# it off, `policy::effective_play` is false no matter what a test sets, so
+# `EnableAnimationsGuard::set` refuses to run rather than let 49 playback assertions fail
+# for a reason none of them mentions -- the guard behaving exactly as designed, on a
+# machine nobody had configured for it.
+#
+# It is provisioned here rather than worked around in the tests because the alternative is
+# a seam that forces the platform's answer, and the platform's answer is precisely what the
+# animation policy exists to obey.
+#
+# IT LIVES IN THE RUNNER, NOT IN CI. The workflow invokes the runner whole and names no
+# step (POLICY section Continuous integration), so a provisioning step only CI performed
+# meant the suite was runnable on the hosted image and silently unrunnable for anyone who
+# ran the gate locally with the preference off -- the asymmetry invisible from either side.
+#
+# READS BACK AND FAILS: the only trustworthy evidence that the call took is
+# SPI_GETCLIENTAREAANIMATION agreeing afterwards. Setting and assuming would hand the
+# pipeline the same 49 failures with one more green line above them.
+#
+# AND IT RESTORES. On CI the image is discarded, so a restore is free; on a contributor's
+# own machine the preference is THEIRS, and leaving it flipped after the run would make the
+# gate a permanent edit to an accessibility setting nobody agreed to. The run says what it
+# changed, and the `finally` at the bottom of this file puts it back. Both halves are
+# announced, because a silent change is the thing being avoided and a silent restore is how
+# someone concludes the first announcement was wrong.
+# --------------------------------------------------------------------------------------
+$script:AnimationWasOff = $false
+
+function Get-ClientAreaAnimation {
+    # The value travels in pvParam and uiParam MUST be 0 -- MEASURED on this seat: every
+    # uiParam=1 spelling returns FALSE with ERROR_INVALID_PARAMETER and moves nothing. Do
+    # not "also try" the other spelling as insurance; under the pvParam reading a uiParam=1
+    # call is read as FALSE and would UNDO the call before it, provisioning green and
+    # leaving the suite red.
+    if (-not ('Spi' -as [type])) {
+        Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class Spi {
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool SystemParametersInfo(uint a, uint p, ref int v, uint f);
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool SystemParametersInfo(uint a, uint p, IntPtr v, uint f);
+}
+'@
+    }
+    $v = 0
+    [void][Spi]::SystemParametersInfo(0x1042, 0, [ref]$v, 0)
+    return $v
+}
+
+function Set-ClientAreaAnimation {
+    param([Parameter(Mandatory = $true)][int] $On)
+    [void](Get-ClientAreaAnimation)   # forces the Add-Type, so [Spi] resolves below
+    # The BOOL return, never GetLastError: the successful calls were measured leaving a
+    # stale ERROR_ENVVAR_NOT_FOUND behind them.
+    $ok = [Spi]::SystemParametersInfo(0x1043, 0, [IntPtr] $On, 0x0002)
+    $after = Get-ClientAreaAnimation
+    return ($ok -and $after -eq $On)
+}
+
+function Initialize-ClientAreaAnimation {
+    $before = Get-ClientAreaAnimation
+    Write-Host ('    {0,-18} {1}' -f 'animation', "SPI_CLIENTAREAANIMATION=$before")
+    if ($before -ne 0) { return }
+
+    if (-not (Set-ClientAreaAnimation -On 1)) {
+        throw ("Could not turn client-area animation on for this session. " +
+               "Every animation-playback test will refuse to run (see " +
+               "EnableAnimationsGuard::set), so the pipeline is stopped here, " +
+               "where the cause is named, rather than 49 assertions later.")
+    }
+    $script:AnimationWasOff = $true
+    Write-Host '    client-area animation was OFF and is now ON for this run.' -ForegroundColor Yellow
+    Write-Host '    It is YOUR setting; it is restored when this run ends.' -ForegroundColor Yellow
+}
+
+function Restore-ClientAreaAnimation {
+    if (-not $script:AnimationWasOff) { return }
+    $script:AnimationWasOff = $false
+    if (Set-ClientAreaAnimation -On 0) {
+        Write-Host 'client-area animation restored to OFF, as it was before this run.'
+    } else {
+        # Loud, and not a throw: the gate's verdict is about the code under test, and
+        # failing a passing run over the restore would misreport it. Say it so the person
+        # can put it back by hand.
+        Write-Host 'WARNING: could not restore client-area animation to OFF. Set it back in' -ForegroundColor Yellow
+        Write-Host 'Settings > Accessibility > Visual effects > Animation effects.' -ForegroundColor Yellow
+    }
+}
+
+# --------------------------------------------------------------------------------------
 # Setup phase -- environment, no verdict, cannot be skipped or reordered, and NOT a step.
-# Its description comes from the contract; the four assignments live here because only
-# this platform has them.
+# Its description comes from the contract; the four assignments and the animation
+# preference live here because only this platform has them.
 # --------------------------------------------------------------------------------------
 function Invoke-SetupPhase {
     Show-Announce "setup phase ($PLATFORM)"
@@ -1644,6 +1760,8 @@ function Invoke-SetupPhase {
         if (-not $v) { throw "pkg-config cannot resolve $m" }
         Write-Host ('    {0,-18} {1}' -f $m, $v)
     }
+
+    Initialize-ClientAreaAnimation
 }
 
 # Inno Setup discovery and the installer invocation now live in package.ps1, which the
@@ -1720,6 +1838,11 @@ try {
     }
 }
 finally {
+    # Restore before Pop-Location, and inside the SAME finally, so every exit path from the
+    # run -- a failed step, a throw out of the setup phase, the packaging branch -- puts the
+    # preference back. A restore placed after the try would be skipped by a throw, which is
+    # precisely the run that leaves a machine altered.
+    Restore-ClientAreaAnimation
     Pop-Location
 }
 

@@ -469,7 +469,7 @@ cmd.windows package  powershell -NoProfile -File packaging/windows/package.ps1
 # ---------------------------------------------------------------------------
 setup linux    none
 setup macos    none
-setup windows  PATH (GTK bin, for the runtime), PKG_CONFIG_PATH (build probe), LIB and INCLUDE (MSVC link) — the last two conditionally concatenated, since prepending onto an unset variable leaves a trailing ';' and an empty entry means "the current directory" to the toolchain
+setup windows  PATH (GTK bin, for the runtime), PKG_CONFIG_PATH (build probe), LIB and INCLUDE (MSVC link) — the last two conditionally concatenated, since prepending onto an unset variable leaves a trailing ';' and an empty entry means "the current directory" to the toolchain; and SPI_CLIENTAREAANIMATION, read back after setting and restored when the run ends, because the animation half of the GTK suite refuses to run with that preference off and a hosted image has it off
 
 # ---------------------------------------------------------------------------
 # Test carve-outs
