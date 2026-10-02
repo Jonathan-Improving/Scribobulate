@@ -291,8 +291,7 @@ pub(crate) fn attach_file_backing(
             // its three conditions). Classifying a deletion that has ALREADY happened,
             // with no await between the read and the decision, on the same main context
             // as the pass — not a decision about a future write.
-            #[allow(clippy::disallowed_methods)]
-            // `allow`, not `expect`: clippy does not resolve this ban's local path, so it never fires
+            #[expect(clippy::disallowed_methods)]
             let busy = tab.write_gate.is_busy();
             if let Some(why) = tab.expect_self_delete.swallows(busy) {
                 // Logged because the WriteInFlight arm can suppress a genuinely external
