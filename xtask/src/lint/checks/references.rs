@@ -443,7 +443,7 @@ pub fn commit_hashes_cited(tree: &Tree) -> bool {
 /// to `scripts/pipeline.steps`, and every "POLICY step N" written against the old list
 /// went on naming an address that no longer exists — including a non-applicable reason
 /// the Linux run prints. Check 6 resolves PATHS, so a section-plus-step citation was
-/// invisible to it (R6-SPEC-01). Cite the section, plus the rule's name where it helps:
+/// invisible to it. Cite the section, plus the rule's name where it helps:
 /// "POLICY § Build pipeline (coverage ratchet)". A step NUMBER belongs to the contract
 /// and is cited from it ("build-pipeline step 5b"), never from POLICY.
 ///

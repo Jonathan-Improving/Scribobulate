@@ -71,7 +71,7 @@ pub fn issues_rx() -> &'static Regex {
         // quotes: the register's file name, a possessive, then "entry on <subject>". That
         // was the live instance.
         //
-        // Three alternatives answer MEASURED blind spots of round 6 (R6-AP-11): every
+        // Three alternatives answer MEASURED blind spots of round 6: every
         // alternative anchored on `ISSUES` and looked rightwards, so the designator
         // could not precede the file name, nor could the bare noun with `in`/`of`, nor
         // could prose sit between the file name and a trailing designator. The corpus
@@ -396,7 +396,7 @@ const WINDOW_AFTER: usize = 40;
 /// and the words `is`/`of`, nothing else. A governed value is the marker's own operand,
 /// and any other word between them means the hash belongs to a different phrase. Until
 /// round 6 this was "any 16 characters", so *"the SHA-256 fix in `4b97c84`"* was exempt
-/// (R6-AP-10): a few words of prose fit inside a window, never inside this grammar. The
+/// — a few words of prose fit inside a window, never inside this grammar. The
 /// backslash is a separator too, for the escaped quote of a value inside a Rust string
 /// literal — `src/swapfile/codec.rs` holds a swap-file fixture written exactly that way.
 fn data_gap_rx() -> &'static Regex {
@@ -959,7 +959,7 @@ pub fn parser_dispatch_wildcards(text: &str) -> Vec<usize> {
 /// `scripts/pipeline.steps` — so any "POLICY … step N" sends the reader to an address that
 /// no longer exists. When the numbered list was replaced by a pointer, 23 such citations
 /// were left dangling, one of them in a reason every Linux run prints, and check 6 could
-/// not see them because a section-plus-step citation is not a path (R6-SPEC-01).
+/// not see them because a section-plus-step citation is not a path.
 ///
 /// Read ACROSS a line break, because a comment wraps wherever it likes: two of the 23 put
 /// the document name at the end of one comment line and the step on the next. Each break

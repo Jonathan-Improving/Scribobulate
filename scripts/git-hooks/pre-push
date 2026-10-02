@@ -24,7 +24,7 @@
 # A commit older than scripts/pipeline.steps has no contract to read; it is reported as
 # UNCHECKED rather than refused, so pushing history to a fresh remote is possible at all.
 # "Older" means no ancestor ever had the file: a commit that DELETES or renames the contract
-# also lacks it, and is refused rather than mistaken for history (R6-AP-04).
+# also lacks it, and is refused rather than mistaken for history.
 #
 # The commands are READ from scripts/pipeline.steps for this platform, through the same
 # parser every runner uses, never written here: a second copy of a step's command is a
@@ -113,7 +113,7 @@ if [ "${1-}" = "--self-test" ]; then
             exit 1
         }
         # A commit that DELETES the contract has no contract either, and must not pass as
-        # one that predates it (R6-AP-04).
+        # one that predates it.
         git rm -q scripts/pipeline.steps && git commit -qm "drop the contract"
         if git push -q origin main >"$st/del.log" 2>&1; then
             echo "pre-push self-test: FAILED — a commit deleting the contract was accepted" >&2
@@ -217,7 +217,7 @@ setup_platform_env() {
         # STRIP THE CR. PowerShell ends every line CRLF, and `read` splits on LF alone, so
         # each value arrives with a trailing \r welded to it -- a directory that does not
         # exist, in a variable that reads correctly everywhere it is printed. MEASURED here
-        # (R6-AP-03) on three of the four values; the fourth escaped only because command
+        # on three of the four values; the fourth escaped only because command
         # substitution had already eaten the final line ending, which is the kind of
         # accident that makes this look fine until someone adds a fifth.
         #
@@ -277,7 +277,7 @@ for oid in "${oids[@]}"; do
     short="$(git rev-parse --short "$oid")"
     if ! git cat-file -e "$oid:$CONTRACT" 2>/dev/null; then
         # "No contract in this commit" means two different things, and only one of them is
-        # harmless (R6-AP-04). If NOTHING in the commit's ancestry ever touched the path, the
+        # harmless. If NOTHING in the commit's ancestry ever touched the path, the
         # commit predates the contract and has no steps to run. If an ancestor touched it,
         # this commit (or one before it) DELETED or renamed it — and waving that through as
         # "predates" would let one commit switch the gate off for every commit after it.

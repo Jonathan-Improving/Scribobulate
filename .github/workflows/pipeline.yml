@@ -130,7 +130,7 @@ jobs:
         run: packaging/windows/pipeline.ps1 -SelfTest
       # The pre-push hook's self-test runs in step 8 on Linux and macOS, but the Windows
       # runner dispatches through `cmd /c`, whose PATH has no bash. Git for Windows runs the
-      # hook under its own bash, and so does this step (R6-TST-17).
+      # hook under its own bash, and so does this step.
       - name: Pre-push gate refuses what it exists to refuse
         shell: bash
         run: scripts/git-hooks/pre-push --self-test

@@ -336,7 +336,7 @@ disarm.macos integration  permanent  G_DEBUG=fatal-criticals is absent from the 
 # independently later.
 #
 # THE VERDICT IS `absent:`, NOT `exit`, because a gate here can pass having measured
-# nothing (R6-AP-02). `memgate::footprint::measuring` refuses outside the suite child: it
+# nothing. `memgate::footprint::measuring` refuses outside the suite child: it
 # prints `SKIPPED [TDD <rubric>]` and the body returns green, so a run where every gate
 # skipped exits 0 exactly like one where every gate measured a flat series. Today the
 # child sets the flag before any case runs, so the refusal cannot fire — which is the
@@ -423,7 +423,7 @@ cmd.windows diagram  powershell -NoProfile -Command "$d = New-Object System.Xml.
 # A gate is its pattern AND the set of files it runs over. That set is still a data file,
 # scripts/lint-references.scan, which the binary READS rather than restates.
 #
-# THE PRE-PUSH GATE'S SELF-TEST RIDES HERE (R6-AP-04, R6-TST-17). scripts/git-hooks/pre-push
+# THE PRE-PUSH GATE'S SELF-TEST RIDES HERE. scripts/git-hooks/pre-push
 # --self-test is the proof that the hook refuses a failing commit buried behind a clean tip
 # and a commit that deletes this contract; a proof nothing executes turns nothing red when
 # the hook regresses (GEP-67). It is a repository gate checking a repository gate, which is

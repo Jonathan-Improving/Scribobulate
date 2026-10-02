@@ -1111,7 +1111,7 @@ run_step() {
     # An `absent:<text>` verdict reads the same copy: the exit code still decides, AND a
     # line of the step's own output containing <text> fails it. It exists for a gate whose
     # bodies can refuse to measure and return green — the memory class's `SKIPPED [TDD`
-    # (R6-AP-02) — where a step judged by its exit code alone reports PASS having measured
+    # — where a step judged by its exit code alone reports PASS having measured
     # nothing, and the run that passes is the one nobody reads.
     local surface absent="" rc=0
     surface=$(contract_value surface "$id")

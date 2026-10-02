@@ -242,7 +242,7 @@ fn main() {
 
     // A run that selects nothing has verified nothing, and must not say `result: ok`. The
     // memory step selects its cases by the substring `memgate`, so renaming that module
-    // would otherwise turn the step into an empty run that passes (R6-AP-02). `--list`
+    // would otherwise turn the step into an empty run that passes. `--list`
     // above is exempt: an empty listing is the answer to the question it asks. 2, not 1,
     // for the reason the usage error gives — the suite never ran a case.
     if selected.iter().all(|c| c.ignored) {

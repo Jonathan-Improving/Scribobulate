@@ -341,8 +341,8 @@ mod tests {
         }
         let err = assert_no_growth(&series, 3, BOUNDS).unwrap_err();
         assert!(err.contains("a climb, not a step"), "{err}");
-        // The message reports the stretch's own figures, which add up to the residual
-        // (R6-SPEC-03): the climb after the fall, samples 4..=9 after warm-up — five
+        // The message reports the stretch's own figures, which add up to the residual:
+        // the climb after the fall, samples 4..=9 after warm-up — five
         // rises of 12 000, one of them explained, 48 000 left.
         assert!(
             err.contains("grew 60000 bytes across samples 4..=9")

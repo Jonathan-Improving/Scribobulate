@@ -532,6 +532,9 @@
 - **And given** an image whose `src` is an absolute path, a `..` traversal, or a symlink (under the doc folder) pointing outside the document's directory
 - **When** it is rendered
 - **Then** the file is **not** loaded — the canonicalized target must stay at or beneath the document's directory (an untitled document, having no directory, resolves no local images)
+- **And given** an image or a document link whose path reaches a network share outside the document's folder — a Windows `\\host\share` path, any spelling of one, or a symbolic link in the folder whose target is one
+- **When** it is rendered, or the link is clicked
+- **Then** nothing touches the share: the path is refused before any filesystem call, whatever "Show Unsafe Images" or "Load Unsafe Linked Documents" says — reaching a share authenticates with the user's credentials, which neither toggle is consent to — and the reader is told it is a network share rather than that the file is missing. A document opened from a share still loads the images in its own folder
 - **And given** an image, local or remote, whose header declares dimensions that decode past the project's pixel cap — a decompression bomb, which is small enough on disk to clear every byte limit and expands to hundreds of megabytes or more
 - **When** it is rendered
 - **Then** its dimensions are read from the header and it is refused **before** the decode, showing the ordinary broken-image placeholder — cost is part of the threat model, and a byte cap bounds the transfer while saying nothing about what it expands to
@@ -2218,7 +2221,7 @@
 ### 14.4 Out-of-folder local images load when the toggle is on
 - **Given** a document referencing a local image outside the document folder
 - **When** "Show Unsafe Images" is **on**
-- **Then** the image is loaded from its absolute path and displayed inline
+- **Then** the image is loaded from its absolute path and displayed inline — except a path on a network share, which the toggle never admits (2.7)
 
 ### 14.5 Toggling off immediately shows broken-image placeholders
 - **Given** "Show Unsafe Images" is on and the preview shows remote or out-of-folder images
@@ -2245,7 +2248,7 @@
 - **Given** an image that cannot be displayed — blocked by policy, its path/URL unresolvable (**not found** at render time), or a resolved file/URL that fails to decode as an image
 - **When** the document is rendered (including after toggling "Show Unsafe Images")
 - **Then** a broken-image placeholder icon (`image-missing`) is shown in its place — the render **never** silently degrades to the bare alt string
-- **And** the placeholder's tooltip states the reason and the offending `src`: "Blocked image (enable Show Unsafe Images to load): …", "Image not found: …", or "Could not load image: …"
+- **And** the placeholder's tooltip states the reason and the offending `src`: "Blocked image (enable Show Unsafe Images to load): …", "Network share images are never loaded: …" (2.7), "Image not found: …", or "Could not load image: …"
 - **And** in particular, toggling "Show Unsafe Images" on an image whose file is absent at that instant replaces the "blocked" placeholder with a "not found" placeholder (icon retained) — it does **not** remove the icon and leave only alt text, which read as the toggle having done nothing
 - **And** "blocked" is reserved for a reference the toggle could actually admit — a remote URL, or a local path that **exists** and escapes the document folder. A path that is *contained* (or would be) but has **no file behind it at render time** reads as **not found**, with the gate on or off: it is unresolvable, not refused, and the "enable Show Unsafe Images" wording would otherwise invite the reader to lift a safety gate that was never what stopped them. This is what a document and its images arriving together — a checkout, a sync, a generator — looks like when the image loses the race by a frame (the render is a snapshot; the reason it gives must still be true)
 
@@ -3311,7 +3314,7 @@ appearance that predates the feature; `Sepia` is the book-like reading theme.
 ### 19.3 The toggle lifts containment for the current tab's own links only
 - **Given** "Load Unsafe Linked Documents" is turned ON for a tab
 - **When** a link in THAT tab's document resolves outside its folder
-- **Then** navigation is permitted (the target still canonicalizes to a real file)
+- **Then** navigation is permitted (the target still canonicalizes to a real file) — except a target on a network share, which the toggle never admits (2.7)
 - **And** the tab landed on has its OWN toggle at its default (OFF) — turning the toggle on in one tab never grants navigation permission to whatever the linked document links to next; permission re-roots at every hop and cannot ratchet across the filesystem
 
 ### 19.4 The toggle is per-tab and does not persist

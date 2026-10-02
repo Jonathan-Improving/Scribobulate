@@ -120,7 +120,7 @@ pub(crate) fn banned_route_findings(bans: &str, register: &str) -> Vec<String> {
 /// `*Ext` trait no register line ever writes — prose says `TextView::scroll_to_mark` or
 /// `view.scroll_to_mark(…)` — so for those the type (`Ext` removed) and the method-call
 /// form are matched too. Without them half the ban list was invisible to this check while
-/// its PASS read as covering all of it (R6-AP-01). The BARE leaf is deliberately not
+/// its PASS read as covering all of it. The BARE leaf is deliberately not
 /// matched: `text`, `cancel`, `new` are ordinary words.
 fn spellings(owner: &str, leaf: &str) -> Vec<String> {
     let mut names = vec![format!("{owner}::{leaf}")];
@@ -183,7 +183,7 @@ const WARN_WINDOW_AFTER: usize = 40;
 /// must not match inside "urban" or "banner", and the bare "not"/"was" the first version
 /// carried are gone: they vetoed "the old loader did not cache" and "it was the fastest
 /// route", which say nothing about the call. So are the two-way words the second version
-/// carried (R6-AP-01): "used to", "no longer", a bare "never" and "refusing" describe
+/// carried: "used to", "no longer", a bare "never" and "refusing" describe
 /// something else as often as they warn about the call, and "never block the main loop:
 /// load with `X::y`" is a prescription.
 fn warn_before_rx() -> &'static regex::Regex {

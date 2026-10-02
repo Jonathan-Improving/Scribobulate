@@ -8,7 +8,7 @@ use crate::lint::patterns::policy_step_citations;
 
 const P: &str = "POLICY";
 
-/// Each was a real dangling citation in the tree (R6-SPEC-01), and each must flag.
+/// Each was a real dangling citation in the tree, and each must flag.
 #[test]
 fn a_numbered_policy_step_is_flagged() {
     let cases = [

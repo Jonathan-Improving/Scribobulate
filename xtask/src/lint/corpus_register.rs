@@ -70,7 +70,7 @@ const PRESCRIBES: &[&str] = &[
     "**Resolution**: the urban banner loads with `Texture::from_file`.",
     // "instead of" AFTER the name is the prescription's own alternative, not a warning.
     "**Resolution**: call `Texture::from_file` instead of the decoder.",
-    // R6-AP-01: the commonest phrasings of a Resolution. A two-way connective ("avoid",
+    // the commonest phrasings of a Resolution. A two-way connective ("avoid",
     // "instead of", "rather than") opens a clause whose prescription follows the comma,
     // and "used to"/"no longer"/a bare "never" say nothing about the named call. Each was
     // green under the 60-character window that vetoed on any of them.

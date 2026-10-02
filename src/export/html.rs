@@ -1939,11 +1939,11 @@ mod html_sink_tests {
             "[e](https://example.com#frag)\n\n",
             "[f](TECH.md#module-map)\n\n",
             "[g](#section)\n\n",
-            // R4-SEC-01: leading whitespace inside an angle-bracket destination, which
+            // leading whitespace inside an angle-bracket destination, which
             // both reviewers agreed is exploitable, driven through the real sink.
             "[h](<\tjavascript:alert(1)//#x>)\n\n",
             "[i](< javascript:alert(1)//#x>)\n\n",
-            // R4-SEC-02: protocol-relative, a filesystem fetch from a file:// artefact.
+            // protocol-relative, a filesystem fetch from a file:// artefact.
             "[j](//evil.example/#x)\n",
         ));
         for refused in [
@@ -1967,7 +1967,7 @@ mod html_sink_tests {
         // Positive control: the permitted destinations are genuinely present, so the
         // assertions above cannot pass by the emitter having dropped every href.
         //
-        // (R4-SEC-01's whitespace-and-NUL variants are asserted at the gate in
+        // (the whitespace-and-NUL variants are asserted at the gate in
         // `links`, over all ten forms; the Markdown layer resolves entities and
         // angle-bracket destinations differently per form, so pinning them here would
         // be testing the parser rather than the gate.)

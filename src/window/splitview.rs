@@ -699,7 +699,7 @@ impl RelinkGate {
                     on_event.pressed.set(true);
                 }
                 // A broken grab is a release that never arrives as one: the press
-                // would otherwise hold the repair off for good (R6-GTK-01).
+                // would otherwise hold the repair off for good.
                 gdk::EventType::ButtonRelease
                 | gdk::EventType::TouchEnd
                 | gdk::EventType::TouchCancel
@@ -734,7 +734,7 @@ impl RelinkGate {
 
     /// The repair as measured to be needed: once now and once [`RELINK_REPEAT`] later,
     /// because one pass alone measured 1 of 30 left orphaned. A held repair replays both
-    /// passes, not one (R6-GTK-02).
+    /// passes, not one.
     fn relink_twice(&self, bar: &gtk::Widget) {
         self.relink(bar);
         let bar = bar.downgrade();

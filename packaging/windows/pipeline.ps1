@@ -1004,7 +1004,7 @@ function Invoke-SelfTest {
         #
         # Both spellings, because they fail a token-splitting implementation DIFFERENTLY:
         # unquoted, the path arrives glued to `$(` and `)`; quoted, glued to `"` as well.
-        # The bash port gained the same two cases (R5-AP1-12), so one grammar is proven on
+        # The bash port gained the same two cases, so one grammar is proven on
         # both sides rather than asserted to be shared.
         @{ Rule = 'a script named inside an unquoted command substitution'
            Lines = (New-ProbeContract -Drop @('cmd.windows') `
@@ -1164,7 +1164,7 @@ function Invoke-SelfTest {
     }
     Write-Host "   a surface line repeats the step's own marker lines and leaves the verdict alone"
 
-    # ABSENT (R6-AP-02). The property is the one a `surface` line CANNOT give: a step that
+    # ABSENT. The property is the one a `surface` line CANNOT give: a step that
     # exits 0 while its own output says it measured nothing must FAIL. The refused text
     # reaches the output only by EXECUTION, for the same reason the surface case builds it
     # from an env var -- the `$ <cmd>` echo line must not contain it, or a port that scanned
@@ -1672,7 +1672,7 @@ function Invoke-ContractStep {
     # An `absent:<text>` verdict reads the SAME captured copy: the exit code still decides,
     # AND a line of the step's own output containing <text> fails it. It exists for a gate
     # whose bodies can refuse to measure and still return green -- the memory class's
-    # `SKIPPED [TDD` (R6-AP-02) -- where a step judged by its exit code alone reports PASS
+    # `SKIPPED [TDD` -- where a step judged by its exit code alone reports PASS
     # having measured nothing, and the run that passes is the one nobody reads.
     $surface = Get-ContractValue 'surface' $Id
     $absent = ''

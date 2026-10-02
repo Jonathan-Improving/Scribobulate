@@ -1942,7 +1942,7 @@ mod tests {
 
     #[test]
     fn is_exportable_href_refuses_a_scheme_the_two_parsers_disagree_about() {
-        // R4-SEC-01. Every one of these is malformed by RFC 3986 and REPAIRED by the
+        // Every one of these is malformed by RFC 3986 and REPAIRED by the
         // WHATWG URL Standard, which strips leading C0/space and removes every tab, LF
         // and CR anywhere in the URL before parsing the scheme. Inferring "relative"
         // from "my scheme parser did not recognise this" admitted all of them.
