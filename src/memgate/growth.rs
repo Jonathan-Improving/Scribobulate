@@ -93,18 +93,24 @@ pub(crate) fn total_growth(samples: &[u64]) -> i64 {
 /// itself is never growth, so a footprint the OS trims (Windows) passes; the cost is
 /// that memory rising over several samples and then released is judged on the rise.
 pub(crate) fn residual_growth(samples: &[u64]) -> i64 {
-    let mut worst = i64::MIN;
+    worst_stretch(samples).map_or(0, |(_, _, residual)| residual)
+}
+
+/// The stretch `[start, end]` (sample indices, inclusive) that [`residual_growth`]
+/// reports, with its residual, or `None` for fewer than two samples. Reported in the
+/// run log so a reading near the bound says WHERE the growth was.
+pub(crate) fn worst_stretch(samples: &[u64]) -> Option<(usize, usize, i64)> {
+    let mut worst: Option<(usize, usize, i64)> = None;
     for start in 0..samples.len() {
         for end in start + 1..samples.len() {
             let stretch = &samples[start..=end];
-            worst = worst.max(total_growth(stretch) - largest_rise(stretch) as i64);
+            let residual = total_growth(stretch) - largest_rise(stretch) as i64;
+            if worst.is_none_or(|(_, _, w)| residual > w) {
+                worst = Some((start, end, residual));
+            }
         }
     }
-    if worst == i64::MIN {
-        0
-    } else {
-        worst
-    }
+    worst
 }
 
 /// `Ok(())` when the series after `warmup` grew no more than
@@ -157,13 +163,13 @@ pub(crate) fn assert_no_growth(
 /// host, rather than only from a red one.
 pub(crate) fn describe(samples: &[u64], warmup: usize, bounds: Bounds) -> String {
     let rest = after_warmup(samples, warmup);
+    let (from, to, residual) = worst_stretch(rest).unwrap_or((0, 0, 0));
     format!(
         "{} samples after warmup={warmup}: total growth {} bytes, largest rise {} bytes, \
-         residual {} bytes (bounds: residual {}, total {})",
+         residual {residual} bytes over samples {from}..={to} (bounds: residual {}, total {})",
         rest.len(),
         total_growth(rest),
         largest_rise(rest),
-        residual_growth(rest),
         bounds.residual_bytes,
         bounds.total_bytes
     )
