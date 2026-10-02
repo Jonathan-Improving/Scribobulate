@@ -429,9 +429,14 @@ cmd.windows diagram  powershell -NoProfile -Command "$d = New-Object System.Xml.
 # the hook regresses (GEP-67). It is a repository gate checking a repository gate, which is
 # this step's business, it needs no cargo, and it costs a few seconds. The hook is bash, so
 # on Windows it needs Git-for-Windows' bash, which is NOT on the PowerShell PATH the
-# `cmd /c` executor inherits, so cmd.windows does not run it: the contract-windows CI job
-# runs it under Git-for-Windows bash instead, until this runner can locate that bash and
-# the Windows seat has proven a cmd.windows line both runs and discriminates.
+# `cmd /c` executor inherits -- MEASURED on the Windows seat: `bash` resolves to nothing
+# there. %SCRIB_BASH% is published by packaging/windows/pipeline.ps1's setup phase, which
+# derives it from git.exe's install root rather than from PATH, because a PATH lookup finds
+# `C:\Windows\System32\bash.exe` -- the WSL launcher -- on any machine where WSL is
+# installed, and running this hook inside a Linux distribution fails in ways that read as
+# the hook being broken. Expanded by `cmd /c` at the point of use, so the contract names one
+# shell without restating a path. Proven on that seat to run AND to discriminate: a
+# deliberately broken hook turns this step red.
 # ---------------------------------------------------------------------------
 step   8  references
 intent references  Every cross-reference in the tree resolves, and the citation-form rules hold
@@ -439,7 +444,7 @@ verdict references  exit
 class  references  required
 cmd.linux   references  cargo xtask lint-references && scripts/git-hooks/pre-push --self-test
 cmd.macos   references  cargo xtask lint-references && scripts/git-hooks/pre-push --self-test
-cmd.windows references  cargo xtask lint-references
+cmd.windows references  cargo xtask lint-references && "%SCRIB_BASH%" scripts/git-hooks/pre-push --self-test
 
 # ---------------------------------------------------------------------------
 # Step 9 — the installer artefact

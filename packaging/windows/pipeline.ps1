@@ -1736,6 +1736,42 @@ function Invoke-ContractStep {
 # toolchain's is Windows and semicolon-separated. Handing bash a Windows PATH breaks bash
 # itself. One directory is unambiguous, and the caller joins it in its own grammar.
 # --------------------------------------------------------------------------------------
+# Git for Windows' bash, for the one contract command that needs a POSIX shell: the
+# pre-push hook's own self-test, which steps 8 on Linux and macOS already run.
+#
+# DERIVED FROM git.exe, NEVER LOOKED UP ON PATH, and that is the whole substance of this
+# function. `C:\Windows\System32\bash.exe` is the WSL launcher: on a machine where WSL is
+# installed it is what a PATH lookup finds FIRST, and it would run the hook inside a Linux
+# distribution -- a different filesystem, a different git, no Windows paths -- which fails
+# in ways that read as the hook being broken rather than as the wrong interpreter. On this
+# box bash is not on PATH at all (measured), so the naive lookup does not merely find the
+# wrong one, it finds nothing, and the step would have been "works on my machine" in
+# reverse.
+#
+# git.exe is the anchor because the project cannot run without it, and Git for Windows ships
+# bash beside it. The walk goes UP from git's own directory (\cmd, \bin or \mingw64\bin are
+# all possible) looking for bin\bash.exe, so it survives the layouts without knowing them.
+# A candidate under the Windows directory is refused outright: nothing legitimate puts Git's
+# bash there, and that is precisely where the impostor lives.
+# --------------------------------------------------------------------------------------
+function Get-GitBash {
+    $git = Get-Command git.exe -CommandType Application -ErrorAction SilentlyContinue |
+           Select-Object -First 1
+    if (-not $git) {
+        throw 'git.exe not found, so Git for Windows'' bash cannot be located. The pipeline needs it for the pre-push hook self-test (step 8).'
+    }
+    $windir = [Environment]::GetFolderPath('Windows')
+    $dir = Split-Path $git.Source -Parent
+    while ($dir) {
+        $cand = Join-Path $dir 'bin\bash.exe'
+        if ((Test-Path $cand) -and -not $cand.StartsWith($windir, [StringComparison]::OrdinalIgnoreCase)) {
+            return $cand
+        }
+        $dir = Split-Path $dir -Parent
+    }
+    throw "Found git at $($git.Source) but no bin\bash.exe above it. Install Git for Windows (which ships bash); do NOT put System32\bash.exe on PATH -- that is WSL."
+}
+
 function Get-SetupEnvironment {
     # pkgconf/pkg-config ship inside the gvsbuild tree; there is no system-wide
     # pkg-config, so $Prefix\bin must be on PATH or gtk4-sys's build script cannot probe.
@@ -1886,6 +1922,14 @@ function Invoke-SetupPhase {
         if (-not $v) { throw "pkg-config cannot resolve $m" }
         Write-Host ('    {0,-18} {1}' -f $m, $v)
     }
+
+    # Resolved HERE and published as SCRIB_BASH so the contract can name one POSIX shell
+    # without restating a path. Every contract command is dispatched through `cmd /c`, which
+    # expands %SCRIB_BASH% at the point of use. Resolving it in the setup phase also means a
+    # machine without Git bash fails in the setup phase, where the message says so, rather
+    # than at step 8 with cmd reporting that '"%SCRIB_BASH%"' is not recognised.
+    $env:SCRIB_BASH = Get-GitBash
+    Write-Host ('    {0,-18} {1}' -f 'bash', $env:SCRIB_BASH)
 
     Initialize-ClientAreaAnimation
 }
