@@ -134,28 +134,11 @@ fn whole_word_draws_the_word_boundary_at_the_same_characters() {
     }
 }
 
-/// **Question 1 — how whole word wraps a regular expression.** A bare `\bcat|dog\b`
-/// binds each anchor to one branch of the alternation, so it would match `dogma`'s
-/// `dog` while the non-capturing `\b(?:cat|dog)\b` would not. The two panes would then
-/// disagree on any alternation the reader types with *whole word* ticked.
-///
-/// MEASURED: GtkSourceView wraps with the non-capturing group, and so does the matcher.
-#[gtktest::test]
-fn whole_word_wraps_an_alternation_as_one_group() {
-    const HAY: &str = "cat dog concat dogma a cat, a dog.\n";
-    agree(
-        HAY,
-        "cat|dog",
-        opts(false, true, true),
-        "alternation wrapping",
-    );
-    agree(
-        HAY,
-        "cat|dog",
-        opts(false, false, true),
-        "alternation, unwrapped",
-    );
-}
+// Whole word over a regular-expression ALTERNATION is not a parity case here: both
+// panes compile the same `editor_pattern` string, so a case built from it agrees
+// whatever the wrapper is. GtkSourceView's own wrapper is ungrouped (`matcher.rs`), and
+// the guard that fails when the application's wrapping regresses drives the find bar:
+// `bartests::whole_word_bounds_an_alternation_the_same_way_in_both_panes`.
 
 /// **Question 3 — compile flags.** The matcher compiles with MULTILINE, so `^` anchors
 /// at every line start rather than only at the start of the text. If GtkSourceView did

@@ -132,11 +132,24 @@ pub(crate) fn create_state_dir(dir: &Path) -> std::io::Result<()> {
             .create(dir)?;
         if migrating {
             // `create_dir_all` leaves an EXISTING directory's mode alone, so a tree made
-            // by an earlier build stays 0775 until something narrows it. Best-effort: a
-            // failure here must not stop the session being saved.
-            if let Ok(meta) = std::fs::metadata(dir) {
-                if meta.permissions().mode() & 0o077 != 0 {
-                    let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+            // by an earlier build stays 0775 until something narrows it.
+            //
+            // **A tighten that does not take is an error, as on Windows.** An existing
+            // directory has no `0700`-created floor under it: if the chmod is refused
+            // (owned by someone else, a read-only mount) the directory stays readable by
+            // other local users, and callers writing unsaved document text into it must
+            // be able to decline. The session save already degrades on an `Err`.
+            let meta = std::fs::metadata(dir)?;
+            if meta.permissions().mode() & 0o077 != 0 {
+                if let Err(e) =
+                    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+                {
+                    log::warn!(
+                        "state dir {}: could not narrow mode {:o} to 0700: {e}",
+                        dir.display(),
+                        meta.permissions().mode() & 0o777
+                    );
+                    return Err(e);
                 }
             }
         }

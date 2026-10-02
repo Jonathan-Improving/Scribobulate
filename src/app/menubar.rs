@@ -9,7 +9,9 @@
 //! each one from `set_accels_for_action`; see [`item`] for why the `accel` attribute
 //! this file used to write was removed rather than tidied.
 
-use super::commands::{Cmd, EDIT_CMDS, FILE_CMDS, FORMAT_CMDS, TBTN_SECTION_IDS, VIEW_CMDS};
+use super::commands::{
+    Cmd, FormatGroup, EDIT_CMDS, FILE_CMDS, FORMAT_CMDS, TBTN_SECTION_IDS, VIEW_CMDS,
+};
 use super::mnemonics::mnem;
 use crate::export::ExportTarget;
 use crate::winstate::FmtInsertKind;
@@ -505,26 +507,22 @@ fn build_format_menu() -> (Menu, Menu) {
     // the uniqueness test reserved H for it — a false pass).
     inline.append_submenu(Some(&mnem("Heading")), &heading);
 
-    for t in [
-        "strike",
-        "highlight",
-        "code-span",
-        "sup",
-        "sub",
-        "code-block",
-        "quote",
-        "bulleted-list",
-        "numbered-list",
-        "task-list",
-        "hr",
-    ] {
-        append(&inline, t);
+    // The rest of the text styles, then the block commands, in table order, from each
+    // command's own `group` (the Keyboard Shortcuts window reads the same field).
+    for c in FORMAT_CMDS
+        .iter()
+        .filter(|c| c.group != FormatGroup::Insert && !matches!(c.target, "bold" | "italic"))
+    {
+        append(&inline, c.target);
     }
 
     // Insertions go in their own section so GTK draws a separator above them.
     let insert = Menu::new();
-    for t in ["link", "image", "table"] {
-        append(&insert, t);
+    for c in FORMAT_CMDS
+        .iter()
+        .filter(|c| c.group == FormatGroup::Insert)
+    {
+        append(&insert, c.target);
     }
 
     let outer = Menu::new();

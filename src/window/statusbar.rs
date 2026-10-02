@@ -547,7 +547,7 @@ fn run(job: CountJob) {
         // the next pending job is started from one place rather than from the happy
         // path only.
         let _latch = RunningLatch;
-        #[allow(clippy::disallowed_methods, reason = "sanctioned dispatcher for docio::budget::Consumer::WordCount; the admission gate is the single-slot Counter above")]
+        #[expect(clippy::disallowed_methods, reason = "sanctioned dispatcher for docio::budget::Consumer::WordCount; the admission gate is the single-slot Counter above")]
         let outcome = gtk::gio::spawn_blocking(move || {
             source.map(|text| (TextCount::of_markdown(&text), LineEndings::classify(&text)))
         })

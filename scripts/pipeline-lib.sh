@@ -299,31 +299,27 @@ validate_contract() {
     # Worth having because an opt-in step is exactly where a typo survives: `package`
     # does not run unless asked, so a misspelled path there would otherwise be found by
     # whoever first tries to cut a release, which is the worst moment to find it.
-    # A SCRIPT INSIDE A COMMAND SUBSTITUTION IS STILL A SCRIPT THIS COMMAND NAMES.
-    # `$(scripts/foo.sh)` arrives here as one token ending `)`, so the patterns below miss
-    # it and the check passes over the one position where a missing script is WORST: the
-    # substitution's failure is silent — the shell puts an empty string in its place and
-    # the step runs a command shorter than the contract states, which for a test selection
-    # means a run WIDER than intended rather than a run that fails. The wrappers are
-    # stripped so the path inside is checked exactly like a bare one.
+    # A SCRIPT INSIDE A COMMAND SUBSTITUTION IS STILL A SCRIPT THIS COMMAND NAMES, and so
+    # is one wrapped in quotes or butted against `;`/`&&`. Those are the positions where a
+    # missing script is WORST: a substitution's failure is silent — the shell puts an empty
+    # string in its place and the step runs a command shorter than the contract states,
+    # which for a test selection means a run WIDER than intended rather than a run that
+    # fails. Paths are therefore EXTRACTED by a regex that finds them anywhere in the line,
+    # not matched against whitespace tokens: the earlier token glob stripped a bare `$(` and
+    # `)` but passed `"$(scripts/x.sh)"` silently. The regex is the one pipeline.ps1 uses
+    # (minus its `\` separator, which no cmd.linux/cmd.macos line uses), so both ports
+    # share one grammar for this rule rather than two that disagree at the edges.
     for id in $ids; do
         local cmdline tok
         cmdline=$(contract_value "cmd.$PLATFORM" "$id")
         [ -n "$cmdline" ] || continue
-        for tok in $cmdline; do
-            tok="${tok#\$(}"
-            tok="${tok#\`}"
-            tok="${tok%\`}"
-            tok="${tok%)}"
-            case "$tok" in
-                */*.sh|*/*.ps1)
-                    if [ ! -e "$tok" ]; then
-                        echo "pipeline: step '$id' cmd.$PLATFORM names '$tok', which does not exist" >&2
-                        errs=$((errs + 1))
-                    fi
-                    ;;
-            esac
-        done
+        while IFS= read -r tok; do
+            [ -n "$tok" ] || continue
+            if [ ! -e "$tok" ]; then
+                echo "pipeline: step '$id' cmd.$PLATFORM names '$tok', which does not exist" >&2
+                errs=$((errs + 1))
+            fi
+        done < <(printf '%s\n' "$cmdline" | grep -oE '[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*\.(ps1|sh)')
     done
 
     # Ordinals must be non-decreasing in file order, so a reorder that forgets to
@@ -734,6 +730,15 @@ contract_negative_cases() {
         "cmd.linux beta true \$(scripts/definitely-not-here.sh)" \
         "cmd.macos beta true \$(scripts/definitely-not-here.sh)" \
         "cmd.windows beta true \$(scripts/definitely-not-here.sh)" || failed="$failed case"
+
+    # The same rule through a QUOTED substitution, which the old whitespace-token glob
+    # passed silently: the token `"$(scripts/x.sh)"` ends in `"`, so neither wrapper strip
+    # applied and no pattern matched. Deleting the regex extraction must go red here.
+    contract_rejects "command substitutes a script that does not exist, quoted" "does not exist" \
+        "step 2 beta" "intent beta b" "verdict beta exit" "class beta required" \
+        "cmd.linux beta echo \"\$(scripts/definitely-not-here.sh)\"" \
+        "cmd.macos beta echo \"\$(scripts/definitely-not-here.sh)\"" \
+        "cmd.windows beta echo \"\$(scripts/definitely-not-here.sh)\"" || failed="$failed case"
 
     # PAIRED NEGATIVE. The stripping must not turn "any token with a bracket on it" into a
     # path check — a rule that fires on everything is as useless as one that fires on

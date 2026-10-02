@@ -758,11 +758,16 @@ jobs:
           echo "found $n installer file(s)"
           [ "$n" -ge 4 ] || { echo "::error::expected at least 4 (.deb .rpm .dmg .exe); found $n"; exit 1; }
 
+      # The tag name reaches the script through `env:`, never as `${{ }}` inside `run:`:
+      # an expression there is pasted into the script text before bash parses it, so a tag
+      # name carrying `"` or `$(...)` would be executed. As an environment variable it is
+      # only ever data.
       - name: Attach them
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
         run: |
           set -euo pipefail
-          gh release upload "${{ github.event.release.tag_name }}" \
+          gh release upload "$TAG" \
              installers/*.deb installers/*.rpm installers/*.dmg installers/*.exe \
-             --clobber --repo "${{ github.repository }}"
+             --clobber --repo "$GITHUB_REPOSITORY"

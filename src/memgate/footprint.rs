@@ -13,10 +13,11 @@
 /// **Both are derived from clean traces, and the run log carries the numbers
 /// they were derived from.** `residual_bytes` sits above the growth a clean run
 /// leaves unexplained by its single largest allocation, and far below what a
-/// per-render climb leaves: ScrAP-351's fixture-scale leak is ~1.05 MB per
-/// render, which over a ten-sample window leaves ~9.4 MB of residual — two
-/// orders of magnitude above the bound rather than beside it, so no host's churn
-/// sits near the decision. `total_bytes` sits above the largest one-time step
+/// per-render climb leaves: ScrAP-351's leak is ~1.05 MB per render at the test
+/// fixture's scale (~12 MB on a real document's image), which over a ten-sample
+/// window — nine rises, less the largest — leaves ~8.4 MB of residual, about four
+/// times the bound rather than beside it, so no host's churn sits near the
+/// decision. `total_bytes` sits above the largest one-time step
 /// ever measured (~12.6 MB on the Linux CI runner, before `measuring()` stopped
 /// the kernel's huge-page collapse from producing it) and far below what any
 /// climb totals.
@@ -40,7 +41,7 @@
 /// the shape the predicate must pass. Its 0.86 MB of residual is the worst
 /// clean reading anywhere, and it sits 2.3x under the bound while the smallest
 /// leak the gate must catch — ScrAP-351's ~1.05 MB per render over a ten-sample
-/// window — sits 4.5x over it. Windows shows the bound must tolerate a NEGATIVE
+/// window, ~8.4 MB of residual — sits about 4x over it. Windows shows the bound must tolerate a NEGATIVE
 /// residual: its footprint falls across the window, which is not growth.
 /// A leak arriving in two chunks rather than one is the shape this cannot see;
 /// the ceiling below is what bounds it.
@@ -49,11 +50,17 @@ pub(crate) const GROWTH_BOUNDS: super::growth::Bounds = super::growth::Bounds {
     total_bytes: 24 * 1024 * 1024,
 };
 
+/// ScrAP-351's per-render leak at the test fixture's scale, in bytes.
+const FIXTURE_LEAK_PER_RENDER: u64 = 1_050_000;
+
 /// The bounds must keep bracketing the magnitudes they were derived from: the
-/// residual bound far below what ScrAP-351's fixture-scale leak leaves over a
-/// ten-sample window, the ceiling above the largest one-time step measured. A compile-time assertion rather than a test, because an edit that
+/// residual bound below what ScrAP-351's fixture-scale leak leaves over the window
+/// (its rises less the largest one), the ceiling above the largest one-time step
+/// measured. A compile-time assertion rather than a test, because an edit that
 /// inverts either one has made the gate decorative and should not build.
-const _: () = assert!(GROWTH_BOUNDS.residual_bytes < 9 * 1024 * 1024);
+const _: () = assert!(
+    GROWTH_BOUNDS.residual_bytes < FIXTURE_LEAK_PER_RENDER * (SAMPLE_COUNT - WARMUP - 2) as u64
+);
 const _: () = assert!(GROWTH_BOUNDS.total_bytes > 12_600_000);
 
 /// Warm-up **renders** discarded before a render series is judged. Windows measured its
@@ -139,9 +146,23 @@ pub(crate) fn measuring(rubric: &str) -> Option<MeasurementGuard> {
 /// leak on one host only.
 #[cfg(all(test, feature = "memory-gates", target_os = "linux"))]
 fn disable_huge_page_collapse() {
+    set_huge_page_collapse_disabled(true);
+}
+
+/// Set the process's `PR_SET_THP_DISABLE` flag.
+#[cfg(all(test, feature = "memory-gates", target_os = "linux"))]
+fn set_huge_page_collapse_disabled(disabled: bool) {
     // SAFETY: PR_SET_THP_DISABLE takes one integer flag and no pointers; the
     // trailing arguments are required to be zero.
-    let rc = unsafe { libc::prctl(libc::PR_SET_THP_DISABLE, 1, 0, 0, 0) };
+    let rc = unsafe {
+        libc::prctl(
+            libc::PR_SET_THP_DISABLE,
+            libc::c_ulong::from(disabled),
+            0,
+            0,
+            0,
+        )
+    };
     assert_eq!(
         rc,
         0,
@@ -153,6 +174,17 @@ fn disable_huge_page_collapse() {
 #[cfg(all(test, feature = "memory-gates"))]
 pub(crate) struct MeasurementGuard {
     _private: (),
+}
+
+/// A test that installs process-global state restores it (POLICY § Unit tests): the
+/// huge-page opt-out ends with the measurement, so a case run after a gate in the same
+/// process sees the kernel's ordinary behaviour.
+#[cfg(all(test, feature = "memory-gates"))]
+impl Drop for MeasurementGuard {
+    fn drop(&mut self) {
+        #[cfg(target_os = "linux")]
+        set_huge_page_collapse_disabled(false);
+    }
 }
 
 /// Judge a sampled series against this platform's [`GROWTH_BOUNDS`], discarding

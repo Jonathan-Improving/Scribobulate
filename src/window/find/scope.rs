@@ -69,6 +69,13 @@ impl PreviewScope {
     pub(crate) fn contains(self, at: i32) -> bool {
         at >= self.start && at < self.end
     }
+
+    /// Whether a hit occupying `[start, end)` lies inside this scope — BOTH ends, the
+    /// same rule the editor applies (`editor_match_is_inside`), so "in selection" means
+    /// one thing in either pane. A zero-width hit is inside when its position is.
+    pub(crate) fn contains_span(self, start: i32, end: i32) -> bool {
+        self.contains(start) && editor_match_is_inside(start, end, self.start, self.end)
+    }
 }
 
 /// Whether a `[start, end)` match lies inside the editor scope `[lo, hi)`.
@@ -131,6 +138,29 @@ mod tests {
             start,
             end,
         }
+    }
+
+    /// A preview match that starts inside the passage and runs past its end is not in
+    /// the selection, exactly as in the editor; a zero-width hit is in it when its
+    /// position is.
+    #[test]
+    fn a_preview_match_straddling_the_bound_is_outside() {
+        let s = scope(10, 20);
+        assert!(s.contains_span(12, 18));
+        assert!(
+            s.contains_span(12, 20),
+            "ending exactly at the bound is inside"
+        );
+        assert!(!s.contains_span(18, 22), "running past the end is outside");
+        assert!(
+            !s.contains_span(8, 12),
+            "starting before the start is outside"
+        );
+        assert!(s.contains_span(15, 15), "a zero-width hit inside");
+        assert!(
+            !s.contains_span(20, 20),
+            "a zero-width hit at the end is after it"
+        );
     }
 
     /// The end bound is EXCLUSIVE, which is what makes the scope describe the same

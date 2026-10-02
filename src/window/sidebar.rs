@@ -218,12 +218,17 @@ pub(crate) fn focus_selected_row_deferred(scroller: &gtk::ScrolledWindow) {
         }
         // Each frame that still lacks the row asks again: a reveal of a far row lands on
         // an ESTIMATE of its offset, and the estimate improves as rows are laid out.
-        let reveal_from = scroller.clone();
+        // Weak: the tick is owned by the list, a descendant of this scroller, so a
+        // strong capture would keep the scroller alive from inside its own subtree
+        // (GTK4Rs/AP-63) until the deadline ran out.
+        let reveal_from = scroller.downgrade();
         focus_row_on_frames(
             &list_view,
             move |lv| {
                 focus_row_widget_where(lv, is_selected) || {
-                    reveal_selected_row(&reveal_from);
+                    if let Some(scroller) = reveal_from.upgrade().filter(|s| s.is_realized()) {
+                        reveal_selected_row(&scroller);
+                    }
                     false
                 }
             },

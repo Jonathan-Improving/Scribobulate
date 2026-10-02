@@ -242,7 +242,17 @@ fn main() {
         "the driver re-executes its own binary for each group, so it must be able to \
          name that binary",
     );
-    let report_path = std::env::temp_dir().join(format!("gtk_suite-{}.report", std::process::id()));
+    // The report lives in a PRIVATE directory made once per driver run (0700 on unix,
+    // random name), never at a PID-derived path in the shared temp dir. Every child
+    // appends verdicts to it and the driver counts them, so a predictable path let any
+    // local user pre-plant it: a symlink to truncate someone else's file through, or a
+    // regular file of `ok` lines read back as passes. Inside a directory only this user
+    // can enter, neither can be planted.
+    let report_dir = tempfile::Builder::new()
+        .prefix("gtk_suite-")
+        .tempdir()
+        .expect("the driver needs a private temp directory for the children's verdict report");
+    let report_path = report_dir.path().join("verdicts.report");
 
     // `#[ignore]` means the same thing here as it does under libtest. Reported per
     // case rather than dropped from `selected`, so the count in the summary still
@@ -269,6 +279,10 @@ fn main() {
 
     let started = std::time::Instant::now();
     let mut failed: Vec<&str> = Vec::new();
+    // Processes that recorded every verdict and THEN died or hung: each case passed, so
+    // none is counted failed, but the run is not clean. Kept apart from `failed` so the
+    // per-case arithmetic in the summary stays true.
+    let mut process_failures: Vec<String> = Vec::new();
 
     for group in &groups {
         let mut remaining: &[&Case] = group;
@@ -281,6 +295,24 @@ fn main() {
                 }
             }
             if finished == remaining.len() {
+                // Every verdict is in, but HOW the process ended still counts: a death in
+                // teardown (an atexit handler, a GLib finalizer, a fatal log promoted on
+                // exit) is exactly the class libtest would turn red, and a verdict count
+                // alone would print `result: ok` over it.
+                let how = match run.ended {
+                    GroupEnd::Completed => None,
+                    GroupEnd::TimedOut => {
+                        Some(format!("timed out (per-case wall-clock cap, {timeout}s)"))
+                    }
+                    GroupEnd::Died(how) => Some(how),
+                };
+                if let Some(how) = how {
+                    let module = remaining.last().map_or("?", |c| test_module(c.name));
+                    println!("process for {module} ... FAILED (died after its last case: {how})");
+                    flush();
+                    process_failures
+                        .push(format!("{module}: process died after its last case: {how}"));
+                }
                 break;
             }
             // The child ended with a case unfinished: that case is the casualty, and
@@ -304,20 +336,27 @@ fn main() {
             remaining = &remaining[finished + 1..];
         }
     }
-    let _ = std::fs::remove_file(&report_path);
+    // Explicitly, not at scope end: `process::exit` below skips destructors.
+    if let Err(err) = report_dir.close() {
+        eprintln!("gtk_suite: could not remove the report directory: {err}");
+    }
 
+    let clean = failed.is_empty() && process_failures.is_empty();
     println!(
         "\nresult: {}. {} passed; {} failed; {} ignored; finished in {:.2}s",
-        if failed.is_empty() { "ok" } else { "FAILED" },
+        if clean { "ok" } else { "FAILED" },
         selected.len() - failed.len() - ignored,
         failed.len(),
         ignored,
         started.elapsed().as_secs_f64()
     );
-    if !failed.is_empty() {
+    if !clean {
         println!("\nfailures:");
         for name in &failed {
             println!("    {name}");
+        }
+        for line in &process_failures {
+            println!("    {line}");
         }
         std::process::exit(1);
     }
@@ -586,8 +625,15 @@ fn run_group_in_child(
     timeout_secs: u32,
     report_path: &std::path::Path,
 ) -> GroupRun {
-    // Truncate: a report left by the previous child must not be read as this one's.
-    if let Err(err) = std::fs::File::create(report_path) {
+    // Truncate: a report left by the previous child must not be read as this one's. The
+    // path is inside the driver's private directory (see `report_dir`), so nothing but
+    // this run can have placed anything there to follow.
+    if let Err(err) = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .open(report_path)
+    {
         return GroupRun {
             verdicts: Vec::new(),
             casualty_started: false,

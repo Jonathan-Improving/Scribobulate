@@ -28,7 +28,7 @@
 //! Raw `TextBufferExt::begin_user_action` / `end_user_action` are banned via
 //! `clippy.toml`'s `disallowed-methods`, so this seam is the only route to a
 //! user action — a new discrete-edit routine cannot re-introduce the bug. The two
-//! calls inside this module carry an explicit `#[allow]`: this is the one place
+//! calls inside this module carry an explicit `#[expect]`: this is the one place
 //! the raw calls are correct, by construction.
 
 use gtk::prelude::*;
@@ -52,7 +52,7 @@ impl UndoGroup {
     pub(crate) fn new(buf: &impl IsA<gtk::TextBuffer>) -> Self {
         let buf = buf.upcast_ref::<gtk::TextBuffer>().clone();
         // Empty pair FIRST — this is the barrier flush the whole seam exists for.
-        #[allow(clippy::disallowed_methods)]
+        #[expect(clippy::disallowed_methods)]
         {
             buf.begin_user_action();
             buf.end_user_action();
@@ -65,7 +65,7 @@ impl UndoGroup {
 
 impl Drop for UndoGroup {
     fn drop(&mut self) {
-        #[allow(clippy::disallowed_methods)]
+        #[expect(clippy::disallowed_methods)]
         self.buf.end_user_action();
     }
 }

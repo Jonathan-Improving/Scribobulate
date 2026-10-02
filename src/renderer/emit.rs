@@ -44,7 +44,7 @@ impl Renderer {
     pub(super) fn apply(&self, tag: TagName, si: &gtk::TextIter, ei: &gtk::TextIter) {
         // The ONE sanctioned fixed-tag `apply_tag_by_name` (clippy.toml bans the rest,
         // N6): the name is `TagName`-derived, so it cannot typo or drift from `tags.rs`.
-        #[allow(clippy::disallowed_methods)]
+        #[expect(clippy::disallowed_methods)]
         self.buf.apply_tag_by_name(tag.name(), si, ei);
     }
 
@@ -387,7 +387,7 @@ impl Renderer {
                 let ei = self.buf.iter_at_offset(tok_end);
                 // Dynamic per-syntect-colour tag: NOT a fixed, enumerable name, so it
                 // stays outside `TagName`/the typed sink and keeps its own apply (N6).
-                #[allow(clippy::disallowed_methods)]
+                #[expect(clippy::disallowed_methods)]
                 self.buf.apply_tag_by_name(&fg_name, &si, &ei);
             }
         }

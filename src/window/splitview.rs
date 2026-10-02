@@ -821,11 +821,15 @@ mod gtk_integration_tests {
             "a scroll must hide and show the scrollbar twice (two transitions each)"
         );
 
+        // `changed` emitted on its own, with no value change: moving `upper` instead let
+        // the view's own reconfiguration move the value too, so the value hook alone
+        // could satisfy this half.
         let before = toggles.get();
-        adj.set_upper(adj.upper() + 200.0);
+        adj.emit_by_name::<()>("changed", &[]);
         drain_for(Clock::Frame, Duration::from_millis(400));
-        assert!(
-            toggles.get() - before >= 4,
+        assert_eq!(
+            toggles.get() - before,
+            4,
             "a range change must relink the scrollbar too"
         );
         assert!(

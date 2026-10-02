@@ -165,6 +165,12 @@ pub(crate) enum FindCursor {
     /// or repeating with nothing to warn on. Re-finding by position lands on the hit the
     /// reader is looking at, or — if it is gone — on the first hit after where it was,
     /// which is what "next" means.
+    ///
+    /// **Not unique inside a table or a collapsed block**: every cell hit of one table
+    /// sits at the table's anchor, and every hidden hit at its block's summary, so there
+    /// the position names the group and the ordinal picks within it. A rebuild that adds
+    /// a match earlier in the same table can therefore resume one hit early. Closing that
+    /// needs a stable per-cell key (row, column, byte offset) carried by the hit.
     Preview { ordinal: i32, at: i32 },
 }
 
@@ -600,7 +606,10 @@ impl PreviewFindCache {
                 confined = built
                     .hits
                     .iter()
-                    .filter(|h| sc.contains(preview_hit_position(h)))
+                    .filter(|h| {
+                        let (start, end) = preview_hit_span(h);
+                        sc.contains_span(start, end)
+                    })
                     .cloned()
                     .collect();
                 &confined
@@ -1300,6 +1309,17 @@ fn resume_ordinal(hits: &[PreviewHit], ordinal: i32, at: i32) -> i32 {
         before + 1
     } else {
         before
+    }
+}
+
+/// The buffer characters a hit occupies, for asking whether it lies INSIDE a passage:
+/// a body match's own range, the one anchor character a table stands on, or the
+/// summary position of a hidden block (zero-width, since its text is not drawn).
+fn preview_hit_span(hit: &PreviewHit) -> (i32, i32) {
+    match hit {
+        PreviewHit::Body { start, end } => (*start, *end),
+        PreviewHit::Cell { anchor_off, .. } => (*anchor_off, anchor_off + 1),
+        PreviewHit::Hidden { summary_off, .. } => (*summary_off, *summary_off),
     }
 }
 

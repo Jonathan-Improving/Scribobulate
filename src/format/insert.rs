@@ -69,15 +69,17 @@ fn markdown_destination(url: &str) -> String {
     }
 }
 
-/// Unescaped parentheses in `s` nest and close in order — the condition under which
-/// a bare destination may contain them.
+/// The parentheses in `s` nest and close in order — the condition under which a bare
+/// destination may contain them.
+///
+/// **Every parenthesis counts, a backslash before one included.** `s` is a VALUE, which
+/// has no escapes; the writer then doubles a backslash before punctuation, so `x\).png`
+/// is emitted as `x\\).png`, where the `)` is bare. Treating the value's backslash as an
+/// escape here passed exactly that destination as balanced.
 fn parens_balanced(s: &str) -> bool {
     let mut depth = 0usize;
-    let mut escaped = false;
     for c in s.chars() {
         match c {
-            _ if escaped => escaped = false,
-            '\\' => escaped = true,
             '(' => depth += 1,
             ')' => match depth.checked_sub(1) {
                 Some(d) => depth = d,
@@ -434,6 +436,8 @@ mod tests {
         "close).png",
         r"C:\Users\me\My Pictures\x.png",
         r"odd\(name).png",
+        r"x\).png",
+        r"a\(b(c).png",
         r"trailing\",
         "a<b>.png",
         "<leading.png",

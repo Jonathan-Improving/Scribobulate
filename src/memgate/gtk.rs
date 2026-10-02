@@ -180,6 +180,11 @@ fn decoded_texture_finalizes_ttd_6_7() {
 
 #[gtktest::test]
 fn local_cache_reuses_decode_ttd_6_8() {
+    // Reads the decoder's process-global counters, so it runs only where nothing
+    // else decodes beside it. See `footprint::measuring`.
+    let Some(_measuring) = crate::memgate::footprint::measuring("6.8") else {
+        return;
+    };
     // Every host decodes this now (see 6.6's comment) — no decoder-absent skip arm.
     //
     // **Finding 2: asserts the cache HIT directly, by counting decodes, not by
@@ -216,6 +221,11 @@ fn local_cache_reuses_decode_ttd_6_8() {
 
 #[gtktest::test]
 fn local_cache_misses_when_the_file_is_replaced_ttd_6_8() {
+    // Reads the decoder's process-global counters, so it runs only where nothing
+    // else decodes beside it. See `footprint::measuring`.
+    let Some(_measuring) = crate::memgate::footprint::measuring("6.8") else {
+        return;
+    };
     // Two PNGs of different widths so the overwrite is visible as a dimension
     // change. A `.webp` temp overwritten with PNG bytes would pick the WebP
     // loader from the extension and fail to decode.
@@ -270,6 +280,11 @@ fn local_cache_misses_when_the_file_is_replaced_ttd_6_8() {
 
 #[gtktest::test]
 fn local_cache_misses_when_only_the_length_changes_ttd_6_8() {
+    // Reads the decoder's process-global counters, so it runs only where nothing
+    // else decodes beside it. See `footprint::measuring`.
+    let Some(_measuring) = crate::memgate::footprint::measuring("6.8") else {
+        return;
+    };
     // The Windows condition, reproduced on any platform: a file replaced with
     // DIFFERENT CONTENT whose mtime is then restored to what it was. That is what
     // `CopyFileExW` does by itself (it carries the source's mtime onto the
@@ -329,6 +344,11 @@ fn local_cache_misses_when_only_the_length_changes_ttd_6_8() {
 
 #[gtktest::test]
 fn local_cache_makes_svg_rerender_free_ttd_6_8() {
+    // Reads the decoder's process-global counters, so it runs only where nothing
+    // else decodes beside it. See `footprint::measuring`.
+    let Some(_measuring) = crate::memgate::footprint::measuring("6.8") else {
+        return;
+    };
     // A large SVG used to re-render on every paint (~239 ms on the reference host)
     // because local images had no cache.
     //

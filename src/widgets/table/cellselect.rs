@@ -309,6 +309,14 @@ pub(crate) fn word_edges(text: &str) -> Vec<WordEdge> {
 fn word_around(words: &[WordEdge], at: usize) -> (usize, usize) {
     let last = words.len().saturating_sub(1);
     let at = at.min(last);
+    // In a gap when the nearest edge at or before `at` is a word END (and `at` is not
+    // itself a word end, which still belongs to the word before it): the gap runs from
+    // that end to the next word start.
+    let nearest_back = (0..=at).rev().find(|&i| words[i].start || words[i].end);
+    if let Some(gap_start) = nearest_back.filter(|&i| words[i].end && i < at) {
+        let hi = (at..=last).find(|&i| words[i].start).unwrap_or(last);
+        return (gap_start, hi);
+    }
     let lo = (0..=at).rev().find(|&i| words[i].start).unwrap_or(0);
     let hi = (at..=last).find(|&i| words[i].end).unwrap_or(last);
     (lo, hi)
@@ -320,6 +328,20 @@ mod tests {
         drag_selection, drag_step, press_inside_selection, takes_over, word_edges as edges,
         DragStep,
     };
+
+    /// A double-press in the gap between two words selects the gap, as GTK's label does,
+    /// not both neighbouring words.
+    #[test]
+    fn a_double_press_in_a_gap_selects_the_gap() {
+        let words = edges("foo, bar");
+        assert_eq!(super::word_around(&words, 4), (3, 5), "the gap `, `");
+        assert_eq!(
+            super::word_around(&words, 1),
+            (0, 3),
+            "inside a word, the word"
+        );
+        assert_eq!(super::word_around(&words, 6), (5, 8), "the second word");
+    }
 
     /// Every combination of the four facts, so deleting any arm of the takeover (the
     /// below-threshold deny, the outside-the-label deny, the takeover itself, or the

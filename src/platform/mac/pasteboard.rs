@@ -71,8 +71,13 @@ fn selector(name: &str) -> Option<Sel> {
 
 /// Replace the general pasteboard's contents with `text`, eagerly. Called by
 /// `crate::clipboard::set_text` straight after GDK's own `set_text`, to replace the
-/// promise GDK just registered. Returns `false` if any step failed, in which case the
-/// promise stays — the unpatched behaviour, not a lost copy.
+/// promise GDK just registered. Returns `false` if any step failed.
+///
+/// **Which failure matters.** One before `clearContents` (a class or selector the
+/// runtime does not have, a string that cannot be built) leaves GDK's promise in place:
+/// the unpatched behaviour, not a lost copy. The final `setString:forType:` runs AFTER
+/// the clear, so its failure leaves other applications an empty pasteboard, while a
+/// paste inside this application still reads GDK's local content. That case is logged.
 pub(crate) fn write_text(text: &str) -> bool {
     let (
         Some(pasteboard_class),
@@ -136,6 +141,13 @@ pub(crate) fn write_text(text: &str) -> bool {
             msg_isize(pasteboard, clear);
             let ok = msg_set(pasteboard, set_string, string, NSPasteboardTypeString);
             msg_void(string, release);
+            if !ok {
+                log::warn!(
+                    "clipboard: the pasteboard refused {} bytes of text after it was \
+                     cleared; other applications see it empty until the next copy",
+                    text.len()
+                );
+            }
             ok
         };
         objc_autoreleasePoolPop(pool);

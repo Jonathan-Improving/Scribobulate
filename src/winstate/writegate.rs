@@ -102,7 +102,7 @@ impl Drop for WritePass<'_> {
 // This module's tests are the gate's OWN unit tests: `is_busy` is the observable
 // they assert the state machine through, which is the reading the ban's rule
 // explicitly permits (assert on it, never branch on it to write).
-#[allow(clippy::disallowed_methods)]
+#[allow(clippy::disallowed_methods)] // `allow`, not `expect`: clippy does not resolve this ban's local path, so it never fires
 mod tests {
     use super::*;
 

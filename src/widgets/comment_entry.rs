@@ -335,11 +335,9 @@ mod tests {
             ["typed by hand", "typed by hand"],
             "Enter must commit the field's text"
         );
-        assert_eq!(
-            text_of(&ce),
-            "typed by hand",
-            "no line break may reach the field"
-        );
+        // No assertion on the field's text: `press` drives the key handler directly,
+        // so no line break could reach the field here either way. That Enter inserts
+        // none in a real field rests on the handler CLAIMING the key, asserted above.
     }
 
     /// Mid-composition, Enter belongs to the input method (it confirms the preedit), so
@@ -401,6 +399,39 @@ mod tests {
         assert!(log.borrow().is_empty(), "the × must not commit");
         assert!(crate::a11y::has_name(&ce.close));
         assert!(!ce.close.can_focus());
+    }
+
+    /// Escape on the card cancels through `wire_cancel`'s key controller, claims the key,
+    /// and commits nothing; any other key is left to propagate.
+    #[gtktest::test]
+    fn escape_cancels_without_committing() {
+        use gtk::glib::translate::IntoGlib;
+        let (log, sink) = recording();
+        let ce = CommentEntry::new("", sink);
+        let root = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        let cancelled = Rc::new(Cell::new(0));
+        ce.wire_cancel(&root, {
+            let cancelled = cancelled.clone();
+            move || cancelled.set(cancelled.get() + 1)
+        });
+        set_comment_text(&ce.field, "abandoned");
+        let key = root
+            .observe_controllers()
+            .into_iter()
+            .filter_map(Result::ok)
+            .find_map(|c| c.downcast::<gtk::EventControllerKey>().ok())
+            .expect("wire_cancel installs a key controller on the root");
+        let press = |keyval: gtk::gdk::Key| {
+            key.emit_by_name::<bool>(
+                "key-pressed",
+                &[&keyval.into_glib(), &0u32, &gtk::gdk::ModifierType::empty()],
+            )
+        };
+        assert!(!press(gtk::gdk::Key::a), "another key is not claimed");
+        assert_eq!(cancelled.get(), 0, "and cancels nothing");
+        assert!(press(gtk::gdk::Key::Escape), "Escape must be claimed");
+        assert_eq!(cancelled.get(), 1, "Escape must run the cancel closure");
+        assert!(log.borrow().is_empty(), "Escape must not commit");
     }
 
     /// Both routes reach the SAME commit and see the SAME text. The two must be

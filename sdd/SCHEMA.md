@@ -84,6 +84,8 @@ member. For a stateful action the work is driven by `change-state`, not
 | `win.annotations` | — | `b` | Whether the annotations sidebar section is shown. |
 | `win.outline-expand-all` | — | — | Expand every outline node. |
 | `win.outline-collapse-all` | — | — | Collapse the outline to its root headings. |
+| `win.filter-outline` | — | — | Show the Outline pane if hidden, open its filter and focus the box; from inside an open box, close it. |
+| `win.filter-annotations` | — | — | The same for the Annotations pane. |
 | `win.show-statusbar` | — | `b` | Whether the status bar is shown. |
 | `win.show-unsafe-images` | — | `b` | Whether images outside the document's directory are rendered. Per tab. |
 | `win.allow-outside-links` | — | `b` | Whether links outside the document's directory may be opened. |

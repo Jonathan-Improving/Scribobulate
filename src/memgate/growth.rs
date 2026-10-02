@@ -15,8 +15,8 @@
 //! 8,650,512-byte delta arriving at sample 20 of 69 and 2,165,459 bytes arriving
 //! at sample 5 — pass or fail decided by the allocation's timing rather than the
 //! program's growth. The leak this class exists for (ScrAP-351) is ~12 MB *per
-//! render*, the same magnitude as that single step, so no tolerance separates
-//! them.
+//! render* on a real document's image (~1.05 MB at the test fixture's scale), the
+//! same magnitude as that single step, so no tolerance separates them.
 //!
 //! **What separates them is how much of the growth ONE allocation explains.**
 //! Two clauses, neither of which can see where in the run anything happened:

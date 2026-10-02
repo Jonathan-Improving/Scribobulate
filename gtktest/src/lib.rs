@@ -85,6 +85,23 @@ pub fn test(attr: TokenStream, item: TokenStream) -> TokenStream {
     let should_panic = harness_attrs
         .iter()
         .any(|a| harness_attr_head(a) == "should_panic");
+    // `should_panic(expected = "…")` is REFUSED, not accepted and reduced to the bare
+    // form. The suite runner (`src/gtk_suite.rs`) carries only a boolean, so it would count
+    // ANY panic as the expected one — an unrelated early `unwrap` would pass a guard
+    // written to fail for one stated reason. libtest checks the payload; a custom runner
+    // that adopted the grammar without the check would be honouring half of it silently.
+    // Teach `Case` and `run_case` to match the payload before lifting this.
+    if let Some(a) = harness_attrs
+        .iter()
+        .find(|a| harness_attr_head(a) == "should_panic" && a.trim() != "should_panic")
+    {
+        panic!(
+            "#[gtktest::test] supports only bare `#[should_panic]`, not `#[{a}]`: the GTK \
+             suite runner cannot check a panic's message, so `expected = …` would pass on \
+             any panic. Use bare `#[should_panic]` and assert the message inside the body, \
+             or teach src/gtk_suite.rs's `Case`/`run_case` to match it first."
+        );
+    }
 
     let (renamed_item, name) = rename_fn(item).unwrap_or_else(|| {
         panic!(

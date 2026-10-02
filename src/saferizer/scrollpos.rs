@@ -39,7 +39,7 @@ use gtk::prelude::*;
 /// `gtk4::prelude::AdjustmentExt::set_value` is banned crate-wide in `clippy.toml`;
 /// the single `#[allow]` is below.
 pub(crate) fn jump(adjustment: &gtk::Adjustment, value: f64) {
-    #[allow(clippy::disallowed_methods)]
+    #[expect(clippy::disallowed_methods)]
     adjustment.set_value(value);
 }
 
@@ -74,7 +74,7 @@ pub(crate) fn reconfigure(
     page_increment: f64,
     page_size: f64,
 ) {
-    #[allow(clippy::disallowed_methods)]
+    #[expect(clippy::disallowed_methods)]
     adjustment.configure(
         value,
         lower,
@@ -140,7 +140,7 @@ mod gtk_integration_tests {
         // Start an animated scroll to the far end...
         let end = view.buffer().end_iter();
         let mark = view.buffer().create_mark(None, &end, true);
-        #[allow(clippy::disallowed_methods)] // starting the animation IS the fixture
+        #[expect(clippy::disallowed_methods)] // starting the animation IS the fixture
         view.scroll_to_mark(&mark, 0.0, true, 0.0, 0.5);
         // ...let it get under way, but nowhere near finished (it runs ~200 ms).
         for _ in 0..3 {

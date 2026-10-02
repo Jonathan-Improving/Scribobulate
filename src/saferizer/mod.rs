@@ -8,7 +8,7 @@
 //! a newtype with a single constructor, an RAII guard, or a phantom-typed key —
 //! so the wrong call becomes *unrepresentable* rather than merely *documented*.
 //! Where a type cannot hide an inherent GTK method, the raw call is banned
-//! crate-wide via `clippy.toml`, and the sole `#[allow(clippy::disallowed_methods)]`
+//! crate-wide via `clippy.toml`, and the sole `#[expect(clippy::disallowed_methods)]`
 //! lives inside the wrapper.
 //!
 //! Reference shape: [`crate::winstate::selfdelete::SelfDeleteGuard`]. The rules for
