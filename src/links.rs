@@ -595,8 +595,11 @@ fn reaches_a_foreign_remote_namespace(src: &str, doc_dir: Option<&Path>) -> bool
     foreign
 }
 
-/// How many symbolic links one resolution follows before giving up. A loop that long
-/// fails `canonicalize` locally anyway, so giving up answers "not foreign".
+/// How many symbolic links one resolution follows before giving up. Giving up answers
+/// "foreign" (refuse): Linux refuses a chain this long itself, but Windows follows up to
+/// 63 reparse points, so a chain of 41–63 links ending at a share would otherwise pass
+/// the walk and `canonicalize` would then reach the host. A local loop this long is
+/// refused as a share rather than reported missing; the wording is the only cost.
 const MAX_LINK_HOPS: usize = 40;
 
 /// Whether resolving `candidate` would pass through a symbolic link whose target
@@ -609,6 +612,8 @@ const MAX_LINK_HOPS: usize = 40;
 /// call can traverse an unexamined link. A link's target replaces the walk's position
 /// and its own components are walked in turn, so a chain of links is followed hop by
 /// hop. A component that does not exist ends the walk: nothing further can be reached.
+/// A link that cannot be read, or a chain past [`MAX_LINK_HOPS`], fails closed: the
+/// walk cannot say where it leads, so it is treated as reaching a share.
 fn links_reach_foreign(
     candidate: &Path,
     doc_dir: Option<&Path>,
@@ -676,10 +681,10 @@ fn links_reach_foreign(
         }
         hops += 1;
         if hops > MAX_LINK_HOPS {
-            return false;
+            return true;
         }
         let Ok(target) = std::fs::read_link(&next) else {
-            return false;
+            return true;
         };
         let resolved = if target.is_absolute() {
             target
@@ -2072,5 +2077,46 @@ mod tests {
         );
         assert!(!reaches("near/x.png"), "a link to an ordinary local folder");
         assert!(!reaches("absent/x.png"), "a path that does not exist");
+    }
+
+    /// A chain longer than the walk will follow is refused, not let through: Windows
+    /// follows up to 63 reparse points, so one ending at a share would otherwise pass
+    /// the walk and be reached by `canonicalize`. Exactly [`super::MAX_LINK_HOPS`] links
+    /// to a local folder still resolve as local.
+    ///
+    /// Mutation: return `false` past the hop limit and the first assertion fails.
+    #[test]
+    fn a_link_chain_past_the_hop_limit_fails_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        let doc = dir.path().join("doc");
+        std::fs::create_dir(&doc).unwrap();
+        let local = dir.path().join("local");
+        std::fs::create_dir(&local).unwrap();
+        let never_foreign = |_: &Path| false;
+        #[cfg(unix)]
+        let link = |target: &Path, at: &Path| std::os::unix::fs::symlink(target, at);
+        #[cfg(windows)]
+        let link = |target: &Path, at: &Path| std::os::windows::fs::symlink_dir(target, at);
+        // l0 -> local, l<n> -> l<n-1>: following l<n> takes n + 1 hops.
+        if link(&local, &doc.join("l0")).is_err() {
+            println!("SKIPPED [TDD 2.7]: this host cannot create a symbolic link here");
+            return;
+        }
+        for n in 1..=super::MAX_LINK_HOPS {
+            link(
+                Path::new(&format!("l{}", n - 1)),
+                &doc.join(format!("l{n}")),
+            )
+            .unwrap();
+        }
+        let reaches =
+            |rel: &str| super::links_reach_foreign(&doc.join(rel), Some(&doc), &never_foreign);
+        let over = format!("l{}/x.png", super::MAX_LINK_HOPS);
+        let at = format!("l{}/x.png", super::MAX_LINK_HOPS - 1);
+        assert!(reaches(&over), "one link past the limit is refused");
+        assert!(
+            !reaches(&at),
+            "a chain at the limit to a local folder is local"
+        );
     }
 }
