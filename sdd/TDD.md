@@ -919,7 +919,7 @@
 - **And given** a planted series that climbs, falls once by more than it has climbed, and climbs again
 - **When** the same assertion is applied
 - **Then** it still fails: growth is judged over every stretch of the series, so a fall cannot cancel a climb on either side of it, and the message names the stretch whose growth it reports
-- **Evidence, recorded here for the same reason as 6.9's**: the predicate was mutation-tested against the REAL gates, not only planted series. Retaining every decode (`std::mem::forget` on the loaded image) reddens 6.9 at 3.34–3.36 MB of residual growth on the animated WebP (three runs, per-stretch rule) and 30.7 MB on the PNG control; retaining every presented frame reddens 6.10's playback half at 34.5 MB. The bound is `memgate::footprint::GROWTH_BOUNDS`; against it the WebP decode mutation clears by only ~6%, while clean runs read at most ~1.25 MB (macOS playback)
+- **Evidence, recorded here for the same reason as 6.9's**: the predicate was mutation-tested against the REAL gates, not only planted series. Retaining every decode (`std::mem::forget` on the loaded image) reddens 6.9 on the animated WebP: 3.34–3.36 MB of residual over a ten-sample window cleared the bound by only ~6%, so 6.9 samples twenty, where the same mutation reads 9.35 MB, about three times it; the PNG control reddens at 30.7 MB, and retaining every presented frame reddens 6.10's playback half at 34.5 MB. The bound is `memgate::footprint::GROWTH_BOUNDS`; clean runs read at most ~1.25 MB (macOS playback)
 
 ### 6.12 A single allocation too large to be warm-up still fails
 - **Given** a planted series with exactly one increase, larger than the absolute ceiling on total growth

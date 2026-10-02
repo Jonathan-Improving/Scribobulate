@@ -5,7 +5,9 @@
 //! harnesses; the pipeline step invokes `--test gtk_suite memgate`.
 
 use crate::links::ImageResolution;
-use crate::memgate::footprint::{assert_bounded, current, SAMPLE_COUNT, WARMUP};
+use crate::memgate::footprint::{
+    assert_bounded, current, SAMPLE_COUNT, UNCACHED_SAMPLE_COUNT, WARMUP,
+};
 use crate::renderer::start::{load_texture, LoadedImage};
 use gtk::gdk::prelude::TextureExt;
 use gtk::glib::object::ObjectExt;
@@ -118,7 +120,7 @@ fn uncached_decode_animated_webp_ttd_6_9() {
     // which 6.6 cannot see because it measures cache hits. Every host decodes this
     // now (see 6.6's comment above) — no decoder-absent skip arm.
     let path = fixture("anim.webp");
-    let samples = sample_loads(&path, SAMPLE_COUNT, CachePath::Cold)
+    let samples = sample_loads(&path, UNCACHED_SAMPLE_COUNT, CachePath::Cold)
         .expect("richimg decodes anim.webp on every host; a None here is a broken fixture");
     assert_bounded("6.9 uncached animated WebP", WARMUP, &samples);
 }
@@ -134,7 +136,7 @@ fn uncached_decode_png_is_flat_ttd_6_9() {
     // Without it, a red 6.9 could be the cache reset's own churn rather than the
     // WebP decode.
     let path = fixture("wide.png");
-    let samples = sample_loads(&path, SAMPLE_COUNT, CachePath::Cold)
+    let samples = sample_loads(&path, UNCACHED_SAMPLE_COUNT, CachePath::Cold)
         .expect("PNG decode is native; a None here is a broken fixture, not a skip");
     assert_bounded("6.9 PNG control", WARMUP, &samples);
 }

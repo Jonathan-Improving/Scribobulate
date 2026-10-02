@@ -91,6 +91,14 @@ pub(crate) const WARMUP: usize = 3;
 /// `8x` of residual growth while one allocation of any size shows up as none.
 pub(crate) const SAMPLE_COUNT: usize = WARMUP + 10;
 
+/// Samples for the uncached-decode gates (TDD 6.9), including warm-up: twenty after it,
+/// so a per-decode leak leaves `18x` of residual rather than `8x`. Their smallest
+/// mutation (retaining every animated-WebP decode) left ~3.35 MB over ten samples, only
+/// ~6% past the residual bound; over twenty it MEASURED 9.35 MB, about 3x the bound
+/// (operator decision, 2026-10-02). A decode is cheap, so the longer window costs
+/// seconds.
+pub(crate) const UNCACHED_SAMPLE_COUNT: usize = WARMUP + 20;
+
 /// Set by the `gtk_suite` child process before it runs its cases, and by nothing else.
 ///
 /// **The instrument is process-wide and the failure direction is the reassuring one.**
