@@ -554,4 +554,25 @@ mod gtk_integration_tests {
         // under the suite's criticals; measured, intermittent on CI).
         label.select_region(0, 0);
     }
+
+    /// TDD 2.9a: a double-click in a cell selects the word body text would. Body text's
+    /// double-click is GTK's own word movement, which ends `snake_case`'s first word at
+    /// the underscore (MEASURED 4.6.9: offset 5), as the application's word rule does,
+    /// so the two agree. Run on every platform, so a Pango whose word rule differs
+    /// fails here rather than leaving cells and body text silently apart.
+    #[gtktest::test]
+    fn a_cell_double_click_word_agrees_with_body_text_on_underscores() {
+        use gtk::prelude::*;
+        let buf = gtk::TextBuffer::new(None);
+        buf.set_text("snake_case word");
+        let mut end = buf.start_iter();
+        end.forward_word_end();
+        let words = super::word_edges("snake_case word");
+        let cell_end = (1..words.len()).find(|&i| words[i].end).unwrap_or(0);
+        assert_eq!(
+            cell_end as i32,
+            end.offset(),
+            "cell and body must agree on `_`"
+        );
+    }
 }
