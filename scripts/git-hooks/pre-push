@@ -178,6 +178,19 @@ setup_platform_env() {
         return 1
     }
     while IFS= read -r line; do
+        # STRIP THE CR. PowerShell ends every line CRLF, and `read` splits on LF alone, so
+        # each value arrives with a trailing \r welded to it -- a directory that does not
+        # exist, in a variable that reads correctly everywhere it is printed. MEASURED here
+        # (R6-AP-03) on three of the four values; the fourth escaped only because command
+        # substitution had already eaten the final line ending, which is the kind of
+        # accident that makes this look fine until someone adds a fifth.
+        #
+        # It went unnoticed because nothing on this box NEEDED the polluted variables:
+        # gvsbuild's pkgconf finds its own .pc files from a default rooted at its binary, so
+        # a PKG_CONFIG_PATH of pure nonsense still resolves gtk4 (measured), and LIB/INCLUDE
+        # reach no linker under fmt or clippy. The gate was passing for reasons unrelated to
+        # the environment it thought it was setting.
+        line="${line%$'\r'}"
         [ -n "$line" ] || continue
         name="${line%%=*}"
         value="${line#*=}"
