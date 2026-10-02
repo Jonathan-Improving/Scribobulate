@@ -97,6 +97,7 @@ pub(crate) const SAMPLE_COUNT: usize = WARMUP + 10;
 /// ~6% past the residual bound; over twenty it MEASURED 9.35 MB, about 3x the bound
 /// (operator decision, 2026-10-02). A decode is cheap, so the longer window costs
 /// seconds.
+#[cfg(all(test, feature = "memory-gates"))]
 pub(crate) const UNCACHED_SAMPLE_COUNT: usize = WARMUP + 20;
 
 /// Set by the `gtk_suite` child process before it runs its cases, and by nothing else.

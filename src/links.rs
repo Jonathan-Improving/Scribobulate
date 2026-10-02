@@ -573,16 +573,128 @@ fn containment_of(src: &str, doc_dir: Option<&Path>) -> Containment {
 /// case-insensitively. That only lets more through to the real canonical check, which
 /// still decides.
 ///
+/// **Then through symbolic links, read without being followed.** A path that is
+/// lexically innocent can still lead to a share: `lnk/x.png`, where `lnk` is a symbolic
+/// link in the document's folder whose target is `\\host\share`. `canonicalize` follows
+/// it and reaches the host (MEASURED on Windows: a 22 s stall before "Image not found",
+/// with no click). So each component is examined with `symlink_metadata`, which does
+/// not follow a link, and a link's target is read with `read_link` and judged by the
+/// same rule before anything traverses it. See [`links_reach_foreign`].
+///
 /// On Linux and macOS no path has a prefix component, so this is always false there.
 fn reaches_a_foreign_remote_namespace(src: &str, doc_dir: Option<&Path>) -> bool {
+    let is_foreign = |path: &Path| {
+        is_remote_namespace(path) && !doc_dir.is_some_and(|dir| lexically_within(path, dir))
+    };
     let decoded = percent_decode(src);
     let foreign = [decoded.as_str(), src].into_iter().any(|form| {
         local_candidate(form, doc_dir).is_some_and(|candidate| {
-            is_remote_namespace(&candidate)
-                && !doc_dir.is_some_and(|dir| lexically_within(&candidate, dir))
+            is_foreign(&candidate) || links_reach_foreign(&candidate, doc_dir, &is_foreign)
         })
     });
     foreign
+}
+
+/// How many symbolic links one resolution follows before giving up. A loop that long
+/// fails `canonicalize` locally anyway, so giving up answers "not foreign".
+const MAX_LINK_HOPS: usize = 40;
+
+/// Whether resolving `candidate` would pass through a symbolic link whose target
+/// `is_foreign`, resolving one component at a time without ever letting the
+/// filesystem follow a link itself.
+///
+/// The walk starts at `doc_dir` when `candidate` is spelled under it (the document's
+/// own folder is trusted, even on a share), else at the candidate's root. Each step
+/// `symlink_metadata`s one component of an already resolved, link-free prefix, so no
+/// call can traverse an unexamined link. A link's target replaces the walk's position
+/// and its own components are walked in turn, so a chain of links is followed hop by
+/// hop. A component that does not exist ends the walk: nothing further can be reached.
+fn links_reach_foreign(
+    candidate: &Path,
+    doc_dir: Option<&Path>,
+    is_foreign: &dyn Fn(&Path) -> bool,
+) -> bool {
+    use std::collections::VecDeque;
+    use std::path::Component;
+
+    let (mut current, remaining) = match doc_dir.and_then(|dir| {
+        candidate
+            .strip_prefix(dir)
+            .ok()
+            .map(|rest| (dir.to_path_buf(), rest))
+    }) {
+        Some((base, rest)) => (base, rest.to_path_buf()),
+        None => {
+            let root: PathBuf = candidate
+                .components()
+                .take_while(|c| matches!(c, Component::Prefix(_) | Component::RootDir))
+                .collect();
+            let rest = candidate
+                .strip_prefix(&root)
+                .unwrap_or(candidate)
+                .to_path_buf();
+            (root, rest)
+        }
+    };
+    let mut pending: VecDeque<std::ffi::OsString> = VecDeque::new();
+    let push_back = |path: &Path, pending: &mut VecDeque<std::ffi::OsString>| {
+        for component in path.components() {
+            pending.push_back(component.as_os_str().to_os_string());
+        }
+    };
+    push_back(&remaining, &mut pending);
+
+    let mut hops = 0;
+    while let Some(part) = pending.pop_front() {
+        match Path::new(&part).components().next() {
+            Some(Component::CurDir) | None => continue,
+            Some(Component::ParentDir) => {
+                current.pop();
+                continue;
+            }
+            Some(Component::Prefix(_) | Component::RootDir) => {
+                current = PathBuf::from(&part);
+                continue;
+            }
+            Some(Component::Normal(_)) => {}
+        }
+        let next = current.join(&part);
+        if is_foreign(&next) {
+            return true;
+        }
+        let Ok(meta) = std::fs::symlink_metadata(&next) else {
+            return false;
+        };
+        if !meta.file_type().is_symlink() {
+            current = next;
+            continue;
+        }
+        hops += 1;
+        if hops > MAX_LINK_HOPS {
+            return false;
+        }
+        let Ok(target) = std::fs::read_link(&next) else {
+            return false;
+        };
+        let resolved = if target.is_absolute() {
+            target
+        } else {
+            current.join(target)
+        };
+        if is_foreign(&resolved) {
+            return true;
+        }
+        // Walk the target's own components next, from its root, ahead of what is left.
+        let mut ahead: VecDeque<std::ffi::OsString> = VecDeque::new();
+        for component in resolved.components() {
+            ahead.push_back(component.as_os_str().to_os_string());
+        }
+        current = PathBuf::new();
+        while let Some(part) = ahead.pop_back() {
+            pending.push_front(part);
+        }
+    }
+    false
 }
 
 /// Whether `path` starts with a Windows prefix that reaches beyond the local disks.
@@ -1905,5 +2017,43 @@ mod tests {
             resolve_doc_link("#section", Some(dir.path()), false),
             LinkResolution::Missing
         ));
+    }
+
+    /// A symbolic link inside the document folder whose target is foreign is caught
+    /// from the link's text, before anything follows it — directly, through a chain of
+    /// links, and not for a link to an ordinary local folder. The foreign predicate is
+    /// a stand-in path here, so the walk is exercised on every platform; on Windows the
+    /// real predicate is a UNC prefix.
+    ///
+    /// Mutation: follow the link with `metadata` instead of reading it, or skip the
+    /// target check, and the first two assertions fail.
+    #[test]
+    fn a_link_to_a_foreign_target_is_caught_without_following_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let doc = dir.path().join("doc");
+        std::fs::create_dir(&doc).unwrap();
+        let local = dir.path().join("local");
+        std::fs::create_dir(&local).unwrap();
+        let fake_remote = Path::new("/scribo-fake-remote-share");
+        let is_foreign = |p: &Path| p.starts_with(fake_remote);
+        #[cfg(unix)]
+        let link = |target: &Path, at: &Path| std::os::unix::fs::symlink(target, at);
+        #[cfg(windows)]
+        let link = |target: &Path, at: &Path| std::os::windows::fs::symlink_dir(target, at);
+        if link(fake_remote, &doc.join("lnk")).is_err() {
+            println!("SKIPPED [TDD 2.7]: this host cannot create a symbolic link here");
+            return;
+        }
+        link(Path::new("lnk"), &doc.join("chain")).unwrap();
+        link(&local, &doc.join("near")).unwrap();
+        let reaches =
+            |rel: &str| super::links_reach_foreign(&doc.join(rel), Some(&doc), &is_foreign);
+        assert!(
+            reaches("lnk/x.png"),
+            "a link straight to the foreign target"
+        );
+        assert!(reaches("chain/x.png"), "a link to a link to it");
+        assert!(!reaches("near/x.png"), "a link to an ordinary local folder");
+        assert!(!reaches("absent/x.png"), "a path that does not exist");
     }
 }
