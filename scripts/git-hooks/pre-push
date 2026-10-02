@@ -36,10 +36,15 @@
 # Prove it refuses:        scripts/git-hooks/pre-push --self-test
 # Override for one push:   git push --no-verify
 #
-# On Windows, push from a shell that carries the GTK build environment
-# (packaging/windows/README.md). From a bare shell clippy fails in the -sys crates'
-# build scripts with "The pkg-config command could not be found" and the push is
-# refused; that is the environment, not the hook.
+# On Windows the hook brings its own build environment, by ASKING that tree's runner for
+# it (`pipeline.ps1 -PrintSetupEnv`) rather than restating it here. Without that, a push
+# from a bare shell died in the -sys crates' build scripts with "The pkg-config command
+# could not be found" and was refused — a gate whose verdict depended on which window you
+# typed in, and whose error named pkg-config rather than the environment. The values are
+# never copied into this file: the GTK prefix has one owner, pipeline.ps1's param block
+# (POLICY, "A number has one owner"), and a copy here would go stale while reading as
+# current. A tree with no runner — an older commit, or the self-test's synthetic repo —
+# is left alone, since its commands need no toolchain.
 
 set -uo pipefail
 
@@ -147,11 +152,52 @@ done
 [ "${#oids[@]}" -eq 0 ] && exit 0
 echo "pre-push: checking ${#oids[@]} commit(s) being pushed"
 
+# The platform's build environment, for the tree in the current directory, asked of that
+# tree's OWN runner so the answer matches the commit being checked. Only Windows needs one:
+# on Linux and macOS the toolchain is already on PATH, which is why this gap went unseen
+# from both of those seats.
+#
+# PATH arrives as a single directory rather than a joined list because the two shells
+# disagree about what a PATH is — bash's is POSIX and colon-separated, the toolchain's is
+# Windows and semicolon-separated — so it is converted with cygpath and joined here, in
+# bash's own grammar. Handing bash a Windows PATH breaks bash.
+setup_platform_env() {
+    [ "$PLATFORM" = windows ] || return 0
+    # $TOP's runner, NOT the checked-out commit's. The COMMANDS belong to the commit --
+    # that is what CI will run, and the hook reads them from its contract. The ENVIRONMENT
+    # does not: where gvsbuild put its tree is a fact about this machine, identical for
+    # every commit being pushed. Reading it from each commit would also refuse any commit
+    # older than this change, whose runner has no such mode, which is a worse gate than the
+    # one being fixed.
+    local runner="$TOP/packaging/windows/pipeline.ps1"
+    [ -f "$runner" ] || return 0
+    local out line name value
+    out="$(powershell -NoProfile -File "$runner" -PrintSetupEnv)" || {
+        echo "pre-push: '$runner -PrintSetupEnv' failed, so the build environment is" \
+            "unknown; refusing to push unchecked." >&2
+        return 1
+    }
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        name="${line%%=*}"
+        value="${line#*=}"
+        if [ "$name" = PATH_PREPEND ]; then
+            PATH="$(cygpath -u "$value"):$PATH"
+            export PATH
+        else
+            export "$name=$value"
+        fi
+    done <<EOF
+$out
+EOF
+}
+
 # Runs fmt and clippy in the current directory, reading their commands from that tree's
 # contract. A subshell, so sourcing the library and exporting nothing leaks between runs.
 check_tree() (
     # shellcheck source=scripts/pipeline-lib.sh
     source scripts/pipeline-lib.sh
+    setup_platform_env || exit 1
     for id in fmt clippy; do
         cmd="$(contract_value "cmd.$PLATFORM" "$id")"
         if [ -z "$cmd" ]; then

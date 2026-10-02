@@ -70,6 +70,7 @@
 param(
     [string] $Prefix = $(if ($env:SCRIB_GTK_PREFIX) { $env:SCRIB_GTK_PREFIX } else { 'C:\gtk-build\gtk\x64\release' }),
     [switch] $ListSteps,
+    [switch] $PrintSetupEnv,
     [switch] $SelfTest,
     [switch] $SkipIntegration,
     [switch] $Package
@@ -1620,6 +1621,43 @@ function Invoke-ContractStep {
 }
 
 # --------------------------------------------------------------------------------------
+# The build environment, as VALUES rather than as assignments, so there is exactly one
+# definition of it and two consumers: the setup phase below applies it to this process,
+# and `-PrintSetupEnv` hands it to scripts/git-hooks/pre-push, which runs under Git for
+# Windows' bash and cannot read a PowerShell script.
+#
+# THE HOOK USED TO HAVE NO ENVIRONMENT AT ALL. `git push` from a bare shell died in the
+# -sys crates' build scripts with "The pkg-config command could not be found" and refused
+# the push, and the hook's own header told the reader to go and find a shell that carried
+# the environment. That is a gate whose answer depends on which window you typed in.
+#
+# The hook ASKS rather than copies. $Prefix's default lives in the param block and nowhere
+# else (POLICY, "A number has one owner"); a bash copy of `C:\gtk-build\...` would be the
+# second one, and it would go stale silently while reading as current.
+#
+# PATH is returned as `PATH_PREPEND`, a lone directory rather than a joined list, because
+# the two shells disagree about what a PATH is: bash's is POSIX and colon-separated, the
+# toolchain's is Windows and semicolon-separated. Handing bash a Windows PATH breaks bash
+# itself. One directory is unambiguous, and the caller joins it in its own grammar.
+# --------------------------------------------------------------------------------------
+function Get-SetupEnvironment {
+    # pkgconf/pkg-config ship inside the gvsbuild tree; there is no system-wide
+    # pkg-config, so $Prefix\bin must be on PATH or gtk4-sys's build script cannot probe.
+    # build.rs also shells out to glib-compile-resources from the same place.
+    #
+    # LIB/INCLUDE are appended to only when there is something to append -- the same guard
+    # build.bat carries, and for the same reason: prepending onto an unset variable leaves
+    # a trailing `;`, and an empty entry in those lists means "the current directory" to
+    # the toolchain.
+    $e = [ordered] @{}
+    $e['PKG_CONFIG_PATH'] = "$Prefix\lib\pkgconfig"
+    $e['LIB']             = if ($env:LIB)     { "$Prefix\lib;$env:LIB" }         else { "$Prefix\lib" }
+    $e['INCLUDE']         = if ($env:INCLUDE) { "$Prefix\include;$env:INCLUDE" } else { "$Prefix\include" }
+    $e['PATH_PREPEND']    = "$Prefix\bin"
+    return $e
+}
+
+# --------------------------------------------------------------------------------------
 # Client-area animation -- PROVISIONING for the animation half of the GTK suite, and the
 # whole half depends on it. A hosted Windows image has it OFF, which is a real
 # accessibility preference and the one `src/platform/win32/reduced_motion.rs` reads. With
@@ -1741,18 +1779,10 @@ function Invoke-SetupPhase {
         throw "GTK prefix not found at $Prefix. Build it with gvsbuild first -- see packaging/windows/README.md, or set SCRIB_GTK_PREFIX."
     }
 
-    # pkgconf/pkg-config ship inside the gvsbuild tree; there is no system-wide
-    # pkg-config, so $Prefix\bin must be on PATH or gtk4-sys's build script cannot probe.
-    # build.rs also shells out to glib-compile-resources from the same place.
-    #
-    # LIB/INCLUDE are appended to only when there is something to append -- the same guard
-    # build.bat carries, and for the same reason: prepending onto an unset variable leaves
-    # a trailing `;`, and an empty entry in those lists means "the current directory" to
-    # the toolchain.
-    $env:PATH            = "$Prefix\bin;$env:PATH"
-    $env:PKG_CONFIG_PATH = "$Prefix\lib\pkgconfig"
-    $env:LIB             = if ($env:LIB)     { "$Prefix\lib;$env:LIB" }         else { "$Prefix\lib" }
-    $env:INCLUDE         = if ($env:INCLUDE) { "$Prefix\include;$env:INCLUDE" } else { "$Prefix\include" }
+    foreach ($kv in (Get-SetupEnvironment).GetEnumerator()) {
+        if ($kv.Key -ceq 'PATH_PREPEND') { $env:PATH = "$($kv.Value);$env:PATH"; continue }
+        Set-Item -Path "Env:$($kv.Key)" -Value $kv.Value
+    }
 
     Write-Host ('    {0,-18} {1}' -f 'prefix', $Prefix)
     foreach ($m in @('gtk4', 'gtksourceview-5', 'glib-2.0')) {
@@ -1790,6 +1820,29 @@ function Invoke-SetupPhase {
 # --------------------------------------------------------------------------------------
 if ($SelfTest) {
     if (-not (Invoke-SelfTest)) { exit 1 }
+    exit 0
+}
+
+# -PrintSetupEnv: the build environment on stdout as NAME=VALUE lines, for a caller that
+# cannot source PowerShell -- scripts/git-hooks/pre-push, under Git for Windows' bash.
+#
+# It sits beside -SelfTest and before the contract gate deliberately: it reads no contract
+# and runs no step, so a malformed contract must not stop a push from getting its
+# environment, and the hook would then fail on `cargo` for a reason that has nothing to do
+# with the contract.
+#
+# The missing-prefix check is the SAME throw the setup phase makes. Printing a confident
+# environment that points at a directory which is not there would move the failure into
+# cargo's build scripts, which is exactly the unreadable error this whole change exists to
+# remove. Message to stderr, so a caller eval-ing stdout cannot swallow it.
+if ($PrintSetupEnv) {
+    if (-not (Test-Path $Prefix)) {
+        [Console]::Error.WriteLine("GTK prefix not found at $Prefix. Build it with gvsbuild first -- see packaging/windows/README.md, or set SCRIB_GTK_PREFIX.")
+        exit 1
+    }
+    foreach ($kv in (Get-SetupEnvironment).GetEnumerator()) {
+        Write-Output ("{0}={1}" -f $kv.Key, $kv.Value)
+    }
     exit 0
 }
 
