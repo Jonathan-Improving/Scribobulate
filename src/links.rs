@@ -2040,7 +2040,13 @@ mod tests {
         let local = dir.path().join("local");
         std::fs::create_dir(&local).unwrap();
         let fake_remote = Path::new("/scribo-fake-remote-share");
-        let is_foreign = |p: &Path| p.starts_with(fake_remote);
+        // Matched by component, not prefix: on Windows the driveless stand-in is not
+        // absolute, so the walk joins it onto the current drive (`C:\scribo-…`), and a
+        // prefix test would only match while that drive was being wrongly dropped.
+        let is_foreign = |p: &Path| {
+            p.components()
+                .any(|c| c.as_os_str() == "scribo-fake-remote-share")
+        };
         #[cfg(unix)]
         let link = |target: &Path, at: &Path| std::os::unix::fs::symlink(target, at);
         #[cfg(windows)]
