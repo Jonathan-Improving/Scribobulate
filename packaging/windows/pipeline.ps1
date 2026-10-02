@@ -289,6 +289,21 @@ function Test-Contract {
             $errs++
         }
 
+        # The verdict GRAMMAR, enumerated rather than assumed. Until this existed the run
+        # handler matched `marker:` and treated everything else as `exit`, so a verdict this
+        # port did not implement -- `absent:` when it arrived in the contract -- was read as
+        # plain `exit` and its guard vanished SILENTLY, on the platform that never runs the
+        # shell port. A gate that disappears without a word is the failure mode the whole
+        # contract exists to prevent, and it is exactly what an unenumerated default does.
+        #
+        # `marker:`/`absent:` must carry text: an empty one matches every line (marker) or
+        # refuses the step unconditionally (absent), and both read as a configured gate.
+        if ($verdict -and $verdict -cnotin @('exit', 'review') -and
+            $verdict -cnotmatch '^(marker|absent):.+') {
+            Write-Err "pipeline: step '$id' has unknown verdict '$verdict'"
+            $errs++
+        }
+
         foreach ($plat in $platforms) {
             $cmd = Get-ContractValue "cmd.$plat" $id
             $na  = Get-ContractValue "na.$plat"  $id
@@ -902,6 +917,24 @@ function Invoke-SelfTest {
            Lines = (New-ProbeContract -Drop @('verdict'))
            Want = $false; Expect = @("step 'probe' has no verdict") },
 
+        # The verdict ENUMERATION. Without it an unimplemented verdict falls through to the
+        # `exit` default and its guard is silently gone -- which is how `absent:` would have
+        # behaved on this port alone, with the shell port enforcing it and nothing saying
+        # the two disagreed.
+        @{ Rule = 'a verdict this port does not implement'
+           Lines = (New-ProbeContract -Drop @('verdict') -Add @('verdict probe  banana'))
+           Want = $false; Expect = @("step 'probe' has unknown verdict 'banana'") },
+
+        # Empty text on either text-carrying verdict: `marker:` would match every line and
+        # `absent:` would refuse the step unconditionally, and both read as a configured gate.
+        @{ Rule = 'absent: with no text'
+           Lines = (New-ProbeContract -Drop @('verdict') -Add @('verdict probe  absent:'))
+           Want = $false; Expect = @("step 'probe' has unknown verdict 'absent:'") },
+
+        @{ Rule = 'marker: with no text'
+           Lines = (New-ProbeContract -Drop @('verdict') -Add @('verdict probe  marker:'))
+           Want = $false; Expect = @("step 'probe' has unknown verdict 'marker:'") },
+
         @{ Rule = 'a step with no class'
            Lines = (New-ProbeContract -Drop @('class'))
            Want = $false; Expect = @("step 'probe' has no class") },
@@ -1130,6 +1163,48 @@ function Invoke-SelfTest {
         return $false
     }
     Write-Host "   a surface line repeats the step's own marker lines and leaves the verdict alone"
+
+    # ABSENT (R6-AP-02). The property is the one a `surface` line CANNOT give: a step that
+    # exits 0 while its own output says it measured nothing must FAIL. The refused text
+    # reaches the output only by EXECUTION, for the same reason the surface case builds it
+    # from an env var -- the `$ <cmd>` echo line must not contain it, or a port that scanned
+    # the echo instead of the run would pass.
+    $absBase = @($base | Where-Object { $_ -cne 'verdict probe  exit' }) +
+               @('verdict probe  absent:SKIPPED [TDD')
+    $absHit = Invoke-SyntheticStep -Lines ($absBase + @(
+        'cmd.windows probe  SCRIB_SELFTEST_A=SKIPPED echo %SCRIB_SELFTEST_A% [TDD 6.6]: not measured'))
+    foreach ($want in @("REFUSED: this step's verdict requires 'SKIPPED [TDD' to be absent",
+                        'SKIPPED [TDD 6.6]: not measured', 'FAIL')) {
+        if (-not "$($absHit.Text)".Contains($want)) {
+            Write-Err "pipeline: an absent: step that printed the refused text is missing '$want'"
+            Write-Err "  got: $($absHit.Text.Trim())"
+            return $false
+        }
+    }
+    if ($absHit.Ok) {
+        Write-Err 'pipeline: an absent: step printed the refused text and still passed'
+        return $false
+    }
+    $script:Failed = @()
+
+    # THE NEGATIVE, without which the above is satisfied by a rule that refuses everything.
+    $absClean = Invoke-SyntheticStep -Lines ($absBase + @('cmd.windows probe  echo test a ... ok'))
+    if (-not $absClean.Ok -or "$($absClean.Text)".Contains('REFUSED')) {
+        Write-Err 'pipeline: an absent: step with clean output must PASS'
+        Write-Err "  got: $($absClean.Text.Trim())"
+        return $false
+    }
+
+    # A non-zero exit is still the step's own verdict, and its real code must survive rather
+    # than be flattened to the 1 the refusal would have set.
+    $absRc = Invoke-SyntheticStep -Lines ($absBase + @('cmd.windows probe  exit 3'))
+    if ($absRc.Text -notlike '*FAIL (exit 3)*' -or $absRc.Ok) {
+        Write-Err 'pipeline: an absent: step that exits non-zero must still FAIL with its own code'
+        Write-Err "  got: $($absRc.Text.Trim())"
+        return $false
+    }
+    $script:Failed = @()
+    Write-Host '   an absent: verdict fails a step that exits 0 having measured nothing'
 
     # ---------------------------------------------------------------------------------
     # Carve-outs (F-GATE-003). Three separable properties, tested separately because a
@@ -1593,20 +1668,41 @@ function Invoke-ContractStep {
     # port's `run_step`: a marker verdict only sees what its own re-run prints, and an
     # integration body that skips itself prints its marker in step 5's output and nowhere
     # else. Surfacing never changes the verdict; the exit code still decides.
+    #
+    # An `absent:<text>` verdict reads the SAME captured copy: the exit code still decides,
+    # AND a line of the step's own output containing <text> fails it. It exists for a gate
+    # whose bodies can refuse to measure and still return green -- the memory class's
+    # `SKIPPED [TDD` (R6-AP-02) -- where a step judged by its exit code alone reports PASS
+    # having measured nothing, and the run that passes is the one nobody reads.
     $surface = Get-ContractValue 'surface' $Id
-    if ($surface) {
+    $absent = ''
+    if ($verdict -cmatch '^absent:') { $absent = $verdict.Substring('absent:'.Length) }
+    if ($surface -or $absent) {
         # Tee-Object -Variable never creates the variable when the command prints nothing,
         # and StrictMode then throws on the read below; seed it empty.
         $stepOut = @()
         Invoke-ContractCommand -CommandLine $cmd | Tee-Object -Variable stepOut
         # -SimpleMatch and -CaseSensitive for the same reasons as the marker branch above.
-        $hits = @($stepOut | Select-String -SimpleMatch -CaseSensitive -Pattern $surface |
-                  ForEach-Object { $_.Line.Trim() })
-        if ($hits.Count) {
-            Write-Host "    surfaced '$surface':"
-            foreach ($h in $hits) { Write-Host "    $h" -ForegroundColor Yellow }
-        } else {
-            Write-Host "    no tests reported '$surface'"
+        if ($surface) {
+            $hits = @($stepOut | Select-String -SimpleMatch -CaseSensitive -Pattern $surface |
+                      ForEach-Object { $_.Line.Trim() })
+            if ($hits.Count) {
+                Write-Host "    surfaced '$surface':"
+                foreach ($h in $hits) { Write-Host "    $h" -ForegroundColor Yellow }
+            } else {
+                Write-Host "    no tests reported '$surface'"
+            }
+        }
+        if ($absent) {
+            $bad = @($stepOut | Select-String -SimpleMatch -CaseSensitive -Pattern $absent |
+                     ForEach-Object { $_.Line.Trim() })
+            if ($bad.Count) {
+                Write-Host "    REFUSED: this step's verdict requires '$absent' to be absent from its output:"
+                foreach ($b in $bad) { Write-Host "    $b" -ForegroundColor Red }
+                # Only promote a zero exit code; a non-zero one is already the step's
+                # verdict and its real number is more use in the FAIL line than a 1.
+                if ($script:StepExitCode -eq 0) { $script:StepExitCode = 1 }
+            }
         }
     } else {
         Invoke-ContractCommand -CommandLine $cmd
