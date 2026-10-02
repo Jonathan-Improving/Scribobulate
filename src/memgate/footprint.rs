@@ -76,7 +76,7 @@ pub(crate) const WARMUP: usize = 3;
 /// `8x` of residual growth while one allocation of any size shows up as none.
 pub(crate) const SAMPLE_COUNT: usize = WARMUP + 10;
 
-/// Serialises every footprint measurement in the process.
+/// Set by the `gtk_suite` child process before it runs its cases, and by nothing else.
 ///
 /// **The instrument is process-wide and the failure direction is the reassuring one.**
 /// `current()` reads the whole process's footprint, so a foreign allocation made while
@@ -84,27 +84,30 @@ pub(crate) const SAMPLE_COUNT: usize = WARMUP + 10;
 /// raises the baseline and HIDES the growth — the gate then passes on a real leak,
 /// which is the reading nobody investigates.
 ///
-/// That is reachable because these bodies register with both harnesses: the
-/// `harness = false` suite runs them one at a time on the main thread, and the ordinary
-/// libtest binary runs them in parallel threads. The runner script pins the first; it
-/// cannot pin the second, and a claim about a shared instrument that depends on which
-/// harness invoked it is not a claim.
+/// The memgate bodies register with both harnesses. The `harness = false` suite child
+/// runs one case at a time on its main thread with nothing beside it. The ordinary
+/// libtest binary runs every plain `#[test]` of the library on other threads while a
+/// series is sampled, and none of them could be made to take a lock. A lock among the
+/// memgate bodies alone excluded nothing that contends: they were already serial under
+/// both harnesses (`#[gtk::test]` funnels every body onto one worker,
+/// GTK4Rs/AP-159). So the bodies refuse to measure anywhere but the suite child, and
+/// say so, instead.
 ///
 /// Same shape, and the same cause, as the counting allocator in richimg's
 /// oversized-allocation targets: contention on a shared instrument presents as a null
 /// reading, and here the null reading is "no growth".
 #[cfg(all(test, feature = "memory-gates"))]
-static MEASUREMENT: std::sync::Mutex<()> = std::sync::Mutex::new(());
+pub(crate) static IN_SUITE_CHILD: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
-/// Claim the instrument for this test's whole body, and release it on drop.
+/// Claim the instrument for this test's whole body, or `None` — after printing a
+/// `SKIPPED` line naming `rubric` — when this process is not the suite child, where a
+/// measurement would be unsound. Callers return on `None`.
 ///
-/// A guard rather than a wrapper around the sampling loop, deliberately: building the
-/// window, decoding the fixture and pumping the loop all allocate, and a series whose
-/// BASELINE was taken while another test was allocating is as wrong as one whose
-/// samples were. The measured region is the test.
-///
-/// Poisoning is ignored: a failing assertion inside one series must not turn every
-/// later one into a second, misleading failure.
+/// Called at the top of the body rather than around the sampling loop, deliberately:
+/// building the window, decoding the fixture and pumping the loop all allocate, and a
+/// series whose BASELINE was taken while another test was allocating is as wrong as
+/// one whose samples were. The measured region is the test.
 ///
 /// **On Linux it also stops the kernel collapsing this process's memory into huge
 /// pages**, because that moves the reading with no allocation at all. Under
@@ -118,12 +121,17 @@ static MEASUREMENT: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// scan, so what remains in the series is growth the program made (GEP-95).
 #[cfg(all(test, feature = "memory-gates"))]
 #[must_use = "the instrument is only claimed while the guard is alive"]
-pub(crate) fn measuring() -> MeasurementGuard {
+pub(crate) fn measuring(rubric: &str) -> Option<MeasurementGuard> {
+    if !IN_SUITE_CHILD.load(std::sync::atomic::Ordering::SeqCst) {
+        println!(
+            "SKIPPED [TDD {rubric}]: the footprint instrument is process-wide; run it via \
+             `--test gtk_suite memgate` (scripts/run-memory-gates.sh)"
+        );
+        return None;
+    }
     #[cfg(target_os = "linux")]
     disable_huge_page_collapse();
-    MeasurementGuard {
-        _lock: MEASUREMENT.lock().unwrap_or_else(|e| e.into_inner()),
-    }
+    Some(MeasurementGuard { _private: () })
 }
 
 /// Idempotent and process-wide; a refusal is fatal rather than ignored, because
@@ -144,7 +152,7 @@ fn disable_huge_page_collapse() {
 
 #[cfg(all(test, feature = "memory-gates"))]
 pub(crate) struct MeasurementGuard {
-    _lock: std::sync::MutexGuard<'static, ()>,
+    _private: (),
 }
 
 /// Judge a sampled series against this platform's [`GROWTH_BOUNDS`], discarding

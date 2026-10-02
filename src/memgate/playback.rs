@@ -133,7 +133,9 @@ const PER_FRAME_DEADLINE: Duration = Duration::from_secs(2);
 #[gtktest::test]
 fn playback_growth_across_many_loops_ttd_6_10() {
     // The footprint instrument is process-wide; hold it for the whole body.
-    let _measuring = crate::memgate::footprint::measuring();
+    let Some(_measuring) = crate::memgate::footprint::measuring("6.10") else {
+        return;
+    };
     let _enable = EnableAnimationsGuard::set(true);
     let app = test_app_suffixed("playback-slope");
     let (pic, animated, _window) = build_playing(&app);
@@ -174,7 +176,9 @@ fn playback_growth_across_many_loops_ttd_6_10() {
 #[gtktest::test]
 fn scroll_away_and_back_cycles_do_not_grow_footprint_ttd_6_10() {
     // The footprint instrument is process-wide; hold it for the whole body.
-    let _measuring = crate::memgate::footprint::measuring();
+    let Some(_measuring) = crate::memgate::footprint::measuring("6.10") else {
+        return;
+    };
     let _enable = EnableAnimationsGuard::set(true);
     let app = test_app_suffixed("scroll-cycles");
     let (_pic, animated, _window) = build_playing(&app);
@@ -243,7 +247,9 @@ fn scroll_away_and_back_cycles_do_not_grow_footprint_ttd_6_10() {
 #[gtktest::test]
 fn animation_state_finalizes_with_no_main_loop_pump_ttd_6_7() {
     // The footprint instrument is process-wide; hold it for the whole body.
-    let _measuring = crate::memgate::footprint::measuring();
+    let Some(_measuring) = crate::memgate::footprint::measuring("6.7") else {
+        return;
+    };
     let _enable = EnableAnimationsGuard::set(true);
     let app = test_app_suffixed("anim-finalize");
     let (pic, animated, window) = build_playing(&app);

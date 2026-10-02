@@ -347,6 +347,10 @@ fn group_cases<'a>(cases: &[&'a Case], per_case: bool) -> Vec<Vec<&'a Case>> {
 /// The child half: initialise GTK once in a fresh process, run the named cases in
 /// order on its main thread, and record each start and verdict. Never returns.
 fn run_child(cases: &[&Case], names: &[&str], report: Option<&str>) -> ! {
+    // The one process where a footprint series runs with nothing beside it; the memory
+    // gates refuse to measure anywhere else (`memgate::footprint::IN_SUITE_CHILD`).
+    #[cfg(feature = "memory-gates")]
+    memgate::footprint::IN_SUITE_CHILD.store(true, std::sync::atomic::Ordering::SeqCst);
     // Resolve every name before initialising anything: a name the driver made up is
     // a harness defect, and must not be discovered half-way through a group.
     let resolved: Vec<&Case> = names

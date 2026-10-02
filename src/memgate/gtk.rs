@@ -72,9 +72,6 @@ enum CachePath {
 }
 
 fn sample_loads(path: &Path, n: usize, cache: CachePath) -> Option<Vec<u64>> {
-    // The footprint instrument is process-wide; hold it for the whole series, baseline
-    // included. See `footprint::measuring`.
-    let _measuring = crate::memgate::footprint::measuring();
     crate::imagecache::reset_for_test();
     let mut samples = Vec::with_capacity(n);
     for _ in 0..n {
@@ -96,6 +93,11 @@ fn sample_loads(path: &Path, n: usize, cache: CachePath) -> Option<Vec<u64>> {
 
 #[gtktest::test]
 fn growth_animated_webp_ttd_6_6() {
+    // The footprint instrument is process-wide; measured only where nothing else runs
+    // beside the series, baseline included. See `footprint::measuring`.
+    let Some(_measuring) = crate::memgate::footprint::measuring("6.6") else {
+        return;
+    };
     // Every host decodes this now — `richimg` is pure Rust, not a host gdk-pixbuf
     // loader, so there is no longer a decoder-absent skip arm here; a skip
     // would now be dead code hiding a failure.
@@ -107,6 +109,11 @@ fn growth_animated_webp_ttd_6_6() {
 
 #[gtktest::test]
 fn uncached_decode_animated_webp_ttd_6_9() {
+    // The footprint instrument is process-wide; measured only where nothing else runs
+    // beside the series, baseline included. See `footprint::measuring`.
+    let Some(_measuring) = crate::memgate::footprint::measuring("6.9") else {
+        return;
+    };
     // Every load is a fresh decode — the path an evicted or changed file takes,
     // which 6.6 cannot see because it measures cache hits. Every host decodes this
     // now (see 6.6's comment above) — no decoder-absent skip arm.
@@ -118,6 +125,11 @@ fn uncached_decode_animated_webp_ttd_6_9() {
 
 #[gtktest::test]
 fn uncached_decode_png_is_flat_ttd_6_9() {
+    // The footprint instrument is process-wide; measured only where nothing else runs
+    // beside the series, baseline included. See `footprint::measuring`.
+    let Some(_measuring) = crate::memgate::footprint::measuring("6.9") else {
+        return;
+    };
     // Negative control for 6.9: a fresh PNG decode every iteration must not climb.
     // Without it, a red 6.9 could be the cache reset's own churn rather than the
     // WebP decode.
@@ -129,6 +141,11 @@ fn uncached_decode_png_is_flat_ttd_6_9() {
 
 #[gtktest::test]
 fn growth_png_is_flat_ttd_6_6() {
+    // The footprint instrument is process-wide; measured only where nothing else runs
+    // beside the series, baseline included. See `footprint::measuring`.
+    let Some(_measuring) = crate::memgate::footprint::measuring("6.6") else {
+        return;
+    };
     // Negative control: a static PNG must not climb. If this fails, the
     // instrument is measuring warm-up or some other render-path leak, not the
     // animated-WebP loader branch.

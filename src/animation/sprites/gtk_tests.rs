@@ -314,3 +314,35 @@ fn a_decode_outlived_by_its_own_driver_is_refused_by_the_rebuilt_one() {
     crate::sprite::clear_cache();
     table.release();
 }
+
+/// A test that fails before its trailing `release()` drops a live table during the
+/// unwind. The drop's unreleased-table assertion must stay quiet then: a second panic
+/// while unwinding aborts the whole test process, burying the real failure and every
+/// case after it.
+///
+/// Mutation: remove the `panicking()` early return in `TableInner::drop` and this
+/// process aborts inside `catch_unwind`.
+#[gtktest::test]
+fn a_failing_test_that_never_released_its_table_unwinds_cleanly() {
+    let _enable = crate::animation::policy::EnableAnimationsGuard::set(true);
+    crate::sprite::clear_cache();
+    let app = test_app("unwind");
+    let (host, _window) = mapped_host(&app);
+    let r = animated_sprite();
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let table = SpriteTable::default();
+        table.begin_pass();
+        let _ = table.frames(host.upcast_ref()).natural(&r);
+        table.end_pass();
+        assert!(
+            table.with_anim(&r, |_| ()).is_some(),
+            "precondition: the table holds a live animation"
+        );
+        panic!("a deliberate assertion failure before release()");
+    }));
+    assert!(
+        outcome.is_err(),
+        "the body panicked and the unwind came back here"
+    );
+    crate::sprite::clear_cache();
+}

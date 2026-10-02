@@ -510,8 +510,15 @@ impl SpriteTable {
 ///
 /// `debug_assert`, so a release build pays nothing and a developer or a CI run — which
 /// build in debug — hears about it at the moment it happens.
+///
+/// **Not while already unwinding.** A test that fails an assertion before its trailing
+/// `release()` drops the table during the unwind, and a second panic there aborts the
+/// whole test process, burying the first failure and every case after it.
 impl Drop for TableInner {
     fn drop(&mut self) {
+        if std::thread::panicking() {
+            return;
+        }
         debug_assert!(
             self.anims.borrow().is_empty() && self.visibility.borrow().is_none(),
             "a SpriteTable was dropped without release(): {} live animation(s) and {} \
