@@ -45,6 +45,7 @@ described from a different vantage point.
 | J | Windows | Test | Flaky test: overwriting a crash-recovery snapshot sometimes finds the old, shorter snapshot still on disk after the write loop ends | Low |
 | L | Any | Production | After a link jump, Back or Cmd+Home sometimes scrolls only part of the way to its target (reported once; not reproduced on Linux or macOS) | Low |
 | M | Windows | Test | Flaky test: a cancelled snapshot write sometimes leaves its temporary file behind on Windows, though the previous snapshot is intact | Low |
+| N | Windows | Test | Flaky test: the GTK suite sometimes aborts on Windows on a `g_signal_handler_disconnect` critical near the comment-card tests (1 run in 7) | Low |
 
 ## Closed issues
 
@@ -482,6 +483,34 @@ operation, so check whether one mechanism explains both before fixing either.
 - Poll the directory briefly for the temp to disappear before asserting, keeping the
   destination check strict.
 - Accept until it recurs, and capture what holds the file then.
+
+## N. The GTK suite sometimes aborts on Windows on a signal-disconnect critical
+
+**Severity**: Low (one aborted suite run in seven; a rerun passes).
+
+`GLib-GObject-CRITICAL: g_signal_handler_disconnect: assertion 'handler_id > 0' failed`,
+promoted to an abort by `G_DEBUG=fatal-criticals` (exit `0xC0000409`, the MSVC fast-fail
+GTK4Rs/AP-268 describes). It printed right after
+`codeview::card::gtk_integration_tests::an_anchor_whose_annotation_is_gone_resolves_to_nothing`,
+with `cancel_returns_the_card_to_its_read_state_and_discards_the_draft` started and not
+finished. Measured on the Windows seat (GTK 4.22.4) on 2026-10-02: 1 failing run in 7 of the
+full suite, on an unchanged tree. The card tests pass in isolation (3/3) and as a module (9/9).
+
+**Checked elsewhere**: Linux, 0 in 8 passes over those tests (four full runs, each running
+them in both the library suite and `gtk_suite`); macOS, 0 in 4 (its log, since macOS cannot
+run with fatal criticals). At 1 in 7 those misses are suggestive, not conclusive.
+
+**Not established**: who passes the zero. The Rust bindings' `SignalHandlerId` is non-zero
+by type, so the call comes from C, most likely GTK's own teardown of a widget a previous
+test left to deferred dispose. On macOS the same test deterministically emits a different
+critical (`gdk_surface_thaw_updates`, the popover freeze-count class GTK4Rs/AP-305 records),
+which points at the card's popover surface but proves nothing about Windows.
+
+**Mitigation options**:
+- Capture a backtrace on the next occurrence (a crash dump naming the GTK frame) before
+  changing anything.
+- Make the card tests destroy what they build and pump until disposed, so no teardown
+  crosses into the next test.
 
 ## CLSD-02. A paragraph that mixes fonts lays out wider than the wrap width it was given
 
