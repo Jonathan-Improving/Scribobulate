@@ -484,3 +484,59 @@ fn one_invocation_naming_a_file_twice_opens_it_once() {
     // Non-vacuous: the file really was opened, rather than refused by both limbs.
     assert_eq!(backing_this_file(), 1);
 }
+
+/// Two `open` invocations naming the same file, the second arriving while the first is
+/// still reading: still ONE tab. Both pass the pre-read "already open?" check, because
+/// nothing is built yet; the build re-asks per document, so whichever batch builds
+/// second focuses the first one's tab.
+///
+/// Mutation: remove the re-check at the top of `build_opened_batch`'s loop and this
+/// counts two tabs on the one file.
+#[gtktest::test]
+fn two_overlapping_invocations_naming_one_file_open_it_once() {
+    let app = gtk::Application::new(
+        Some("com.extollit.scribobulate.integrationtest.openoverlap"),
+        gtk::gio::ApplicationFlags::HANDLES_OPEN | gtk::gio::ApplicationFlags::NON_UNIQUE,
+    );
+    crate::app::setup_app(&app);
+    app.register(gtk::gio::Cancellable::NONE)
+        .expect("register before building a window");
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = dir.path().join("notes.md");
+    std::fs::write(&file, "# once\n").expect("fixture");
+    let _window = crate::window::new_window(&app, "IT", "", None);
+    let _cold = crate::app::coldstart::force_for_test(false);
+    // Back to back, with no main-loop turn between: the first batch's reads cannot
+    // have completed when the second invocation runs its pre-read check.
+    app.open(&[gtk::gio::File::for_path(&file)], "interactive");
+    app.open(&[gtk::gio::File::for_path(&file)], "interactive");
+
+    let backing_this_file = || {
+        app.windows()
+            .into_iter()
+            .filter_map(|w| w.downcast::<gtk::ApplicationWindow>().ok())
+            .flat_map(|w| winstate::tabs_for_window(&w))
+            .filter(|t| {
+                t.path
+                    .borrow()
+                    .as_deref()
+                    .is_some_and(|p| p == file.as_path())
+            })
+            .count()
+    };
+    assert!(
+        crate::docio::settle(|| backing_this_file() >= 1),
+        "the file must open"
+    );
+    // Both batches must have finished before counting: the second builds after the
+    // first, so settle on time rather than on the first tab appearing.
+    crate::testpump::drain_for(
+        crate::testpump::Clock::Worker,
+        std::time::Duration::from_millis(500),
+    );
+    assert_eq!(
+        backing_this_file(),
+        1,
+        "two overlapping invocations naming one file must produce ONE tab backing it"
+    );
+}

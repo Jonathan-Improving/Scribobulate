@@ -541,6 +541,39 @@ mod gtk_tests {
             1,
             "the replace field must carry the wiring"
         );
+
+        // And every OTHER single-line field the window holds, found by walking the
+        // whole tree, so a field added later without the constructor fails here rather
+        // than escaping a list of names (the sidebar filter boxes once did).
+        let fields = single_line_fields(window.upcast_ref());
+        assert!(
+            fields.len() >= 4,
+            "precondition: find, replace and both sidebar filter boxes are in the tree, \
+             found {}",
+            fields.len()
+        );
+        for field in &fields {
+            assert_eq!(
+                capture_key_controllers(field),
+                1,
+                "every single-line field must carry the wiring: a {}",
+                field.type_().name()
+            );
+        }
+    }
+
+    /// Every `GtkEntry` and `GtkSearchEntry` under `root`, at any depth. Their inner
+    /// `GtkText` is not listed separately; the wiring goes on the wrapper.
+    fn single_line_fields(root: &gtk::Widget) -> Vec<gtk::Editable> {
+        let mut out = Vec::new();
+        if root.is::<gtk::Entry>() || root.is::<gtk::SearchEntry>() {
+            out.extend(root.clone().downcast::<gtk::Editable>().ok());
+            return out;
+        }
+        for child in std::iter::successors(root.first_child(), |w| w.next_sibling()) {
+            out.extend(single_line_fields(&child));
+        }
+        out
     }
 
     /// The first `GtkEntry` anywhere under `root`, depth-first.
