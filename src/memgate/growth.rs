@@ -19,9 +19,10 @@
 //! same magnitude as that single step, so no tolerance separates them.
 //!
 //! **What separates them is how much of the growth ONE allocation explains.**
-//! Two clauses, neither of which can see where in the run anything happened:
+//! Two clauses:
 //!
-//! * **Residual growth** — total growth minus the largest single adjacent rise.
+//! * **Residual growth** — total growth minus the largest single adjacent rise, over
+//!   the worst contiguous stretch of the window (so a fall cannot cancel a climb).
 //!   A quantity allocated once is entirely accounted for by that subtraction,
 //!   however large it is and wherever it lands; a quantity added on every render
 //!   leaves `(n − 1)` of itself behind. On the measured traces the two are two
@@ -131,14 +132,18 @@ pub(crate) fn assert_no_growth(
     }
     let total = total_growth(rest);
     let rise = largest_rise(rest);
-    let residual = residual_growth(rest);
+    let (from, to, residual) = worst_stretch(rest).unwrap_or((0, 0, 0));
     if residual > bounds.residual_bytes as i64 {
+        // The stretch's OWN figures: its growth less its largest rise IS the residual,
+        // where the whole window's figures need not add up to it under a fall.
+        let stretch = &rest[from..=to];
         return Err(format!(
-            "footprint grew {total} bytes across {} samples, of which one allocation of \
-             {rise} bytes explains only part: {residual} bytes of growth remain, over the \
+            "footprint grew {} bytes across samples {from}..={to}, of which one allocation \
+             of {} bytes explains only part: {residual} bytes of growth remain, over the \
              {} byte residual bound — that is a climb, not a step; \
              samples after warmup: {rest:?}",
-            rest.len(),
+            total_growth(stretch),
+            largest_rise(stretch),
             bounds.residual_bytes
         ));
     }
@@ -336,6 +341,14 @@ mod tests {
         }
         let err = assert_no_growth(&series, 3, BOUNDS).unwrap_err();
         assert!(err.contains("a climb, not a step"), "{err}");
+        // The message reports the stretch's own figures, which add up to the residual
+        // (R6-SPEC-03): the climb after the fall, samples 4..=9 after warm-up — five
+        // rises of 12 000, one of them explained, 48 000 left.
+        assert!(
+            err.contains("grew 60000 bytes across samples 4..=9")
+                && err.contains("48000 bytes of growth remain"),
+            "{err}"
+        );
     }
 
     /// Footprint that falls, because the allocator returned pages, is not growth

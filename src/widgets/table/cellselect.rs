@@ -115,39 +115,27 @@ pub(crate) fn make_cell_selectable(label: &Label) {
                 return;
             };
             let (px, py) = (sx + dx, sy + dy);
-            let step = drag_step(
+            let effects = drag_step(
                 armed.get(),
                 taken.get(),
                 label.drag_check_threshold(sx as i32, sy as i32, px as i32, py as i32),
-                px >= 0.0
-                    && py >= 0.0
-                    && px < f64::from(label.width())
-                    && py < f64::from(label.height()),
-            );
-            if step == DragStep::Ignore {
-                return;
-            }
-            if step != DragStep::Extend {
-                // Deny the label's drag on every armed update short of a real in-label
-                // drag. From GTK 4.8 a double/triple press does not set the label's
-                // `in_drag`, and any update whose index differs from its
-                // `selection_anchor` CLAIMS (4.22.4 `gtklabel.c:4822`), cancelling the
-                // click group and zeroing its press count. GTK delivers such an update
-                // with no pointer motion: the release itself (`gtkgesture.c:675-687`),
-                // or a synthesized `gdk_surface_ensure_motion` on a frame-clock flush.
-                // So a 120 ms triple read its third press as a single (macOS seat,
-                // 4.22.4/Quartz). A point outside the label (a parked anchor) is
-                // denied too, so it never takes the `reset()` below.
+                point_in(px, py, f64::from(label.width()), f64::from(label.height())),
+            )
+            .effects();
+            // A pure applier: every decision, including which gesture to deny or reset,
+            // is `DragStep::effects`'s, and the table test pins it. See there for why
+            // each effect exists.
+            if effects.deny_label_drag {
                 own_drag.set_state(EventSequenceState::Denied);
-                if step != DragStep::TakeOver {
-                    return;
-                }
-                // And its click gesture, so its release handler never runs: on a single
-                // press it would collapse the selection to the release point (`:4394`),
-                // undoing the one drawn here. GTK resets the same gesture itself after a
-                // triple press (`:4368-4369`).
+            }
+            if effects.reset_label_click {
                 own_click.reset();
+            }
+            if effects.latch_taken {
                 taken.set(true);
+            }
+            if !effects.extend {
+                return;
             }
             let layout = label.layout();
             let (ox, oy) = label.layout_offsets();
@@ -189,7 +177,54 @@ enum DragStep {
     Extend,
 }
 
-/// The decision [`DragStep`] names, from the four facts the update handler reads.
+/// What a [`DragStep`] does to GTK's gestures and to the selection — the closure applies
+/// these and decides nothing itself.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct DragEffects {
+    /// Deny the label's own drag gesture. From GTK 4.8 a double/triple press does not
+    /// set the label's `in_drag`, and any update whose index differs from its
+    /// `selection_anchor` CLAIMS (4.22.4 `gtklabel.c:4822`), cancelling the click group
+    /// and zeroing its press count; GTK delivers such an update with no pointer motion
+    /// (the release itself, `gtkgesture.c:675-687`, or a synthesized motion on a
+    /// frame-clock flush). Without the deny a 120 ms triple read its third press as a
+    /// single (macOS seat, 4.22.4/Quartz).
+    deny_label_drag: bool,
+    /// Reset the label's click gesture, so its release handler never runs: on a single
+    /// press it would collapse the selection to the release point (`:4394`), undoing the
+    /// one drawn here. GTK resets the same gesture itself after a triple press
+    /// (`:4368-4369`). Never for a point outside the label (a parked anchor).
+    reset_label_click: bool,
+    /// Remember that this drag is now ours.
+    latch_taken: bool,
+    /// Extend the selection to the pointer.
+    extend: bool,
+}
+
+impl DragStep {
+    /// The effects of this step, one row per variant.
+    fn effects(self) -> DragEffects {
+        let (deny_label_drag, reset_label_click, latch_taken, extend) = match self {
+            DragStep::Ignore => (false, false, false, false),
+            DragStep::DenyOnly => (true, false, false, false),
+            DragStep::TakeOver => (true, true, true, true),
+            DragStep::Extend => (false, false, false, true),
+        };
+        DragEffects {
+            deny_label_drag,
+            reset_label_click,
+            latch_taken,
+            extend,
+        }
+    }
+}
+
+/// Whether `(px, py)` lies inside a `w` × `h` widget: the left and top edges in, the
+/// right and bottom edges out.
+fn point_in(px: f64, py: f64, w: f64, h: f64) -> bool {
+    px >= 0.0 && py >= 0.0 && px < w && py < h
+}
+
+/// The decision [`DragStep`] names, from the four facts the update handler reads./// The decision [`DragStep`] names, from the four facts the update handler reads.
 fn drag_step(armed: bool, taken: bool, past_threshold: bool, inside: bool) -> DragStep {
     match (armed, taken, past_threshold && inside) {
         (false, _, _) => DragStep::Ignore,
@@ -290,8 +325,8 @@ fn word_around(words: &[WordEdge], at: usize) -> (usize, usize) {
 #[cfg(test)]
 mod tests {
     use super::{
-        drag_selection, drag_step, press_inside_selection, takes_over, word_edges as edges,
-        DragStep,
+        drag_selection, drag_step, point_in, press_inside_selection, takes_over,
+        word_edges as edges, DragEffects, DragStep,
     };
 
     /// A double-press in the gap between two words selects the gap, as GTK's label does,
@@ -330,6 +365,33 @@ mod tests {
                 "armed={armed} taken={taken} past_threshold={past} inside={inside}"
             );
         }
+    }
+
+    /// What each step does to GTK's gestures, row by row: deleting the deny, the reset or
+    /// the latch from a row now fails here, where the closure used to hide it.
+    #[test]
+    fn each_drag_step_has_exactly_its_effects() {
+        let row = |deny, reset, latch, extend| DragEffects {
+            deny_label_drag: deny,
+            reset_label_click: reset,
+            latch_taken: latch,
+            extend,
+        };
+        assert_eq!(DragStep::Ignore.effects(), row(false, false, false, false));
+        assert_eq!(DragStep::DenyOnly.effects(), row(true, false, false, false));
+        assert_eq!(DragStep::TakeOver.effects(), row(true, true, true, true));
+        assert_eq!(DragStep::Extend.effects(), row(false, false, false, true));
+    }
+
+    /// The label's own bounds: left and top edges in, right and bottom edges out.
+    #[test]
+    fn a_point_is_in_the_label_up_to_but_not_on_its_far_edges() {
+        assert!(point_in(0.0, 0.0, 10.0, 5.0));
+        assert!(point_in(9.9, 4.9, 10.0, 5.0));
+        assert!(!point_in(10.0, 2.0, 10.0, 5.0));
+        assert!(!point_in(2.0, 5.0, 10.0, 5.0));
+        assert!(!point_in(-0.1, 2.0, 10.0, 5.0));
+        assert!(!point_in(2.0, -0.1, 10.0, 5.0));
     }
 
     /// A press is inside the selection at either end and in either order, and never

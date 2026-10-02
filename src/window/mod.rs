@@ -102,6 +102,8 @@ pub(crate) use save::refresh_dirty_status;
 pub(crate) use scrollsync::content_reading_position;
 #[cfg(all(test, feature = "gtk-integration-tests"))]
 pub(crate) use swap::{clear_snapshot_failure_for_test, report_snapshot_failure_for_test};
+#[cfg(test)]
+pub(crate) use swap::{close_windows_opened_since_for_test, toplevels_for_test};
 pub(crate) use swap::{discard_tab_swap, sync_tab_swap, wire_swap_snapshots};
 pub(crate) use swaprecovery::recover_after_restore;
 pub(crate) use tabs::add_new_document_tab;

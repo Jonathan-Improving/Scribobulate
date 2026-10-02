@@ -2,35 +2,6 @@ use super::*;
 use crate::swapfile::{DocId, SwapHeader};
 use crate::window::new_window;
 
-/// Run `f` with the state directory redirected to `dir`, then discard the snapshot of
-/// every tab still open and destroy every window, before the redirect is lifted.
-///
-/// **Why the teardown is not optional.** A dirty tab left alive keeps a snapshot timer
-/// armed, and when it fires it resolves the swap directory from `XDG_STATE_HOME` at that
-/// moment, which is process-global. A later test's redirect then receives the stray
-/// write, and `recover_after_restore` reopens it into a tab that test never asked for,
-/// so a tab-count assertion fails or passes by suite order. Discarding withdraws any
-/// write in flight as well (its temp is unlinked rather than promoted).
-fn with_isolated_state_home<T>(dir: &std::path::Path, f: impl FnOnce() -> T) -> T {
-    crate::session::with_state_home_for_test(dir, || {
-        let out = f();
-        for window in gtk::Window::list_toplevels() {
-            let Ok(window) = window.downcast::<ApplicationWindow>() else {
-                continue;
-            };
-            for tab in crate::winstate::tabs_for_window(&window) {
-                crate::window::swap::discard_tab_swap(&tab);
-            }
-            window.destroy();
-        }
-        crate::testpump::drain_for(
-            crate::testpump::Clock::Worker,
-            std::time::Duration::from_millis(200),
-        );
-        out
-    })
-}
-
 /// Write a swap file into the (test-redirected) state directory, exactly as a
 /// pre-crash run would have left it.
 ///
@@ -70,7 +41,7 @@ fn header(doc_id: DocId, path: Option<&std::path::Path>, baseline: &[u8]) -> Swa
 #[gtktest::test]
 fn a_snapshot_is_recovered_into_the_tab_that_was_restored_for_it() {
     let dir = tempfile::tempdir().unwrap();
-    with_isolated_state_home(dir.path(), || {
+    crate::session::with_state_home_for_test(dir.path(), || {
         let app =
             super::super::gtk_integration_tests::test_app("com.extollit.scribobulate.it.rec1");
         let win = new_window(&app, "IT", "on disk", None);
@@ -113,7 +84,7 @@ fn a_snapshot_is_recovered_into_the_tab_that_was_restored_for_it() {
 #[gtktest::test]
 fn recovery_repairs_the_derived_source_and_not_only_the_editor_buffer() {
     let dir = tempfile::tempdir().unwrap();
-    with_isolated_state_home(dir.path(), || {
+    crate::session::with_state_home_for_test(dir.path(), || {
         let app =
             super::super::gtk_integration_tests::test_app("com.extollit.scribobulate.it.reccr");
         let win = new_window(&app, "IT", "on disk", None);
@@ -147,8 +118,8 @@ fn recovery_repairs_the_derived_source_and_not_only_the_editor_buffer() {
 
 /// The `.swap` files filed under `stem` in the (test-redirected) swap directory.
 ///
-/// Filtered by stem as a second line of defence: every test here runs inside
-/// [`with_isolated_state_home`], which discards and closes what it opened.
+/// Filtered by stem as a second line of defence: `with_state_home_for_test` discards
+/// and closes every window a test opened before lifting its redirect.
 fn swaps_left(state_home: &std::path::Path, stem: &str) -> Vec<std::path::PathBuf> {
     let dir = state_home.join("scribobulate").join("swap");
     let prefix = format!("{stem}-");
@@ -182,7 +153,7 @@ fn swaps_left(state_home: &std::path::Path, stem: &str) -> Vec<std::path::PathBu
 #[gtktest::test]
 fn a_snapshot_identical_to_the_file_is_removed_not_recovered() {
     let dir = tempfile::tempdir().unwrap();
-    with_isolated_state_home(dir.path(), || {
+    crate::session::with_state_home_for_test(dir.path(), || {
         let app =
             super::super::gtk_integration_tests::test_app("com.extollit.scribobulate.it.rec13");
         let restored_doc = dir.path().join("restored.md");
@@ -253,7 +224,7 @@ fn a_snapshot_identical_to_the_file_is_removed_not_recovered() {
 #[gtktest::test]
 fn a_recovery_that_leaves_the_tab_clean_removes_its_snapshot() {
     let dir = tempfile::tempdir().unwrap();
-    with_isolated_state_home(dir.path(), || {
+    crate::session::with_state_home_for_test(dir.path(), || {
         let app =
             super::super::gtk_integration_tests::test_app("com.extollit.scribobulate.it.rec14");
         let doc = dir.path().join("notes.md");
@@ -299,7 +270,7 @@ fn a_recovery_that_leaves_the_tab_clean_removes_its_snapshot() {
 #[gtktest::test]
 fn a_clean_recovery_on_a_stale_baseline_raises_no_conflict() {
     let dir = tempfile::tempdir().unwrap();
-    with_isolated_state_home(dir.path(), || {
+    crate::session::with_state_home_for_test(dir.path(), || {
         let app =
             super::super::gtk_integration_tests::test_app("com.extollit.scribobulate.it.rec14s");
         let doc = dir.path().join("notes.md");
@@ -336,7 +307,7 @@ fn a_clean_recovery_on_a_stale_baseline_raises_no_conflict() {
 fn a_recovery_is_a_load_that_undo_cannot_revert() {
     use gtk::prelude::TextBufferExt;
     let dir = tempfile::tempdir().unwrap();
-    with_isolated_state_home(dir.path(), || {
+    crate::session::with_state_home_for_test(dir.path(), || {
         let app =
             super::super::gtk_integration_tests::test_app("com.extollit.scribobulate.it.recundo");
         let doc = dir.path().join("notes.md");
@@ -379,7 +350,7 @@ fn a_recovery_is_a_load_that_undo_cannot_revert() {
 #[gtktest::test]
 fn a_snapshot_no_restored_tab_claims_is_still_recovered() {
     let dir = tempfile::tempdir().unwrap();
-    with_isolated_state_home(dir.path(), || {
+    crate::session::with_state_home_for_test(dir.path(), || {
         let app =
             super::super::gtk_integration_tests::test_app("com.extollit.scribobulate.it.rec2");
         let win = new_window(&app, "IT", "unrelated", None);
@@ -424,7 +395,7 @@ fn a_snapshot_no_restored_tab_claims_is_still_recovered() {
 #[gtktest::test]
 fn reopening_the_crashed_document_by_path_recovers_into_the_tab_already_showing_it() {
     let dir = tempfile::tempdir().unwrap();
-    with_isolated_state_home(dir.path(), || {
+    crate::session::with_state_home_for_test(dir.path(), || {
         let app =
             super::super::gtk_integration_tests::test_app("com.extollit.scribobulate.it.rec11");
         let doc = dir.path().join("notes.md");
@@ -486,7 +457,7 @@ fn reopening_the_crashed_document_by_path_recovers_into_the_tab_already_showing_
 #[gtktest::test]
 fn a_second_snapshot_for_one_path_gets_its_own_tab_rather_than_overwriting_the_first() {
     let dir = tempfile::tempdir().unwrap();
-    with_isolated_state_home(dir.path(), || {
+    crate::session::with_state_home_for_test(dir.path(), || {
         let app =
             super::super::gtk_integration_tests::test_app("com.extollit.scribobulate.it.rec12");
         let doc = dir.path().join("contended.md");
@@ -537,7 +508,7 @@ fn a_second_snapshot_for_one_path_gets_its_own_tab_rather_than_overwriting_the_f
 #[gtktest::test]
 fn a_foreign_file_is_left_exactly_as_it_was_found() {
     let dir = tempfile::tempdir().unwrap();
-    with_isolated_state_home(dir.path(), || {
+    crate::session::with_state_home_for_test(dir.path(), || {
         let app =
             super::super::gtk_integration_tests::test_app("com.extollit.scribobulate.it.rec3");
         let win = new_window(&app, "IT", "unrelated", None);
@@ -568,7 +539,7 @@ fn a_foreign_file_is_left_exactly_as_it_was_found() {
 #[gtktest::test]
 fn a_snapshot_left_by_our_own_pid_is_still_recovered() {
     let dir = tempfile::tempdir().unwrap();
-    with_isolated_state_home(dir.path(), || {
+    crate::session::with_state_home_for_test(dir.path(), || {
         let app =
             super::super::gtk_integration_tests::test_app("com.extollit.scribobulate.it.rec4");
         let win = new_window(&app, "IT", "unrelated", None);
@@ -605,7 +576,7 @@ fn a_snapshot_left_by_our_own_pid_is_still_recovered() {
 #[gtktest::test]
 fn discarding_a_recovery_reverts_the_tab_and_clears_its_recovery_data() {
     let dir = tempfile::tempdir().unwrap();
-    with_isolated_state_home(dir.path(), || {
+    crate::session::with_state_home_for_test(dir.path(), || {
         let file = dir.path().join("notes.md");
         std::fs::write(&file, "on disk").unwrap();
 
@@ -677,7 +648,7 @@ fn discarding_a_recovery_reverts_the_tab_and_clears_its_recovery_data() {
 #[gtktest::test]
 fn saving_a_recovered_tab_retires_its_recovery_notice() {
     let dir = tempfile::tempdir().unwrap();
-    with_isolated_state_home(dir.path(), || {
+    crate::session::with_state_home_for_test(dir.path(), || {
         let file = dir.path().join("notes.md");
         std::fs::write(&file, "on disk").unwrap();
 
@@ -724,7 +695,7 @@ fn saving_a_recovered_tab_retires_its_recovery_notice() {
 #[gtktest::test]
 fn the_recovery_notice_follows_the_active_tab() {
     let dir = tempfile::tempdir().unwrap();
-    with_isolated_state_home(dir.path(), || {
+    crate::session::with_state_home_for_test(dir.path(), || {
         let app =
             super::super::gtk_integration_tests::test_app("com.extollit.scribobulate.it.rec7");
         let win = new_window(&app, "IT", "first", None);
@@ -776,7 +747,7 @@ fn the_recovery_notice_follows_the_active_tab() {
 #[gtktest::test]
 fn a_recovery_reaches_the_derived_views_not_only_the_editor_buffer() {
     let dir = tempfile::tempdir().unwrap();
-    with_isolated_state_home(dir.path(), || {
+    crate::session::with_state_home_for_test(dir.path(), || {
         let app =
             super::super::gtk_integration_tests::test_app("com.extollit.scribobulate.it.rec8");
         let win = new_window(&app, "IT", "on disk", None);
@@ -825,7 +796,7 @@ fn a_recovery_reaches_the_derived_views_not_only_the_editor_buffer() {
 #[gtktest::test]
 fn the_sweep_removes_our_stray_temps_and_leaves_everything_else_alone() {
     let dir = tempfile::tempdir().unwrap();
-    with_isolated_state_home(dir.path(), || {
+    crate::session::with_state_home_for_test(dir.path(), || {
         let swap_dir = dir.path().join("scribobulate").join("swap");
         std::fs::create_dir_all(&swap_dir).unwrap();
 
@@ -878,7 +849,7 @@ fn the_sweep_removes_our_stray_temps_and_leaves_everything_else_alone() {
 #[gtktest::test]
 fn a_launch_with_a_file_argument_still_recovers() {
     let dir = tempfile::tempdir().unwrap();
-    with_isolated_state_home(dir.path(), || {
+    crate::session::with_state_home_for_test(dir.path(), || {
         let file = dir.path().join("opened.md");
         std::fs::write(&file, "on disk").unwrap();
         // A snapshot left by a previous, crashed run — belonging to a document the
@@ -945,7 +916,7 @@ fn a_launch_with_a_file_argument_still_recovers() {
 #[gtktest::test]
 fn a_snapshot_failure_notifies_once_and_retracts_on_recovery() {
     let dir = tempfile::tempdir().unwrap();
-    with_isolated_state_home(dir.path(), || {
+    crate::session::with_state_home_for_test(dir.path(), || {
         let app =
             super::super::gtk_integration_tests::test_app("com.extollit.scribobulate.it.swapfail");
         let win = new_window(&app, "IT", "content", None);
@@ -1001,7 +972,7 @@ fn a_snapshot_failure_notifies_once_and_retracts_on_recovery() {
 #[gtktest::test]
 fn a_failure_notice_does_not_outlive_its_document() {
     let dir = tempfile::tempdir().unwrap();
-    with_isolated_state_home(dir.path(), || {
+    crate::session::with_state_home_for_test(dir.path(), || {
         let app =
             super::super::gtk_integration_tests::test_app("com.extollit.scribobulate.it.failleak");
 

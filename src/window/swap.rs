@@ -519,6 +519,53 @@ pub(crate) fn discard_tab_swap(tab: &Rc<TabState>) {
     delete_snapshot(tab);
 }
 
+/// Every toplevel GTK knows of, or none where GTK is not initialised on this thread (a
+/// plain unit test). See [`close_windows_opened_since_for_test`].
+#[cfg(test)]
+pub(crate) fn toplevels_for_test() -> Vec<gtk::Window> {
+    if !gtk::is_initialized_main_thread() {
+        return Vec::new();
+    }
+    gtk::Window::list_toplevels()
+        .into_iter()
+        .filter_map(|w| w.downcast::<gtk::Window>().ok())
+        .collect()
+}
+
+/// Discard the snapshot of every tab in each window opened since `before`, then destroy
+/// those windows and let their writes settle — the teardown
+/// `session::with_state_home_for_test` runs before lifting its redirect.
+#[cfg(test)]
+pub(crate) fn close_windows_opened_since_for_test(before: &[gtk::Window]) {
+    if !gtk::is_initialized_main_thread() {
+        return;
+    }
+    let opened: Vec<gtk::Window> = toplevels_for_test()
+        .into_iter()
+        .filter(|w| !before.contains(w))
+        .collect();
+    if opened.is_empty() {
+        return;
+    }
+    for window in opened {
+        if let Ok(app_window) = window.clone().downcast::<ApplicationWindow>() {
+            for tab in winstate::tabs_for_window(&app_window) {
+                discard_tab_swap(&tab);
+            }
+        }
+        window.destroy();
+    }
+    // Wall clock, not turns: the discarded writes complete on GLib's worker pool
+    // (GTK4Rs/AP-261). `testpump` is gated on the integration-test feature, and plain
+    // unit tests reach this helper too.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(200);
+    let context = glib::MainContext::default();
+    while std::time::Instant::now() < deadline {
+        while context.iteration(false) {}
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
+}
+
 /// Wire a tab's editor buffer to the debounced snapshot.
 ///
 /// Mirrors `wire_live_preview`'s shape deliberately — same signal, same
@@ -1153,5 +1200,43 @@ mod tests {
             );
             win.destroy();
         });
+    }
+
+    /// A window a test opens inside the state-home redirect is closed, with its dirty
+    /// tab's snapshot discarded, before the redirect lifts — so it cannot snapshot into
+    /// a later test's directory. On a failing test too, since the teardown is a `Drop`.
+    ///
+    /// Mutation: make `close_windows_opened_since_for_test` return at once and the
+    /// window survives the redirect, holding its snapshot.
+    #[gtktest::test]
+    fn the_state_home_redirect_closes_what_the_test_opened() {
+        let dir = tempfile::tempdir().unwrap();
+        let before = super::toplevels_for_test().len();
+        crate::session::with_state_home_for_test(dir.path(), || {
+            let app =
+                super::gtk_integration_tests::test_app("com.extollit.scribobulate.it.swapteardown");
+            let win = new_window(&app, "IT", "original", None);
+            let tab = winstate::state(&win).expect("the window has a tab");
+            tab.editor_buf.set_text("unsaved work");
+            flush_now(&tab);
+            assert!(
+                pump_until(|| !tab.swap.in_flight.get()),
+                "the snapshot lands"
+            );
+            assert_eq!(
+                swap_files(dir.path()).len(),
+                1,
+                "precondition: a snapshot exists"
+            );
+        });
+        assert_eq!(
+            super::toplevels_for_test().len(),
+            before,
+            "the window the test opened must be closed before the redirect lifts"
+        );
+        assert!(
+            swap_files(dir.path()).is_empty(),
+            "and its snapshot discarded rather than left for a later recovery"
+        );
     }
 }

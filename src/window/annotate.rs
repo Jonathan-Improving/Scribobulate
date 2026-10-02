@@ -518,6 +518,25 @@ mod gtk_integration_tests {
         );
     }
 
+    /// A comment aimed at a word whose neighbouring text was edited while the card was
+    /// open writes NOTHING, never a highlight on another copy of the same word: the
+    /// write path is where a wrong guess would damage the document.
+    ///
+    /// Mutation: let a context-held target fall back to the unfiltered search, and the
+    /// first `the` gets the comment.
+    #[gtktest::test]
+    fn a_comment_whose_target_lost_its_neighbours_writes_nothing() {
+        let b = buf_with("the cat. the dog.");
+        let edit = highlight_in(&text_of(&b), 9..12, "which one?");
+        b.set_text("the cat. the cow.");
+        apply_annotation_edit(&b, edit);
+        assert_eq!(
+            text_of(&b),
+            "the cat. the cow.",
+            "a target that no longer resolves must change nothing"
+        );
+    }
+
     /// Build the pair a card carries: the construct anchored to its own text, and
     /// a sub-range expressed relative to it. Mirrors exactly what
     /// `build_annotation_row` captures, so these tests exercise the real shape.

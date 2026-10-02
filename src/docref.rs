@@ -498,4 +498,25 @@ mod tests {
             "in context it declines rather than guessing"
         );
     }
+
+    /// An edit inside the neighbours of a target held in context makes it resolve to
+    /// NOTHING, never to another copy of the same words: the comment card then reports
+    /// the target gone instead of writing into the document somewhere else. The bare
+    /// capture beside it shows what this guards: it answers with the remaining copy.
+    ///
+    /// Mutation: fall back to the unfiltered search when no neighbour-matching
+    /// occurrence is left, and the held span answers too.
+    #[test]
+    fn a_target_whose_neighbours_were_edited_resolves_to_nothing() {
+        let src = "the cat. the dog.";
+        let at = 9..12;
+        let held = AnchoredSpan::capture_in_context(src, at.clone(), Ambiguity::Nearest).unwrap();
+        let bare = AnchoredSpan::capture(src, at).unwrap();
+        let live = "the cat. the cow.";
+        assert!(
+            bare.resolve(live).is_some(),
+            "the defect: the bare word still answers"
+        );
+        assert_eq!(held.resolve(live), None, "in context it must decline");
+    }
 }
