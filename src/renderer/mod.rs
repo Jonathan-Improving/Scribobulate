@@ -1173,7 +1173,7 @@ impl Renderer {
         // Every open level, so the deepest wins on priority exactly as it does when the
         // levels close in order.
         for depth in 1..=self.inter.blockquote_starts.len() {
-            let depth = (depth as u8).clamp(1, crate::tags::MAX_QUOTE_DEPTH);
+            let depth = depth.clamp(1, usize::from(crate::tags::MAX_QUOTE_DEPTH)) as u8;
             self.apply_tag_per_line(crate::tags::TagName::Blockquote { depth }, start, end);
         }
         if !self.inter.blockquote_starts.is_empty() {

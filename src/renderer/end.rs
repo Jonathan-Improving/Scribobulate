@@ -102,7 +102,7 @@ impl Renderer {
                         .find(|&off| self.buf.iter_at_offset(off).char() != '\n')
                         .unwrap_or(end);
                     if end > start {
-                        let depth = (depth as u8).clamp(1, crate::tags::MAX_QUOTE_DEPTH);
+                        let depth = depth.clamp(1, usize::from(crate::tags::MAX_QUOTE_DEPTH)) as u8;
                         self.apply_tag_per_line(
                             crate::tags::TagName::Blockquote { depth },
                             start,

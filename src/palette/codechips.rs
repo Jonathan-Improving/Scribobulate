@@ -254,7 +254,7 @@ fn tint(surface: gdk::RGBA, ink: gdk::RGBA) -> gdk::RGBA {
 
 /// `c` composited over `under`, so a translucent fill is tinted from the colour a
 /// reader actually sees.
-fn over(under: gdk::RGBA, c: gdk::RGBA) -> gdk::RGBA {
+pub(crate) fn over(under: gdk::RGBA, c: gdk::RGBA) -> gdk::RGBA {
     mix_rgba(under, c, c.alpha() as f64)
 }
 

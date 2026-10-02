@@ -222,9 +222,10 @@ const DELIBERATE: &[(&str, &str, &str)] = &[
 ];
 
 /// Composite `c` over `under`, so a translucent wash is measured as the colour a reader
-/// actually sees rather than as its own unpainted value.
+/// actually sees rather than as its own unpainted value — the palette's own `over`,
+/// with this file's argument order.
 fn over(c: gdk::RGBA, under: gdk::RGBA) -> gdk::RGBA {
-    crate::palette::mix_rgba(under, c, f64::from(c.alpha()))
+    crate::palette::over(under, c)
 }
 
 /// Every ink a theme states, paired with the surface it is read on.
