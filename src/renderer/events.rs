@@ -158,10 +158,15 @@ impl Renderer {
                     // a bare `<tt>` — monospace and no chip at all — so inline code in
                     // a table looked nothing like inline code in prose (Document
                     // Rendering CAM row 12).
+                    // A body cell is transparent, so what is behind its run is
+                    // whatever is behind the table: the quote panel inside a filled
+                    // quote, else the page (`palette::surface_at`, the same answer
+                    // the PDF and HTML sinks give).
                     let surface = if self.table.as_ref().is_some_and(|ts| ts.in_head) {
                         crate::palette::CodeSurface::TableHead
                     } else {
-                        crate::palette::CodeSurface::Page
+                        crate::palette::surface_at(&self.theme, None, self.inter.blockquote_depth)
+                            .fill()
                     };
                     let span = crate::pangospan::code(self.code_chips.on(surface));
                     if let Some(ts) = &mut self.table {

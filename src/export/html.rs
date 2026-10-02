@@ -503,29 +503,55 @@ a {{ color: {link};{link_line} }}
 /// selector per surface, which is the cheaper half of the same rule (THEMING.md's
 /// "the export already does this" caveat, in the direction that favours the export).
 ///
-/// A surface whose colour is unknown — a level banded with a tile alone — emits
-/// nothing and keeps the page's chip off it: absent, not guessed, exactly as the tag
-/// does (`palette::CodeChips`).
-fn code_surface_css(p: &Palette) -> String {
+/// **A surface that paints but has no chip** — a band or panel that is a tile with no
+/// colour under it — writes `background: none`, so the bare `code` rule's page chip is
+/// taken OFF it: absent, not guessed, exactly as the preview's tag and the PDF do
+/// (`palette::CodeChips`). Writing nothing there let the page rule match `h2 code` and
+/// draw the page chip over the tile.
+///
+/// **Order is precedence.** Every rule here has the same specificity, so the later one
+/// wins where two match. The quote rule comes first and the heading rules after it,
+/// because a band the heading carries outranks the quote panel it sits in
+/// (`palette::surface_at`); the header-cell rule comes last. A body cell inside a quote
+/// matches the quote rule, which is the chip the preview and PDF give it too.
+fn code_surface_css(p: &Palette, t: &Theme) -> String {
     use crate::palette::CodeSurface;
     let mut css = String::new();
-    for level in 0..crate::theme::HEADING_LEVELS {
-        if let Some(hex) = p.code_chips.hex_on(CodeSurface::Heading(level)) {
-            // `h6` rides h5's slot, the same h6→h5 fold every other surface takes.
-            let tail = if level == crate::theme::HEADING_LEVELS - 1 {
-                ", h6 code"
-            } else {
-                ""
-            };
-            let _ = writeln!(css, "h{} code{tail} {{ background: {hex}; }}", level + 1);
+    let rule = |css: &mut String, selector: &str, chip: Option<String>, paints: bool| match chip {
+        Some(hex) => {
+            let _ = writeln!(css, "{selector} {{ background: {hex}; }}");
         }
+        None if paints => {
+            let _ = writeln!(css, "{selector} {{ background: none; }}");
+        }
+        None => {}
+    };
+    rule(
+        &mut css,
+        "blockquote code",
+        p.code_chips.hex_on(CodeSurface::Quote),
+        t.blockquote_panel_decor().is_present(),
+    );
+    for level in 0..crate::theme::HEADING_LEVELS {
+        // `h6` rides h5's slot, the same h6→h5 fold every other surface takes.
+        let selector = if level == crate::theme::HEADING_LEVELS - 1 {
+            format!("h{} code, h6 code", level + 1)
+        } else {
+            format!("h{} code", level + 1)
+        };
+        rule(
+            &mut css,
+            &selector,
+            p.code_chips.hex_on(CodeSurface::Heading(level)),
+            t.heading_band_decor(level).paints_a_surface(),
+        );
     }
-    if let Some(hex) = p.code_chips.hex_on(CodeSurface::Quote) {
-        let _ = writeln!(css, "blockquote code {{ background: {hex}; }}");
-    }
-    if let Some(hex) = p.code_chips.hex_on(CodeSurface::TableHead) {
-        let _ = writeln!(css, "th code {{ background: {hex}; }}");
-    }
+    rule(
+        &mut css,
+        "th code",
+        p.code_chips.hex_on(CodeSurface::TableHead),
+        false,
+    );
     css
 }
 
@@ -555,7 +581,7 @@ td.a-r, th.a-r {{ text-align: right; }}
         // so a fenced block inside a quote still loses its chip: these are
         // equal-specificity selectors, and equal specificity is decided by source
         // order (`code_surface_css`; ScrAP-356).
-        code_surfaces = code_surface_css(p),
+        code_surfaces = code_surface_css(p, t),
         code_block = to_hex_rgba(p.code_block_bg),
         bar = to_hex_rgba(p.blockquote_bar),
         bar_w = m.blockquote_bar_width,
@@ -923,9 +949,13 @@ fn task_marker_html(t: &Theme, checked: bool, uris: &SpriteUris) -> Option<Strin
     if let Some(drawn) = crate::theme::drawn_task_box(kind, &t.list_glyphs) {
         let tick = match drawn {
             crate::theme::TaskBox::Empty => String::new(),
-            crate::theme::TaskBox::Ticked(g) => {
+            crate::theme::TaskBox::Ticked(g) if crate::taskbox::tick_has_ink(g.as_plain()) => {
                 format!("<span class=\"tick\">{}</span>", g.escaped_for_html())
             }
+            // An ink-less glyph would leave the checked box empty (TDD 18.63): draw
+            // the default checkmark the preview and the PDF draw, as an inline SVG on
+            // the same three points.
+            crate::theme::TaskBox::Ticked(_) => default_checkmark_svg(),
         };
         return Some(format!(
             "<span class=\"task-marker boxed {}\">{tick}</span>",
@@ -1198,7 +1228,21 @@ fn task_box_css(t: &Theme) -> String {
          justify-content: center; box-sizing: border-box; width: {SIDE_EM}em; \
          height: {SIDE_EM}em; border: {stroke:.3}em solid currentColor; \
          border-radius: {radius:.3}em; vertical-align: -0.1em; }}\n\
-         .task-marker.boxed .tick {{ font-size: {tick:.3}em; line-height: 1; }}\n"
+         .task-marker.boxed .tick {{ font-size: {tick:.3}em; line-height: 1; }}\n\
+         .task-marker.boxed svg.tick {{ width: 100%; height: 100%; }}\n"
+    )
+}
+
+/// The default checkmark as inline SVG in a unit box, from `taskbox::CHECKMARK`, so it
+/// is the shape the preview and the PDF draw. Stroked in `currentColor`, like the box.
+fn default_checkmark_svg() -> String {
+    use crate::taskbox::{CHECKMARK, CHECKMARK_STROKE, DESIGN_SIDE};
+    let [(ax, ay), (bx, by), (cx, cy)] = CHECKMARK;
+    let width = CHECKMARK_STROKE / DESIGN_SIDE;
+    format!(
+        "<svg class=\"tick\" viewBox=\"0 0 1 1\" aria-hidden=\"true\"><path d=\"M{ax} {ay} \
+         L{bx} {by} L{cx} {cy}\" fill=\"none\" stroke=\"currentColor\" \
+         stroke-width=\"{width:.3}\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>"
     )
 }
 
@@ -2117,6 +2161,28 @@ mod html_sink_tests {
     /// TDD 18.63 — a themed tick makes this sink draw BOTH task boxes itself, the done
     /// one carrying the escaped tick, and states the box's shape in the sheet. Without the
     /// key neither the spans nor the rule exist (the `<input>` control stands).
+    /// TDD 18.63 in the HTML: a themed tick with no ink would leave the checked box
+    /// empty, so the default checkmark is drawn instead.
+    ///
+    /// Mutation: drop the `tick_has_ink` guard and the done box holds an empty glyph.
+    #[test]
+    fn an_inkless_themed_tick_falls_back_to_the_default_checkmark() {
+        let (_, mut theme) = style();
+        let mut themes = crate::theme::Themes::builtin();
+        themes.merge_over_for_test("[themes.tick]\nlist_task_tick_glyph = \"\u{2800}\"\n");
+        theme.list_glyphs = themes.resolve("tick").list_glyphs;
+        assert!(
+            theme.list_glyphs.task_tick.is_some(),
+            "precondition: the glyph parses"
+        );
+        let done = super::task_marker_html(&theme, true, &super::SpriteUris::default())
+            .expect("a drawn box");
+        assert!(
+            done.contains("<svg class=\"tick\"") && done.contains("<path d=\"M0.24 0.52"),
+            "the checked box must carry the default checkmark: {done}"
+        );
+    }
+
     #[test]
     fn a_themed_tick_draws_both_task_boxes_with_the_tick_in_the_done_one() {
         let (palette, mut theme) = style();
@@ -2942,12 +3008,48 @@ mod html_sink_tests {
             !css.contains("h3 code"),
             "an unbanded level states no chip of its own: {css}"
         );
+        let quote = css
+            .find("blockquote code")
+            .expect("the quote rule is emitted");
         let surfaces = css.find("h2 code").expect("the surface rules are emitted");
+        assert!(
+            quote < surfaces,
+            "the quote rule must come BEFORE the heading rules, so a banded heading \
+             inside a quote takes its band's chip as the preview and PDF do: {css}"
+        );
         let pre_code = css.find("pre code").expect("the pre rule is emitted");
         assert!(
             surfaces < pre_code,
             "`pre code {{ background: none }}` must come LAST or a fenced block inside \
              a quote takes the quote's chip — equal specificity is decided by order"
+        );
+    }
+
+    /// A band that is a tile with no colour under it has no chip, and the HTML must take
+    /// the page's chip OFF it, as the preview and PDF draw none there. Writing nothing
+    /// let the bare `code` rule match `h1 code` and draw the page chip over the tile.
+    ///
+    /// Mutation: drop the `None if paints` arm in `code_surface_css` and this fails.
+    #[test]
+    fn a_tile_only_band_takes_the_page_chip_off_its_code() {
+        let mut theme = crate::theme::Themes::builtin().resolve("default");
+        theme.sprites.heading_band[0] =
+            Some(crate::sprite::SpriteRef::Compiled("nothing-in-particular"));
+        let palette = Palette::from_base(
+            gtk::gdk::RGBA::new(1.0, 1.0, 1.0, 1.0),
+            gtk::gdk::RGBA::new(0.1, 0.1, 0.1, 1.0),
+            gtk::gdk::RGBA::new(0.1, 0.1, 0.1, 1.0),
+            gtk::gdk::RGBA::new(0.2, 0.5, 0.9, 1.0),
+            &theme,
+        );
+        assert!(palette
+            .code_chips
+            .hex_on(crate::palette::CodeSurface::Heading(0))
+            .is_none());
+        let css = super::stylesheet(&palette, &theme, &super::SpriteUris::default());
+        assert!(
+            css.contains("h1 code { background: none; }"),
+            "a tile-only band must take the page chip off its runs: {css}"
         );
     }
 

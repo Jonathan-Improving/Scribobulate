@@ -571,11 +571,17 @@ mod gtk_integration_tests {
     /// could drift.
     #[gtktest::test]
     fn a_table_cells_inline_code_wears_its_surfaces_chip() {
-        const MD: &str = "| head `tcode` | b |\n|---|---|\n| body `bcode` | 2 |\n";
+        // The second table sits in a filled quote: its body cell is transparent, so the
+        // quote panel is behind its run and its chip is the quote's, as in the HTML and
+        // PDF sinks. Mutation: hard-code `CodeSurface::Page` for body cells in
+        // `renderer::events` and the `qcode` leg fails.
+        const MD: &str = "| head `tcode` | b |\n|---|---|\n| body `bcode` | 2 |\n\n\
+                          > | qh | b |\n> |---|---|\n> | quoted `qcode` | 2 |\n";
         let mut themes = crate::theme::themes();
         themes.merge_over_for_test(
             "[themes.chips]\nbackground = \"#ffffff\"\nforeground = \"#111111\"\n\
-             table_head_bg = \"#22603a\"\ntable_head_fg = \"#ffd400\"\n",
+             table_head_bg = \"#22603a\"\ntable_head_fg = \"#ffd400\"\n\
+             blockquote_bg = \"#2b8ff0\"\nblockquote_fg = \"#17263b\"\n",
         );
         let theme = themes.resolve("chips");
         let chips = crate::palette::Palette::for_theme(&theme).code_chips;
@@ -596,6 +602,7 @@ mod gtk_integration_tests {
         for (word, surface) in [
             ("tcode", CodeSurface::TableHead),
             ("bcode", CodeSurface::Page),
+            ("qcode", CodeSurface::Quote),
         ] {
             let markup = markup_of(word);
             let want = crate::palette::to_hex_rgba(

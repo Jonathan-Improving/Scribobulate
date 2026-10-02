@@ -91,7 +91,7 @@ pub(crate) fn draw_copy_button(
     if paint.copied {
         // The identical checkmark the task checkbox draws, from the one path both
         // call — a second copy would drift the moment either is tuned.
-        super::gutter::checkmark_path(&cr, x as f64, y as f64, s as f64);
+        crate::taskbox::checkmark_path(&cr, x as f64, y as f64, s as f64);
         cr.set_line_width((1.9 * z).max(1.2) as f64);
         let _ = cr.stroke();
         return;

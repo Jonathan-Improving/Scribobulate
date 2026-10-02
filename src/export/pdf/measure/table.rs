@@ -99,10 +99,11 @@ impl Layouter<'_> {
 
         // Pass 1 — measure every cell unconstrained, so a column's natural width is
         // its widest cell's own idea of how much room it wants.
-        let head_markup = self.row_markup(head, doc, true);
+        let in_quote = quote.is_some();
+        let head_markup = self.row_markup(head, doc, true, in_quote);
         let body_markup: Vec<Vec<String>> = rows
             .iter()
-            .map(|row| self.row_markup(row, doc, false))
+            .map(|row| self.row_markup(row, doc, false, in_quote))
             .collect();
 
         // One `ColumnWant` per column rather than two parallel slices: the pair travels
@@ -174,17 +175,24 @@ impl Layouter<'_> {
     /// `**bold**` on this very page and Pango's default bold in the header beside it.
     /// `Typography::bold_attr` is the one spelling of that key, already shared by every
     /// surface for inline bold (F-BOLD-001).
-    fn row_markup(&self, cells: &[Vec<Inline>], doc: &ExportDoc, head: bool) -> Vec<String> {
+    fn row_markup(
+        &self,
+        cells: &[Vec<Inline>],
+        doc: &ExportDoc,
+        head: bool,
+        in_quote: bool,
+    ) -> Vec<String> {
         cells
             .iter()
             .map(|cell| {
-                // A header cell's chip is tinted from the HEADER's own fill, a body
-                // cell's from the page — the same split the preview's cell markup
-                // makes (`palette::CodeSurface`).
+                // A header cell's chip is tinted from the HEADER's own fill. A body
+                // cell is transparent, so its chip comes from whatever is behind the
+                // table: the quote panel inside a filled quote, else the page — the
+                // same answer the preview's cell markup gives (`palette::surface_at`).
                 let surface = if head {
                     crate::palette::CodeSurface::TableHead
                 } else {
-                    crate::palette::CodeSurface::Page
+                    crate::palette::surface_at(self.theme, None, usize::from(in_quote)).fill()
                 };
                 let markup = inline_markup(cell, doc, self.theme, self.chips.on(surface));
                 if head {

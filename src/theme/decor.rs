@@ -185,6 +185,14 @@ impl Band<'_> {
         self.sprite.is_some() || self.flat.is_some() || self.scene.is_some()
     }
 
+    /// Whether the band paints a surface of its own behind the heading's text: a tile,
+    /// a gradient or a flat fill. A scene alone does not — it is a picture composited
+    /// in a corner over whatever is already there (the page, or a quote panel), so text
+    /// in a scene-only heading still sits on that.
+    pub(crate) fn paints_a_surface(&self) -> bool {
+        self.sprite.is_some() || self.without_sprite().is_some()
+    }
+
     /// The flat appearance to paint when the sprite is absent or could not be
     /// produced: the gradient where the level states one, else the flat fill, else
     /// nothing.

@@ -201,7 +201,10 @@ pub(crate) fn surface_at(
 ) -> CodeRunSurface {
     if let Some(level) = heading_level {
         let level = level.min(HEADING_LEVELS - 1);
-        if theme.heading_band_decor(level).is_present() {
+        // A band that paints a surface, not merely one that is present: a scene-only
+        // level draws a picture over the page (or quote panel), which stays behind the
+        // run.
+        if theme.heading_band_decor(level).paints_a_surface() {
             return CodeRunSurface::Heading(level);
         }
     }
