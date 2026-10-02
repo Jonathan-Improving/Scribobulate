@@ -87,11 +87,7 @@ pub(crate) fn make_cell_selectable(label: &Label) {
                 .contains(gdk::ModifierType::SHIFT_MASK);
             let (ox, oy) = label.layout_offsets();
             let at = char_at(&label.layout(), ox, oy, x, y);
-            let inside = label.selection_bounds().is_some_and(|(a, b)| {
-                let (lo, hi) = (a.min(b), a.max(b));
-                usize::try_from(lo).is_ok_and(|lo| lo <= at)
-                    && usize::try_from(hi).is_ok_and(|hi| at <= hi)
-            });
+            let inside = press_inside_selection(label.selection_bounds(), at);
             presses.set(n_press);
             armed.set(takes_over(n_press, shift, inside));
             taken.set(false);
@@ -115,13 +111,23 @@ pub(crate) fn make_cell_selectable(label: &Label) {
         #[strong]
         taken,
         move |gesture, dx, dy| {
-            if !armed.get() {
-                return;
-            }
             let Some((sx, sy)) = gesture.start_point() else {
                 return;
             };
-            if !taken.get() {
+            let (px, py) = (sx + dx, sy + dy);
+            let step = drag_step(
+                armed.get(),
+                taken.get(),
+                label.drag_check_threshold(sx as i32, sy as i32, px as i32, py as i32),
+                px >= 0.0
+                    && py >= 0.0
+                    && px < f64::from(label.width())
+                    && py < f64::from(label.height()),
+            );
+            if step == DragStep::Ignore {
+                return;
+            }
+            if step != DragStep::Extend {
                 // Deny the label's drag on every armed update short of a real in-label
                 // drag. From GTK 4.8 a double/triple press does not set the label's
                 // `in_drag`, and any update whose index differs from its
@@ -132,18 +138,10 @@ pub(crate) fn make_cell_selectable(label: &Label) {
                 // So a 120 ms triple read its third press as a single (macOS seat,
                 // 4.22.4/Quartz). A point outside the label (a parked anchor) is
                 // denied too, so it never takes the `reset()` below.
-                let (px, py) = (sx + dx, sy + dy);
-                let inside = px >= 0.0
-                    && py >= 0.0
-                    && px < f64::from(label.width())
-                    && py < f64::from(label.height());
-                if !label.drag_check_threshold(sx as i32, sy as i32, px as i32, py as i32)
-                    || !inside
-                {
-                    own_drag.set_state(EventSequenceState::Denied);
+                own_drag.set_state(EventSequenceState::Denied);
+                if step != DragStep::TakeOver {
                     return;
                 }
-                own_drag.set_state(EventSequenceState::Denied);
                 // And its click gesture, so its release handler never runs: on a single
                 // press it would collapse the selection to the release point (`:4394`),
                 // undoing the one drawn here. GTK resets the same gesture itself after a
@@ -164,6 +162,41 @@ pub(crate) fn make_cell_selectable(label: &Label) {
 
     click.group_with(&own_click);
     drag.group_with(&own_click);
+}
+
+/// Whether a press at character `at` falls inside the label's current selection
+/// `bounds` (either order), inclusive at both ends.
+fn press_inside_selection(bounds: Option<(i32, i32)>, at: usize) -> bool {
+    bounds.is_some_and(|(a, b)| {
+        let (lo, hi) = (a.min(b), a.max(b));
+        usize::try_from(lo).is_ok_and(|lo| lo <= at) && usize::try_from(hi).is_ok_and(|hi| at <= hi)
+    })
+}
+
+/// What one `drag-update` on an armed press does to GTK's gestures and the selection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DragStep {
+    /// The press was not one this module takes over; GTK's label handles it.
+    Ignore,
+    /// Short of the drag threshold, or outside the label: deny the label's own drag and
+    /// nothing else. From GTK 4.8 such an update would otherwise CLAIM and zero the
+    /// click group's press count, so a quick triple read as a single.
+    DenyOnly,
+    /// The first update past the threshold inside the label: deny its drag, reset its
+    /// click gesture (whose release would collapse the selection), and take over.
+    TakeOver,
+    /// Already taken over: extend the selection to the pointer.
+    Extend,
+}
+
+/// The decision [`DragStep`] names, from the four facts the update handler reads.
+fn drag_step(armed: bool, taken: bool, past_threshold: bool, inside: bool) -> DragStep {
+    match (armed, taken, past_threshold && inside) {
+        (false, _, _) => DragStep::Ignore,
+        (true, true, _) => DragStep::Extend,
+        (true, false, false) => DragStep::DenyOnly,
+        (true, false, true) => DragStep::TakeOver,
+    }
 }
 
 /// Whether a press is one this module takes over from the label once it moves past the
@@ -283,7 +316,46 @@ fn word_around(words: &[WordEdge], at: usize) -> (usize, usize) {
 
 #[cfg(test)]
 mod tests {
-    use super::{drag_selection, takes_over, word_edges as edges};
+    use super::{
+        drag_selection, drag_step, press_inside_selection, takes_over, word_edges as edges,
+        DragStep,
+    };
+
+    /// Every combination of the four facts, so deleting any arm of the takeover (the
+    /// below-threshold deny, the outside-the-label deny, the takeover itself, or the
+    /// extend once taken) changes a row here.
+    #[test]
+    fn a_drag_update_denies_takes_over_or_extends_by_the_table() {
+        use DragStep::*;
+        for (armed, taken, past, inside, want) in [
+            (false, false, true, true, Ignore),
+            (false, true, true, true, Ignore),
+            (true, false, false, true, DenyOnly),
+            (true, false, true, false, DenyOnly),
+            (true, false, false, false, DenyOnly),
+            (true, false, true, true, TakeOver),
+            (true, true, false, false, Extend),
+            (true, true, true, true, Extend),
+        ] {
+            assert_eq!(
+                drag_step(armed, taken, past, inside),
+                want,
+                "armed={armed} taken={taken} past_threshold={past} inside={inside}"
+            );
+        }
+    }
+
+    /// A press is inside the selection at either end and in either order, and never
+    /// with no selection.
+    #[test]
+    fn a_press_inside_the_selection_includes_both_ends() {
+        assert!(press_inside_selection(Some((2, 5)), 2));
+        assert!(press_inside_selection(Some((2, 5)), 5));
+        assert!(press_inside_selection(Some((5, 2)), 3));
+        assert!(!press_inside_selection(Some((2, 5)), 6));
+        assert!(!press_inside_selection(Some((2, 5)), 1));
+        assert!(!press_inside_selection(None, 0));
+    }
 
     /// Exactly the presses GTK's label would turn into a text drag-and-drop are taken
     /// over; a single press outside the selection is the label's own ordinary drag-select,
