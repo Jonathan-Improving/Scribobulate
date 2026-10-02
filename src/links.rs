@@ -652,8 +652,13 @@ fn links_reach_foreign(
                 current.pop();
                 continue;
             }
+            // APPENDED, never assigned: on Windows a target's root is two components,
+            // the drive (`C:`) and then the root (`\`), and assigning the second
+            // discarded the first, so a re-walked target continued from the current
+            // drive's root, found nothing and let a two-hop link through (MEASURED on
+            // Windows). `push` of a root onto a bare drive gives `C:\`.
             Some(Component::Prefix(_) | Component::RootDir) => {
-                current = PathBuf::from(&part);
+                current.push(&part);
                 continue;
             }
             Some(Component::Normal(_)) => {}
@@ -2045,6 +2050,8 @@ mod tests {
             return;
         }
         link(Path::new("lnk"), &doc.join("chain")).unwrap();
+        // An ABSOLUTE intermediate: its re-walk must keep the target's drive on Windows.
+        link(&doc.join("lnk"), &doc.join("chain_abs")).unwrap();
         link(&local, &doc.join("near")).unwrap();
         let reaches =
             |rel: &str| super::links_reach_foreign(&doc.join(rel), Some(&doc), &is_foreign);
@@ -2053,6 +2060,10 @@ mod tests {
             "a link straight to the foreign target"
         );
         assert!(reaches("chain/x.png"), "a link to a link to it");
+        assert!(
+            reaches("chain_abs/x.png"),
+            "a link to a link to it, by absolute path"
+        );
         assert!(!reaches("near/x.png"), "a link to an ordinary local folder");
         assert!(!reaches("absent/x.png"), "a path that does not exist");
     }
