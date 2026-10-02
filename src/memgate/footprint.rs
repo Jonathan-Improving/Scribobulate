@@ -15,7 +15,7 @@
 /// leaves unexplained by its single largest allocation, and far below what a
 /// per-render climb leaves: ScrAP-351's leak is ~1.05 MB per render at the test
 /// fixture's scale (~12 MB on a real document's image), which over a ten-sample
-/// window — nine rises, less the largest — leaves ~8.4 MB of residual, about four
+/// window — nine rises, less the largest — leaves ~8.4 MB of residual, about 2.7
 /// times the bound rather than beside it, so no host's churn sits near the
 /// decision. `total_bytes` sits above the largest one-time step
 /// ever measured (~12.6 MB on the Linux CI runner, before `measuring()` stopped
@@ -32,6 +32,14 @@
 /// | Linux CI runner, collapse disabled | −0.38 MB | 0.38 MB | −0.77 MB |
 /// | macOS CI runner | 0.31 MB | 0.31 MB | 0 |
 /// | Windows CI runner | 0.26 MB | 0.53 MB | −0.28 MB |
+/// | macOS seat, per-stretch rule, 11 runs | 1.2–2.3 MB | 0.5–1.6 MB | **0.02–1.25 MB** |
+///
+/// **The per-stretch rule (see `growth::residual_growth`) raised the bound from 2 MiB to
+/// 3 MiB** (operator decision, 2026-10-02). Judging every stretch rather than first to
+/// last stops a fall from hiding a climb, and it also stops a fall from hiding slow
+/// drift: the macOS playback gate's residual went from ~0.15 MB to as much as 1.25 MB
+/// (59% of 2 MiB), mostly over stretches spanning nearly the whole window. At 3 MiB that
+/// reading sits at ~40% while the fixture leak below still clears the bound ~2.7x.
 ///
 /// **The armed CI row is the one that decided the bound**, and it is the trace
 /// this predicate exists for: a ~12 MB one-time step, at a different sample each
@@ -39,14 +47,14 @@
 /// never an allocation — `khugepaged` filling heap pages the process already
 /// owned (see `measuring()`) — but a step the program did not make is exactly
 /// the shape the predicate must pass. Its 0.86 MB of residual is the worst
-/// clean reading anywhere, and it sits 2.3x under the bound while the smallest
-/// leak the gate must catch — ScrAP-351's ~1.05 MB per render over a ten-sample
-/// window, ~8.4 MB of residual — sits about 4x over it. Windows shows the bound must tolerate a NEGATIVE
+/// clean reading under the end-to-end rule, and it sits 3.6x under the bound while the
+/// smallest leak the gate must catch — ScrAP-351's ~1.05 MB per render over a
+/// ten-sample window, ~8.4 MB of residual — sits about 2.7x over it. Windows shows the bound must tolerate a NEGATIVE
 /// residual: its footprint falls across the window, which is not growth.
 /// A leak arriving in two chunks rather than one is the shape this cannot see;
 /// the ceiling below is what bounds it.
 pub(crate) const GROWTH_BOUNDS: super::growth::Bounds = super::growth::Bounds {
-    residual_bytes: 2 * 1024 * 1024,
+    residual_bytes: 3 * 1024 * 1024,
     total_bytes: 24 * 1024 * 1024,
 };
 
@@ -200,7 +208,7 @@ mod tests {
     #[test]
     fn sample_shape_and_bounds_are_the_stated_constants() {
         assert_eq!(super::SAMPLE_COUNT, super::WARMUP + 10);
-        assert_eq!(super::GROWTH_BOUNDS.residual_bytes, 2 * 1024 * 1024);
+        assert_eq!(super::GROWTH_BOUNDS.residual_bytes, 3 * 1024 * 1024);
         assert_eq!(super::GROWTH_BOUNDS.total_bytes, 24 * 1024 * 1024);
     }
 }
