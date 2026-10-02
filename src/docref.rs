@@ -220,7 +220,14 @@ impl AnchoredSpan {
         let mut found = source
             .match_indices(self.text.as_str())
             .map(|(i, _)| i)
-            .filter(|&i| self.neighbours_match(source, i));
+            // `Unique` does not consult the neighbours here: its identity is the text
+            // (TDD 2.26n — "the identity is the delimiter"), so two identical copies
+            // that have moved are ambiguous and decline, as that rubric requires. The
+            // neighbours guard only its fast path above, where an identical copy
+            // shifted into the old offset must not answer for the block that was there.
+            .filter(|&i| {
+                self.on_ambiguity == Ambiguity::Unique || self.neighbours_match(source, i)
+            });
         let start = match self.on_ambiguity {
             // Nearest occurrence to where it used to be. `match_indices` yields
             // non-overlapping matches in ascending order, so `min_by_key` with a tie
@@ -459,7 +466,9 @@ mod tests {
 
     /// Two identical blocks, and an edit that shifts the first into the second's old
     /// offset (a duplicate pasted above them): the fast path on bare text answered with
-    /// the first block. In context the neighbours differ, so it does not.
+    /// the first block. In context the neighbours differ, so the fast path declines, and
+    /// the search then finds the identical copies ambiguous, so `Unique` names neither —
+    /// never the wrong block (TDD 2.26n).
     #[test]
     fn an_identical_copy_shifted_into_the_old_offset_does_not_answer_for_it() {
         let block = "<details><summary>X</summary>";
@@ -477,13 +486,16 @@ mod tests {
             block,
             "precondition: a copy now sits at the old offset"
         );
-        let got = held
-            .resolve(&live)
-            .expect("the second block is still uniquely findable");
+        let bare = AnchoredSpan::capture_with(&src, at.clone(), Ambiguity::Unique).unwrap();
         assert_eq!(
-            got.start,
-            second + shift.len(),
-            "it must be the block that was captured"
+            bare.resolve(&live),
+            Some(at),
+            "the defect: the bare fast path answers"
+        );
+        assert_eq!(
+            held.resolve(&live),
+            None,
+            "in context it declines rather than guessing"
         );
     }
 }

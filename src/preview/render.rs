@@ -1130,9 +1130,9 @@ fn wire_disclosure_toggles(
 fn anchor_disclosure_control(toggle: &gtk::ToggleButton, cleaned: &str, key: crate::fold::FoldKey) {
     let span = crate::renderer::disclosure::opening_delimiter(cleaned, key.source_offset())
         .and_then(|at| {
-            // In context as well: two identical blocks are told apart by what surrounds
-            // them, including on the fast path, where an identical copy shifted into the
-            // old offset would otherwise answer for the block that was there.
+            // In context, for the fast path only (see `AnchoredSpan::resolve`): an
+            // identical copy shifted into the old offset must not answer for the block
+            // that was there. Once moved, identical blocks stay ambiguous (TDD 2.26n).
             crate::docref::AnchoredSpan::capture_in_context(
                 cleaned,
                 at,
