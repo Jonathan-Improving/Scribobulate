@@ -323,8 +323,12 @@ mod gtk_integration_tests {
     /// exactly as `preview::annotate::capture_selection` builds it.
     fn highlight_in(source: &str, range: std::ops::Range<usize>, comment: &str) -> AnnotationEdit {
         AnnotationEdit::Create(CreateAnnotation::Highlight {
-            target: crate::docref::AnchoredSpan::capture(source, range)
-                .expect("a valid range over the source"),
+            target: crate::docref::AnchoredSpan::capture_in_context(
+                source,
+                range,
+                crate::docref::Ambiguity::Nearest,
+            )
+            .expect("a valid range over the source"),
             comment: comment.into(),
         })
     }

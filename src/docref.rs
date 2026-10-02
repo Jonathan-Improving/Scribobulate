@@ -85,6 +85,38 @@ pub(crate) struct AnchoredSpan {
     /// known — a resolve-time argument would let two call sites judge one reference
     /// by two different rules.
     on_ambiguity: Ambiguity,
+    /// The text immediately either side of the capture, when the construct asked for
+    /// it ([`capture_in_context`](Self::capture_in_context)). An occurrence of `text`
+    /// is then only a candidate if its neighbours match too, on the fast path as well.
+    context: Option<Context>,
+}
+
+/// Up to [`CONTEXT_BYTES`] of the source either side of a capture.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Context {
+    before: String,
+    after: String,
+}
+
+/// How much neighbouring text a contextual capture keeps on each side. Enough to tell
+/// apart two occurrences of a common word, or two identical blocks, by what surrounds
+/// them; short enough that an edit a few words away does not disturb it.
+const CONTEXT_BYTES: usize = 24;
+
+/// The largest `char` boundary in `s` at or below `i`.
+fn floor_boundary(s: &str, mut i: usize) -> usize {
+    while !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
+/// The smallest `char` boundary in `s` at or above `i`.
+fn ceil_boundary(s: &str, mut i: usize) -> usize {
+    while !s.is_char_boundary(i) {
+        i += 1;
+    }
+    i
 }
 
 impl AnchoredSpan {
@@ -99,6 +131,10 @@ impl AnchoredSpan {
     /// An **empty** range is also refused. Empty text matches everywhere and
     /// therefore anchors nothing; a construct always has delimiters, so an empty
     /// capture means the caller's range was wrong.
+    ///
+    /// Test-only: every production construct names a place a document can repeat, so
+    /// each captures [`in context`](Self::capture_in_context).
+    #[cfg(test)]
     pub(crate) fn capture(source: &str, at: Range<usize>) -> Option<Self> {
         Self::capture_with(source, at, Ambiguity::Nearest)
     }
@@ -118,7 +154,50 @@ impl AnchoredSpan {
             at,
             text,
             on_ambiguity,
+            context: None,
         })
+    }
+
+    /// Capture `at` with the text either side of it as part of its identity.
+    ///
+    /// **For an identity a document repeats**, where the captured text alone cannot
+    /// name one place: prose the reader selected (`the`, `flat`), or a delimiter a
+    /// document carries more than once. Without the neighbours, an edit above two
+    /// occurrences resolved `Nearest` to the wrong one, and the fast path could not tell
+    /// "nothing moved" from "an identical copy moved into the old offset" — so a comment
+    /// was written onto a different word, or a toggle folded a different block.
+    ///
+    /// The cost is the other direction, and it is the safe one: an edit touching the
+    /// neighbours stops the span resolving, and `None` obliges the caller to re-derive
+    /// (see the module docs) rather than to guess.
+    pub(crate) fn capture_in_context(
+        source: &str,
+        at: Range<usize>,
+        on_ambiguity: Ambiguity,
+    ) -> Option<Self> {
+        let mut span = Self::capture_with(source, at.clone(), on_ambiguity)?;
+        let from = floor_boundary(source, at.start.saturating_sub(CONTEXT_BYTES));
+        let to = ceil_boundary(source, (at.end + CONTEXT_BYTES).min(source.len()));
+        span.context = Some(Context {
+            before: source[from..at.start].to_string(),
+            after: source[at.end..to].to_string(),
+        });
+        Some(span)
+    }
+
+    /// Whether the captured text at `start` in `source` also has the captured
+    /// neighbours, when this span carries any.
+    fn neighbours_match(&self, source: &str, start: usize) -> bool {
+        let Some(context) = &self.context else {
+            return true;
+        };
+        let end = start + self.text.len();
+        let before_ok = start
+            .checked_sub(context.before.len())
+            .and_then(|from| source.get(from..start))
+            == Some(context.before.as_str());
+        let after_ok = source.get(end..end + context.after.len()) == Some(context.after.as_str());
+        before_ok && after_ok
     }
 
     /// Where the captured text lives in `source` **now**, or `None` if it is no
@@ -133,10 +212,15 @@ impl AnchoredSpan {
     /// **`None` is an instruction, not a verdict**: re-derive the view this
     /// reference was minted by. See the module docs.
     pub(crate) fn resolve(&self, source: &str) -> Option<Range<usize>> {
-        if source.get(self.at.clone()) == Some(self.text.as_str()) {
+        if source.get(self.at.clone()) == Some(self.text.as_str())
+            && self.neighbours_match(source, self.at.start)
+        {
             return Some(self.at.clone());
         }
-        let mut found = source.match_indices(self.text.as_str()).map(|(i, _)| i);
+        let mut found = source
+            .match_indices(self.text.as_str())
+            .map(|(i, _)| i)
+            .filter(|&i| self.neighbours_match(source, i));
         let start = match self.on_ambiguity {
             // Nearest occurrence to where it used to be. `match_indices` yields
             // non-overlapping matches in ascending order, so `min_by_key` with a tie
@@ -348,5 +432,58 @@ mod tests {
         let at = a.captured_at();
         assert_eq!(a.relative(at.start - 1..at.end), None);
         assert_eq!(a.relative(at.start..at.end + 1), None);
+    }
+
+    /// A selected common word, an edit above it, and a second occurrence that the
+    /// edit moved nearer the old offset: held in context, the span still resolves to
+    /// the word the reader selected, where `Nearest` on the bare text took the other.
+    #[test]
+    fn a_word_held_in_context_survives_an_edit_that_makes_another_copy_nearer() {
+        let src = "the cat. the dog.";
+        let at = 9..12;
+        assert_eq!(&src[at.clone()], "the");
+        let bare = AnchoredSpan::capture(src, at.clone()).unwrap();
+        let held = AnchoredSpan::capture_in_context(src, at, Ambiguity::Nearest).unwrap();
+        let live = format!("0123456789{src}");
+        assert_eq!(
+            bare.resolve(&live),
+            Some(10..13),
+            "the defect: the bare word picks the first copy"
+        );
+        assert_eq!(
+            held.resolve(&live),
+            Some(19..22),
+            "in context it is still the second `the`"
+        );
+    }
+
+    /// Two identical blocks, and an edit that shifts the first into the second's old
+    /// offset (a duplicate pasted above them): the fast path on bare text answered with
+    /// the first block. In context the neighbours differ, so it does not.
+    #[test]
+    fn an_identical_copy_shifted_into_the_old_offset_does_not_answer_for_it() {
+        let block = "<details><summary>X</summary>";
+        let src = format!("intro\n{block}\nA\n{block}\nB\n");
+        let second = src.rfind(block).unwrap();
+        let at = second..second + block.len();
+        let held = AnchoredSpan::capture_in_context(&src, at.clone(), Ambiguity::Unique).unwrap();
+        // Insert exactly the separation between the two blocks at the first one, so the
+        // first now sits where the second was.
+        let first = src.find(block).unwrap();
+        let shift = &src[first..second];
+        let live = format!("{}{shift}{}", &src[..first], &src[first..]);
+        assert_eq!(
+            &live[at.clone()],
+            block,
+            "precondition: a copy now sits at the old offset"
+        );
+        let got = held
+            .resolve(&live)
+            .expect("the second block is still uniquely findable");
+        assert_eq!(
+            got.start,
+            second + shift.len(),
+            "it must be the block that was captured"
+        );
     }
 }

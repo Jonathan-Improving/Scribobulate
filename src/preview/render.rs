@@ -1063,17 +1063,21 @@ mod choke_point_tests {
         let lines = rd.borrow().disclosure_lines.clone();
         let mut toggles: Vec<_> = lines.iter().collect();
         toggles.sort_by_key(|(line, _)| *line);
+        // Resolved against the CLEANED text, as a toggle's activation does
+        // (`TabState::previewed_cleaned`): the references are minted from it.
+        let cleaned =
+            crate::annotate::extract(crate::renderer::NormalizedMd::new(&edited).as_str()).cleaned;
         let starts: Vec<usize> = toggles
             .iter()
             .map(|(_, toggle)| {
                 crate::widgets::disclosure::reference(toggle)
-                    .and_then(|r| r.resolve(&edited))
+                    .and_then(|r| r.resolve(&cleaned))
                     .expect("a resolvable reference")
                     .start
             })
             .collect();
-        let outer = edited.find("<details").expect("outer block");
-        let inner = edited[outer + 1..].find("<details").expect("inner block") + outer + 1;
+        let outer = cleaned.find("<details").expect("outer block");
+        let inner = cleaned[outer + 1..].find("<details").expect("inner block") + outer + 1;
         assert_eq!(
             starts,
             vec![outer, inner],
@@ -1126,7 +1130,14 @@ fn wire_disclosure_toggles(
 fn anchor_disclosure_control(toggle: &gtk::ToggleButton, cleaned: &str, key: crate::fold::FoldKey) {
     let span = crate::renderer::disclosure::opening_delimiter(cleaned, key.source_offset())
         .and_then(|at| {
-            crate::docref::AnchoredSpan::capture_with(cleaned, at, crate::docref::Ambiguity::Unique)
+            // In context as well: two identical blocks are told apart by what surrounds
+            // them, including on the fast path, where an identical copy shifted into the
+            // old offset would otherwise answer for the block that was there.
+            crate::docref::AnchoredSpan::capture_in_context(
+                cleaned,
+                at,
+                crate::docref::Ambiguity::Unique,
+            )
         });
     match span {
         Some(span) => crate::widgets::disclosure::set_reference(toggle, span),
