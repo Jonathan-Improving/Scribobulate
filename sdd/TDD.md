@@ -2474,6 +2474,7 @@
 - **And given** text is selected in either pane, a table cell included
 - **Then** it shows "N of M words" for the selection
 - **And given** several windows are opened at once, **Then** each one counts its own document — no window is left waiting on a count that never arrives
+- **And** a word is what a reader takes for one: `don't` and `well-known` are one word each, while an underscore separates words as a space does (`snake_case` is two); double-clicking in a table cell selects by the same rule
 
 ### 16.12 The status bar shows the zoom level
 - **Given** a preview is visible

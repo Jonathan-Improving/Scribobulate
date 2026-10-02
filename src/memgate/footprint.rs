@@ -136,41 +136,13 @@ pub(crate) fn measuring(rubric: &str) -> Option<MeasurementGuard> {
         );
         return None;
     }
-    #[cfg(target_os = "linux")]
-    disable_huge_page_collapse();
+    crate::platform::set_huge_page_collapse_disabled(true);
     Some(MeasurementGuard { _private: () })
 }
 
 /// Idempotent and process-wide; a refusal is fatal rather than ignored, because
 /// a series measured with the collapse still armed is the one that looks like a
 /// leak on one host only.
-#[cfg(all(test, feature = "memory-gates", target_os = "linux"))]
-fn disable_huge_page_collapse() {
-    set_huge_page_collapse_disabled(true);
-}
-
-/// Set the process's `PR_SET_THP_DISABLE` flag.
-#[cfg(all(test, feature = "memory-gates", target_os = "linux"))]
-fn set_huge_page_collapse_disabled(disabled: bool) {
-    // SAFETY: PR_SET_THP_DISABLE takes one integer flag and no pointers; the
-    // trailing arguments are required to be zero.
-    let rc = unsafe {
-        libc::prctl(
-            libc::PR_SET_THP_DISABLE,
-            libc::c_ulong::from(disabled),
-            0,
-            0,
-            0,
-        )
-    };
-    assert_eq!(
-        rc,
-        0,
-        "PR_SET_THP_DISABLE refused: {}",
-        std::io::Error::last_os_error()
-    );
-}
-
 #[cfg(all(test, feature = "memory-gates"))]
 pub(crate) struct MeasurementGuard {
     _private: (),
@@ -182,8 +154,7 @@ pub(crate) struct MeasurementGuard {
 #[cfg(all(test, feature = "memory-gates"))]
 impl Drop for MeasurementGuard {
     fn drop(&mut self) {
-        #[cfg(target_os = "linux")]
-        set_huge_page_collapse_disabled(false);
+        crate::platform::set_huge_page_collapse_disabled(false);
     }
 }
 
@@ -210,87 +181,12 @@ pub(crate) fn assert_bounded(rubric: &str, warmup: usize, samples: &[u64]) {
 /// could not read it. A `None` is a broken instrument, not a zero — the
 /// caller must refuse rather than treat it as a flat series.
 pub(crate) fn current() -> Option<u64> {
-    #[cfg(target_os = "linux")]
-    {
-        linux_vmrss_bytes()
-    }
-    #[cfg(target_os = "macos")]
-    {
-        macos_phys_footprint()
-    }
-    #[cfg(windows)]
-    {
-        crate::platform::win32::process::current_working_set_bytes()
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
-    {
-        None
-    }
-}
-
-#[cfg(target_os = "linux")]
-fn linux_vmrss_bytes() -> Option<u64> {
-    let text = std::fs::read_to_string("/proc/self/status").ok()?;
-    parse_vmrss_kb(&text).map(|kb| kb.saturating_mul(1024))
-}
-
-/// Parse `VmRSS:` from a `/proc/<pid>/status` blob. Split from the file read
-/// so the grammar is unit-tested with no `/proc`.
-#[cfg(target_os = "linux")]
-fn parse_vmrss_kb(status: &str) -> Option<u64> {
-    for line in status.lines() {
-        let Some(rest) = line.strip_prefix("VmRSS:") else {
-            continue;
-        };
-        return rest.split_whitespace().next()?.parse::<u64>().ok();
-    }
-    None
-}
-
-/// macOS physical footprint via `proc_pid_rusage(RUSAGE_INFO_V2)`.
-///
-/// `RUSAGE_INFO_V2` is the earliest flavour that carries `ri_phys_footprint`.
-/// Later flavours add fields this gate does not use.
-///
-/// ⚠ This number is a high-water of pages the zone still holds, not "bytes
-/// currently referenced". macOS malloc keeps freed pages: a 256 MB allocation
-/// dropped moved the reading by nothing. Never write a single-shot
-/// "allocate, free, assert this came back" against it.
-#[cfg(target_os = "macos")]
-fn macos_phys_footprint() -> Option<u64> {
-    // SAFETY: `rusage_info_v2` is the buffer `RUSAGE_INFO_V2` writes; a zeroed
-    // struct is a valid empty starting point, and `getpid` is this process.
-    unsafe {
-        let mut info: libc::rusage_info_v2 = std::mem::zeroed();
-        let rc = libc::proc_pid_rusage(
-            libc::getpid(),
-            libc::RUSAGE_INFO_V2,
-            std::ptr::addr_of_mut!(info) as *mut libc::rusage_info_t,
-        );
-        if rc == 0 {
-            Some(info.ri_phys_footprint)
-        } else {
-            None
-        }
-    }
+    crate::platform::process_footprint_bytes()
 }
 
 #[cfg(test)]
 mod tests {
     use super::current;
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn parse_vmrss_reads_the_kb_field() {
-        let blob = "Name:\tfoo\nVmPeak:\t999 kB\nVmRSS:\t  1234 kB\nVmData:\t1 kB\n";
-        assert_eq!(super::parse_vmrss_kb(blob), Some(1234));
-    }
-
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn parse_vmrss_none_when_the_field_is_absent() {
-        assert_eq!(super::parse_vmrss_kb("Name:\tfoo\nVmPeak:\t9 kB\n"), None);
-    }
 
     #[test]
     fn current_returns_a_nonzero_reading_on_this_host() {

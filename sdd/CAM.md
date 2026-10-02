@@ -1138,3 +1138,17 @@ rule.
   as formatting. The overlay and the Format toolbar section share one button, and
   every surface binds the single `win.annotate` action, whose enabled state
   remains the sole source of truth.
+
+- **Sidebar filter commands** (`win.filter-outline`, `win.filter-annotations`, group
+  `View`) — **GRANTED (operator, 2026-10-02).** Two Action CAM cells deviate, both by
+  design:
+
+  | Cell | Deviation | Why |
+  |---|---|---|
+  | Toolbar section | No toolbar button | Each pane's own header search toggle is the command's natural home; a toolbar button would duplicate it away from the pane it filters. |
+  | Single `GAction` source of truth | The header toggle is bound to the search bar's `search-mode-enabled`, not to the action | The command pressed while the bar is open but unfocused FOCUSES the box (TDD 20.25), while a click on a pressed toggle closes it. One action cannot be both. |
+
+  **Every other cell is satisfied**: one `GAction` per pane behind the View menu, the
+  accelerator and the Keyboard Shortcuts window; the toggle carries the command's
+  shortcut in its tooltip; the command is never disabled, so there is no sensitivity for
+  the two surfaces to disagree about (`window/sidebarfilter.rs`'s module header).

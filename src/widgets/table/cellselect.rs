@@ -233,13 +233,7 @@ fn char_at(layout: &pango::Layout, ox: i32, oy: i32, x: f64, y: f64) -> usize {
     before + usize::try_from(trailing).unwrap_or(0)
 }
 
-/// Whether a word starts and/or ends at one character position — the only thing about
-/// the text [`drag_selection`] needs, kept as plain data so it tests without a layout.
-#[derive(Clone, Copy, Debug, Default)]
-pub(crate) struct WordEdge {
-    pub(crate) start: bool,
-    pub(crate) end: bool,
-}
+pub(crate) use crate::words::WordEdge;
 
 /// What a drag selects, as `(anchor, end)` character offsets for
 /// `gtk_label_select_region`, given the press count, the character under the press,
@@ -272,36 +266,7 @@ pub(crate) fn drag_selection(
     }
 }
 
-/// Word edges for every position of `text` (its character count plus one).
-///
-/// Pango's own (`pango_layout_get_log_attrs`) has no Rust binding, so words are
-/// letters and digits here, with an apostrophe or hyphen between two of them kept
-/// inside the word — `don't` and `well-known` are one word each, as a reader
-/// double-clicking them expects (GTK4Rs/AP-162).
-pub(crate) fn word_edges(text: &str) -> Vec<WordEdge> {
-    let chars: Vec<char> = text.chars().collect();
-    let inner = |i: usize| {
-        let c = chars[i];
-        c.is_alphanumeric()
-            || c == '_'
-            || (matches!(c, '\'' | '\u{2019}' | '-')
-                && i > 0
-                && i + 1 < chars.len()
-                && chars[i - 1].is_alphanumeric()
-                && chars[i + 1].is_alphanumeric())
-    };
-    let is_word: Vec<bool> = (0..chars.len()).map(inner).collect();
-    (0..=chars.len())
-        .map(|i| {
-            let before = i > 0 && is_word[i - 1];
-            let after = i < chars.len() && is_word[i];
-            WordEdge {
-                start: after && !before,
-                end: before && !after,
-            }
-        })
-        .collect()
-}
+pub(crate) use crate::words::word_edges;
 
 /// The word containing position `at`: back to the nearest word start at or before it,
 /// forward to the nearest word end at or after it. A position between words answers

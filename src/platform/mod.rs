@@ -22,6 +22,9 @@ pub(crate) mod mac;
 #[cfg(windows)]
 pub(crate) mod win32;
 
+#[cfg(target_os = "linux")]
+pub(crate) mod linux;
+
 // X11 is a display backend rather than an OS, but it is gated here for the same reason:
 // a platform whose GTK has no X11 backend must compile none of it.
 #[cfg(all(unix, not(target_os = "macos")))]
@@ -226,4 +229,52 @@ mod listeners {
 #[cfg(all(test, feature = "gtk-integration-tests"))]
 pub(crate) mod testing {
     pub(crate) use super::listeners::inject as inject_reduced_motion;
+}
+
+// ── this process's memory footprint (the memory gates' instrument) ──────────────────
+
+/// This process's memory footprint in bytes, by each platform's own measure (Linux
+/// VmRSS, macOS physical footprint, Windows working set), or `None` where there is no
+/// reader. Test-only: the memory gates are its one caller.
+#[cfg(test)]
+pub(crate) fn process_footprint_bytes() -> Option<u64> {
+    platform_process_footprint_bytes()
+}
+
+#[cfg(all(test, target_os = "linux"))]
+fn platform_process_footprint_bytes() -> Option<u64> {
+    linux::process::resident_bytes()
+}
+
+#[cfg(all(test, target_os = "macos"))]
+fn platform_process_footprint_bytes() -> Option<u64> {
+    mac::process::phys_footprint_bytes()
+}
+
+#[cfg(all(test, windows))]
+fn platform_process_footprint_bytes() -> Option<u64> {
+    win32::process::current_working_set_bytes()
+}
+
+#[cfg(all(test, not(any(target_os = "linux", target_os = "macos", windows))))]
+fn platform_process_footprint_bytes() -> Option<u64> {
+    None
+}
+
+/// Opt this process in or out of the kernel collapsing its memory into huge pages,
+/// which moves a footprint reading with no allocation at all. Only Linux has the
+/// collapse; elsewhere this does nothing.
+#[cfg(all(test, feature = "memory-gates"))]
+pub(crate) fn set_huge_page_collapse_disabled(disabled: bool) {
+    platform_set_huge_page_collapse_disabled(disabled);
+}
+
+#[cfg(all(test, feature = "memory-gates", target_os = "linux"))]
+fn platform_set_huge_page_collapse_disabled(disabled: bool) {
+    linux::process::set_huge_page_collapse_disabled(disabled);
+}
+
+#[cfg(all(test, feature = "memory-gates", not(target_os = "linux")))]
+fn platform_set_huge_page_collapse_disabled(disabled: bool) {
+    let _ = disabled;
 }

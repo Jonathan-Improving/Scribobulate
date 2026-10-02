@@ -179,6 +179,7 @@ pub(crate) mod theme;
 pub(crate) mod widgets;
 pub(crate) mod window;
 pub(crate) mod winstate;
+pub(crate) mod words;
 // Linux-only by construction: every path in it is XDG/X11 desktop plumbing —
 // `~/.XCompose`, `$XDG_CONFIG_HOME`, `mimeapps.list`, `/etc/keyd` — wired together
 // with `std::os::unix` symlinks that do not exist on other targets. Gating the

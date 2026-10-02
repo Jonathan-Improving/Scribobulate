@@ -156,6 +156,7 @@ mod theme;
 mod widgets;
 mod window;
 mod winstate;
+mod words;
 #[cfg(unix)]
 mod workaround;
 

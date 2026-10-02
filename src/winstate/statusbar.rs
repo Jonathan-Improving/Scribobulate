@@ -84,39 +84,14 @@ pub(crate) struct TextCount {
 impl TextCount {
     /// Count already-readable text (the preview's rendered text, a table cell's label).
     ///
-    /// A word is a run of letters and digits; an apostrophe or hyphen joins two such
-    /// runs only when it sits between them ("don't", "well-known" are one word each).
+    /// Words by the application's one word rule (`crate::words`), which the table
+    /// cell's double-click shares.
     /// Characters are every character except line breaks, so a count does not depend
     /// on how the text happened to be wrapped into lines.
     pub(crate) fn of_text(text: &str) -> Self {
-        let mut words = 0;
-        let mut in_word = false;
-        let mut chars = text.chars().peekable();
-        let mut count = 0;
-        let mut prev_alnum = false;
-        while let Some(c) = chars.next() {
-            if c != '\n' && c != '\r' {
-                count += 1;
-            }
-            if c.is_alphanumeric() {
-                if !in_word {
-                    words += 1;
-                    in_word = true;
-                }
-                prev_alnum = true;
-                continue;
-            }
-            let joins = is_word_joiner(c)
-                && prev_alnum
-                && chars.peek().is_some_and(|next| next.is_alphanumeric());
-            if !joins {
-                in_word = false;
-            }
-            prev_alnum = false;
-        }
         Self {
-            words,
-            chars: count,
+            words: crate::words::word_count(text),
+            chars: text.chars().filter(|c| !matches!(c, '\n' | '\r')).count(),
         }
     }
 
@@ -153,10 +128,6 @@ pub(crate) struct TextStats {
 /// What a screen reader announces for the line/column indicator (TDD 16.17).
 pub(crate) fn position_accessible_name(line: i32, col: u32) -> String {
     format!("Line {line}, column {col}")
-}
-
-fn is_word_joiner(c: char) -> bool {
-    matches!(c, '\'' | '\u{2019}' | '-')
 }
 
 /// The readable text of `doc`, one block per line, with inline formatting boundaries
