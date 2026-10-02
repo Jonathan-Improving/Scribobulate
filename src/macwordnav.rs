@@ -149,6 +149,7 @@ pub(crate) fn word_movement(key: Key, mods: ModifierType) -> Option<(i32, bool)>
 #[cfg(target_os = "macos")]
 pub(crate) fn wire_word_navigation(view: &sourceview::View) {
     let keys = gtk::EventControllerKey::new();
+    keys.set_name(Some(WORD_NAV_CONTROLLER));
     keys.connect_key_pressed(glib::clone!(
         #[weak]
         view,
@@ -232,6 +233,11 @@ pub(crate) fn key_target(field: &impl IsA<gtk::Editable>) -> Option<gtk::Text> {
 /// Option result was believed. Option+Right moved forward one word
 /// (`alpha |beta] gamma`) and Option+Shift+Left extended the selection over the
 /// preceding word.
+/// The name the word-navigation key controller carries, so a check can tell it from
+/// another capture-phase key controller on the same field (a filter box's Down key).
+#[cfg(target_os = "macos")]
+pub(crate) const WORD_NAV_CONTROLLER: &str = "scrib-macwordnav";
+
 #[cfg(target_os = "macos")]
 pub(crate) fn wire_field_word_navigation(field: &impl IsA<gtk::Editable>) {
     let Some(text) = key_target(field) else {
@@ -243,6 +249,7 @@ pub(crate) fn wire_field_word_navigation(field: &impl IsA<gtk::Editable>) {
     };
     let keys = gtk::EventControllerKey::new();
     keys.set_propagation_phase(gtk::PropagationPhase::Capture);
+    keys.set_name(Some(WORD_NAV_CONTROLLER));
     keys.connect_key_pressed(glib::clone!(
         #[weak]
         text,
@@ -378,22 +385,28 @@ mod gtk_tests {
             .collect()
     }
 
-    /// The capture-phase key controller `wire_field_word_navigation` installs, found on
-    /// `field`'s delegate — the signature a production wiring site is checked by below.
+    /// The key controller `wire_field_word_navigation` installs, found on `field`'s
+    /// delegate by its NAME and phase — the signature a production wiring site is
+    /// checked by below.
     ///
-    /// Phase is the discriminator because `GtkText` installs key controllers of its own
-    /// and none of them is capture-phase (asserted directly by
-    /// [`the_controller_lands_on_the_delegate_in_capture_phase`], which measures the
-    /// before-state rather than assuming it).
+    /// By name, not by phase: a field may carry another capture-phase key controller
+    /// of its own (a sidebar filter box's Down key), which a phase count read as double
+    /// wiring. That a field's controller is capture-phase is asserted separately, by
+    /// [`the_controller_lands_on_the_delegate_in_capture_phase`].
     fn capture_key_controllers(field: &impl IsA<gtk::Editable>) -> usize {
         let Some(text) = key_target(field) else {
             return 0;
         };
-        controllers(&text)
+        word_nav_controllers(&text)
+    }
+
+    /// How many word-navigation controllers `widget` carries.
+    fn word_nav_controllers(widget: &impl IsA<gtk::Widget>) -> usize {
+        controllers(widget)
             .into_iter()
             .filter(|c| {
                 c.is::<gtk::EventControllerKey>()
-                    && c.propagation_phase() == gtk::PropagationPhase::Capture
+                    && c.name().as_deref() == Some(super::WORD_NAV_CONTROLLER)
             })
             .count()
     }
@@ -498,15 +511,9 @@ mod gtk_tests {
     #[gtktest::test]
     fn the_annotation_comment_entry_is_wired_at_construction() {
         let field = crate::widgets::comment_entry::CommentEntry::new("", |_| {}).field;
-        let capture_keys = controllers(&field)
-            .into_iter()
-            .filter(|c| {
-                c.is::<gtk::EventControllerKey>()
-                    && c.propagation_phase() == gtk::PropagationPhase::Capture
-            })
-            .count();
         assert_eq!(
-            capture_keys, 2,
+            word_nav_controllers(&field),
+            1,
             "CommentEntry::new must wire word navigation (beside its own Enter-commits \
              controller), like every other commit route it owns — a surface that gets it \
              from its CALLER is a surface the next caller forgets"
