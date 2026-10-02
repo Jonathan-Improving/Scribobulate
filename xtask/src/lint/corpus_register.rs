@@ -54,6 +54,7 @@ fn a_register_with_no_header_line_is_missing_not_free() {
 const BANS: &str = r#"disallowed-methods = [
     { path = "gtk4::gdk::Texture::from_file", reason = "x" },
     { path = "gtk4::gdk_pixbuf::Pixbuf::from_stream", reason = "x" },
+    { path = "gtk4::prelude::TextViewExt::scroll_to_mark", reason = "x" },
 ]"#;
 
 /// Prescriptions. Each carries a word the whole-line veto took as a warning — elsewhere on
@@ -69,6 +70,21 @@ const PRESCRIBES: &[&str] = &[
     "**Resolution**: the urban banner loads with `Texture::from_file`.",
     // "instead of" AFTER the name is the prescription's own alternative, not a warning.
     "**Resolution**: call `Texture::from_file` instead of the decoder.",
+    // R6-AP-01: the commonest phrasings of a Resolution. A two-way connective ("avoid",
+    // "instead of", "rather than") opens a clause whose prescription follows the comma,
+    // and "used to"/"no longer"/a bare "never" say nothing about the named call. Each was
+    // green under the 60-character window that vetoed on any of them.
+    "**Resolution**: to avoid the copy, use `Texture::from_file`.",
+    "**Resolution**: instead of the decoder, call `Texture::from_file`.",
+    "**Resolution**: rather than decoding by hand, call `Texture::from_file`.",
+    "**Resolution**: the decoder is no longer needed — call `Texture::from_file`.",
+    "**Lesson**: never block the main loop: load with `Texture::from_file`.",
+    "**Resolution**: the helper used to load it is `Texture::from_file`.",
+    // A trait-method ban is spelled by its TYPE in prose, never by its `*Ext` trait: the
+    // reader once built only `TextViewExt::scroll_to_mark`, which no register line writes.
+    "**Resolution**: jump there with `TextView::scroll_to_mark`.",
+    // ...or as a method call on a receiver.
+    "**Resolution**: then call `view.scroll_to_mark(&mark, 0.0, false, 0.0, 0.0)`.",
 ];
 
 /// Warnings, which must stay legal: an entry names a banned call in order to warn about it.
@@ -77,6 +93,13 @@ const WARNS_ABOUT: &[&str] = &[
     "**Resolution**: do not reach for `Texture::from_file`; go through the decoder.",
     "**Scribobulate**: `gtk4::LinkButton::new` and `Texture::from_file` stay banned in clippy.toml.",
     "**Resolution**: route through the decoder rather than `Texture::from_file`.",
+    // The two-way connectives still warn when the banned name is their direct object —
+    // through a receiver, for the method-call spelling.
+    "**Resolution**: avoid `Texture::from_file`; go through the decoder.",
+    "**Resolution**: go through the decoder instead of `Texture::from_file`.",
+    "**Resolution**: farscroll re-issues the scroll, rather than `view.scroll_to_mark(…)`.",
+    "**Lesson**: never use `TextView::scroll_to_mark` on a view still being laid out.",
+    "**Resolution**: you must not call `view.scroll_to_mark(…)` directly.",
     // A longer name that merely STARTS with a banned one is a different method.
     "**Resolution**: wrap `Pixbuf::from_stream_async` in the gate.",
     // Titles and TOC rows name the mistake — that is what an anti-pattern entry IS — and

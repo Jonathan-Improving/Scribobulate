@@ -31,7 +31,10 @@ const MANIFEST: &str = "sdd/scrap-numbers.manifest";
 /// not do this". Several entries legitimately name a banned call in order to warn about
 /// it — so the check requires the name to be absent OR marked as a warning by its OWN
 /// clause: a warning word, whole and case-insensitive, within a short window before the
-/// name (cut at the last sentence break), or a passive "banned" just after it. The first
+/// name (cut at the last sentence or clause break), a two-way connective ("avoid",
+/// "instead of", "rather than") whose direct object is the name, or a passive "banned"
+/// just after it. A trait-method ban is matched as prose spells it, by its type and as a
+/// method call (`spellings`). The first
 /// version vetoed the whole LINE on any of a list of everyday words ("not ", "was ",
 /// "ban" — which matched "urban"), so it had never produced a finding on the real register;
 /// check 20 had already been through the same correction. Entry titles, TOC rows and the
@@ -77,8 +80,9 @@ pub(crate) fn banned_route_findings(bans: &str, register: &str) -> Vec<String> {
             let mut parts = path.rsplit("::");
             let leaf = parts.next()?;
             let owner = parts.next()?;
-            Some(format!("{owner}::{leaf}"))
+            Some(spellings(owner, leaf))
         })
+        .flatten()
         .collect();
     let mut findings = Vec::new();
     for (index, line) in register.lines().enumerate() {
@@ -93,10 +97,12 @@ pub(crate) fn banned_route_findings(bans: &str, register: &str) -> Vec<String> {
                 from = end;
                 // A longer method that merely STARTS with a banned one is another method:
                 // `Pixbuf::from_stream` is not `Pixbuf::from_stream_at_scale`.
-                if line[end..]
-                    .chars()
-                    .next()
-                    .is_some_and(|c| c.is_alphanumeric() || c == '_')
+                // (The method-call spelling ends in `(`, so it carries its own boundary.)
+                if name.ends_with(|c: char| c.is_alphanumeric() || c == '_')
+                    && line[end..]
+                        .chars()
+                        .next()
+                        .is_some_and(|c| c.is_alphanumeric() || c == '_')
                 {
                     continue;
                 }
@@ -108,6 +114,21 @@ pub(crate) fn banned_route_findings(bans: &str, register: &str) -> Vec<String> {
         }
     }
     findings
+}
+
+/// How prose spells one banned path. `Owner::leaf` always. A TRAIT method's owner is an
+/// `*Ext` trait no register line ever writes — prose says `TextView::scroll_to_mark` or
+/// `view.scroll_to_mark(…)` — so for those the type (`Ext` removed) and the method-call
+/// form are matched too. Without them half the ban list was invisible to this check while
+/// its PASS read as covering all of it (R6-AP-01). The BARE leaf is deliberately not
+/// matched: `text`, `cancel`, `new` are ordinary words.
+fn spellings(owner: &str, leaf: &str) -> Vec<String> {
+    let mut names = vec![format!("{owner}::{leaf}")];
+    if let Some(ty) = owner.strip_suffix("Ext").filter(|ty| !ty.is_empty()) {
+        names.push(format!("{ty}::{leaf}"));
+        names.push(format!(".{leaf}("));
+    }
+    names
 }
 
 /// Check 21 — the register's declared next-free number is above every heading it has.
@@ -158,16 +179,32 @@ const WARN_WINDOW_BEFORE: usize = 60;
 /// following word may take: "use `X::y` instead of Z" is the prescription's OWN alternative.
 const WARN_WINDOW_AFTER: usize = 40;
 
-/// Whole words, case-insensitive. `ban` must not match inside "urban" or "banner", and the
-/// bare "not"/"was" the first version carried are gone: they vetoed "the old loader did
-/// not cache" and "it was the fastest route", which say nothing about the call.
+/// Whole words, case-insensitive, and ONLY words that cannot open a prescription. `ban`
+/// must not match inside "urban" or "banner", and the bare "not"/"was" the first version
+/// carried are gone: they vetoed "the old loader did not cache" and "it was the fastest
+/// route", which say nothing about the call. So are the two-way words the second version
+/// carried (R6-AP-01): "used to", "no longer", a bare "never" and "refusing" describe
+/// something else as often as they warn about the call, and "never block the main loop:
+/// load with `X::y`" is a prescription.
 fn warn_before_rx() -> &'static regex::Regex {
     static RX: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     RX.get_or_init(|| {
         regex::Regex::new(
-            r"(?i)\b(bans?|banned|never|no longer|refus(e|es|ed|ing)|forbid(s|den)?|avoid(s|ed|ing)?|instead of|rather than|used to|do not|don't|must not|not use)\b|⚠",
+            r"(?i)\b(bans?|banned|forbid(s|den)?|never use|do not|don't|must not|not use)\b|⚠",
         )
         .expect("check 22's warning pattern compiles")
+    })
+}
+
+/// The connectives that work in BOTH directions — "route through X rather than `T::f`"
+/// warns, "rather than X, call `T::f`" prescribes — count only when the banned name is
+/// their DIRECT object: nothing between them and the name but quoting and, for the
+/// method-call spelling, the receiver (`avoid \`view.scroll_to_mark(…)\``).
+fn warn_direct_object_rx() -> &'static regex::Regex {
+    static RX: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    RX.get_or_init(|| {
+        regex::Regex::new(r#"(?i)\b(avoid(s|ed|ing)?|instead of|rather than)\s+[`*"']*\w*$"#)
+            .expect("check 22's direct-object pattern compiles")
     })
 }
 
@@ -190,7 +227,9 @@ fn warned_nearby(line: &str, at: usize, end: usize) -> bool {
         .last()
         .map_or(at, |(i, _)| i);
     let before = &line[from..at];
-    let before = [". ", "; ", "? ", "! "]
+    // A register clause also ends at a comma, a colon or a dash: "to avoid the copy, use
+    // `X::y`" is a prescription whose warning-looking word belongs to the clause before.
+    let before = [". ", "; ", "? ", "! ", ", ", ": ", " — ", " - "]
         .iter()
         .filter_map(|brk| before.rfind(brk).map(|i| i + brk.len()))
         .max()
@@ -200,7 +239,9 @@ fn warned_nearby(line: &str, at: usize, end: usize) -> bool {
         .take(WARN_WINDOW_AFTER)
         .last()
         .map_or(end, |(i, c)| end + i + c.len_utf8());
-    warn_before_rx().is_match(before) || warn_after_rx().is_match(&line[end..to])
+    warn_before_rx().is_match(before)
+        || warn_direct_object_rx().is_match(before)
+        || warn_after_rx().is_match(&line[end..to])
 }
 
 /// A line that names a mistake or reports what happened rather than saying what to do:

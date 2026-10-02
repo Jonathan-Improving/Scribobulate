@@ -247,7 +247,7 @@ jobs:
           key: cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: cargo-${{ runner.os }}-
 
-      # A dev subcommand, not a crate dependency — POLICY § Build pipeline step 5. Cached
+      # A dev subcommand, not a crate dependency — POLICY § Build pipeline (coverage ratchet). Cached
       # as a binary because building it costs minutes and it changes only when pinned.
       - uses: actions/cache@v4
         id: llvmcov

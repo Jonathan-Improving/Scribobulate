@@ -204,7 +204,7 @@ impl ToolbarSections {
     /// is used.** It is the one genuine DECISION in that module — everything else there
     /// is widget and action plumbing — and `src/window/<name>.rs` is outside the
     /// coverage gate's measured set, so a decision left there is a decision nothing
-    /// measures (POLICY build pipeline step 5).
+    /// measures (POLICY § Build pipeline, coverage ratchet).
     ///
     /// An id that names no section answers `false`, including when every section is
     /// hidden. That is the safe direction in both cases: `false` takes the ORDINARY

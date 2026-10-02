@@ -936,3 +936,46 @@ pub fn parser_dispatch_wildcards(text: &str) -> Vec<usize> {
     findings.dedup();
     findings
 }
+
+/// Check 25's predicate: the 1-based line numbers on which a numbered POLICY step is cited.
+///
+/// POLICY § Build pipeline numbers none of its steps — the step list is the contract's,
+/// `scripts/pipeline.steps` — so any "POLICY … step N" sends the reader to an address that
+/// no longer exists. When the numbered list was replaced by a pointer, 23 such citations
+/// were left dangling, one of them in a reason every Linux run prints, and check 6 could
+/// not see them because a section-plus-step citation is not a path (R6-SPEC-01).
+///
+/// Read ACROSS a line break, because a comment wraps wherever it likes: two of the 23 put
+/// the document name at the end of one comment line and the step on the next. Each break
+/// and the comment leader after it (`//!`, `///`, `//`, `#`, `*`, `>`) reads as one space.
+/// The citation must stay inside one sentence: a full stop or semicolon ends the window,
+/// so a POLICY mention and an unrelated contract step later in the paragraph do not pair.
+pub fn policy_step_citations(text: &str) -> Vec<usize> {
+    static RX: OnceLock<Regex> = OnceLock::new();
+    let cite = rx(
+        &RX,
+        r"(?i)\bPOLICY(?:\.md)?\b[^.;\n]{0,60}?\bsteps?\s+[0-9]",
+    );
+    // The joined view, with each joined byte's source line recorded beside it.
+    let mut joined = String::with_capacity(text.len());
+    let mut line_of = Vec::with_capacity(text.len());
+    for (index, line) in text.lines().enumerate() {
+        let body = if index == 0 {
+            line
+        } else {
+            joined.push(' ');
+            line_of.push(index + 1);
+            line.trim_start()
+                .trim_start_matches(['/', '!', '#', '*', '>'])
+                .trim_start()
+        };
+        joined.push_str(body);
+        line_of.extend(std::iter::repeat_n(index + 1, body.len()));
+    }
+    let mut lines: Vec<usize> = cite
+        .find_iter(&joined)
+        .map(|m| line_of[m.start()])
+        .collect();
+    lines.dedup();
+    lines
+}

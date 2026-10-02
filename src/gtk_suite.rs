@@ -239,6 +239,28 @@ fn main() {
         return;
     }
 
+    // A run that selects nothing has verified nothing, and must not say `result: ok`. The
+    // memory step selects its cases by the substring `memgate`, so renaming that module
+    // would otherwise turn the step into an empty run that passes (R6-AP-02). `--list`
+    // above is exempt: an empty listing is the answer to the question it asks. 2, not 1,
+    // for the reason the usage error gives — the suite never ran a case.
+    if selected.iter().all(|c| c.ignored) {
+        if selected.is_empty() {
+            eprintln!(
+                "gtk_suite: the filter {filters:?} (skipping {skips:?}) selects none of the {} \
+                 registered cases; refusing to report an empty run as a pass",
+                cases.len()
+            );
+        } else {
+            eprintln!(
+                "gtk_suite: every one of the {} cases the filter {filters:?} selects is \
+                 #[ignore]d, so nothing would run; refusing to report that as a pass",
+                selected.len()
+            );
+        }
+        std::process::exit(2);
+    }
+
     let exe = std::env::current_exe().expect(
         "the driver re-executes its own binary for each group, so it must be able to \
          name that binary",

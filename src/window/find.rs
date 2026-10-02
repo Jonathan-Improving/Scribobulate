@@ -108,7 +108,7 @@ fn warn_preview_unresolved(what: &str) {
 // the broader `cfg(test)`. Under a bare `cargo clippy --all-targets` — no feature —
 // the callers are not compiled and this became dead code, so that configuration
 // failed `-D warnings` on every platform. It is not the sanctioned clippy step
-// (POLICY step 2 passes `--features gtk-integration-tests`, deliberately, so the gated
+// (POLICY § Build pipeline's clippy step passes `--features gtk-integration-tests`, deliberately, so the gated
 // modules cannot rot unseen), which is why no pipeline caught it; it still cost the
 // macOS seat a diagnosis during a merge verification. A cfg that matches its callers
 // costs nothing and removes the trap.

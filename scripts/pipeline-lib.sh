@@ -168,6 +168,18 @@ validate_contract() {
                 ;;
         esac
 
+        # An unknown verdict is REFUSED, not read as `exit`: a runner that falls through
+        # to the exit code on a verdict it does not recognise drops whatever the verdict
+        # added, silently, and that is exactly how an `absent:` guard would vanish from a
+        # port that never learned it.
+        case "$verdict" in
+            ''|exit|review|marker:?*|absent:?*) ;;
+            *)
+                echo "pipeline: step '$id' has unknown verdict '$verdict'" >&2
+                errs=$((errs + 1))
+                ;;
+        esac
+
         local plat cmd na
         for plat in $platforms; do
             cmd=$(contract_value "cmd.$plat" "$id")
@@ -656,6 +668,14 @@ contract_negative_cases() {
         "step 2 beta" "intent beta b" "verdict beta exit" "class beta nonsense" \
         "cmd.linux beta true" "cmd.macos beta true" "cmd.windows beta true" \
         || failed="$failed case"
+    contract_rejects "unknown verdict" "unknown verdict" \
+        "step 2 beta" "intent beta b" "verdict beta exit-ish" "class beta required" \
+        "cmd.linux beta true" "cmd.macos beta true" "cmd.windows beta true" \
+        || failed="$failed case"
+    contract_rejects "absent verdict with no text" "unknown verdict" \
+        "step 2 beta" "intent beta b" "verdict beta absent:" "class beta required" \
+        "cmd.linux beta true" "cmd.macos beta true" "cmd.windows beta true" \
+        || failed="$failed case"
     contract_rejects "missing intent" "has no intent" \
         "step 2 beta" "verdict beta exit" "class beta required" \
         "cmd.linux beta true" "cmd.macos beta true" "cmd.windows beta true" \
@@ -918,9 +938,30 @@ execution_cases() {
     _reset; _step beta required; _cmds beta "printf 'SKIPPED [X]\\n'"; _run beta
     _want_not "without a surface line nothing is surfaced" "surfaced '"
 
+    # ── absent: a passing command that printed the refused text FAILS ────────────────
+    _absent() {
+        _add "step 2 beta"; _add "intent beta does a thing"
+        _add "verdict beta absent:SKIPPED [TDD"; _add "class beta required"
+    }
+    _reset; _absent; _cmds beta "printf 'test a ... ok\\nSKIPPED [TDD 6.6]: not measured\\n'"
+    _run beta
+    _want    "a refused line fails an exit-0 step"   "FAIL"
+    _want    "the refused line itself is shown"      "SKIPPED [TDD 6.6]: not measured"
+    _want_rc "…and returns 1"                        1
+
+    # Paired negative: the same verdict over output without the text passes.
+    _reset; _absent; _cmds beta "printf 'test a ... ok\\n'"; _run beta
+    _want     "an absent: step with clean output PASSES" "PASS"
+    _want_not "…and refuses nothing"                     "REFUSED"
+    _want_rc  "…and returns 0"                           0
+
+    # The exit code still decides on its own.
+    _reset; _absent; _cmds beta 'false'; _run beta
+    _want_rc "an absent: step that exits non-zero still fails" 1
+
     DO_PACKAGE="$saved_pkg"
     OVERRIDDEN_STEPS="$saved_over"
-    unset -f _reset _add _step _cmds _carve _disarm _run _want _want_not _want_rc
+    unset -f _absent _reset _add _step _cmds _carve _disarm _run _want _want_not _want_rc
 
     [ -z "$failed" ]
 }
@@ -1066,21 +1107,38 @@ run_step() {
     # marker verdict can only see what its own re-run prints: step 4b re-runs the unit tests,
     # while an integration body that skips itself prints its marker in step 5's output and
     # nowhere else. Surfacing never changes the verdict; the exit code still decides.
-    local surface rc=0
+    #
+    # An `absent:<text>` verdict reads the same copy: the exit code still decides, AND a
+    # line of the step's own output containing <text> fails it. It exists for a gate whose
+    # bodies can refuse to measure and return green — the memory class's `SKIPPED [TDD`
+    # (R6-AP-02) — where a step judged by its exit code alone reports PASS having measured
+    # nothing, and the run that passes is the one nobody reads.
+    local surface absent="" rc=0
     surface=$(contract_value surface "$id")
-    if [ -n "$surface" ]; then
+    case "$verdict" in absent:*) absent="${verdict#absent:}" ;; esac
+    if [ -n "$surface" ] || [ -n "$absent" ]; then
         local log hits
         log=$(mktemp -t "scrib-surface.XXXXXX")
         eval "$cmd" 2>&1 | tee "$log"
         rc=${PIPESTATUS[0]}
-        hits=$(grep -F -- "$surface" "$log" || true)
-        rm -f "$log"
-        if [ -n "$hits" ]; then
-            echo "    surfaced '$surface':"
-            echo "$hits" | sed 's/^/    /'
-        else
-            echo "    no tests reported '$surface'"
+        if [ -n "$surface" ]; then
+            hits=$(grep -F -- "$surface" "$log" || true)
+            if [ -n "$hits" ]; then
+                echo "    surfaced '$surface':"
+                echo "$hits" | sed 's/^/    /'
+            else
+                echo "    no tests reported '$surface'"
+            fi
         fi
+        if [ -n "$absent" ]; then
+            hits=$(grep -F -- "$absent" "$log" || true)
+            if [ -n "$hits" ]; then
+                echo "    REFUSED: this step's verdict requires '$absent' to be absent from its output:"
+                echo "$hits" | sed 's/^/    /'
+                [ "$rc" -ne 0 ] || rc=1
+            fi
+        fi
+        rm -f "$log"
     else
         eval "$cmd" || rc=$?
     fi
