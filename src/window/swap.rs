@@ -210,6 +210,7 @@ fn write_snapshot(tab: &Rc<TabState>) {
 
     tab.swap.in_flight.set(true);
     let tab_id = tab.id;
+    let generation = tab.swap.generation.get();
     // `PRIVATE` gives 0600 at open(2), never chmod'd after — and the rename carries it to
     // the destination. `REPLACE_DESTINATION` matters only for a *stale* temp left by an
     // earlier interrupted write, whose contents are garbage either way.
@@ -245,7 +246,7 @@ fn write_snapshot(tab: &Rc<TabState>) {
                         Ok((_, _, maybe_err)) => maybe_err.as_ref().map(|e| e.to_string()),
                         Err((_, e)) => Some(e.to_string()),
                     };
-                    finish_snapshot(tab_id, &stream, &temp, &destination, failure);
+                    finish_snapshot(tab_id, generation, &stream, &temp, &destination, failure);
                 },
             );
         },
@@ -289,34 +290,59 @@ fn promote_snapshot(
     temp: &std::path::Path,
     destination: &std::path::Path,
     failure: Option<String>,
-) -> Result<(), String> {
+    still_wanted: bool,
+) -> Result<Promotion, String> {
     let closed = stream.close(gio::Cancellable::NONE);
     let outcome = match (&failure, &closed) {
         (Some(why), _) => Err(why.clone()),
         (None, Err(e)) => Err(e.to_string()),
-        (None, Ok(())) => std::fs::rename(temp, destination).map_err(|e| e.to_string()),
+        (None, Ok(())) if !still_wanted => Ok(Promotion::Withdrawn),
+        (None, Ok(())) => std::fs::rename(temp, destination)
+            .map(|()| Promotion::Promoted)
+            .map_err(|e| e.to_string()),
     };
 
-    if outcome.is_err() {
-        // The temp is either incomplete or unpromotable; either way it is worthless and
-        // must not be left behind for the startup sweep to find.
+    if !matches!(outcome, Ok(Promotion::Promoted)) {
+        // The temp is incomplete, unpromotable, or no longer wanted; either way it is
+        // worthless and must not be left behind for the startup sweep to find.
         let _ = std::fs::remove_file(temp);
     }
     outcome
 }
 
-/// Do the file work, then settle the tab that asked for it — **in that order**, because a
-/// snapshot whose tab closed mid-write must still not promote.
+/// What [`promote_snapshot`] did with a complete write.
+#[derive(Debug, PartialEq, Eq)]
+enum Promotion {
+    /// Renamed into place.
+    Promoted,
+    /// Unlinked, because the snapshot was withdrawn while the write was in flight.
+    Withdrawn,
+}
+
+/// Do the file work, then settle the tab that asked for it.
+///
+/// **A write promotes only if its snapshot is still wanted when it completes**: the tab
+/// still exists and its `swap.generation` is the one the write started under. A Discard,
+/// a save or an edit back to the saved text withdraws the snapshot by bumping that
+/// generation, and none of them can stop a write GIO already holds; without this check
+/// the write renamed the withdrawn text into place after the delete, and the next launch
+/// "recovered" work the user had thrown away. A closed tab is never still wanted: it
+/// closed because it was saved or its changes were discarded.
 fn finish_snapshot(
     tab_id: winstate::TabId,
+    generation: u64,
     stream: &gio::FileOutputStream,
     temp: &std::path::Path,
     destination: &std::path::Path,
     failure: Option<String>,
 ) {
-    let outcome = promote_snapshot(stream, temp, destination, failure);
+    let tab = winstate::tab_by_id(tab_id);
+    let still_wanted = tab
+        .as_ref()
+        .is_some_and(|tab| tab.swap.generation.get() == generation);
+    let outcome = promote_snapshot(stream, temp, destination, failure, still_wanted);
 
-    let Some(tab) = winstate::tab_by_id(tab_id) else {
+    let Some(tab) = tab else {
         return;
     };
     tab.swap.in_flight.set(false);
@@ -326,10 +352,11 @@ fn finish_snapshot(
         // firing every few seconds would evict the whole ring within minutes and leave
         // every crash report describing nothing but its own safety net. The boundary
         // worth recording is the RECOVERY.
-        Ok(()) => {
+        Ok(Promotion::Promoted) => {
             tab.swap.on_disk.set(true);
             clear_snapshot_failure(&tab);
         }
+        Ok(Promotion::Withdrawn) => {}
         Err(why) => report_snapshot_failure(&tab, &why),
     }
     // Fire whatever was coalesced while this write was in flight, re-deciding from the
@@ -448,6 +475,11 @@ fn clear_snapshot_failure(tab: &Rc<TabState>) {
 /// overwhelmingly common case and not a condition worth logging.
 fn delete_snapshot(tab: &Rc<TabState>) {
     tab.swap.deadline.set(None);
+    // Withdraw any write already in flight, whether or not a file is on disk yet: a
+    // first write can be mid-flight with `on_disk` still false.
+    tab.swap
+        .generation
+        .set(tab.swap.generation.get().wrapping_add(1));
     if !tab.swap.on_disk.get() {
         return;
     }
@@ -661,11 +693,11 @@ mod close_semantics_tests {
 
         // A tab id that resolves to nothing — via the sanctioned allocator, because the
         // point of `winstate::ids` is that an id cannot be forged. The file work must be
-        // correct regardless of whether the tab still exists, which is why it happens
-        // before the tab is resolved: a snapshot whose tab closed mid-write must still
-        // not promote.
+        // correct regardless of whether the tab still exists: a snapshot whose tab
+        // closed mid-write must not promote either way.
         super::finish_snapshot(
             crate::winstate::alloc_tab_id(),
+            0,
             &stream,
             &temp,
             &destination,
@@ -725,7 +757,7 @@ mod close_semantics_tests {
                 .write_all(b"NEW SNAPSHOT", gio::Cancellable::NONE)
                 .expect("writes");
 
-            if let Err(why) = super::promote_snapshot(&stream, &temp, &destination, None) {
+            if let Err(why) = super::promote_snapshot(&stream, &temp, &destination, None, true) {
                 refusals.push(format!("attempt {attempt}: {why}"));
                 std::thread::sleep(std::time::Duration::from_millis(100));
                 continue;
@@ -1081,6 +1113,45 @@ mod tests {
                 "and the tab is still dirty — which is exactly why the invariant cannot \
                  be the mechanism here"
             );
+        });
+    }
+
+    /// **A Discard wins over a snapshot write already in flight** (TDD 22.18). The write
+    /// is handed to GIO and its completion can only arrive on a later main-context turn,
+    /// so discarding in the same turn as the flush puts the Discard deterministically
+    /// between the write's start and its promote, the window a human click can hit on a
+    /// slow volume.
+    ///
+    /// Mutation: make `finish_snapshot` pass `still_wanted = true` and the discarded text
+    /// is renamed into place after the delete.
+    #[gtktest::test]
+    fn a_discard_during_an_in_flight_write_leaves_no_snapshot() {
+        let dir = tempfile::tempdir().unwrap();
+        crate::session::with_state_home_for_test(dir.path(), || {
+            let app = super::gtk_integration_tests::test_app(
+                "com.extollit.scribobulate.it.swapdiscardflight",
+            );
+            let win = new_window(&app, "IT", "original", None);
+            let tab = winstate::state(&win).expect("the window has a tab");
+
+            tab.editor_buf
+                .set_text("work the user is about to throw away");
+            flush_now(&tab);
+            assert!(
+                tab.swap.in_flight.get(),
+                "precondition: the write is in flight"
+            );
+            discard_tab_swap(&tab);
+            assert!(
+                pump_until(|| !tab.swap.in_flight.get()),
+                "the in-flight write must complete"
+            );
+            assert_eq!(
+                swap_files(dir.path()),
+                Vec::<std::path::PathBuf>::new(),
+                "the write that was in flight across the Discard must not promote"
+            );
+            win.destroy();
         });
     }
 }

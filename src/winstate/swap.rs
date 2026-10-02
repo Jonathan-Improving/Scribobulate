@@ -29,6 +29,12 @@ pub(crate) struct SwapState {
     /// the invariant: it is only ever an optimisation over "delete unconditionally", and
     /// a stale `true` costs one harmless failed delete.
     pub(crate) on_disk: Cell<bool>,
+    /// Bumped every time this tab's snapshot is withdrawn (a save, a Discard, an edit
+    /// back to the saved text). A write already handed to GIO captures the value it
+    /// started under and promotes its temp only if the value is unchanged when it
+    /// completes; otherwise the temp is unlinked. Without it, a write in flight across
+    /// a Discard renamed the discarded text into place after the delete had run.
+    pub(crate) generation: Cell<u64>,
 }
 
 /// The idle debounce for a document of `bytes` bytes, in milliseconds.

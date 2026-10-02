@@ -93,6 +93,7 @@ pub(crate) use outline_nav::refresh_outline;
 pub(crate) use outline_nav::wire_persistent_editor_scroll_spy;
 pub(crate) use outline_nav::wire_scroll_spy;
 pub(crate) use outline_nav::{outline_collapse_all, outline_expand_all};
+pub(crate) use reload::adopt_disk_text;
 pub(crate) use reload::check_and_reload;
 pub(crate) use reload::check_and_reload_tab;
 pub(crate) use restore::{apply_tab_layout, restore_session};

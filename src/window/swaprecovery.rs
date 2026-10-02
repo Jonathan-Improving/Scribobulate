@@ -431,6 +431,13 @@ async fn apply_recovered_content(
         refresh_annotations(window);
     }
 
+    // Whether anything unsaved actually came back. A snapshot can normalise to the disk
+    // text (a lone CR is the case), and then there is nothing to reconcile or announce:
+    // the conflict prompt and the recovery notice would both describe a clean document.
+    let came_back = tab.needs_close_prompt();
+    if !came_back {
+        return false;
+    }
     if stale {
         // The twin changed on disk since the snapshot was taken, so the recovered content
         // sits on a stale baseline. The work still comes back — losing it is the failure
@@ -443,7 +450,7 @@ async fn apply_recovered_content(
         super::reload::show_conflict_toast(window);
     }
     show_recovery_toast(window, tab, swap.header.written_at);
-    tab.needs_close_prompt()
+    true
 }
 
 /// Remove the file a recovery was read from, **only if the tab will now snapshot to a

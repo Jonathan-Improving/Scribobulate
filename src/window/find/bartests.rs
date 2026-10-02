@@ -1081,7 +1081,9 @@ fn a_closed_find_bar_paints_no_match_highlight() {
     search(&win, "target");
     assert_eq!(count(&win), Some(4));
     let st = state(&win).expect("a tab");
-    st.chrome().find_entry.emit_by_name::<()>("stop-search", &[]);
+    st.chrome()
+        .find_entry
+        .emit_by_name::<()>("stop-search", &[]);
     set_option(&win, "find-match-case", true);
     readout(&win);
     assert!(
@@ -1100,7 +1102,9 @@ fn a_closed_find_bar_paints_no_match_highlight() {
         !highlighted_offsets(&st).is_empty(),
         "the open bar lights the passage"
     );
-    st.chrome().find_entry.emit_by_name::<()>("stop-search", &[]);
+    st.chrome()
+        .find_entry
+        .emit_by_name::<()>("stop-search", &[]);
     assert!(
         highlighted_offsets(&st).is_empty(),
         "closing takes the scoped highlight off"
