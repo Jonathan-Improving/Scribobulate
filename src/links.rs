@@ -536,6 +536,11 @@ enum Containment {
 /// Run the containment gate and report *why* it answered as it did. See
 /// [`Containment`].
 fn containment_of(src: &str, doc_dir: Option<&Path>) -> Containment {
+    // Decided on the path's text alone, before anything below touches the filesystem:
+    // canonicalizing a UNC path IS the network connection the gate exists to prevent.
+    if reaches_a_foreign_remote_namespace(src, doc_dir) {
+        return Containment::Escapes;
+    }
     if let Some(target) = resolve_contained_image(src, doc_dir) {
         return Containment::Inside(target);
     }
@@ -548,6 +553,79 @@ fn containment_of(src: &str, doc_dir: Option<&Path>) -> Containment {
         Some(_) => Containment::Escapes,
         None => Containment::Absent,
     }
+}
+
+/// Whether `src` (in its literal or its percent-decoded form, the two forms
+/// [`canonical_local_target`] tries) names a remote or device namespace — a Windows UNC
+/// share, `\\?\UNC\…`, `\\.\…` or another verbatim non-disk prefix — that is not
+/// lexically inside `doc_dir`.
+///
+/// **Why it must be lexical.** `dunce::canonicalize` on `\\host\share\x.png` calls
+/// `CreateFileW`, which opens an SMB session to `host` and authenticates with the
+/// user's NTLM credentials. That would happen before the gate's `starts_with` check
+/// refuses the path, so merely rendering a hostile document would leak the hash with
+/// no click, and an unreachable host would stall the main thread for the SMB timeout.
+/// This check runs on the text alone and touches no filesystem.
+///
+/// **Why a document on a share still works.** A candidate lexically under the
+/// document's own folder is left to the normal gate, because that only reaches the
+/// server the document was opened from. `..` is folded lexically, so it cannot climb
+/// out to another share without being caught here. Components are compared
+/// case-insensitively. That only lets more through to the real canonical check, which
+/// still decides.
+///
+/// On Linux and macOS no path has a prefix component, so this is always false there.
+fn reaches_a_foreign_remote_namespace(src: &str, doc_dir: Option<&Path>) -> bool {
+    let decoded = percent_decode(src);
+    let foreign = [decoded.as_str(), src].into_iter().any(|form| {
+        local_candidate(form, doc_dir).is_some_and(|candidate| {
+            is_remote_namespace(&candidate)
+                && !doc_dir.is_some_and(|dir| lexically_within(&candidate, dir))
+        })
+    });
+    foreign
+}
+
+/// Whether `path` starts with a Windows prefix that reaches beyond the local disks.
+fn is_remote_namespace(path: &Path) -> bool {
+    use std::path::{Component, Prefix};
+    match path.components().next() {
+        Some(Component::Prefix(prefix)) => matches!(
+            prefix.kind(),
+            Prefix::UNC(..) | Prefix::VerbatimUNC(..) | Prefix::DeviceNS(..) | Prefix::Verbatim(..)
+        ),
+        _ => false,
+    }
+}
+
+/// `path` with `.` dropped and `..` folded, using only its text. A `..` at the root
+/// stays at the root.
+fn lexically_normalized(path: &Path) -> Vec<std::ffi::OsString> {
+    use std::path::Component;
+    let mut out: Vec<std::ffi::OsString> = Vec::new();
+    let mut rooted = 0;
+    for component in path.components() {
+        match component {
+            Component::Prefix(_) | Component::RootDir => {
+                out.push(component.as_os_str().to_ascii_lowercase());
+                rooted = out.len();
+            }
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if out.len() > rooted {
+                    out.pop();
+                }
+            }
+            Component::Normal(name) => out.push(name.to_ascii_lowercase()),
+        }
+    }
+    out
+}
+
+/// Whether `path` sits at or beneath `dir` once both are normalized lexically and
+/// compared without regard to ASCII case.
+fn lexically_within(path: &Path, dir: &Path) -> bool {
+    lexically_normalized(path).starts_with(&lexically_normalized(dir))
 }
 
 /// The result of resolving an image `src` against the safety policy, used by
@@ -785,12 +863,13 @@ pub(crate) fn path_for_insert(target: &Path, base: Option<&Path>) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        anchor_target, doc_link_fragment, is_allowed_url, is_exportable_href, path_for_insert,
-        percent_decode, percent_encode_path, resolve_contained_image, resolve_doc_link,
-        resolve_image, scheme_of, slug_is_for, slugify, unique_slug, ImageResolution,
-        LinkResolution,
+        anchor_target, doc_link_fragment, is_allowed_url, is_exportable_href, lexically_within,
+        path_for_insert, percent_decode, percent_encode_path, reaches_a_foreign_remote_namespace,
+        resolve_contained_image, resolve_doc_link, resolve_image, scheme_of, slug_is_for, slugify,
+        unique_slug, ImageResolution, LinkResolution,
     };
     use std::collections::HashMap;
+    use std::path::Path;
 
     /// The inverse of the slug rule, which is what lets a durable record name a heading
     /// by identity instead of by its position in a list that gets rebuilt.
@@ -1276,6 +1355,86 @@ mod tests {
             matches!(verdict, ImageResolution::Missing),
             "an escaping path with no file behind it is unresolvable, got {verdict:?}"
         );
+    }
+
+    /// A UNC image path in a document is refused from its text alone, so it never
+    /// opens an SMB session (NTLM leak, main-thread stall). 203.0.113.0/24 is
+    /// TEST-NET-3, unroutable: a canonicalize call on it would hang for the redirector
+    /// timeout, so the elapsed time is the witness that no filesystem call was made.
+    #[test]
+    fn resolve_image_refuses_a_unc_path_without_touching_the_network() {
+        if !cfg!(windows) {
+            println!("SKIPPED [TDD 2.7]: UNC prefixes exist only in the Windows path grammar");
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        for src in [
+            r"\\203.0.113.1\s\x.png",
+            "//203.0.113.1/s/x.png",
+            "%5C%5C203.0.113.1%5Cs%5Cx.png",
+            r"\\?\UNC\203.0.113.1\s\x.png",
+            r"\\203.0.113.1@SSL@443\DavWWWRoot\x.png",
+        ] {
+            let started = std::time::Instant::now();
+            let verdict = resolve_image(src, Some(dir.path()), false);
+            assert!(
+                matches!(verdict, ImageResolution::Refused),
+                "{src}: {verdict:?}"
+            );
+            let link = resolve_doc_link(src, Some(dir.path()), false);
+            assert!(matches!(link, LinkResolution::Refused), "{src}: {link:?}");
+            assert!(
+                started.elapsed() < std::time::Duration::from_secs(1),
+                "{src} took {:?}, so something reached for the network",
+                started.elapsed()
+            );
+        }
+    }
+
+    /// A document opened from a share keeps its own images: a candidate lexically
+    /// under the document's folder is not a foreign namespace, and `..` cannot fold
+    /// a candidate out to a sibling share without being caught.
+    #[test]
+    fn a_share_hosted_document_is_not_foreign_to_itself() {
+        if !cfg!(windows) {
+            println!("SKIPPED [TDD 2.7]: UNC prefixes exist only in the Windows path grammar");
+            return;
+        }
+        let dir = Path::new(r"\\files\team\docs");
+        assert!(!reaches_a_foreign_remote_namespace("img/x.png", Some(dir)));
+        assert!(!reaches_a_foreign_remote_namespace(
+            r"\\FILES\Team\docs\x.png",
+            Some(dir)
+        ));
+        assert!(reaches_a_foreign_remote_namespace(
+            r"..\..\other\x.png",
+            Some(dir)
+        ));
+        assert!(reaches_a_foreign_remote_namespace(
+            r"\\evil\s\x.png",
+            Some(dir)
+        ));
+        assert!(reaches_a_foreign_remote_namespace(r"\\evil\s\x.png", None));
+    }
+
+    /// The lexical fold the remote check relies on, on every platform's own grammar.
+    #[test]
+    fn lexical_containment_folds_dots_and_ignores_ascii_case() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().join("Doc");
+        assert!(lexically_within(
+            &base.join("a").join("..").join("x.png"),
+            &base
+        ));
+        assert!(lexically_within(
+            &base.join(".").join("x.png"),
+            &dir.path().join("doc")
+        ));
+        assert!(!lexically_within(&base.join("..").join("x.png"), &base));
+        assert!(!lexically_within(
+            &dir.path().join("Doc-evil").join("x.png"),
+            &base
+        ));
     }
 
     #[test]

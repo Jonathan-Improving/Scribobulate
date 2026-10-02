@@ -710,7 +710,10 @@ pub(crate) struct DisclosureFrame {
 /// a fact only the render knows. Collapsing a block is a delete of [`Self::body`];
 /// expanding one is a write at its (empty) start.
 ///
-/// One entry per disclosure this render actually DREW, in document order. A block
+/// One entry per disclosure this render actually DREW, in the order the blocks CLOSE
+/// (post-order: an inner block precedes the block containing it). That is not the
+/// order the toggles are recorded in, so pair an extent with its toggle by position
+/// (`summary.start`), never by index. A block
 /// nested inside a collapsed one draws nothing — not even a summary line — and so has
 /// no extent; its content is inside its ancestor's body and moves with it.
 #[derive(Debug, Clone, PartialEq, Eq)]

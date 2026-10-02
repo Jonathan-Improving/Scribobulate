@@ -495,8 +495,9 @@ pub(crate) fn refresh_annotations_in_place(
         // replaced. Re-pointing them here is the completeness half of resolving at use
         // (TDD 2.26o): the widget tree and the maps are two halves of one render, and a
         // route that refreshes one and not the other leaves live controls addressing a
-        // document that is no longer the one the pane is showing.
-        remint_disclosure_references(&rd);
+        // document that is no longer the one the pane is showing. A control that cannot
+        // be paired sends the caller to its full re-render.
+        return remint_disclosure_references(&view.buffer(), &rd);
     }
     true
 }
@@ -1018,6 +1019,60 @@ mod choke_point_tests {
              previous one derived"
         );
     }
+
+    /// After an in-place annotation refresh, each fold toggle of NESTED open blocks
+    /// still addresses its own block. Toggles are recorded in pre-order and extents in
+    /// post-order, so pairing the two lists by index swapped the outer and inner
+    /// references, and a click on the outer arrow folded the inner block.
+    #[gtktest::test]
+    fn an_annotation_refresh_keeps_nested_toggles_on_their_own_blocks() {
+        let body = |note: &str| {
+            format!(
+                "<details open>\n<summary>Outer</summary>\n\nOuter {note}text.\n\n\
+                 <details open>\n<summary>Inner</summary>\n\nInner text.\n\n</details>\n\n\
+                 </details>\n"
+            )
+        };
+        let md = body("");
+        let widget = render(&md, None, 1.0, false, &crate::fold::FoldState::default());
+        let view = crate::preview::view_of(&widget).expect("the preview tree render() built");
+        let sw = widget
+            .downcast_ref::<gtk::Overlay>()
+            .and_then(|o| o.child())
+            .and_then(|c| c.downcast::<ScrolledWindow>().ok())
+            .expect("the preview's scroller");
+        let rd = scrib_render_data(&view).expect("render data");
+        assert_eq!(
+            rd.borrow().disclosure_lines.len(),
+            2,
+            "both blocks must be drawn open"
+        );
+
+        let edited = body("{>>a note<<}");
+        assert!(
+            refresh_annotations_in_place(&sw, &edited, None, 1.0, false),
+            "the in-place route must be taken, or this tests the full re-render"
+        );
+        let lines = rd.borrow().disclosure_lines.clone();
+        let mut toggles: Vec<_> = lines.iter().collect();
+        toggles.sort_by_key(|(line, _)| *line);
+        let starts: Vec<usize> = toggles
+            .iter()
+            .map(|(_, toggle)| {
+                crate::widgets::disclosure::reference(toggle)
+                    .and_then(|r| r.resolve(&edited))
+                    .expect("a resolvable reference")
+                    .start
+            })
+            .collect();
+        let outer = edited.find("<details").expect("outer block");
+        let inner = edited[outer + 1..].find("<details").expect("inner block") + outer + 1;
+        assert_eq!(
+            starts,
+            vec![outer, inner],
+            "each toggle must address its own block"
+        );
+    }
 }
 
 /// Connect each disclosure toggle a FULL render emitted to the fold it drives.
@@ -1087,24 +1142,50 @@ fn anchor_disclosure_control(toggle: &gtk::ToggleButton, cleaned: &str, key: cra
 /// "mostly" is the property this whole mechanism exists not to rely on, and the maps
 /// and the widget tree are two halves of one render.
 ///
-/// Pairing is by DOCUMENT ORDER, which is what both lists are in: `disclosure_lines`
-/// is built from the render's toggles in order, and `disclosure_extents` from the same
-/// walk. A length mismatch means the two halves describe different documents, so
-/// nothing is re-minted and the caller's fallback (a full re-render) is the answer.
-pub(super) fn remint_disclosure_references(render_data: &Rc<RefCell<RenderData>>) {
+/// **Pairing is by POSITION, never by index.** The two lists are in different orders:
+/// a toggle is recorded when its summary is emitted (pre-order) and an extent when its
+/// block closes (post-order), so for nested blocks the i-th toggle is not the i-th
+/// extent. Each extent is matched to the toggle on its summary's buffer line, which is
+/// the pairing the splice path makes by anchor offset.
+///
+/// Returns `false` when some control cannot be paired with a drawn block. The two
+/// halves then describe different documents, and the caller's answer is a full
+/// re-render, which rebuilds both.
+pub(super) fn remint_disclosure_references(
+    buf: &gtk::TextBuffer,
+    render_data: &Rc<RefCell<RenderData>>,
+) -> bool {
     let rd = render_data.borrow();
     if rd.disclosure_lines.len() != rd.disclosure_extents.len() {
         log::warn!(
-            "preview: {} disclosure controls against {} drawn blocks — not re-minting \
-             references the two cannot be paired by",
+            "preview: {} disclosure controls against {} drawn blocks — re-rendering, \
+             because the two cannot be paired",
             rd.disclosure_lines.len(),
             rd.disclosure_extents.len()
         );
-        return;
+        return false;
     }
-    for ((_, toggle), extent) in rd.disclosure_lines.iter().zip(rd.disclosure_extents.iter()) {
-        anchor_disclosure_control(toggle, &rd.md_owned, extent.key);
+    let paired: Option<Vec<_>> = rd
+        .disclosure_extents
+        .iter()
+        .map(|extent| {
+            let line = buf.iter_at_offset(extent.summary.start).line();
+            rd.disclosure_lines
+                .iter()
+                .find(|(toggle_line, _)| *toggle_line == line)
+                .map(|(_, toggle)| (toggle, extent.key))
+        })
+        .collect();
+    let Some(paired) = paired else {
+        log::warn!(
+            "preview: a drawn disclosure block has no control on its summary line — re-rendering"
+        );
+        return false;
+    };
+    for (toggle, key) in paired {
+        anchor_disclosure_control(toggle, &rd.md_owned, key);
     }
+    true
 }
 
 /// The same wiring after a SPLICE, where most of the controls are survivors.

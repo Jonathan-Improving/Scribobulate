@@ -642,7 +642,18 @@ impl SplitView {
 ///
 /// Coalesced to one repair per main-loop turn, and run from a timeout, never inside a
 /// layout pass, where toggling `:visible` would itself be the hazard (GTK4Rs/AP-104).
-fn relink_vscrollbar_after_range_changes(scroller: &gtk::ScrolledWindow) {
+///
+/// **Never while a button is held on the scrollbar.** Hiding the bar unmaps its
+/// `GtkRange`, and `gtk_range_unmap` calls `stop_scrolling` (4.6.9 `gtkrange.c:1640`),
+/// which drops the slider grab and the trough's step timer. A thumb drag would then stop
+/// following the pointer after its first motion, because that motion's `value-changed`
+/// is what queues the repair. While pressed the repair is held, and it runs once after
+/// the release. The press is read by a capture-phase legacy controller, which sees the
+/// release even after the range's own drag gesture has claimed the sequence (a click
+/// gesture that is denied gets no `released`, GTK4Rs/AP-169).
+fn relink_vscrollbar_after_range_changes(scroller: &gtk::ScrolledWindow) -> RelinkGate {
+    let gate = RelinkGate::install(&scroller.vscrollbar());
+    let wired = gate.clone();
     let pending = std::rc::Rc::new(std::cell::Cell::new(false));
     let weak = scroller.downgrade();
     let schedule = move |_: &gtk::Adjustment| {
@@ -651,16 +662,17 @@ fn relink_vscrollbar_after_range_changes(scroller: &gtk::ScrolledWindow) {
         }
         let pending = pending.clone();
         let weak = weak.clone();
+        let gate = gate.clone();
         glib::idle_add_local_once(move || {
             pending.set(false);
             let Some(bar) = weak.upgrade().map(|s| s.vscrollbar()) else {
                 return;
             };
-            relink_vscrollbar(&bar);
+            gate.relink(&bar);
             let bar = bar.downgrade();
             glib::timeout_add_local_once(RELINK_REPEAT, move || {
                 if let Some(bar) = bar.upgrade() {
-                    relink_vscrollbar(&bar);
+                    gate.relink(&bar);
                 }
             });
         });
@@ -669,6 +681,64 @@ fn relink_vscrollbar_after_range_changes(scroller: &gtk::ScrolledWindow) {
     let on_value = schedule.clone();
     adj.connect_value_changed(move |a| on_value(a));
     adj.connect_changed(move |a| schedule(a));
+    wired
+}
+
+/// Holds the scrollbar repair while a pointer button is down on the bar, and runs one
+/// repair after the release if any was held. See [`relink_vscrollbar_after_range_changes`].
+#[derive(Clone, Default)]
+struct RelinkGate {
+    pressed: std::rc::Rc<std::cell::Cell<bool>>,
+    held: std::rc::Rc<std::cell::Cell<bool>>,
+}
+
+impl RelinkGate {
+    fn install(bar: &gtk::Widget) -> Self {
+        let gate = Self::default();
+        let legacy = gtk::EventControllerLegacy::new();
+        legacy.set_propagation_phase(gtk::PropagationPhase::Capture);
+        let on_event = gate.clone();
+        let weak_bar = bar.downgrade();
+        legacy.connect_event(move |_, event| {
+            match event.event_type() {
+                gdk::EventType::ButtonPress | gdk::EventType::TouchBegin => {
+                    on_event.pressed.set(true);
+                }
+                gdk::EventType::ButtonRelease
+                | gdk::EventType::TouchEnd
+                | gdk::EventType::TouchCancel => on_event.release(&weak_bar),
+                _ => {}
+            }
+            glib::Propagation::Proceed
+        });
+        bar.add_controller(legacy);
+        gate
+    }
+
+    /// The release half: clear the press and, if a repair was held, run it from an idle
+    /// rather than inside the bar's own event emission (GTK4Rs/AP-30).
+    fn release(&self, bar: &glib::WeakRef<gtk::Widget>) {
+        self.pressed.set(false);
+        if !self.held.replace(false) {
+            return;
+        }
+        let bar = bar.clone();
+        let gate = self.clone();
+        glib::idle_add_local_once(move || {
+            if let Some(bar) = bar.upgrade() {
+                gate.relink(&bar);
+            }
+        });
+    }
+
+    /// Repair now, or hold the repair until the release when a button is down.
+    fn relink(&self, bar: &gtk::Widget) {
+        if self.pressed.get() {
+            self.held.set(true);
+            return;
+        }
+        relink_vscrollbar(bar);
+    }
 }
 
 /// How long after the first repair the second runs.
@@ -696,11 +766,22 @@ mod gtk_integration_tests {
     /// A mapped scrolled window around a text view long enough to scroll, with the repair
     /// wired, and a counter of the vertical scrollbar's hide/show transitions.
     fn scroller_with_counter() -> (gtk::Window, gtk::ScrolledWindow, Rc<Cell<u32>>) {
+        let (window, scroller, toggles, _) = scroller_with_gate();
+        (window, scroller, toggles)
+    }
+
+    /// [`scroller_with_counter`], also returning the press gate the repair was wired with.
+    fn scroller_with_gate() -> (
+        gtk::Window,
+        gtk::ScrolledWindow,
+        Rc<Cell<u32>>,
+        super::RelinkGate,
+    ) {
         let view = gtk::TextView::new();
         let body: String = (0..400).map(|i| format!("line {i}\n")).collect();
         view.buffer().set_text(&body);
         let scroller = gtk::ScrolledWindow::builder().child(&view).build();
-        relink_vscrollbar_after_range_changes(&scroller);
+        let gate = relink_vscrollbar_after_range_changes(&scroller);
         let window = gtk::Window::new();
         window.set_default_size(400, 300);
         window.set_child(Some(&scroller));
@@ -714,7 +795,7 @@ mod gtk_integration_tests {
         scroller
             .vscrollbar()
             .connect_notify_local(Some("visible"), move |_, _| t.set(t.get() + 1));
-        (window, scroller, toggles)
+        (window, scroller, toggles, gate)
     }
 
     /// TDD 4.14 — the editor's scrollbar is re-laid out after its range changes AND after
@@ -724,7 +805,7 @@ mod gtk_integration_tests {
     ///
     /// The orphaning itself cannot be reproduced in a test process (GTK 4.6's layout
     /// ordering is not driven here), so this pins the repair's wiring; the effect is the
-    /// manual check MANUAL-TEST 9.39. Mutation: dropping either `connect_*` fails the
+    /// manual check MANUAL-TEST 4.14. Mutation: dropping either `connect_*` fails the
     /// matching half; dropping the repeat halves the count.
     #[gtktest::test]
     fn a_range_or_position_change_relinks_the_scrollbar_twice() {
@@ -746,6 +827,40 @@ mod gtk_integration_tests {
         assert!(
             toggles.get() - before >= 4,
             "a range change must relink the scrollbar too"
+        );
+        assert!(
+            scroller.vscrollbar().is_visible(),
+            "the scrollbar ends visible"
+        );
+        window.destroy();
+    }
+
+    /// While a button is held on the scrollbar, the repair must not hide it: unmapping
+    /// the `GtkRange` drops the slider grab (`gtk_range_unmap` → `stop_scrolling`), and a
+    /// thumb drag stops after its first motion. The held repair runs once on release.
+    ///
+    /// The press is set on the gate directly: synthesising a pointer press into a
+    /// headless test is not possible here, so the classification of real events is the
+    /// manual check MANUAL-TEST 4.14. Mutation: dropping the `pressed` check in
+    /// `RelinkGate::relink` fails the first assertion; dropping the held replay in
+    /// `release` fails the second.
+    #[gtktest::test]
+    fn a_held_scrollbar_is_not_relinked_until_the_release() {
+        let (window, scroller, toggles, gate) = scroller_with_gate();
+        let adj = scroller.vadjustment();
+
+        gate.pressed.set(true);
+        let before = toggles.get();
+        crate::saferizer::scrollpos::jump(&adj, adj.value() + 40.0);
+        drain_for(Clock::Frame, Duration::from_millis(400));
+        assert_eq!(toggles.get(), before, "a held scrollbar must not be hidden");
+
+        gate.release(&scroller.vscrollbar().downgrade());
+        drain_for(Clock::Frame, Duration::from_millis(200));
+        assert_eq!(
+            toggles.get() - before,
+            2,
+            "the held repair must run once after the release"
         );
         assert!(
             scroller.vscrollbar().is_visible(),
