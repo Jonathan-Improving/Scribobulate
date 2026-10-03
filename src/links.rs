@@ -2088,20 +2088,22 @@ mod tests {
     #[test]
     fn a_link_chain_past_the_hop_limit_fails_closed() {
         let dir = tempfile::tempdir().unwrap();
-        let doc = dir.path().join("doc");
+        // CANONICAL, because every hop re-walks its resolved target from the root and
+        // counts each link on the way, as the OS does: on macOS the temp dir is under
+        // `/var`, a link to `/private/var`, which added hops the count below does not
+        // expect (MEASURED on macOS).
+        let root = dunce::canonicalize(dir.path()).unwrap();
+        let doc = root.join("doc");
         std::fs::create_dir(&doc).unwrap();
-        let local = dir.path().join("local");
+        let local = root.join("local");
         std::fs::create_dir(&local).unwrap();
         let never_foreign = |_: &Path| false;
         #[cfg(unix)]
         let link = |target: &Path, at: &Path| std::os::unix::fs::symlink(target, at);
         #[cfg(windows)]
         let link = |target: &Path, at: &Path| std::os::windows::fs::symlink_dir(target, at);
-        // l0 -> local, l<n> -> l<n-1>: following l<n> takes n + 1 hops. Every target is
-        // RELATIVE: an absolute one is re-walked from the root, and on macOS the temp dir
-        // sits under `/var`, itself a link to `/private/var`, which added a hop the
-        // count below does not expect (MEASURED on the macOS CI runner).
-        if link(Path::new("../local"), &doc.join("l0")).is_err() {
+        // l0 -> local, l<n> -> l<n-1>: following l<n> takes n + 1 hops.
+        if link(&local, &doc.join("l0")).is_err() {
             println!("SKIPPED [TDD 2.7]: this host cannot create a symbolic link here");
             return;
         }
