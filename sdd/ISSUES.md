@@ -41,7 +41,7 @@ described from a different vantage point.
 | B | Mac | Upstream | macOS only: every native file-chooser invocation (Open, Save, Export) grows RSS by ~1.1 MB and does not give it back. Roughly four fifths is AppKit's own price for presenting an `NSSavePanel` — reproduced with no GTK in the process — with about a fifth GTK-attributable. Caching the panel upstream would recover ~95% | Medium |
 | D | Any | Production | The preview's Annotate bubble sits over the line above a selection, so a click there can land on the bubble: in a table, a double- or triple-click on the cell above a selected cell can lose a press and act as a single click | Low |
 | G | Windows | Upstream | After an edit the editor's scrollbar slider is sometimes not drawn until the next scroll (2 of 40 Enters); a GTK defect still open upstream | Low |
-| L | Any | Production | After a link jump, Back or Cmd+Home sometimes scrolls only part of the way to its target (reported once; not reproduced on Linux or macOS) | Low |
+| L | Any | Production | A jump to a far link target sometimes lands short (1 of 28 on Windows); Back and Ctrl+Home afterwards reach the top. Not yet counted on Linux or macOS | Low |
 | N | Windows | Test | Flaky test: the GTK suite sometimes aborts on Windows on a `g_signal_handler_disconnect` critical near the comment-card tests (1 run in 7) | Low |
 | O | Mac | Production | A document's `/net/<host>/…` image is canonicalized on render, which reaches the host through the automounter — but only where the user has enabled `/net`, which stock macOS 27 does not | Low |
 
@@ -392,36 +392,41 @@ Any pointer motion brings it back. Judged negligible by the operator.
 - Give the editor non-overlay scrollbars, as the preview has. Untested whether a classic
   scrollbar shows the same lag.
 
-## L. After a link jump, Back or Cmd+Home sometimes scrolls only part of the way
+## L. A far link jump sometimes lands short of its target
 
 **Severity**: Low (navigation lands short; nothing is lost or changed).
 
-Reported by the macOS seat, 2026-10-01: after following a link within a document, pressing
-Back, or Cmd+Home to go to the top, sometimes stops part-way instead of reaching the
-earlier position or the top. Frequency, document shape and whether the editor or the
-preview was scrolling were not recorded, and the original document and steps were lost.
+Reported by the macOS seat, 2026-10-01, as "after following a link within a document,
+pressing Back, or Cmd+Home, sometimes stops part-way". The original document and steps
+were lost.
 
-**Not reproduced** (2026-10-01, master at "Keep a table cell's triple-click count on GTK
-4.8 and later"). Fixture: 1000 sections and 333 tables
-(~470 KB), a link at the top to `#section-900`, preview mode, a fresh launch per run.
-- Linux (GTK 4.6.9, private Xvfb, release): link then Back, and link then Ctrl+Home, both
-  reach the top, warm and while the preview was still laying out (CPU ~100%).
-- macOS (GTK 4.22.4/Quartz): Back (toolbar), Ctrl+Home and Cmd+Up all reach the top at
-  0.3, 1 and 3 s after the jump, including a link followed at window map with the key
-  0.3 s later, and in split mode.
-- **Cmd+Home is not bound on macOS**: the view does not move at all. If the report used
-  Cmd+Home, what was seen may have been "did not move" rather than "part-way".
-- Back lands with the first heading at the viewport top and the page's top padding (a
-  few pixels) scrolled off, where Ctrl+Home lands at absolute 0. Whether that is the
-  "part-way" reported is not established.
-- Windows not checked.
+**The return was never reproduced; the jump was** (2026-10-03, Windows, GTK 4.22.4,
+master as of "Canonicalize the hop-limit test's temp root", 2026-10-02). Fixture: 1000 sections and 333 tables (677 KB), a link at
+the top to `#section-900`, preview mode, launched with the file as its argument, a fresh
+launch per run. Scroll position read off the preview scrollbar thumb, calibrated against
+the top and the target first.
+- **1 of 28 link jumps landed about 58% of the way**: Section 521 at the viewport top
+  instead of Section 900. The other 27 were exact. The rate could not be raised: a click
+  3 s after map was exact 10 of 10.
+- Back and Ctrl+Home after the jump reached the top 18 of 18 times (0.3, 1 and 3 s after
+  the jump), as they did on Linux and macOS on 2026-10-01. A short jump, followed by a
+  correct return, looks from the reader's chair like a return that stopped short, which
+  probably explains how it was reported.
+- Short jumps have not been counted on Linux or macOS; the earlier runs there tested only
+  the return.
+- **Cmd+Home is not bound on macOS** (the view does not move), and Back lands with the
+  page's top padding scrolled off where Ctrl+Home lands at absolute 0. Neither is this
+  issue.
+
+**Not established**: the mechanism. Unprobed candidate: the jump resolves a far target
+against an estimate of its offset while the preview's line heights are still being
+validated, and nothing re-aims once the estimate improves (GTK4Rs/AP-115, GTK4Rs/AP-260).
 
 **Mitigation options**:
-- Ask the reporter for the document and exact keys the next time it is seen, and
-  reproduce from those before changing anything.
-- Make Back to the top of a document land at absolute 0, like Ctrl+Home, if the padding
-  offset above is judged a defect.
-- Accept until it is reproduced.
+- Count short jumps on Linux and macOS with the same fixture before narrowing the
+  platform.
+- If the estimate is the cause, re-aim the jump until the target line is at the viewport
+  top, as the progressive restore already does for a far position (GTK4Rs/AP-115).
 
 ## N. The GTK suite sometimes aborts on Windows on a signal-disconnect critical
 
