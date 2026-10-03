@@ -278,3 +278,30 @@ fn platform_set_huge_page_collapse_disabled(disabled: bool) {
 fn platform_set_huge_page_collapse_disabled(disabled: bool) {
     let _ = disabled;
 }
+
+// ── directories that mount something when a name inside them is looked up ──────────
+
+/// Whether `dir` is an automounter's directory: one where looking up any name inside it
+/// makes the system mount whatever that name denotes, which for a map like macOS's
+/// `/net -hosts` means contacting the host the name spells. Answered about `dir` itself,
+/// without looking anything up beneath it.
+///
+/// `dir` must already exist and contain no unexamined symbolic link (the image gate's
+/// link walk only asks about the prefix it has already resolved), because the answer
+/// is read through `dir`'s own path.
+///
+/// Only macOS answers. Elsewhere this is `false`, which is what the gate did before.
+pub(crate) fn mounts_on_lookup(dir: &std::path::Path) -> bool {
+    platform_mounts_on_lookup(dir)
+}
+
+#[cfg(target_os = "macos")]
+fn platform_mounts_on_lookup(dir: &std::path::Path) -> bool {
+    mac::automount::is_automount_directory(dir)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn platform_mounts_on_lookup(dir: &std::path::Path) -> bool {
+    let _ = dir;
+    false
+}

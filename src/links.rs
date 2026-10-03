@@ -589,7 +589,13 @@ fn reaches_a_foreign_remote_namespace(src: &str, doc_dir: Option<&Path>) -> bool
     let decoded = percent_decode(src);
     let foreign = [decoded.as_str(), src].into_iter().any(|form| {
         local_candidate(form, doc_dir).is_some_and(|candidate| {
-            is_foreign(&candidate) || links_reach_foreign(&candidate, doc_dir, &is_foreign)
+            is_foreign(&candidate)
+                || links_reach_foreign(
+                    &candidate,
+                    doc_dir,
+                    &is_foreign,
+                    &crate::platform::mounts_on_lookup,
+                )
         })
     });
     foreign
@@ -614,10 +620,19 @@ const MAX_LINK_HOPS: usize = 40;
 /// hop. A component that does not exist ends the walk: nothing further can be reached.
 /// A link that cannot be read, or a chain past [`MAX_LINK_HOPS`], fails closed: the
 /// walk cannot say where it leads, so it is treated as reaching a share.
+///
+/// **A step into an automounter's directory is a share too, and is refused without
+/// looking.** `mounts_on_lookup` says whether the resolved prefix is one (macOS's
+/// `/net -hosts` map is the case that matters: `/net/<host>` mounts that host's NFS
+/// exports). There, the `symlink_metadata` of the next component is itself the network
+/// contact: MEASURED on macOS 27 with `/net` enabled, a 6 s stall per unreachable host
+/// before "Image not found", with no click. Asking about the prefix rather than the
+/// next component is what keeps the question itself off the network.
 fn links_reach_foreign(
     candidate: &Path,
     doc_dir: Option<&Path>,
     is_foreign: &dyn Fn(&Path) -> bool,
+    mounts_on_lookup: &dyn Fn(&Path) -> bool,
 ) -> bool {
     use std::collections::VecDeque;
     use std::path::Component;
@@ -667,6 +682,9 @@ fn links_reach_foreign(
                 continue;
             }
             Some(Component::Normal(_)) => {}
+        }
+        if mounts_on_lookup(&current) {
+            return true;
         }
         let next = current.join(&part);
         if is_foreign(&next) {
@@ -2064,8 +2082,9 @@ mod tests {
         // An ABSOLUTE intermediate: its re-walk must keep the target's drive on Windows.
         link(&doc.join("lnk"), &doc.join("chain_abs")).unwrap();
         link(&local, &doc.join("near")).unwrap();
-        let reaches =
-            |rel: &str| super::links_reach_foreign(&doc.join(rel), Some(&doc), &is_foreign);
+        let reaches = |rel: &str| {
+            super::links_reach_foreign(&doc.join(rel), Some(&doc), &is_foreign, &|_: &Path| false)
+        };
         assert!(
             reaches("lnk/x.png"),
             "a link straight to the foreign target"
@@ -2114,14 +2133,60 @@ mod tests {
             )
             .unwrap();
         }
-        let reaches =
-            |rel: &str| super::links_reach_foreign(&doc.join(rel), Some(&doc), &never_foreign);
+        let reaches = |rel: &str| {
+            super::links_reach_foreign(&doc.join(rel), Some(&doc), &never_foreign, &|_: &Path| {
+                false
+            })
+        };
         let over = format!("l{}/x.png", super::MAX_LINK_HOPS);
         let at = format!("l{}/x.png", super::MAX_LINK_HOPS - 1);
         assert!(reaches(&over), "one link past the limit is refused");
         assert!(
             !reaches(&at),
             "a chain at the limit to a local folder is local"
+        );
+    }
+
+    /// A path through an automounter's directory is refused before the walk looks up
+    /// anything inside it: there, the lookup itself contacts the host (macOS `/net`).
+    /// The host component does not exist here, so a walk that looked would find nothing
+    /// and answer "local"; only the refusal-before-lookup answers "foreign".
+    ///
+    /// Mutation: drop the `mounts_on_lookup` check and both assertions fail.
+    #[test]
+    fn a_path_into_an_automount_directory_is_refused_without_looking_inside() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dunce::canonicalize(dir.path()).unwrap();
+        let doc = root.join("doc");
+        std::fs::create_dir(&doc).unwrap();
+        let net = root.join("net");
+        std::fs::create_dir(&net).unwrap();
+        let never_foreign = |_: &Path| false;
+        let is_net = |p: &Path| p == net.as_path();
+        assert!(
+            super::links_reach_foreign(
+                &net.join("host/x.png"),
+                Some(&doc),
+                &never_foreign,
+                &is_net
+            ),
+            "an absolute path into the automount directory is refused"
+        );
+        #[cfg(unix)]
+        let link = |target: &Path, at: &Path| std::os::unix::fs::symlink(target, at);
+        #[cfg(windows)]
+        let link = |target: &Path, at: &Path| std::os::windows::fs::symlink_dir(target, at);
+        if link(&net.join("host"), &doc.join("lnk")).is_err() {
+            println!("SKIPPED [TDD 2.7]: this host cannot create a symbolic link here");
+            return;
+        }
+        assert!(
+            super::links_reach_foreign(&doc.join("lnk/x.png"), Some(&doc), &never_foreign, &is_net),
+            "a link in the document's folder into the automount directory is refused"
+        );
+        assert!(
+            !super::links_reach_foreign(&doc.join("x.png"), Some(&doc), &never_foreign, &is_net),
+            "control: the document's own folder is not affected"
         );
     }
 }
