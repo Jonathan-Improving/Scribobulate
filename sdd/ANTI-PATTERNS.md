@@ -9,7 +9,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 2. General engineering discipline that survives deleting every Scribobulate noun? → route it to `general-engineering-principles` and cite `GEP-N` at the site. **Nothing here** either — the `**Routed**` tombstones were retired 2026-09-24 the same way as the gtk4-rs stubs.
 3. Neither — Scribobulate internals, or a non-gtk4-rs dependency (Pango, GtkSourceView, pulldown-cmark, librsvg, syntect, serde/toml, the toolchain)? → it stays here, **in ≤ 6 lines**: Symptom · Root cause · Resolution · Lesson · Scribobulate · See. Extend an existing entry rather than minting a sibling for the same root cause. Route a Pango lesson on whose API *contract* it is about, and raise it before routing.
 
-**Numbers are frozen** (check 9): never renumbered, never reused; a retired entry keeps its `## N.` heading as a landing spot. Reserved gaps — do not fill: **176–179** (Windows port; holder gone, held pending operator resolution), **186** (`feat/spelling`, inbound), **276–289** (unmerged branches). **Next free number: 360**+ (358 is in use on an unmerged branch on the `improving` remote) — check this table and announce the range you claim; never derive it from the highest heading below. (It read 354 while 354 and 355 both had bodies, so a writer who obeyed it minted a duplicate — and the same sentence forbids the one check a reader would otherwise make. Check 9 can only see a duplicate after it exists. **Check 21 now asserts the one relation the header must satisfy whatever the reserved gaps are — strictly above the highest heading present** — so this line is no longer guarded by prose alone; move it in the same change that mints.)
+**Numbers are frozen** (check 9): never renumbered, never reused; a retired entry keeps its `## N.` heading as a landing spot. Reserved gaps — do not fill: **176–179** (Windows port; holder gone, held pending operator resolution), **186** (`feat/spelling`, inbound), **276–289** (unmerged branches). **Next free number: 361**+ (358 is in use on an unmerged branch on the `improving` remote) — check this table and announce the range you claim; never derive it from the highest heading below. (It read 354 while 354 and 355 both had bodies, so a writer who obeyed it minted a duplicate — and the same sentence forbids the one check a reader would otherwise make. Check 9 can only see a duplicate after it exists. **Check 21 now asserts the one relation the header must satisfy whatever the reserved gaps are — strictly above the highest heading present** — so this line is no longer guarded by prose alone; move it in the same change that mints.)
 
 **Growth** is gated in bytes (check 11). The ratchet only tightens; consolidate in the change that trips it.
 
@@ -88,6 +88,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 | 355 | Solving a themed fill against the surface it is MIXED from rather than the page it is READ on | C |
 | 356 | Deriving a text run's own fill from the PAGE when the preview draws a surface behind it | C |
 | 359 | A pixel test that counts an exact colour over antialiased text — a glyph fringe can forge it | C |
+| 360 | Assuming two libraries' renames end in the same Windows call — `std::fs::rename` is not `MoveFileExW` | C |
 
 ---
 
@@ -516,3 +517,11 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **Lesson**: an exact-colour oracle on a raster that also carries text must use a colour outside everything the text's antialiasing can produce over that background; and keep the rendered output of an intermittent pixel test, because a picture shows in seconds what numbers about it hid for weeks.
 **Scribobulate**: `export::pdf::measure::tests` — the blockquote tiling test's `MARK` and its `KeptPage` (pages under `target/test-artifacts/`).
 **See**: GTK4Rs/AP-56 (headless pixels prove less than they look).
+
+## 360. Assuming two libraries' renames end in the same Windows call — `std::fs::rename` is not `MoveFileExW`
+**Symptom**: a code comment on the snapshot promote said Rust's rename and GLib's both end in `MoveFileExW(MOVEFILE_REPLACE_EXISTING)`, so a rename over a file another process holds open must be refused. The design and two suspected causes of a flaky test rested on that.
+**Root cause**: modern `std::fs::rename` first renames with POSIX semantics (`SetFileInformationByHandle`, `FileRenameInfoEx`), which replaces a file that has open readers. MEASURED rustc 1.97.1 / Win10 19045 / NTFS, held reader on the destination: `std::fs::rename` refused 0 of 1000 (0 of 20000 under a concurrent reader), raw `MoveFileExW` refused 1000 of 1000 with `ERROR_ACCESS_DENIED`. A fallback to `MoveFileExW` where the filesystem lacks POSIX rename was not probed.
+**Resolution**: the comment now states what each call does, with the measurement, and keeps the refusal handling for the unprobed fallback.
+**Lesson**: "both end in the same system call" is a claim about a library's implementation, which changes between releases; measure it. The measured share-mask half of the same comment held; only the inferred half was wrong.
+**Scribobulate**: `window::swap::promote_snapshot` (its doc comment).
+**See**: GEP-83 (judge a promote by what it decided, not by the destination's bytes).

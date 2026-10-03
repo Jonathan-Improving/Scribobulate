@@ -26,7 +26,7 @@ in preparation for merging to master, run the following, typically (but not alwa
 - **Linux**: `scripts/pipeline.sh`
 - **macOS**: `packaging/macos/pipeline.sh`
 - **Windows**: `packaging/windows/pipeline.ps1`
-A task is not complete until every step passes, and the remote Github CI is the final ratifying gate for all three platforms. 
+A task is not complete until every step passes, and the remote Github CI is the final ratifying gate for all three platforms.
 
 The steps are the contract's, `scripts/pipeline.steps`; `scripts/pipeline.sh --list-steps`
 prints them. What the contract cannot enforce, and this document owns:
