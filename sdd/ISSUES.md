@@ -41,7 +41,6 @@ described from a different vantage point.
 | B | Mac | Upstream | macOS only: every native file-chooser invocation (Open, Save, Export) grows RSS by ~1.1 MB and does not give it back. Roughly four fifths is AppKit's own price for presenting an `NSSavePanel` — reproduced with no GTK in the process — with about a fifth GTK-attributable. Caching the panel upstream would recover ~95% | Medium |
 | D | Any | Production | The preview's Annotate bubble sits over the line above a selection, so a click there can land on the bubble: in a table, a double- or triple-click on the cell above a selected cell can lose a press and act as a single click | Low |
 | G | Windows | Upstream | After an edit the editor's scrollbar slider is sometimes not drawn until the next scroll (2 of 40 Enters); a GTK defect still open upstream | Low |
-| O | Mac | Production | A document's `/net/<host>/…` image is canonicalized on render, which reaches the host through the automounter — but only where the user has enabled `/net`, which stock macOS 27 does not | Low |
 
 ## Closed issues
 
@@ -389,28 +388,6 @@ Any pointer motion brings it back. Judged negligible by the operator.
 - Accept it until GTK fixes gtk#6057.
 - Give the editor non-overlay scrollbars, as the preview has. Untested whether a classic
   scrollbar shows the same lag.
-
-## O. A `/net` image path reaches its host through the macOS automounter
-
-**Severity**: Low (needs a non-default macOS setting).
-
-macOS maps `/net/<host>` to the host's NFS exports when `/etc/auto_master` enables
-`/net -hosts`. The image and link gates canonicalize a local path before deciding, so a
-document naming `/net/<host>/x.png` would make the automounter contact that host as the
-preview renders: an open-tracking beacon and a main-thread stall, not a credential leak.
-The Windows UNC refusal does not reach it: `/net` is an ordinary absolute path to Rust's
-path parser.
-
-**Checked**: on stock macOS 27 the `/net` line is commented out and `/net` does not exist;
-canonicalizing `/net/203.0.113.1/…` returns NotFound in microseconds (mac seat,
-2026-10-02). The enabled case was not measured (it needs root).
-
-**Mitigation options**:
-- Refuse an absolute candidate that is lexically outside the document folder before
-  canonicalizing it. That also closes any future automounted path, at the cost of the
-  "blocked" versus "not found" distinction for local escapes, which then cannot be told
-  apart without touching the filesystem.
-- Accept: the exposure needs a setting the user chose.
 
 ## CLSD-02. A paragraph that mixes fonts lays out wider than the wrap width it was given
 
