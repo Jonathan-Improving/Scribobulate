@@ -121,10 +121,19 @@ fn cancel_pending(tab: &Rc<TabState>) {
 /// commit than keep waiting. Idempotent and cheap when nothing is outstanding: a clean
 /// document, or one with no armed timer and no expired deadline, does no work.
 pub(crate) fn flush_now(tab: &Rc<TabState>) {
-    if tab.swap.pending.take().is_none() && tab.swap.deadline.get().is_none() {
+    // Take the armed timer and remove it HERE rather than delegating to `cancel_pending`:
+    // the guard has to inspect `pending`, a `Cell<Option<SourceId>>` whose value cannot be
+    // read without taking it, and a `SourceId` that is merely DROPPED does not cancel its
+    // source. Calling `cancel_pending` after that take handed it an already-empty cell, so
+    // it removed nothing and the debounce stayed armed - firing a second, unasked-for
+    // snapshot after this flush had already written one.
+    let armed = tab.swap.pending.take();
+    if armed.is_none() && tab.swap.deadline.get().is_none() {
         return;
     }
-    cancel_pending(tab);
+    if let Some(id) = armed {
+        id.remove();
+    }
     if tab.needs_close_prompt() {
         write_snapshot(tab);
     } else {
@@ -1042,6 +1051,71 @@ mod tests {
                 );
             }
             crate::swapfile::decode(&settled).expect("the settled file decodes");
+        });
+    }
+
+    /// `flush_now` promises to take the snapshot **and cancel the debounce it
+    /// replaces**. A `SourceId` that is dropped rather than removed leaves the timeout
+    /// armed, and it then fires a second snapshot of text already on disk.
+    ///
+    /// The debounce is 3 s at ordinary document sizes, far too long to sit and wait for.
+    /// `next_delay_ms` returns 0 once the maximum-latency deadline has passed and
+    /// `request_snapshot` leaves an already-set deadline alone, so pre-expiring the
+    /// deadline arms the timer for 0 ms and a leak shows itself on the next iteration
+    /// instead of three seconds later.
+    ///
+    /// Mutation: put `cancel_pending(tab)` back after a `pending.take()` guard in
+    /// `flush_now` and this fails - which is how the defect was confirmed.
+    #[gtktest::test]
+    fn flushing_cancels_the_debounce_it_replaces() {
+        let dir = tempfile::tempdir().unwrap();
+        crate::session::with_state_home_for_test(dir.path(), || {
+            let app =
+                super::gtk_integration_tests::test_app("com.extollit.scribobulate.it.swapflush");
+            let win = new_window(&app, "IT", "original", None);
+            let tab = winstate::state(&win).expect("the window has a tab");
+
+            tab.swap
+                .deadline
+                .set(Some(glib::monotonic_time() - 1_000_000));
+            tab.editor_buf.set_text("dirty enough to want a snapshot");
+            assert!(
+                !tab.swap.coalesced.get(),
+                "precondition: nothing is coalesced before the flush"
+            );
+
+            flush_now(&tab);
+            assert!(
+                tab.swap.in_flight.get(),
+                "precondition: the flush started a write of its own, so a second one is \
+                 attributable to the leaked debounce and nothing else"
+            );
+
+            // A leaked 0 ms debounce dispatches somewhere in here. Landing DURING the
+            // flush own write sets `coalesced`; landing after it raises `in_flight` a
+            // second time. Both are the write this flush was supposed to have cancelled,
+            // so watch for either rather than betting on the ordering.
+            let mut settled = false;
+            let mut second_write = None;
+            for _ in 0..400 {
+                if tab.swap.coalesced.get() {
+                    second_write = Some("coalesced during the flush own write");
+                    break;
+                }
+                if settled && tab.swap.in_flight.get() {
+                    second_write = Some("started after the flush own write settled");
+                    break;
+                }
+                settled |= !tab.swap.in_flight.get();
+                glib::MainContext::default().iteration(false);
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            assert!(
+                second_write.is_none(),
+                "flush_now left its debounce armed: a second snapshot {} - the timeout \
+                 was dropped without being removed, so cancelling it did nothing",
+                second_write.unwrap_or_default()
+            );
         });
     }
 
