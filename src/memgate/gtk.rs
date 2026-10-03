@@ -5,7 +5,9 @@
 //! harnesses; the pipeline step invokes `--test gtk_suite memgate`.
 
 use crate::links::ImageResolution;
-use crate::memgate::footprint::{assert_bounded, current, SAMPLE_COUNT, WARMUP};
+use crate::memgate::footprint::{
+    assert_bounded, current, SAMPLE_COUNT, UNCACHED_SAMPLE_COUNT, WARMUP,
+};
 use crate::renderer::start::{load_texture, LoadedImage};
 use gtk::gdk::prelude::TextureExt;
 use gtk::glib::object::ObjectExt;
@@ -72,9 +74,6 @@ enum CachePath {
 }
 
 fn sample_loads(path: &Path, n: usize, cache: CachePath) -> Option<Vec<u64>> {
-    // The footprint instrument is process-wide; hold it for the whole series, baseline
-    // included. See `footprint::measuring`.
-    let _measuring = crate::memgate::footprint::measuring();
     crate::imagecache::reset_for_test();
     let mut samples = Vec::with_capacity(n);
     for _ in 0..n {
@@ -96,6 +95,11 @@ fn sample_loads(path: &Path, n: usize, cache: CachePath) -> Option<Vec<u64>> {
 
 #[gtktest::test]
 fn growth_animated_webp_ttd_6_6() {
+    // The footprint instrument is process-wide; measured only where nothing else runs
+    // beside the series, baseline included. See `footprint::measuring`.
+    let Some(_measuring) = crate::memgate::footprint::measuring("6.6") else {
+        return;
+    };
     // Every host decodes this now — `richimg` is pure Rust, not a host gdk-pixbuf
     // loader, so there is no longer a decoder-absent skip arm here; a skip
     // would now be dead code hiding a failure.
@@ -107,28 +111,43 @@ fn growth_animated_webp_ttd_6_6() {
 
 #[gtktest::test]
 fn uncached_decode_animated_webp_ttd_6_9() {
+    // The footprint instrument is process-wide; measured only where nothing else runs
+    // beside the series, baseline included. See `footprint::measuring`.
+    let Some(_measuring) = crate::memgate::footprint::measuring("6.9") else {
+        return;
+    };
     // Every load is a fresh decode — the path an evicted or changed file takes,
     // which 6.6 cannot see because it measures cache hits. Every host decodes this
     // now (see 6.6's comment above) — no decoder-absent skip arm.
     let path = fixture("anim.webp");
-    let samples = sample_loads(&path, SAMPLE_COUNT, CachePath::Cold)
+    let samples = sample_loads(&path, UNCACHED_SAMPLE_COUNT, CachePath::Cold)
         .expect("richimg decodes anim.webp on every host; a None here is a broken fixture");
     assert_bounded("6.9 uncached animated WebP", WARMUP, &samples);
 }
 
 #[gtktest::test]
 fn uncached_decode_png_is_flat_ttd_6_9() {
+    // The footprint instrument is process-wide; measured only where nothing else runs
+    // beside the series, baseline included. See `footprint::measuring`.
+    let Some(_measuring) = crate::memgate::footprint::measuring("6.9") else {
+        return;
+    };
     // Negative control for 6.9: a fresh PNG decode every iteration must not climb.
     // Without it, a red 6.9 could be the cache reset's own churn rather than the
     // WebP decode.
     let path = fixture("wide.png");
-    let samples = sample_loads(&path, SAMPLE_COUNT, CachePath::Cold)
+    let samples = sample_loads(&path, UNCACHED_SAMPLE_COUNT, CachePath::Cold)
         .expect("PNG decode is native; a None here is a broken fixture, not a skip");
     assert_bounded("6.9 PNG control", WARMUP, &samples);
 }
 
 #[gtktest::test]
 fn growth_png_is_flat_ttd_6_6() {
+    // The footprint instrument is process-wide; measured only where nothing else runs
+    // beside the series, baseline included. See `footprint::measuring`.
+    let Some(_measuring) = crate::memgate::footprint::measuring("6.6") else {
+        return;
+    };
     // Negative control: a static PNG must not climb. If this fails, the
     // instrument is measuring warm-up or some other render-path leak, not the
     // animated-WebP loader branch.
@@ -163,6 +182,11 @@ fn decoded_texture_finalizes_ttd_6_7() {
 
 #[gtktest::test]
 fn local_cache_reuses_decode_ttd_6_8() {
+    // Reads the decoder's process-global counters, so it runs only where nothing
+    // else decodes beside it. See `footprint::measuring`.
+    let Some(_measuring) = crate::memgate::footprint::measuring("6.8") else {
+        return;
+    };
     // Every host decodes this now (see 6.6's comment) — no decoder-absent skip arm.
     //
     // **Finding 2: asserts the cache HIT directly, by counting decodes, not by
@@ -199,6 +223,11 @@ fn local_cache_reuses_decode_ttd_6_8() {
 
 #[gtktest::test]
 fn local_cache_misses_when_the_file_is_replaced_ttd_6_8() {
+    // Reads the decoder's process-global counters, so it runs only where nothing
+    // else decodes beside it. See `footprint::measuring`.
+    let Some(_measuring) = crate::memgate::footprint::measuring("6.8") else {
+        return;
+    };
     // Two PNGs of different widths so the overwrite is visible as a dimension
     // change. A `.webp` temp overwritten with PNG bytes would pick the WebP
     // loader from the extension and fail to decode.
@@ -253,6 +282,11 @@ fn local_cache_misses_when_the_file_is_replaced_ttd_6_8() {
 
 #[gtktest::test]
 fn local_cache_misses_when_only_the_length_changes_ttd_6_8() {
+    // Reads the decoder's process-global counters, so it runs only where nothing
+    // else decodes beside it. See `footprint::measuring`.
+    let Some(_measuring) = crate::memgate::footprint::measuring("6.8") else {
+        return;
+    };
     // The Windows condition, reproduced on any platform: a file replaced with
     // DIFFERENT CONTENT whose mtime is then restored to what it was. That is what
     // `CopyFileExW` does by itself (it carries the source's mtime onto the
@@ -312,6 +346,11 @@ fn local_cache_misses_when_only_the_length_changes_ttd_6_8() {
 
 #[gtktest::test]
 fn local_cache_makes_svg_rerender_free_ttd_6_8() {
+    // Reads the decoder's process-global counters, so it runs only where nothing
+    // else decodes beside it. See `footprint::measuring`.
+    let Some(_measuring) = crate::memgate::footprint::measuring("6.8") else {
+        return;
+    };
     // A large SVG used to re-render on every paint (~239 ms on the reference host)
     // because local images had no cache.
     //

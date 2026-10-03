@@ -31,6 +31,7 @@
 //! `gtk_integration_tests` below assert both parseability and that what
 //! `register_accelerators` binds equals what this window displays.
 
+use crate::app::commands::FormatGroup;
 use crate::app::{EDIT_CMDS, FILE_CMDS, FORMAT_CMDS, INLINE_ACCEL_CMDS, VIEW_CMDS};
 
 /// Escape the five XML predefined entities so a label or accelerator (which
@@ -180,19 +181,6 @@ const MAX_HEIGHT: u32 = 10;
 /// [`make_shortcuts_window`].
 const BUILD_MAX_HEIGHT: u32 = 1000;
 
-/// Format targets that change a block rather than a run of text.
-const BLOCK_TARGETS: [&str; 6] = [
-    "code-block",
-    "quote",
-    "bulleted-list",
-    "numbered-list",
-    "task-list",
-    "hr",
-];
-
-/// Format targets that insert something rather than format existing text.
-const INSERT_TARGETS: [&str; 3] = ["link", "image", "table"];
-
 /// Every group's title and its shortcut rows, in display order.
 fn group_rows(
     file: &[(&str, &str)],
@@ -200,12 +188,12 @@ fn group_rows(
     view: &[(&str, &str)],
 ) -> Vec<(&'static str, Vec<String>)> {
     // The Format menu is split across four groups to respect MAX_GROUP_ROWS: text
-    // styles, blocks, headings, insertions. Anything not named as a block or an
-    // insertion is a text style, so a new FORMAT_CMDS entry is never dropped.
-    let format_group = |pick: &dyn Fn(&str) -> bool| -> Vec<String> {
+    // styles, blocks, headings, insertions — by each command's own `group`, so a new
+    // FORMAT_CMDS entry lands in exactly one.
+    let format_group = |group: FormatGroup| -> Vec<String> {
         FORMAT_CMDS
             .iter()
-            .filter(|c| !c.accel.is_empty() && pick(c.target))
+            .filter(|c| !c.accel.is_empty() && c.group == group)
             .map(|c| shortcut_xml(c.label, c.accel))
             .collect()
     };
@@ -217,13 +205,10 @@ fn group_rows(
     vec![
         ("File", rows_for("File", file)),
         ("Edit", rows_for("Edit", edit)),
-        (
-            "Format",
-            format_group(&|t| !BLOCK_TARGETS.contains(&t) && !INSERT_TARGETS.contains(&t)),
-        ),
-        ("Blocks", format_group(&|t| BLOCK_TARGETS.contains(&t))),
+        ("Format", format_group(FormatGroup::Text)),
+        ("Blocks", format_group(FormatGroup::Block)),
         ("Headings", headings),
-        ("Insert", format_group(&|t| INSERT_TARGETS.contains(&t))),
+        ("Insert", format_group(FormatGroup::Insert)),
         ("View", rows_for("View", view)),
         ("Navigate", rows_for("Navigate", &[])),
         ("Zoom", rows_for("Zoom", &[])),
@@ -379,9 +364,16 @@ mod tests {
     fn every_inline_accel_cmd_is_displayed() {
         let xml = interface_xml();
         for cmd in INLINE_ACCEL_CMDS {
-            assert!(
-                xml.contains(&xml_escape(cmd.label)),
-                "INLINE_ACCEL_CMDS {:?} (group {:?}) is bound but never displayed \
+            // The exact title, once: a bare substring let "New Window" be satisfied by
+            // "Move Tab to New Window".
+            let needle = format!(
+                "<property name=\"title\">{}</property>",
+                xml_escape(cmd.label)
+            );
+            assert_eq!(
+                xml.matches(&needle).count(),
+                1,
+                "INLINE_ACCEL_CMDS {:?} (group {:?}) must be displayed exactly once \
                  in the shortcuts window — is its group a rendered heading?",
                 cmd.action,
                 cmd.group,

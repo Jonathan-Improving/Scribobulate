@@ -93,13 +93,17 @@ pub(crate) use outline_nav::refresh_outline;
 pub(crate) use outline_nav::wire_persistent_editor_scroll_spy;
 pub(crate) use outline_nav::wire_scroll_spy;
 pub(crate) use outline_nav::{outline_collapse_all, outline_expand_all};
+pub(crate) use reload::adopt_disk_text;
 pub(crate) use reload::check_and_reload;
 pub(crate) use reload::check_and_reload_tab;
+pub(crate) use reload::write_loaded_text;
 pub(crate) use restore::{apply_tab_layout, restore_session};
 pub(crate) use save::refresh_dirty_status;
 pub(crate) use scrollsync::content_reading_position;
 #[cfg(all(test, feature = "gtk-integration-tests"))]
 pub(crate) use swap::{clear_snapshot_failure_for_test, report_snapshot_failure_for_test};
+#[cfg(test)]
+pub(crate) use swap::{close_windows_opened_since_for_test, toplevels_for_test};
 pub(crate) use swap::{discard_tab_swap, sync_tab_swap, wire_swap_snapshots};
 pub(crate) use swaprecovery::recover_after_restore;
 pub(crate) use tabs::add_new_document_tab;
@@ -346,57 +350,6 @@ pub(crate) fn theme_button_label(name: &str, symbol: Option<&str>) -> String {
         &crate::theme::Themes::chooser_label(name, symbol),
         THEME_BUTTON_MAX_CHARS,
     )
-}
-
-#[cfg(test)]
-mod combo_label_tests {
-    use super::{theme_button_label, THEME_BUTTON_MAX_CHARS};
-
-    #[test]
-    fn a_short_theme_name_is_left_exactly_as_it_is() {
-        assert_eq!(theme_button_label("Sepia", None), "Sepia");
-    }
-
-    #[test]
-    fn a_symbol_is_kept_and_counted_toward_the_cap() {
-        // The symbol and its separator are part of what the button has to draw, so a
-        // cap that measured the name alone would let the button grow past it.
-        let out = theme_button_label("Sepia", Some("\u{1f4d6}"));
-        assert!(
-            out.starts_with('\u{1f4d6}'),
-            "the symbol leads the label: {out}"
-        );
-        assert!(out.chars().count() <= THEME_BUTTON_MAX_CHARS);
-    }
-
-    #[test]
-    fn an_unbounded_theme_name_cannot_set_the_windows_minimum_width() {
-        // The point of the cap. A theme's display name comes out of a user-supplied
-        // file, so without this the toolbar's widest item — and so the window's floor
-        // — is whatever someone typed into a theme header.
-        let absurd = "A Theme Whose Author Was Paid By The Character And Meant It";
-        let out = theme_button_label(absurd, None);
-        assert!(
-            out.chars().count() <= THEME_BUTTON_MAX_CHARS,
-            "label {out:?} is {} chars, past the {THEME_BUTTON_MAX_CHARS} cap",
-            out.chars().count()
-        );
-        assert!(out.ends_with('\u{2026}'), "a cut label says so: {out:?}");
-    }
-
-    #[test]
-    fn a_name_exactly_at_the_cap_is_not_cut() {
-        let exact: String = "x".repeat(THEME_BUTTON_MAX_CHARS);
-        assert_eq!(theme_button_label(&exact, None), exact);
-    }
-
-    #[test]
-    fn a_multibyte_name_is_cut_on_a_character_never_inside_one() {
-        // Sliced by char, never by byte — a cut that split a UTF-8 sequence would
-        // panic rather than merely look wrong.
-        let out = theme_button_label(&"é".repeat(80), None);
-        assert!(out.chars().count() <= THEME_BUTTON_MAX_CHARS);
-    }
 }
 
 pub(crate) fn new_window_from_source(
@@ -1985,5 +1938,56 @@ pub(crate) mod gtk_integration_tests {
             "a tab moved into an existing window must NOT change that window's zoom \
              — it adopts the destination's, unmodified"
         );
+    }
+}
+
+#[cfg(test)]
+mod combo_label_tests {
+    use super::{theme_button_label, THEME_BUTTON_MAX_CHARS};
+
+    #[test]
+    fn a_short_theme_name_is_left_exactly_as_it_is() {
+        assert_eq!(theme_button_label("Sepia", None), "Sepia");
+    }
+
+    #[test]
+    fn a_symbol_is_kept_and_counted_toward_the_cap() {
+        // The symbol and its separator are part of what the button has to draw, so a
+        // cap that measured the name alone would let the button grow past it.
+        let out = theme_button_label("Sepia", Some("\u{1f4d6}"));
+        assert!(
+            out.starts_with('\u{1f4d6}'),
+            "the symbol leads the label: {out}"
+        );
+        assert!(out.chars().count() <= THEME_BUTTON_MAX_CHARS);
+    }
+
+    #[test]
+    fn an_unbounded_theme_name_cannot_set_the_windows_minimum_width() {
+        // The point of the cap. A theme's display name comes out of a user-supplied
+        // file, so without this the toolbar's widest item — and so the window's floor
+        // — is whatever someone typed into a theme header.
+        let absurd = "A Theme Whose Author Was Paid By The Character And Meant It";
+        let out = theme_button_label(absurd, None);
+        assert!(
+            out.chars().count() <= THEME_BUTTON_MAX_CHARS,
+            "label {out:?} is {} chars, past the {THEME_BUTTON_MAX_CHARS} cap",
+            out.chars().count()
+        );
+        assert!(out.ends_with('\u{2026}'), "a cut label says so: {out:?}");
+    }
+
+    #[test]
+    fn a_name_exactly_at_the_cap_is_not_cut() {
+        let exact: String = "x".repeat(THEME_BUTTON_MAX_CHARS);
+        assert_eq!(theme_button_label(&exact, None), exact);
+    }
+
+    #[test]
+    fn a_multibyte_name_is_cut_on_a_character_never_inside_one() {
+        // Sliced by char, never by byte — a cut that split a UTF-8 sequence would
+        // panic rather than merely look wrong.
+        let out = theme_button_label(&"é".repeat(80), None);
+        assert!(out.chars().count() <= THEME_BUTTON_MAX_CHARS);
     }
 }

@@ -53,28 +53,6 @@ pub(crate) fn unique_slug(base: &str, seen: &mut HashMap<String, u32>) -> String
     result
 }
 
-/// Could `slug` have been produced for a heading titled `title`?
-///
-/// The inverse of [`slugify`] + [`unique_slug`], and it lives beside them so the answer
-/// cannot drift from the rule that produced it. True for the bare slug and for the
-/// uniquing forms `-1`, `-2`, … that a repeated title takes.
-///
-/// **This is a weaker question than "which heading is this?" and deliberately so.** A
-/// caller with several candidates takes the first in document order, because the
-/// uniquing suffix is itself assigned in document order. What it buys over indexing a
-/// list by position is that a match is a statement about the HEADING rather than about
-/// where it sat in some earlier build — the distinction that matters when the answer is
-/// written into a durable record, such as a Back/Forward entry (TDD 12.25).
-pub(crate) fn slug_is_for(slug: &str, title: &str) -> bool {
-    let Some(tail) = slug.strip_prefix(&slugify(title)) else {
-        return false;
-    };
-    tail.is_empty()
-        || tail
-            .strip_prefix('-')
-            .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
-}
-
 /// Normalise a link target into a candidate anchor slug: a leading `#` is
 /// stripped and the remainder percent-decoded (anchors with non-ASCII text may
 /// arrive percent-encoded).  The result is compared *literally* against computed
@@ -176,6 +154,22 @@ fn percent_encode_path(s: &str) -> String {
     String::from_utf8(out).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
 }
 
+/// The gates' one filesystem resolution — every call that can reach a path, and so a
+/// network share, goes through here. Counted in tests, so a test can assert that a
+/// refusal touched the filesystem not at all, which holds on any host however fast
+/// its network fails.
+fn canonicalize(path: &Path) -> std::io::Result<PathBuf> {
+    #[cfg(test)]
+    CANONICALIZE_CALLS.with(|n| n.set(n.get() + 1));
+    dunce::canonicalize(path)
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many times [`canonicalize`] has run on this thread.
+    static CANONICALIZE_CALLS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
 /// The canonicalized on-disk file a Markdown destination denotes, or `None` when
 /// nothing is there. The single place a destination becomes a path, so the image gate,
 /// the unsafe-images branch and the link resolver cannot drift on what one means.
@@ -188,15 +182,22 @@ fn percent_encode_path(s: &str) -> String {
 /// re-checks `starts_with(base)` on whatever comes back — a `%2e%2e%2f` traversal
 /// decodes to `../` and is refused exactly as the literal form is.
 fn canonical_local_target(src: &str, doc_dir: Option<&Path>) -> Option<PathBuf> {
+    // **The choke point every route passes through touches the network for a remote
+    // namespace, so it refuses one itself**, from the text alone and whatever either
+    // opt-in toggle says: canonicalizing `\\host\share\x` IS the SMB session (and NTLM
+    // handshake) the refusal exists to prevent. Callers that report a verdict check
+    // `reaches_a_foreign_remote_namespace` first, to say WHY; this is the backstop that
+    // makes forgetting to impossible to turn into a connection.
+    if reaches_a_foreign_remote_namespace(src, doc_dir) {
+        return None;
+    }
     let decoded = percent_decode(src);
     if decoded != src {
-        if let Some(hit) =
-            local_candidate(&decoded, doc_dir).and_then(|c| dunce::canonicalize(c).ok())
-        {
+        if let Some(hit) = local_candidate(&decoded, doc_dir).and_then(|c| canonicalize(&c).ok()) {
             return Some(hit);
         }
     }
-    local_candidate(src, doc_dir).and_then(|c| dunce::canonicalize(c).ok())
+    local_candidate(src, doc_dir).and_then(|c| canonicalize(&c).ok())
 }
 
 // ── external link opening ──────────────────────────────────────────────────────
@@ -384,7 +385,7 @@ pub(crate) fn scheme_of(url: &str) -> Option<&str> {
 /// `gtkshow.c:118`), and passing one would call `gtk_window_export_handle`, whose
 /// unexport half has no X11 branch on 4.6 — logging
 /// `Couldn't unexport handle for GdkX11Toplevel surface` on **every link click**, on
-/// real X11, not just headless (fixed upstream in 4.8.0 by a1d03e69a4, never
+/// real X11, not just headless (fixed upstream in GTK 4.8.0 by a1d03e69a4, never
 /// backported to 4.6). The only thing a parent buys is `PARENT_WINDOW_ID`, which
 /// parents a *portal* chooser dialog — and no chooser appears when a default handler
 /// is set, which is the case a link click is.
@@ -492,7 +493,7 @@ fn local_candidate(src: &str, doc_dir: Option<&Path>) -> Option<PathBuf> {
 /// resolve to nothing and land on `Missing` rather than `Refused`.
 pub(crate) fn resolve_contained_image(src: &str, doc_dir: Option<&Path>) -> Option<PathBuf> {
     let doc_dir = doc_dir?;
-    let base = dunce::canonicalize(doc_dir).ok()?;
+    let base = canonicalize(doc_dir).ok()?;
     let target = canonical_local_target(src, Some(doc_dir))?;
     target.starts_with(&base).then_some(target)
 }
@@ -536,6 +537,9 @@ enum Containment {
 /// Run the containment gate and report *why* it answered as it did. See
 /// [`Containment`].
 fn containment_of(src: &str, doc_dir: Option<&Path>) -> Containment {
+    // A foreign remote namespace never gets here as anything but `Absent`: the verdict
+    // callers report it first (`NetworkShare`), and `canonical_local_target` refuses it
+    // before any filesystem call.
     if let Some(target) = resolve_contained_image(src, doc_dir) {
         return Containment::Inside(target);
     }
@@ -548,6 +552,201 @@ fn containment_of(src: &str, doc_dir: Option<&Path>) -> Containment {
         Some(_) => Containment::Escapes,
         None => Containment::Absent,
     }
+}
+
+/// Whether `src` (in its literal or its percent-decoded form, the two forms
+/// [`canonical_local_target`] tries) names a remote or device namespace — a Windows UNC
+/// share, `\\?\UNC\…`, `\\.\…` or another verbatim non-disk prefix — that is not
+/// lexically inside `doc_dir`.
+///
+/// **Why it must be lexical.** `dunce::canonicalize` on `\\host\share\x.png` calls
+/// `CreateFileW`, which opens an SMB session to `host` and authenticates with the
+/// user's NTLM credentials. That would happen before the gate's `starts_with` check
+/// refuses the path, so merely rendering a hostile document would leak the hash with
+/// no click, and an unreachable host would stall the main thread for the SMB timeout.
+/// This check runs on the text alone and touches no filesystem.
+///
+/// **Why a document on a share still works.** A candidate lexically under the
+/// document's own folder is left to the normal gate, because that only reaches the
+/// server the document was opened from. `..` is folded lexically, so it cannot climb
+/// out to another share without being caught here. Components are compared
+/// case-insensitively. That only lets more through to the real canonical check, which
+/// still decides.
+///
+/// **Then through symbolic links, read without being followed.** A path that is
+/// lexically innocent can still lead to a share: `lnk/x.png`, where `lnk` is a symbolic
+/// link in the document's folder whose target is `\\host\share`. `canonicalize` follows
+/// it and reaches the host (MEASURED on Windows: a 22 s stall before "Image not found",
+/// with no click). So each component is examined with `symlink_metadata`, which does
+/// not follow a link, and a link's target is read with `read_link` and judged by the
+/// same rule before anything traverses it. See [`links_reach_foreign`].
+///
+/// On Linux and macOS no path has a prefix component, so this is always false there.
+fn reaches_a_foreign_remote_namespace(src: &str, doc_dir: Option<&Path>) -> bool {
+    let is_foreign = |path: &Path| {
+        is_remote_namespace(path) && !doc_dir.is_some_and(|dir| lexically_within(path, dir))
+    };
+    let decoded = percent_decode(src);
+    let foreign = [decoded.as_str(), src].into_iter().any(|form| {
+        local_candidate(form, doc_dir).is_some_and(|candidate| {
+            is_foreign(&candidate) || links_reach_foreign(&candidate, doc_dir, &is_foreign)
+        })
+    });
+    foreign
+}
+
+/// How many symbolic links one resolution follows before giving up. Giving up answers
+/// "foreign" (refuse): Linux refuses a chain this long itself, but Windows follows up to
+/// 63 reparse points, so a chain of 41–63 links ending at a share would otherwise pass
+/// the walk and `canonicalize` would then reach the host. A local loop this long is
+/// refused as a share rather than reported missing; the wording is the only cost.
+const MAX_LINK_HOPS: usize = 40;
+
+/// Whether resolving `candidate` would pass through a symbolic link whose target
+/// `is_foreign`, resolving one component at a time without ever letting the
+/// filesystem follow a link itself.
+///
+/// The walk starts at `doc_dir` when `candidate` is spelled under it (the document's
+/// own folder is trusted, even on a share), else at the candidate's root. Each step
+/// `symlink_metadata`s one component of an already resolved, link-free prefix, so no
+/// call can traverse an unexamined link. A link's target replaces the walk's position
+/// and its own components are walked in turn, so a chain of links is followed hop by
+/// hop. A component that does not exist ends the walk: nothing further can be reached.
+/// A link that cannot be read, or a chain past [`MAX_LINK_HOPS`], fails closed: the
+/// walk cannot say where it leads, so it is treated as reaching a share.
+fn links_reach_foreign(
+    candidate: &Path,
+    doc_dir: Option<&Path>,
+    is_foreign: &dyn Fn(&Path) -> bool,
+) -> bool {
+    use std::collections::VecDeque;
+    use std::path::Component;
+
+    let (mut current, remaining) = match doc_dir.and_then(|dir| {
+        candidate
+            .strip_prefix(dir)
+            .ok()
+            .map(|rest| (dir.to_path_buf(), rest))
+    }) {
+        Some((base, rest)) => (base, rest.to_path_buf()),
+        None => {
+            let root: PathBuf = candidate
+                .components()
+                .take_while(|c| matches!(c, Component::Prefix(_) | Component::RootDir))
+                .collect();
+            let rest = candidate
+                .strip_prefix(&root)
+                .unwrap_or(candidate)
+                .to_path_buf();
+            (root, rest)
+        }
+    };
+    let mut pending: VecDeque<std::ffi::OsString> = VecDeque::new();
+    let push_back = |path: &Path, pending: &mut VecDeque<std::ffi::OsString>| {
+        for component in path.components() {
+            pending.push_back(component.as_os_str().to_os_string());
+        }
+    };
+    push_back(&remaining, &mut pending);
+
+    let mut hops = 0;
+    while let Some(part) = pending.pop_front() {
+        match Path::new(&part).components().next() {
+            Some(Component::CurDir) | None => continue,
+            Some(Component::ParentDir) => {
+                current.pop();
+                continue;
+            }
+            // APPENDED, never assigned: on Windows a target's root is two components,
+            // the drive (`C:`) and then the root (`\`), and assigning the second
+            // discarded the first, so a re-walked target continued from the current
+            // drive's root, found nothing and let a two-hop link through (MEASURED on
+            // Windows). `push` of a root onto a bare drive gives `C:\`.
+            Some(Component::Prefix(_) | Component::RootDir) => {
+                current.push(&part);
+                continue;
+            }
+            Some(Component::Normal(_)) => {}
+        }
+        let next = current.join(&part);
+        if is_foreign(&next) {
+            return true;
+        }
+        let Ok(meta) = std::fs::symlink_metadata(&next) else {
+            return false;
+        };
+        if !meta.file_type().is_symlink() {
+            current = next;
+            continue;
+        }
+        hops += 1;
+        if hops > MAX_LINK_HOPS {
+            return true;
+        }
+        let Ok(target) = std::fs::read_link(&next) else {
+            return true;
+        };
+        let resolved = if target.is_absolute() {
+            target
+        } else {
+            current.join(target)
+        };
+        if is_foreign(&resolved) {
+            return true;
+        }
+        // Walk the target's own components next, from its root, ahead of what is left.
+        let mut ahead: VecDeque<std::ffi::OsString> = VecDeque::new();
+        for component in resolved.components() {
+            ahead.push_back(component.as_os_str().to_os_string());
+        }
+        current = PathBuf::new();
+        while let Some(part) = ahead.pop_back() {
+            pending.push_front(part);
+        }
+    }
+    false
+}
+
+/// Whether `path` starts with a Windows prefix that reaches beyond the local disks.
+fn is_remote_namespace(path: &Path) -> bool {
+    use std::path::{Component, Prefix};
+    match path.components().next() {
+        Some(Component::Prefix(prefix)) => matches!(
+            prefix.kind(),
+            Prefix::UNC(..) | Prefix::VerbatimUNC(..) | Prefix::DeviceNS(..) | Prefix::Verbatim(..)
+        ),
+        _ => false,
+    }
+}
+
+/// `path` with `.` dropped and `..` folded, using only its text. A `..` at the root
+/// stays at the root.
+fn lexically_normalized(path: &Path) -> Vec<std::ffi::OsString> {
+    use std::path::Component;
+    let mut out: Vec<std::ffi::OsString> = Vec::new();
+    let mut rooted = 0;
+    for component in path.components() {
+        match component {
+            Component::Prefix(_) | Component::RootDir => {
+                out.push(component.as_os_str().to_ascii_lowercase());
+                rooted = out.len();
+            }
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if out.len() > rooted {
+                    out.pop();
+                }
+            }
+            Component::Normal(name) => out.push(name.to_ascii_lowercase()),
+        }
+    }
+    out
+}
+
+/// Whether `path` sits at or beneath `dir` once both are normalized lexically and
+/// compared without regard to ASCII case.
+fn lexically_within(path: &Path, dir: &Path) -> bool {
+    lexically_normalized(path).starts_with(&lexically_normalized(dir))
 }
 
 /// The result of resolving an image `src` against the safety policy, used by
@@ -570,6 +769,12 @@ pub(crate) enum ImageResolution {
     /// admit — the placeholder says so, so anything else here misdirects the reader
     /// into lifting a gate that was never what stopped them.
     Refused,
+    /// A path into a remote or device namespace outside the document's folder — a
+    /// Windows `\\host\share` — which is never loaded, whatever Show Unsafe Images says:
+    /// reaching it opens an SMB session that authenticates with the user's credentials,
+    /// which neither toggle describes consent to. Decided from the text alone, so
+    /// nothing touched the network to answer.
+    NetworkShare,
     /// Cannot resolve: no `doc_dir` for a relative path, or the file simply
     /// does not exist (canonicalize error) — including a path that would be
     /// perfectly *contained* if anything were there. The renderer shows a
@@ -634,7 +839,11 @@ pub(crate) fn resolve_image(
         }
     }
 
-    // Local path (no scheme).
+    // Local path (no scheme). A remote namespace is refused before either branch, so
+    // the opt-in cannot reach it (`ImageResolution::NetworkShare`).
+    if reaches_a_foreign_remote_namespace(src, doc_dir) {
+        return ImageResolution::NetworkShare;
+    }
     if allow_unsafe_images {
         // Containment gate lifted: canonicalize and admit any existing path.
         // `local_candidate` tilde-expands and supplies doc_dir as the base for a
@@ -684,6 +893,9 @@ pub(crate) enum LinkResolution {
     /// Resolved outside the document's folder and the per-tab "Load Unsafe
     /// Linked Documents" toggle is off.
     Refused,
+    /// A path into a remote or device namespace outside the document's folder, never
+    /// opened whatever the toggle says. See [`ImageResolution::NetworkShare`].
+    NetworkShare,
     /// Could not resolve: no `doc_dir` (untitled buffer), an empty path, or the
     /// target simply does not exist (canonicalize error).
     Missing,
@@ -722,6 +934,9 @@ pub(crate) fn resolve_doc_link(
     let Some(doc_dir) = doc_dir else {
         return LinkResolution::Missing;
     };
+    if reaches_a_foreign_remote_namespace(path_part, Some(doc_dir)) {
+        return LinkResolution::NetworkShare;
+    }
 
     // Reuse the image gate's exact resolve-and-contain logic when containment
     // is enforced; when the toggle lifts it, still canonicalize (so a symlink
@@ -785,36 +1000,13 @@ pub(crate) fn path_for_insert(target: &Path, base: Option<&Path>) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        anchor_target, doc_link_fragment, is_allowed_url, is_exportable_href, path_for_insert,
-        percent_decode, percent_encode_path, resolve_contained_image, resolve_doc_link,
-        resolve_image, scheme_of, slug_is_for, slugify, unique_slug, ImageResolution,
-        LinkResolution,
+        anchor_target, doc_link_fragment, is_allowed_url, is_exportable_href, lexically_within,
+        path_for_insert, percent_decode, percent_encode_path, reaches_a_foreign_remote_namespace,
+        resolve_contained_image, resolve_doc_link, resolve_image, scheme_of, slugify, unique_slug,
+        ImageResolution, LinkResolution,
     };
     use std::collections::HashMap;
-
-    /// The inverse of the slug rule, which is what lets a durable record name a heading
-    /// by identity instead of by its position in a list that gets rebuilt.
-    #[test]
-    fn a_slug_is_recognised_for_the_title_that_produced_it() {
-        assert!(slug_is_for(
-            "anti-patterns-to-avoid",
-            "Anti-patterns to avoid"
-        ));
-        // The uniquing suffixes a repeated title takes.
-        assert!(slug_is_for("notes", "Notes"));
-        assert!(slug_is_for("notes-1", "Notes"));
-        assert!(slug_is_for("notes-12", "Notes"));
-        // ...and nothing else. A DIFFERENT heading that merely starts the same way is
-        // the failure this predicate exists to refuse: it would name the wrong section
-        // in a Back/Forward entry, resolvably and permanently.
-        assert!(!slug_is_for("notes-on-tone", "Notes"));
-        assert!(!slug_is_for("notes-1a", "Notes"));
-        assert!(!slug_is_for("note", "Notes"));
-        assert!(!slug_is_for("", "Notes"));
-        // And it is stated in terms of `slugify`, not of the raw title.
-        assert!(slug_is_for("c-guide", "C++ Guide"));
-        assert!(slug_is_for("c-guide-2", "C++ Guide"));
-    }
+    use std::path::Path;
 
     #[test]
     fn slugify_matches_github() {
@@ -1278,6 +1470,98 @@ mod tests {
         );
     }
 
+    /// A UNC image path in a document is refused from its text alone, so it never
+    /// opens an SMB session (NTLM leak, main-thread stall). 203.0.113.0/24 is
+    /// TEST-NET-3, unroutable: a canonicalize call on it would hang for the redirector
+    /// timeout, so the elapsed time is the witness that no filesystem call was made.
+    #[test]
+    fn resolve_image_refuses_a_unc_path_without_touching_the_network() {
+        if !cfg!(windows) {
+            println!("SKIPPED [TDD 2.7]: UNC prefixes exist only in the Windows path grammar");
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        for src in [
+            r"\\203.0.113.1\s\x.png",
+            "//203.0.113.1/s/x.png",
+            "%5C%5C203.0.113.1%5Cs%5Cx.png",
+            r"\\?\UNC\203.0.113.1\s\x.png",
+            r"\\203.0.113.1@SSL@443\DavWWWRoot\x.png",
+        ] {
+            let started = std::time::Instant::now();
+            let calls_before = super::CANONICALIZE_CALLS.with(std::cell::Cell::get);
+            // With each opt-in OFF and ON: neither toggle is consent to a network share.
+            for unsafe_on in [false, true] {
+                let verdict = resolve_image(src, Some(dir.path()), unsafe_on);
+                assert!(
+                    matches!(verdict, ImageResolution::NetworkShare),
+                    "{src} (unsafe images {unsafe_on}): {verdict:?}"
+                );
+                let link = resolve_doc_link(src, Some(dir.path()), unsafe_on);
+                assert!(
+                    matches!(link, LinkResolution::NetworkShare),
+                    "{src} (outside links {unsafe_on}): {link:?}"
+                );
+            }
+            assert_eq!(
+                super::CANONICALIZE_CALLS.with(std::cell::Cell::get),
+                calls_before,
+                "{src}: the refusal must not resolve anything on the filesystem"
+            );
+            assert!(
+                started.elapsed() < std::time::Duration::from_secs(1),
+                "{src} took {:?}, so something reached for the network",
+                started.elapsed()
+            );
+        }
+    }
+
+    /// A document opened from a share keeps its own images: a candidate lexically
+    /// under the document's folder is not a foreign namespace, and `..` cannot fold
+    /// a candidate out to a sibling share without being caught.
+    #[test]
+    fn a_share_hosted_document_is_not_foreign_to_itself() {
+        if !cfg!(windows) {
+            println!("SKIPPED [TDD 2.7]: UNC prefixes exist only in the Windows path grammar");
+            return;
+        }
+        let dir = Path::new(r"\\files\team\docs");
+        assert!(!reaches_a_foreign_remote_namespace("img/x.png", Some(dir)));
+        assert!(!reaches_a_foreign_remote_namespace(
+            r"\\FILES\Team\docs\x.png",
+            Some(dir)
+        ));
+        assert!(reaches_a_foreign_remote_namespace(
+            r"..\..\other\x.png",
+            Some(dir)
+        ));
+        assert!(reaches_a_foreign_remote_namespace(
+            r"\\evil\s\x.png",
+            Some(dir)
+        ));
+        assert!(reaches_a_foreign_remote_namespace(r"\\evil\s\x.png", None));
+    }
+
+    /// The lexical fold the remote check relies on, on every platform's own grammar.
+    #[test]
+    fn lexical_containment_folds_dots_and_ignores_ascii_case() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().join("Doc");
+        assert!(lexically_within(
+            &base.join("a").join("..").join("x.png"),
+            &base
+        ));
+        assert!(lexically_within(
+            &base.join(".").join("x.png"),
+            &dir.path().join("doc")
+        ));
+        assert!(!lexically_within(&base.join("..").join("x.png"), &base));
+        assert!(!lexically_within(
+            &dir.path().join("Doc-evil").join("x.png"),
+            &base
+        ));
+    }
+
     #[test]
     fn resolve_image_admits_any_existing_local_path_when_unsafe_on() {
         use std::fs;
@@ -1668,7 +1952,7 @@ mod tests {
 
     #[test]
     fn is_exportable_href_refuses_a_scheme_the_two_parsers_disagree_about() {
-        // R4-SEC-01. Every one of these is malformed by RFC 3986 and REPAIRED by the
+        // Every one of these is malformed by RFC 3986 and REPAIRED by the
         // WHATWG URL Standard, which strips leading C0/space and removes every tab, LF
         // and CR anywhere in the URL before parsing the scheme. Inferring "relative"
         // from "my scheme parser did not recognise this" admitted all of them.
@@ -1743,5 +2027,96 @@ mod tests {
             resolve_doc_link("#section", Some(dir.path()), false),
             LinkResolution::Missing
         ));
+    }
+
+    /// A symbolic link inside the document folder whose target is foreign is caught
+    /// from the link's text, before anything follows it — directly, through a chain of
+    /// links, and not for a link to an ordinary local folder. The foreign predicate is
+    /// a stand-in path here, so the walk is exercised on every platform; on Windows the
+    /// real predicate is a UNC prefix.
+    ///
+    /// Mutation: follow the link with `metadata` instead of reading it, or skip the
+    /// target check, and the first two assertions fail.
+    #[test]
+    fn a_link_to_a_foreign_target_is_caught_without_following_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let doc = dir.path().join("doc");
+        std::fs::create_dir(&doc).unwrap();
+        let local = dir.path().join("local");
+        std::fs::create_dir(&local).unwrap();
+        let fake_remote = Path::new("/scribo-fake-remote-share");
+        // Matched by component, not prefix: on Windows the driveless stand-in is not
+        // absolute, so the walk joins it onto the current drive (`C:\scribo-…`), and a
+        // prefix test would only match while that drive was being wrongly dropped.
+        let is_foreign = |p: &Path| {
+            p.components()
+                .any(|c| c.as_os_str() == "scribo-fake-remote-share")
+        };
+        #[cfg(unix)]
+        let link = |target: &Path, at: &Path| std::os::unix::fs::symlink(target, at);
+        #[cfg(windows)]
+        let link = |target: &Path, at: &Path| std::os::windows::fs::symlink_dir(target, at);
+        if link(fake_remote, &doc.join("lnk")).is_err() {
+            println!("SKIPPED [TDD 2.7]: this host cannot create a symbolic link here");
+            return;
+        }
+        link(Path::new("lnk"), &doc.join("chain")).unwrap();
+        // An ABSOLUTE intermediate: its re-walk must keep the target's drive on Windows.
+        link(&doc.join("lnk"), &doc.join("chain_abs")).unwrap();
+        link(&local, &doc.join("near")).unwrap();
+        let reaches =
+            |rel: &str| super::links_reach_foreign(&doc.join(rel), Some(&doc), &is_foreign);
+        assert!(
+            reaches("lnk/x.png"),
+            "a link straight to the foreign target"
+        );
+        assert!(reaches("chain/x.png"), "a link to a link to it");
+        assert!(
+            reaches("chain_abs/x.png"),
+            "a link to a link to it, by absolute path"
+        );
+        assert!(!reaches("near/x.png"), "a link to an ordinary local folder");
+        assert!(!reaches("absent/x.png"), "a path that does not exist");
+    }
+
+    /// A chain longer than the walk will follow is refused, not let through: Windows
+    /// follows up to 63 reparse points, so one ending at a share would otherwise pass
+    /// the walk and be reached by `canonicalize`. Exactly [`super::MAX_LINK_HOPS`] links
+    /// to a local folder still resolve as local.
+    ///
+    /// Mutation: return `false` past the hop limit and the first assertion fails.
+    #[test]
+    fn a_link_chain_past_the_hop_limit_fails_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        let doc = dir.path().join("doc");
+        std::fs::create_dir(&doc).unwrap();
+        let local = dir.path().join("local");
+        std::fs::create_dir(&local).unwrap();
+        let never_foreign = |_: &Path| false;
+        #[cfg(unix)]
+        let link = |target: &Path, at: &Path| std::os::unix::fs::symlink(target, at);
+        #[cfg(windows)]
+        let link = |target: &Path, at: &Path| std::os::windows::fs::symlink_dir(target, at);
+        // l0 -> local, l<n> -> l<n-1>: following l<n> takes n + 1 hops.
+        if link(&local, &doc.join("l0")).is_err() {
+            println!("SKIPPED [TDD 2.7]: this host cannot create a symbolic link here");
+            return;
+        }
+        for n in 1..=super::MAX_LINK_HOPS {
+            link(
+                Path::new(&format!("l{}", n - 1)),
+                &doc.join(format!("l{n}")),
+            )
+            .unwrap();
+        }
+        let reaches =
+            |rel: &str| super::links_reach_foreign(&doc.join(rel), Some(&doc), &never_foreign);
+        let over = format!("l{}/x.png", super::MAX_LINK_HOPS);
+        let at = format!("l{}/x.png", super::MAX_LINK_HOPS - 1);
+        assert!(reaches(&over), "one link past the limit is refused");
+        assert!(
+            !reaches(&at),
+            "a chain at the limit to a local folder is local"
+        );
     }
 }

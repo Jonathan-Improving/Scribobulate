@@ -50,6 +50,30 @@ pub(crate) fn executable_name(pid: u32) -> Option<String> {
         .map(str::to_string)
 }
 
+/// This process's physical footprint in bytes, via `proc_pid_rusage(RUSAGE_INFO_V2)`,
+/// for the memory gates (`memgate::footprint`).
+///
+/// `RUSAGE_INFO_V2` is the earliest flavour that carries `ri_phys_footprint`.
+///
+/// ⚠ This number is a high-water of pages the zone still holds, not "bytes currently
+/// referenced". macOS malloc keeps freed pages: a 256 MB allocation dropped moved the
+/// reading by nothing. Never write a single-shot "allocate, free, assert this came
+/// back" against it.
+#[cfg(test)]
+pub(crate) fn phys_footprint_bytes() -> Option<u64> {
+    // SAFETY: `rusage_info_v2` is the buffer `RUSAGE_INFO_V2` writes; a zeroed struct is
+    // a valid empty starting point, and `getpid` is this process.
+    unsafe {
+        let mut info: libc::rusage_info_v2 = std::mem::zeroed();
+        let rc = libc::proc_pid_rusage(
+            libc::getpid(),
+            libc::RUSAGE_INFO_V2,
+            std::ptr::addr_of_mut!(info) as *mut libc::rusage_info_t,
+        );
+        (rc == 0).then_some(info.ri_phys_footprint)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::executable_name;

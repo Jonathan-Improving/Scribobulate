@@ -157,7 +157,13 @@ pub(crate) fn go_to_line(window: &ApplicationWindow) {
             // is still laying out, the request is DISCARDED (GTK4Rs/AP-260), which on a
             // cold 40 000-line file left Go To Line 30 000 showing line 177. The
             // seam re-issues it once the layout can answer.
-            let mark = buf.create_mark(None, &iter, true);
+            //
+            // A NAMED mark, moved on each Go To Line rather than created anew: an
+            // anonymous one belongs to the buffer until deleted, and nothing on the
+            // scroll's completion path deletes it, so one accumulated per invocation for
+            // the life of the tab.
+            let mark =
+                crate::codeview::move_or_create_mark(buf.upcast_ref(), "scrib-go-to-line", &iter);
             crate::farscroll::scroll_to_mark_when_ready(
                 st.editor.upcast_ref(),
                 &mark,

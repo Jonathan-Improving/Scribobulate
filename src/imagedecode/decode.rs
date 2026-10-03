@@ -290,7 +290,7 @@ fn decode_gtk(bytes: &[u8], origin: &str) -> Option<DecodedImage> {
         );
         return None;
     }
-    #[allow(clippy::disallowed_methods)] // this module IS the sanctioned route
+    #[expect(clippy::disallowed_methods)] // this module IS the sanctioned route
     let result = gtk::gdk::Texture::from_bytes(&gtk::glib::Bytes::from_owned(bytes.to_vec()));
     match result {
         Ok(texture) => Some(DecodedImage {
@@ -345,10 +345,9 @@ pub(crate) fn decode_pixbuf(bytes: &[u8], origin: &str) -> Option<gtk::gdk_pixbu
         );
         return None;
     }
-    #[allow(clippy::disallowed_methods)] // this module IS the sanctioned route
     let stream =
         gtk::gio::MemoryInputStream::from_bytes(&gtk::glib::Bytes::from_owned(bytes.to_vec()));
-    #[allow(clippy::disallowed_methods)] // this module IS the sanctioned route
+    #[expect(clippy::disallowed_methods)] // this module IS the sanctioned route
     match gtk::gdk_pixbuf::Pixbuf::from_stream(&stream, gtk::gio::Cancellable::NONE) {
         Ok(pixbuf) => Some(pixbuf),
         Err(err) => {
@@ -386,10 +385,9 @@ pub(crate) fn rasterize_vector_bytes(
     target_w: i32,
     origin: &str,
 ) -> Option<gtk::gdk::Texture> {
-    #[allow(clippy::disallowed_methods)] // this module IS the sanctioned route
     let stream =
         gtk::gio::MemoryInputStream::from_bytes(&gtk::glib::Bytes::from_owned(bytes.to_vec()));
-    #[allow(clippy::disallowed_methods)] // this module IS the sanctioned route
+    #[expect(clippy::disallowed_methods)] // this module IS the sanctioned route
     match gtk::gdk_pixbuf::Pixbuf::from_stream_at_scale(
         &stream,
         target_w,

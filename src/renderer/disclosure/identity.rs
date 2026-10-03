@@ -45,10 +45,7 @@ const WINDOW: usize = 4096;
 /// [`FoldKey`](crate::fold::FoldKey) is measured in.
 pub(crate) fn opening_delimiter(md: &str, at: usize) -> Option<Range<usize>> {
     let rest = md.get(at..)?;
-    let mut end = WINDOW.min(rest.len());
-    while !rest.is_char_boundary(end) {
-        end -= 1;
-    }
+    let end = crate::strbound::floor_char_boundary(rest, WINDOW);
     let window = &rest[..end];
     // Names and boolean attributes are case-insensitive; the lowercased twin is
     // byte-for-byte the same length, so its offsets index `window` too (the rule

@@ -138,7 +138,7 @@ impl ClickActivation {
         let tracker_r = Rc::clone(&tracker);
         // The sole sanctioned `connect_released`: it is banned everywhere else
         // precisely so that this pairing cannot be bypassed (see the type docs).
-        #[allow(clippy::disallowed_methods)]
+        #[expect(clippy::disallowed_methods)]
         gesture.connect_released(move |gesture, _, x, y| {
             // One statement, so the tracker's borrow is released before `activate`
             // runs: an activation can rebuild the widget tree and re-enter (GTK4Rs/AP-61).

@@ -1026,3 +1026,124 @@ fn the_find_field_is_selected_before_it_takes_focus() {
     );
     win.destroy();
 }
+
+/// The passage a capture holds, as the two marks themselves.
+fn scope_marks(st: &crate::winstate::TabState) -> (gtk::TextMark, gtk::TextMark) {
+    match st.find_scope.borrow().as_ref() {
+        Some(super::FindScope::Editor { start, end }) => (start.mark().clone(), end.mark().clone()),
+        _ => panic!("an editor passage is captured"),
+    }
+}
+
+/// Letting a captured passage go deletes its two marks from the editor buffer. An
+/// anonymous mark belongs to the buffer until `delete_mark` runs, so dropping the Rust
+/// handles alone left two marks behind per capture for the life of the tab.
+///
+/// Mutation: make `OwnedMark::drop` a no-op and both marks stay live.
+#[gtktest::test]
+fn releasing_a_captured_passage_deletes_its_marks() {
+    const DOC: &str = "one target\ntwo target\nthree target\n";
+    let app = test_app("com.extollit.scribobulate.integrationtest.findscopemarks");
+    let win = crate::window::new_window(&app, "IT-findscopemarks", DOC, None);
+    set_mode(&win, "edit");
+    search(&win, "target");
+    let st = state(&win).expect("a tab");
+    for _ in 0..3 {
+        select_range(&win, 0, 10);
+        set_option(&win, super::super::findbar::FIND_IN_SELECTION, true);
+        let (start, end) = scope_marks(&st);
+        assert!(
+            !start.is_deleted() && !end.is_deleted(),
+            "a held passage is live"
+        );
+        set_option(&win, super::super::findbar::FIND_IN_SELECTION, false);
+        assert!(
+            start.is_deleted() && end.is_deleted(),
+            "releasing the passage must delete both marks from the buffer"
+        );
+    }
+    win.destroy();
+}
+
+/// A closed find bar leaves the editor undecorated, whatever reaches the find code
+/// while it is closed: a menu toggle of a match option re-runs the search, and an edit
+/// inside a held passage fires the engine's count notification. Both used to repaint.
+///
+/// Mutation: drop the `open` term from `refresh_find`'s `set_highlight` and the first
+/// assertion fails; drop the `find_bar_open` gate in `update_editor_readout` and the
+/// second does.
+#[gtktest::test]
+fn a_closed_find_bar_paints_no_match_highlight() {
+    const DOC: &str = "one target\ntwo target\nthree target\nfour target\n";
+    let app = test_app("com.extollit.scribobulate.integrationtest.findclosedhl");
+    let win = crate::window::new_window(&app, "IT-findclosedhl", DOC, None);
+    set_mode(&win, "edit");
+    search(&win, "target");
+    assert_eq!(count(&win), Some(4));
+    let st = state(&win).expect("a tab");
+    st.chrome()
+        .find_entry
+        .emit_by_name::<()>("stop-search", &[]);
+    set_option(&win, "find-match-case", true);
+    readout(&win);
+    assert!(
+        !st.search_context.is_highlight(),
+        "a match option toggled from the menu must not light the document with the bar closed"
+    );
+    set_option(&win, "find-match-case", false);
+
+    // A held passage, then the bar closed, then a matching word typed inside it.
+    search(&win, "target");
+    let bound_end = DOC.find("three").expect("a third line") as i32;
+    select_range(&win, 0, bound_end);
+    set_option(&win, super::super::findbar::FIND_IN_SELECTION, true);
+    assert_eq!(count(&win), Some(2));
+    assert!(
+        !highlighted_offsets(&st).is_empty(),
+        "the open bar lights the passage"
+    );
+    st.chrome()
+        .find_entry
+        .emit_by_name::<()>("stop-search", &[]);
+    assert!(
+        highlighted_offsets(&st).is_empty(),
+        "closing takes the scoped highlight off"
+    );
+    st.editor_buf
+        .insert(&mut st.editor_buf.iter_at_offset(4), "target ");
+    readout(&win);
+    assert!(
+        highlighted_offsets(&st).is_empty(),
+        "an edit inside the passage must not repaint it while the bar is closed"
+    );
+    win.destroy();
+}
+
+/// A Replace All confined to a passage is one undo step, like the unconfined one, so
+/// the checkbox does not change how many Undos the command takes.
+///
+/// Mutation: remove the `UndoGroup` around the scoped loop and one Undo restores only
+/// the last replacement.
+#[gtktest::test]
+fn a_scoped_replace_all_is_one_undo_step() {
+    const DOC: &str = "one target\ntwo target\nthree target\nfour target\n";
+    let app = test_app("com.extollit.scribobulate.integrationtest.findscopeundo");
+    let win = crate::window::new_window(&app, "IT-findscopeundo", DOC, None);
+    set_mode(&win, "edit");
+    search(&win, "target");
+    let bound_end = DOC.find("four").expect("a fourth line") as i32;
+    select_range(&win, 0, bound_end);
+    set_option(&win, super::super::findbar::FIND_IN_SELECTION, true);
+    assert_eq!(count(&win), Some(3));
+    let st = state(&win).expect("a tab");
+    super::replace_all_matches(&win, &st, "TOKEN");
+    let replaced = crate::saferizer::BufferText::of(&st.editor_buf).into_string();
+    assert_eq!(replaced, "one TOKEN\ntwo TOKEN\nthree TOKEN\nfour target\n");
+    st.editor_buf.undo();
+    let undone = crate::saferizer::BufferText::of(&st.editor_buf).into_string();
+    assert_eq!(
+        undone, DOC,
+        "one Undo must restore every replacement the command made"
+    );
+    win.destroy();
+}

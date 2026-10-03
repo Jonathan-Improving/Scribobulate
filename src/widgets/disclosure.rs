@@ -77,6 +77,12 @@ pub(crate) fn set_reference(toggle: &gtk::ToggleButton, span: crate::docref::Anc
     REFERENCE.set(toggle, span);
 }
 
+/// Forget the place `toggle` names, so an activation re-derives the pane rather than act
+/// on a reference minted against a document that is no longer the one shown.
+pub(crate) fn clear_reference(toggle: &gtk::ToggleButton) {
+    let _ = REFERENCE.steal(toggle);
+}
+
 /// The place `toggle` names, or `None` if it was built without one.
 pub(crate) fn reference(toggle: &gtk::ToggleButton) -> Option<crate::docref::AnchoredSpan> {
     REFERENCE.get(toggle)

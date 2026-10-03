@@ -348,6 +348,16 @@ pub(crate) const EDIT_CMDS: [Cmd; 11] = [
     },
 ];
 
+/// Where a Format command sits: formatting a run of text, changing a block, or inserting
+/// something. The Format menu's sections and the Keyboard Shortcuts window's Format,
+/// Blocks and Insert groups are both derived from it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FormatGroup {
+    Text,
+    Block,
+    Insert,
+}
+
 // ── FORMAT_CMDS — drives the Format menu, toolbar section, and accelerators ────
 // All six non-heading commands target the single parameterised win.format action
 // (win.format::<target>); Heading 1–6 is built separately (a menu submenu and a
@@ -356,6 +366,9 @@ pub(crate) const EDIT_CMDS: [Cmd; 11] = [
 // so the bar never shows a broken-image placeholder.
 pub(crate) struct FmtCmd {
     pub(crate) target: &'static str,
+    /// Which part of the Format menu and which Keyboard Shortcuts group the command
+    /// belongs to: the one definition both read.
+    pub(crate) group: FormatGroup,
     pub(crate) label: &'static str,
     pub(crate) icon: Option<Icon>,
     pub(crate) glyph: &'static str,
@@ -365,6 +378,7 @@ pub(crate) struct FmtCmd {
 pub(crate) const FORMAT_CMDS: [FmtCmd; 16] = [
     FmtCmd {
         target: "bold",
+        group: FormatGroup::Text,
         label: "Bold",
         icon: Some(Icon::FormatTextBold),
         glyph: "B",
@@ -372,6 +386,7 @@ pub(crate) const FORMAT_CMDS: [FmtCmd; 16] = [
     },
     FmtCmd {
         target: "italic",
+        group: FormatGroup::Text,
         label: "Italic",
         icon: Some(Icon::FormatTextItalic),
         glyph: "I",
@@ -379,6 +394,7 @@ pub(crate) const FORMAT_CMDS: [FmtCmd; 16] = [
     },
     FmtCmd {
         target: "strike",
+        group: FormatGroup::Text,
         label: "Strikethrough",
         icon: Some(Icon::FormatTextStrikethrough),
         glyph: "S",
@@ -390,6 +406,7 @@ pub(crate) const FORMAT_CMDS: [FmtCmd; 16] = [
     // single-letter grouping with Bold/Italic/Strikethrough.
     FmtCmd {
         target: "highlight",
+        group: FormatGroup::Text,
         label: "Highlight",
         icon: None,
         glyph: "H",
@@ -401,6 +418,7 @@ pub(crate) const FORMAT_CMDS: [FmtCmd; 16] = [
     },
     FmtCmd {
         target: "code-span",
+        group: FormatGroup::Text,
         label: "Code Span",
         icon: None,
         glyph: "`",
@@ -408,6 +426,7 @@ pub(crate) const FORMAT_CMDS: [FmtCmd; 16] = [
     },
     FmtCmd {
         target: "sup",
+        group: FormatGroup::Text,
         label: "Superscript",
         icon: Some(Icon::FormatTextSuperscript),
         glyph: "x²",
@@ -415,6 +434,7 @@ pub(crate) const FORMAT_CMDS: [FmtCmd; 16] = [
     },
     FmtCmd {
         target: "sub",
+        group: FormatGroup::Text,
         label: "Subscript",
         icon: Some(Icon::FormatTextSubscript),
         glyph: "x₂",
@@ -422,6 +442,7 @@ pub(crate) const FORMAT_CMDS: [FmtCmd; 16] = [
     },
     FmtCmd {
         target: "code-block",
+        group: FormatGroup::Block,
         label: "Code Block",
         icon: None,
         glyph: "```",
@@ -434,6 +455,7 @@ pub(crate) const FORMAT_CMDS: [FmtCmd; 16] = [
     },
     FmtCmd {
         target: "quote",
+        group: FormatGroup::Block,
         label: "Quote",
         icon: None,
         glyph: "❝",
@@ -450,6 +472,7 @@ pub(crate) const FORMAT_CMDS: [FmtCmd; 16] = [
     // the glyph fallback covers themes that don't (format_button, GTK4Rs/AP-48).
     FmtCmd {
         target: "bulleted-list",
+        group: FormatGroup::Block,
         label: "Bulleted List",
         icon: Some(Icon::FormatListUnordered),
         glyph: "•",
@@ -457,6 +480,7 @@ pub(crate) const FORMAT_CMDS: [FmtCmd; 16] = [
     },
     FmtCmd {
         target: "numbered-list",
+        group: FormatGroup::Block,
         label: "Numbered List",
         icon: Some(Icon::FormatListOrdered),
         glyph: "1.",
@@ -474,6 +498,7 @@ pub(crate) const FORMAT_CMDS: [FmtCmd; 16] = [
     // accelerators (Code Block is <Primary><Alt>grave, not c).
     FmtCmd {
         target: "task-list",
+        group: FormatGroup::Block,
         label: "Task List",
         icon: None,
         glyph: "☑",
@@ -481,6 +506,7 @@ pub(crate) const FORMAT_CMDS: [FmtCmd; 16] = [
     },
     FmtCmd {
         target: "hr",
+        group: FormatGroup::Block,
         label: "Horizontal Bar",
         icon: None,
         glyph: "—",
@@ -492,6 +518,7 @@ pub(crate) const FORMAT_CMDS: [FmtCmd; 16] = [
     // rather than wrapping the selection inline. Same win.format::<target> plumbing.
     FmtCmd {
         target: "link",
+        group: FormatGroup::Insert,
         label: "Insert Link…",
         icon: Some(Icon::InsertLink),
         glyph: "🔗",
@@ -499,6 +526,7 @@ pub(crate) const FORMAT_CMDS: [FmtCmd; 16] = [
     },
     FmtCmd {
         target: "image",
+        group: FormatGroup::Insert,
         label: "Insert Image…",
         icon: Some(Icon::InsertImage),
         glyph: "🖼",
@@ -506,6 +534,7 @@ pub(crate) const FORMAT_CMDS: [FmtCmd; 16] = [
     },
     FmtCmd {
         target: "table",
+        group: FormatGroup::Insert,
         label: "Insert Table…",
         icon: Some(Icon::ViewGrid),
         glyph: "▦",

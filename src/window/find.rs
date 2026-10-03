@@ -41,7 +41,7 @@ mod scope;
 use crate::widgets::table::cellattrs;
 pub(crate) use history::{row_label, FindHistory};
 use matcher::Matcher;
-pub(crate) use matcher::{editor_pattern, engine_applies_word_boundaries};
+pub(crate) use matcher::{configure_engine_options, configure_engine_query};
 pub(crate) use options::FindOptions;
 pub(crate) use scope::{PreviewScope, RenderKey};
 /// The find bar searches whichever text the user is actually looking at: the
@@ -108,7 +108,7 @@ fn warn_preview_unresolved(what: &str) {
 // the broader `cfg(test)`. Under a bare `cargo clippy --all-targets` — no feature —
 // the callers are not compiled and this became dead code, so that configuration
 // failed `-D warnings` on every platform. It is not the sanctioned clippy step
-// (POLICY step 2 passes `--features gtk-integration-tests`, deliberately, so the gated
+// (POLICY § Build pipeline's clippy step passes `--features gtk-integration-tests`, deliberately, so the gated
 // modules cannot rot unseen), which is why no pipeline caught it; it still cost the
 // macOS seat a diagnosis during a merge verification. A cfg that matches its callers
 // costs nothing and removes the trap.
@@ -165,6 +165,12 @@ pub(crate) enum FindCursor {
     /// or repeating with nothing to warn on. Re-finding by position lands on the hit the
     /// reader is looking at, or — if it is gone — on the first hit after where it was,
     /// which is what "next" means.
+    ///
+    /// **Not unique inside a table or a collapsed block**: every cell hit of one table
+    /// sits at the table's anchor, and every hidden hit at its block's summary, so there
+    /// the position names the group and the ordinal picks within it. A rebuild that adds
+    /// a match earlier in the same table can therefore resume one hit early. Closing that
+    /// needs a stable per-cell key (row, column, byte offset) carried by the hit.
     Preview { ordinal: i32, at: i32 },
 }
 
@@ -198,9 +204,12 @@ pub(crate) enum FindScope {
     ///
     /// `start` has left gravity and `end` right gravity, so an insertion at either
     /// boundary stays inside the passage rather than escaping it.
+    ///
+    /// Each mark deletes itself from the buffer when the scope is dropped, so every
+    /// release path frees them.
     Editor {
-        start: gtk::TextMark,
-        end: gtk::TextMark,
+        start: crate::saferizer::owned_mark::OwnedMark,
+        end: crate::saferizer::owned_mark::OwnedMark,
     },
     /// The preview buffer, held as a character range against the render it was taken
     /// from. Nothing to track: a re-render replaces the text, and the honest answer is
@@ -220,6 +229,7 @@ impl FindScope {
         let FindScope::Editor { start, end } = self else {
             return None;
         };
+        let (start, end) = (start.mark(), end.mark());
         if start.buffer().as_ref() != Some(buf) || end.buffer().as_ref() != Some(buf) {
             return None;
         }
@@ -596,7 +606,10 @@ impl PreviewFindCache {
                 confined = built
                     .hits
                     .iter()
-                    .filter(|h| sc.contains(preview_hit_position(h)))
+                    .filter(|h| {
+                        let (start, end) = preview_hit_span(h);
+                        sc.contains_span(start, end)
+                    })
                     .cloned()
                     .collect();
                 &confined
@@ -1299,6 +1312,17 @@ fn resume_ordinal(hits: &[PreviewHit], ordinal: i32, at: i32) -> i32 {
     }
 }
 
+/// The buffer characters a hit occupies, for asking whether it lies INSIDE a passage:
+/// a body match's own range, the one anchor character a table stands on, or the
+/// summary position of a hidden block (zero-width, since its text is not drawn).
+fn preview_hit_span(hit: &PreviewHit) -> (i32, i32) {
+    match hit {
+        PreviewHit::Body { start, end } => (*start, *end),
+        PreviewHit::Cell { anchor_off, .. } => (*anchor_off, anchor_off + 1),
+        PreviewHit::Hidden { summary_off, .. } => (*summary_off, *summary_off),
+    }
+}
+
 /// Where a hit sits in document order, as a buffer char offset. The one place the
 /// three hit kinds are reduced to a common coordinate, so no caller re-derives which
 /// field of which variant carries a position.
@@ -1530,6 +1554,13 @@ fn scoped_editor_step(st: &Rc<TabState>, dir: SearchDir) -> bool {
     true
 }
 
+/// Whether the find bar is on screen. Every paint of a find highlight is gated on it,
+/// because a closed bar must leave the document undecorated, and both the engine's count
+/// notification and a programmatic `search-changed` reach the find code with it closed.
+pub(super) fn find_bar_open(st: &TabState) -> bool {
+    st.chrome().find_bar_revealer.reveals_child()
+}
+
 /// Refresh the editor pane's readout, honouring the captured passage.
 ///
 /// **The one door for the editor's count**, so a scoped search cannot report the whole
@@ -1539,8 +1570,12 @@ pub(super) fn update_editor_readout(st: &Rc<TabState>, current: i32) {
     let label = &st.chrome().match_count_label;
     let scoped = scoped_editor_matches(st);
     // The highlight is painted from the SAME list the count is taken from, in the same
-    // call, so "what is lit" and "what is counted" cannot disagree.
-    apply_editor_scope_highlight(st, scoped.as_deref());
+    // call, so "what is lit" and "what is counted" cannot disagree. Only while the bar
+    // is open: this also runs from the engine's count notification after an edit, and
+    // closing the bar took the scoped tag off on purpose.
+    if find_bar_open(st) {
+        apply_editor_scope_highlight(st, scoped.as_deref());
+    }
     match scoped {
         Some(matches) => {
             if let Some(e) = st.search_context.regex_error() {
@@ -1620,15 +1655,36 @@ pub(super) fn replace_all_matches(
         Some(matches) => {
             let buf = &st.editor_buf;
             let mut done = 0u32;
-            for (start, end) in matches.iter().rev() {
-                let (mut ms, mut me) = (buf.iter_at_offset(*start), buf.iter_at_offset(*end));
-                match sc.replace(&mut ms, &mut me, replacement) {
-                    Ok(()) => done += 1,
-                    Err(e) => {
-                        log::error!("find/replace: replace all failed inside the selection: {e}");
-                        set_invalid_pattern_label(label, &e.message());
-                        return;
+            // **One undo step, like the unscoped arm.** Each `replace` opens its own
+            // user action; nested inside this one they record as a single group, so
+            // the checkbox does not change how many Undos the command takes.
+            let failure = {
+                let _grp = super::undo::UndoGroup::new(buf);
+                let mut failure = None;
+                for (start, end) in matches.iter().rev() {
+                    let (mut ms, mut me) = (buf.iter_at_offset(*start), buf.iter_at_offset(*end));
+                    match sc.replace(&mut ms, &mut me, replacement) {
+                        Ok(()) => done += 1,
+                        Err(e) => {
+                            failure = Some(e);
+                            break;
+                        }
                     }
+                }
+                failure
+            };
+            // A replacement can fail part-way (a backreference that only some matches
+            // fill). The ones already made stay, so their count is still reported in
+            // the footer next to the error, rather than leaving an edit the reader was
+            // not told about.
+            if let Some(e) = failure {
+                log::error!(
+                    "find/replace: replace all failed inside the selection after {done} \
+                     replacements: {e}"
+                );
+                set_invalid_pattern_label(label, &e.message());
+                if done == 0 {
+                    return;
                 }
             }
             done

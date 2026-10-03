@@ -339,10 +339,10 @@ pub(crate) fn draw_list_marker(
 /// accent.
 fn draw_checkmark(cr: &cairo::Context, fg: &gdk::RGBA, bx: f32, by: f32, s: f32, z: f32) {
     set_source(cr, fg);
-    cr.set_line_width((2.0 * z).max(1.2) as f64);
+    cr.set_line_width((crate::taskbox::CHECKMARK_STROKE as f32 * z).max(1.2) as f64);
     cr.set_line_cap(cairo::LineCap::Round);
     cr.set_line_join(cairo::LineJoin::Round);
-    checkmark_path(cr, bx as f64, by as f64, s as f64);
+    crate::taskbox::checkmark_path(cr, bx as f64, by as f64, s as f64);
     let _ = cr.stroke();
 }
 
@@ -379,17 +379,6 @@ fn draw_tick_glyph(
     snapshot.append_layout(&layout, fg);
     snapshot.restore();
     true
-}
-
-/// Trace the checkmark inside a `size`-square box at `(x, y)`. Shared by the task
-/// checkbox's checked state and the code-block copy button's post-copy confirmation
-/// ([`super::copybutton`]) so the two cannot draw different ticks; the caller sets the
-/// source colour, line width and caps, because those differ per affordance while the
-/// path does not.
-pub(super) fn checkmark_path(cr: &cairo::Context, x: f64, y: f64, size: f64) {
-    cr.move_to(x + size * 0.24, y + size * 0.52);
-    cr.line_to(x + size * 0.42, y + size * 0.70);
-    cr.line_to(x + size * 0.76, y + size * 0.30);
 }
 
 pub(super) fn set_source(cr: &cairo::Context, fg: &gdk::RGBA) {

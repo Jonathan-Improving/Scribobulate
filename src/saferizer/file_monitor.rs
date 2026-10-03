@@ -32,7 +32,7 @@ impl DocMonitor {
     /// every platform means live reload is simply inactive for that document.
     pub(crate) fn attach(file: &gio::File) -> Option<Self> {
         // The sole sanctioned `FileExt::monitor_file` in the tree.
-        #[allow(clippy::disallowed_methods)]
+        #[expect(clippy::disallowed_methods)]
         file.monitor_file(gio::FileMonitorFlags::NONE, gio::Cancellable::NONE)
             .ok()
             .map(|inner| Self { inner })
@@ -55,7 +55,7 @@ impl DocMonitor {
     /// cancel and the final unref, which is the ordering GIO mishandles (GTK4Rs/AP-340).
     pub(crate) fn cancel_and_release(self) {
         // The sole sanctioned `FileMonitorExt::cancel` in the tree.
-        #[allow(clippy::disallowed_methods)]
+        #[expect(clippy::disallowed_methods)]
         self.inner.cancel();
         drop(self);
     }

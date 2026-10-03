@@ -344,7 +344,7 @@ impl CodePreviewView {
             // validation on ANY path (pure cached-height btree read), so that call was
             // vestigial and has been removed (ANTI-PATTERNS deferred-work meta-pattern,
             // myth-bust #1). yalign 0.0 puts the heading at the top of the viewport.
-            #[allow(clippy::disallowed_methods)] // deliberate raw call — see clippy.toml
+            #[expect(clippy::disallowed_methods)] // deliberate raw call — see clippy.toml
             view.scroll_to_mark(mark, 0.0, true, 0.0, 0.0);
         });
     }
@@ -421,7 +421,7 @@ impl CodePreviewView {
             let Some(mark) = bmark.scroll_mark(&view.buffer()) else {
                 return;
             };
-            #[allow(clippy::disallowed_methods)] // deliberate raw call — see clippy.toml
+            #[expect(clippy::disallowed_methods)] // deliberate raw call — see clippy.toml
             view.scroll_to_mark(mark, 0.0, true, 0.0, 0.0);
             // Step 2: refine to the cell's own row once the table (forced to validate
             // by scroll_to_mark) has allocated its cells on the next idle pass — chained
@@ -698,7 +698,7 @@ mod gtk_integration_tests {
 
         crate::testpump::drain_for(crate::testpump::Clock::Frame, settle);
         let before = measures(&view);
-        #[allow(clippy::disallowed_methods)] // the control needs the banned request itself
+        #[expect(clippy::disallowed_methods)] // the control needs the banned request itself
         view.queue_allocate();
         crate::testpump::drain_for(crate::testpump::Clock::Frame, settle);
         assert_eq!(

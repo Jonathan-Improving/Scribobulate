@@ -4,6 +4,8 @@ use gtk::gdk;
 use gtk::prelude::*;
 
 mod codechips;
+#[cfg(test)]
+pub(crate) use codechips::over;
 pub(crate) use codechips::{surface_at, CodeChips, CodeRunSurface, CodeSurface};
 
 /// Convert a syntect highlighting color (0–255 channels) to a GDK RGBA.

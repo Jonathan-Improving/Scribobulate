@@ -114,7 +114,7 @@ fn probe_header(bytes: &[u8]) -> Header {
     HEADER_PROBES.with(|n| n.set(n.get() + 1));
 
     let seen: Rc<Cell<Option<(i32, i32)>>> = Rc::new(Cell::new(None));
-    #[allow(clippy::disallowed_methods)] // this module IS the sanctioned route
+    #[expect(clippy::disallowed_methods)] // this module IS the sanctioned route
     let loader = gtk::gdk_pixbuf::PixbufLoader::new();
     loader.connect_size_prepared({
         let seen = Rc::clone(&seen);

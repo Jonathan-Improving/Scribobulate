@@ -69,6 +69,44 @@ pub(crate) fn reload_from_disk(window: &ApplicationWindow) {
     });
 }
 
+/// Make `content`, just read from the tab's file, the tab's document: the editor buffer,
+/// the source every derived view renders from, and the saved baseline. The one sequence
+/// every loader runs (File ▸ Reload, a live reload, an open that reuses a blank tab), in
+/// one fixed order, so a rule about new content lands on all of them at once.
+///
+/// - **The find passage is released first.** It named text in the buffer about to be
+///   replaced; `set_text` would collapse both marks onto offset 0, so the bound would
+///   stop bounding while the toggle went on saying it does. A load is new content, and
+///   the honest answer is that nothing in it is selected (rubric 11.16's re-derive arm).
+/// - **Source and baseline before the buffer.** The buffer's `changed` signal runs
+///   `refresh_dirty_status` synchronously with no `loading` gate of its own, so a
+///   baseline set afterwards latched a spurious "Unsaved changes" against the old one.
+/// - **The buffer write is `loading`-guarded**, so the split live-preview debounce
+///   ignores it; the caller rebuilds the view from the new source itself (GTK4Rs/AP-89).
+/// - **The read epoch is bumped**: content and baseline both changed, so a read still in
+///   flight describes a document that no longer exists.
+/// - **A recorded backing loss is cleared**: the buffer is no longer the only copy.
+pub(crate) fn adopt_disk_text(window: &ApplicationWindow, st: &Rc<TabState>, content: &str) {
+    *st.saved_baseline.borrow_mut() = content.to_string();
+    write_loaded_text(window, st, content);
+    crate::window::clear_backing_loss(st);
+}
+
+/// The write half of [`adopt_disk_text`], for a route that brings text in WITHOUT
+/// adopting it as the saved baseline: crash recovery, whose tab must stay dirty
+/// against the file. Releases the find passage, sets the source, writes the buffer
+/// under the loading guard as a non-undoable load with the caret at the start, and
+/// bumps the read epoch. A caller that also adopts the baseline sets it BEFORE calling
+/// this, for the reason `adopt_disk_text` gives.
+pub(crate) fn write_loaded_text(window: &ApplicationWindow, st: &Rc<TabState>, content: &str) {
+    findbar::release_find_scope(window, st);
+    st.set_source(content);
+    st.loading.set(true);
+    load_into_editor(&st.editor_buf, content);
+    st.loading.set(false);
+    st.doc_epoch.bump();
+}
+
 /// The synchronous half of [`reload_from_disk`]: everything after the read.
 ///
 /// Split out so the read can be awaited without any of this running in pieces —
@@ -83,23 +121,8 @@ fn apply_reload_from_disk(window: &ApplicationWindow, st: &Rc<TabState>, content
     // (`g_sequence_insert_sorted` → freed GtkTextLine → SIGSEGV; GTK4Rs/AP-89).
     // The view-mode re-issue already renders the preview fresh from the reloaded
     // source, so the debounced re-render is both redundant and the crash trigger.
-    // The captured find-in-selection passage named text in the buffer that was just
-    // replaced. `set_text` deletes everything, which collapses both marks onto offset 0
-    // — so the bound stops bounding while the toggle goes on saying it does. Released
-    // here rather than repaired: a reload is new content, and the only honest answer
-    // is that the reader has not selected anything in it (rubric 11.16's re-derive arm).
-    findbar::release_find_scope(window, st);
-    st.loading.set(true);
-    load_into_editor(&st.editor_buf, &content);
-    st.loading.set(false);
-    st.set_source(&content);
-    *st.saved_baseline.borrow_mut() = content;
-    // Content and baseline both just changed, so any read still in flight for this
-    // document is now describing a document that no longer exists.
-    st.doc_epoch.bump();
-    // An explicit reload accepts whatever the file holds — even a blank one (TDD 3.5)
-    // — so the buffer is no longer the only copy of anything.
-    crate::window::clear_backing_loss(st);
+    // An explicit reload accepts whatever the file holds — even a blank one (TDD 3.5).
+    adopt_disk_text(window, st, &content);
     st.suppress_conflict.set(false);
     st.chrome().conflict_toast.set_visible(false);
 
@@ -400,23 +423,7 @@ pub(crate) fn apply_external_reload(window: &ApplicationWindow, content: &str) {
             .unwrap_or_else(|| "(no path)".to_owned()),
         content.len()
     );
-    st.set_source(content);
-    *st.saved_baseline.borrow_mut() = content.to_string();
-    // See `apply_reload_from_disk`: mutations bump, deferred readers check.
-    st.doc_epoch.bump();
-    // Unreachable with a loss recorded (a lost document's changes decide Toast, never
-    // Reload), but a reload that did land here would make the file whole again.
-    crate::window::clear_backing_loss(&st);
-    // The captured find-in-selection passage named text in the buffer that was just
-    // replaced. `set_text` deletes everything, which collapses both marks onto offset 0
-    // — so the bound stops bounding while the toggle goes on saying it does. Released
-    // here rather than repaired: a reload is new content, and the only honest answer
-    // is that the reader has not selected anything in it (rubric 11.16's re-derive arm).
-    findbar::release_find_scope(window, &st);
-    // Replace the editor buffer (guarded so the split debounce ignores this).
-    st.loading.set(true);
-    load_into_editor(&st.editor_buf, content);
-    st.loading.set(false);
+    adopt_disk_text(window, &st, content);
 
     match current_mode(window) {
         ViewMode::Preview => {

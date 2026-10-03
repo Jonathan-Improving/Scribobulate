@@ -53,7 +53,12 @@
 #   platform  <id>   <display name>
 #   step      <ord>  <id>                  ordinal fixes the run order
 #   intent    <id>   <what must be true>   the invariant; never a command
-#   verdict   <id>   exit | marker:<text>  how the step is judged
+#   verdict   <id>   exit | review | marker:<text> | absent:<text>
+#                                          how the step is judged; `absent:` is `exit`
+#                                          AND fails if a line of the step's own output
+#                                          contains <text>. A runner REFUSES a verdict
+#                                          it does not know rather than reading it as
+#                                          `exit`, which would drop the guard silently
 #   class     <id>   required | informational | review | packaging
 #   cmd.<plat> <id>  <command line>        how THIS platform satisfies the intent
 #                                          MAY carry leading `NAME=VALUE ` env prefixes;
@@ -314,7 +319,7 @@ intent integration  The GTK integration suite passes against a real display, thr
 verdict integration  exit
 class  integration  required
 surface integration  SKIPPED [
-na.linux    integration  permanent  Step 5c (coverage) runs this same suite on Linux, instrumented, on the same throwaway display, and fails on any test failure, so running it here too only repeats it (POLICY build pipeline step 5). scripts/run-integration.sh still runs it uninstrumented by hand.
+na.linux    integration  permanent  Step 5c (coverage) runs this same suite on Linux, instrumented, on the same throwaway display, and fails on any test failure, so running it here too only repeats it (POLICY § Build pipeline). scripts/run-integration.sh still runs it uninstrumented by hand.
 cmd.macos   integration  cargo test --features gtk-integration-tests $(scripts/macos-integration-targets.sh)
 cmd.windows integration  G_DEBUG=fatal-criticals cargo test --features gtk-integration-tests -- --test-threads=1
 disarm.macos integration  permanent  G_DEBUG=fatal-criticals is absent from the macOS command above, and this line is why: GDK's Quartz backend freezes a surface once per CONSTRUCTION and thaws once per MAP, and gdk_macos_surface_hide never freezes, so the second map thaws at zero and the suite emits gdk_surface_thaw_updates assertions on every popover open or dismiss. Present 4.22.4 through main; the freeze/thaw pair is private and absent from the gdk4 bindings, so no application-side fix exists. Do NOT arm it by masking Gdk-CRITICAL: that would also silence GTK4Rs/AP-305, a leaked update-freeze that stops a surface repainting, which is the only signal anybody would get if it happened. See also GTK4Rs/AP-268 before reaching for a g_log_set_writer_func allowlist.
@@ -325,14 +330,23 @@ disarm.macos integration  permanent  G_DEBUG=fatal-criticals is absent from the 
 # A third class beside unit and integration, outside the coverage ratchet, no
 # opt-in. Insertion without renumbering follows the 4b precedent. Two halves:
 # growth after warm-up (catches leaks nobody predicted) and texture
-# finalization (catches app-side retention). The WebP fixture skips at runtime
-# where the host has no WebP loader (gvsbuild ships SVG only); the PNG control
-# still runs. Do NOT fold this into step 5 — a separate step can be disabled
+# finalization (catches app-side retention). Every host decodes the WebP fixture
+# (the in-house decoder needs no host loader), so no gate skips by design. Do NOT
+# fold this into step 5 — a separate step can be disabled
 # independently later.
+#
+# THE VERDICT IS `absent:`, NOT `exit`, because a gate here can pass having measured
+# nothing. `memgate::footprint::measuring` refuses outside the suite child: it
+# prints `SKIPPED [TDD <rubric>]` and the body returns green, so a run where every gate
+# skipped exits 0 exactly like one where every gate measured a flat series. Today the
+# child sets the flag before any case runs, so the refusal cannot fire — which is the
+# reason it needs a guard: the run that would show it is the one that passes. The other
+# null route, a `memgate` filter that selects nothing after a rename, is refused by
+# gtk_suite itself (it exits 2 on an empty selection).
 # ---------------------------------------------------------------------------
 step   5b  memory
 intent memory  Per-render memory growth after warm-up stays under the per-platform bounds — growth one allocation does not explain, and total growth — and a decoded picture finalizes once every application reference is dropped
-verdict memory  exit
+verdict memory  absent:SKIPPED [TDD
 class  memory  required
 cmd.linux   memory  scripts/run-memory-gates.sh
 cmd.macos   memory  cargo test --release --features memory-gates --test gtk_suite memgate
@@ -341,11 +355,11 @@ cmd.windows memory  cargo test --release --features memory-gates --test gtk_suit
 # ---------------------------------------------------------------------------
 # Step 5c — coverage ratchet, and on Linux the GTK integration suite
 #
-# POLICY folds integration, memory growth and coverage into its one step 5; the contract
-# keeps three entries (5, 5b, 5c) because each has its own commands, classes and
-# non-applicable declarations. On Linux this step's leg B is the ONLY run of the GTK
-# suite: step 5 is declared non-applicable there because leg B runs the same suite,
-# instrumented, and refuses on any failure.
+# POLICY § Build pipeline numbers none of its steps; the contract keeps three entries
+# here (5, 5b, 5c) for integration, memory growth and coverage, because each has its
+# own commands, classes and non-applicable declarations. On Linux this step's leg B is
+# the ONLY run of the GTK suite: step 5 is declared non-applicable there because leg B
+# runs the same suite, instrumented, and refuses on any failure.
 #
 # Linux-canonical BY DESIGN. See the header's "record the semantic reason" note: the
 # declarations below cite the semantics, never the missing tool.
@@ -408,14 +422,29 @@ cmd.windows diagram  powershell -NoProfile -Command "$d = New-Object System.Xml.
 #
 # A gate is its pattern AND the set of files it runs over. That set is still a data file,
 # scripts/lint-references.scan, which the binary READS rather than restates.
+#
+# THE PRE-PUSH GATE'S SELF-TEST RIDES HERE. scripts/git-hooks/pre-push
+# --self-test is the proof that the hook refuses a failing commit buried behind a clean tip
+# and a commit that deletes this contract; a proof nothing executes turns nothing red when
+# the hook regresses (GEP-67). It is a repository gate checking a repository gate, which is
+# this step's business, it needs no cargo, and it costs a few seconds. The hook is bash, so
+# on Windows it needs Git-for-Windows' bash, which is NOT on the PowerShell PATH the
+# `cmd /c` executor inherits -- MEASURED on the Windows seat: `bash` resolves to nothing
+# there. %SCRIB_BASH% is published by packaging/windows/pipeline.ps1's setup phase, which
+# derives it from git.exe's install root rather than from PATH, because a PATH lookup finds
+# `C:\Windows\System32\bash.exe` -- the WSL launcher -- on any machine where WSL is
+# installed, and running this hook inside a Linux distribution fails in ways that read as
+# the hook being broken. Expanded by `cmd /c` at the point of use, so the contract names one
+# shell without restating a path. Proven on that seat to run AND to discriminate: a
+# deliberately broken hook turns this step red.
 # ---------------------------------------------------------------------------
 step   8  references
 intent references  Every cross-reference in the tree resolves, and the citation-form rules hold
 verdict references  exit
 class  references  required
-cmd.linux   references  cargo xtask lint-references
-cmd.macos   references  cargo xtask lint-references
-cmd.windows references  cargo xtask lint-references
+cmd.linux   references  cargo xtask lint-references && scripts/git-hooks/pre-push --self-test
+cmd.macos   references  cargo xtask lint-references && scripts/git-hooks/pre-push --self-test
+cmd.windows references  cargo xtask lint-references && "%SCRIB_BASH%" scripts/git-hooks/pre-push --self-test
 
 # ---------------------------------------------------------------------------
 # Step 9 — the installer artefact
@@ -469,7 +498,7 @@ cmd.windows package  powershell -NoProfile -File packaging/windows/package.ps1
 # ---------------------------------------------------------------------------
 setup linux    none
 setup macos    none
-setup windows  PATH (GTK bin, for the runtime), PKG_CONFIG_PATH (build probe), LIB and INCLUDE (MSVC link) — the last two conditionally concatenated, since prepending onto an unset variable leaves a trailing ';' and an empty entry means "the current directory" to the toolchain
+setup windows  PATH (GTK bin, for the runtime), PKG_CONFIG_PATH (build probe), LIB and INCLUDE (MSVC link) — the last two conditionally concatenated, since prepending onto an unset variable leaves a trailing ';' and an empty entry means "the current directory" to the toolchain; and SPI_CLIENTAREAANIMATION, read back after setting and restored when the run ends, because the animation half of the GTK suite refuses to run with that preference off and a hosted image has it off
 
 # ---------------------------------------------------------------------------
 # Test carve-outs

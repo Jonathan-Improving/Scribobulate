@@ -46,7 +46,7 @@ use gtk::prelude::*;
 /// the point: they cannot drift.
 pub(crate) fn name(control: &impl IsA<gtk::Widget>, label: &str) {
     let control = control.as_ref();
-    #[allow(clippy::disallowed_methods)] // this module IS the sanctioned route
+    #[expect(clippy::disallowed_methods)] // this module IS the sanctioned route
     control.set_tooltip_text(Some(label));
     control.update_property(&[Property::Label(label)]);
 }
@@ -63,7 +63,7 @@ pub(crate) fn name(control: &impl IsA<gtk::Widget>, label: &str) {
 /// (`""` = none), the same value the menu and the shortcuts window bind.
 pub(crate) fn name_with_accel(control: &impl IsA<gtk::Widget>, label: &str, accel: &str) {
     let control = control.as_ref();
-    #[allow(clippy::disallowed_methods)] // this module IS the sanctioned route
+    #[expect(clippy::disallowed_methods)] // this module IS the sanctioned route
     control.set_tooltip_text(Some(&crate::app::tooltip_with_accel(label, accel)));
     match crate::app::accel_hint(accel) {
         Some(hint) => control.update_property(&[
@@ -90,7 +90,7 @@ pub(crate) fn name_from_action(control: &impl IsA<gtk::Widget>, action: &str) {
 /// instance. The tooltip is used verbatim; the accessible name is the bare `label`.
 pub(crate) fn name_with_tooltip(control: &impl IsA<gtk::Widget>, label: &str, tooltip: &str) {
     let control = control.as_ref();
-    #[allow(clippy::disallowed_methods)] // this module IS the sanctioned route
+    #[expect(clippy::disallowed_methods)] // this module IS the sanctioned route
     control.set_tooltip_text(Some(tooltip));
     control.update_property(&[Property::Label(label)]);
 }
@@ -123,7 +123,7 @@ pub(crate) fn name_indicator(indicator: &impl IsA<gtk::Widget>, label: &str) {
 /// identity it already has, and gains (or loses) the explanation on top of it.
 pub(crate) fn describe(control: &impl IsA<gtk::Widget>, description: Option<&str>) {
     let control = control.as_ref();
-    #[allow(clippy::disallowed_methods)] // this module IS the sanctioned route
+    #[expect(clippy::disallowed_methods)] // this module IS the sanctioned route
     control.set_tooltip_text(description);
     control.update_property(&[Property::Description(description.unwrap_or(""))]);
 }

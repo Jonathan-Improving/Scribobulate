@@ -99,6 +99,13 @@ impl HeadingObject {
         let imp = obj.imp();
         imp.level.set(node.level);
         imp.doc_index.set(node.doc_index);
+        // Every node has a path: `paths` is built from the same tree. A row without one
+        // would carry an empty identity that matches nothing.
+        debug_assert!(
+            paths.get(node.doc_index).is_some(),
+            "outline node {} has no identity path",
+            node.doc_index
+        );
         if let Some(path) = paths.get(node.doc_index) {
             *imp.path.borrow_mut() = path.clone();
         }

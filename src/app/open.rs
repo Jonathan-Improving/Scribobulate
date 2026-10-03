@@ -135,20 +135,11 @@ pub(super) fn load_source_into_window(window: &ApplicationWindow, md: &str) {
     crate::window::update_window_title(window);
 
     if let Some(st) = state(window) {
-        // Set source/baseline BEFORE mutating the buffer (mirrors
-        // reload.rs's apply_external_reload). The buffer's own "changed"
-        // signal fires refresh_dirty_status synchronously and unconditionally
-        // (window/tabs/lifecycle.rs's wire_tab_buffer_signals has no `loading` gate of
-        // its own), so setting the baseline afterward let that premature call
-        // compare the freshly loaded text against the STALE (pre-open)
-        // baseline and latch a spurious "Unsaved changes" status that nothing
-        // ever corrected afterward — reproduced live via File ▸ Open reusing
-        // a blank window.
-        st.set_source(md);
-        *st.saved_baseline.borrow_mut() = md.to_string();
-        st.loading.set(true);
-        st.editor_buf.set_text(md);
-        st.loading.set(false);
+        // The loaders' one sequence, which sets the baseline before the buffer: set
+        // afterwards, the buffer's own `changed` compared the new text against the
+        // pre-open baseline and latched a spurious "Unsaved changes" (reproduced live
+        // via File ▸ Open reusing a blank window).
+        crate::window::adopt_disk_text(window, &st, md);
     }
 
     // Re-render via the view-mode action: forces preview, swaps content_box to a
@@ -300,7 +291,7 @@ pub(crate) fn attach_file_backing(
             // its three conditions). Classifying a deletion that has ALREADY happened,
             // with no await between the read and the decision, on the same main context
             // as the pass — not a decision about a future write.
-            #[allow(clippy::disallowed_methods)]
+            #[expect(clippy::disallowed_methods)]
             let busy = tab.write_gate.is_busy();
             if let Some(why) = tab.expect_self_delete.swallows(busy) {
                 // Logged because the WriteInFlight arm can suppress a genuinely external

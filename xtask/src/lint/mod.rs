@@ -56,6 +56,15 @@ mod corpus_numbering;
 // The desktop-entry corpus, check 19's. Separate for the same reason as the man-page one.
 #[cfg(test)]
 mod corpus_packaging;
+// Check 24's corpus, which is also the skipper's.
+#[cfg(test)]
+mod corpus_heldref;
+// Checks 21 and 22, which went in with no corpus.
+#[cfg(test)]
+mod corpus_register;
+// Check 25's corpus. Separate so its planted citations need no self-exclusion.
+#[cfg(test)]
+mod corpus_policystep;
 mod patterns;
 pub mod vocab;
 

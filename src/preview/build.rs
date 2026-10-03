@@ -885,9 +885,12 @@ fn build_markers(
         // incapable of disagreeing. A construct that is not a valid slice of the
         // source it was just scanned from cannot be acted on safely, so it yields
         // no marker at all rather than an unusable one.
-        let Some(construct) = crate::docref::AnchoredSpan::capture(
+        // In context: a document can repeat a construct verbatim (`{>>TODO<<}`), and
+        // its neighbours are what tell the copies apart once the document moves.
+        let Some(construct) = crate::docref::AnchoredSpan::capture_in_context(
             original,
             ann.src_span.start.raw()..ann.src_span.end.raw(),
+            crate::docref::Ambiguity::Nearest,
         ) else {
             continue;
         };

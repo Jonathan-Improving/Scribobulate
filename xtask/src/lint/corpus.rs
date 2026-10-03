@@ -61,6 +61,30 @@ const ISSUES_MUST_MATCH: &[&str] = &[
     "the ISSUES entry U12 covers it",
     "ISSUES I5 is the narrow-window case",
     "see ISSUES.md I5",
+    // MEASURED blind spot: only `[ .:_-]` could sit between `ISSUES(.md)` and the
+    // designator, so the commonest Markdown form — the path in backticks — and the
+    // possessive, comma and parenthesised forms were all invisible.
+    "see `sdd/ISSUES.md` entry B for details",
+    "the `ISSUES.md` entry B",
+    "ISSUES.md's entry B covers it",
+    "`sdd/ISSUES.md`'s entry B covers it",
+    "see ISSUES.md, entry B",
+    "the narrow-window case (ISSUES (entry B))",
+    "see ISSUES (B)",
+    "per \"ISSUES.md\" entry B",
+    // The DESCRIPTION form, a title pointer with no quotes: the live instance that
+    // passed under the gate, in `probes/native-chooser-rss-investigation.md`.
+    "The full investigation behind `sdd/ISSUES.md`'s entry on native",
+    "see the ISSUES entry about the rename suite",
+    // MEASURED blind spots, round 6: every alternative above anchored on `ISSUES` and
+    // looked rightwards, and the corpus was written in exactly those forms. The
+    // designator-first, noun-first, adjective-before-noun, typographic-apostrophe and
+    // ISSUES-then-prose forms each passed.
+    "see entry B in `sdd/ISSUES.md`",
+    "the entry in ISSUES.md on native chooser RSS",
+    "`sdd/ISSUES.md`'s open entry on native chooser",
+    "ISSUES.md’s entry B",
+    "ISSUES.md lists it as entry B",
 ];
 
 /// Prose ABOUT the register, which must stay legal: the rule is against citing an ENTRY,
@@ -78,6 +102,14 @@ const ISSUES_MUST_NOT_MATCH: &[&str] = &[
     // Prose about the CONVENTION rather than a citation of an entry. The placeholder is
     // written with letters, so requiring digits keeps the rule explainable outside the
     // register without tripping its own gate.
+    // The widened separators must not reach ordinary prose after the file name.
+    "edit `sdd/ISSUES.md`, TECH.md and POLICY.md together",
+    "`sdd/ISSUES.md`'s TOC lists them",
+    "ISSUES.md's entries are deleted when fixed",
+    "an `ISSUES.md` entry is deleted when its issue is fixed",
+    "It was 56 KB inside `sdd/ISSUES.md` — 55% of that",
+    // A quoted file name is not a quoted title, however many quotes follow it.
+    "the \"ISSUES.md\" and \"TECH.md\" files are read together",
     "closed entries take a CLSD-dd number that is never reused",
     "an intractable issue is renamed CLSD-dd and moves to the Closed issues table",
 ];
@@ -342,11 +374,34 @@ const COMMIT_HASH_MUST_FLAG: &[&str] = &[
      attribution window, discussing matters entirely unrelated to provenance, at \
      sufficient length that nothing could reasonably call it the same clause, before \
      finally arriving at our own 09b43a2",
+    // ── the data markers' whole-line veto, as MEASURED in round 5 ──────────────
+    //
+    // A digest word, a `/proc/` path or a document-ID name anywhere on the line
+    // exempted EVERY hash on it, not just the value the word governs. Each of these was
+    // green under that version.
+    "the archive's SHA-256 is `51bd9f60c7d23a66…`; the loader fix landed in `4b97c84`",
+    "the sha256 of the tarball is pinned, and the parser changed in 4b97c84",
+    "reading /proc/self/maps was rewritten in 4b97c84 to avoid the race",
+    "DocId parsing was hardened in 4b97c84",
+    "a doc_id collision was fixed in `4b97c84`",
+    // ── the data markers' 16-character window, as MEASURED in round 6 ───────────
+    //
+    // "Governs" was a distance: any 16 characters between the marker and the hash, so a
+    // marker exempted a citation a few words later in the same clause. Each of these was
+    // green under that version; only separators and `is`/`of` may sit between now.
+    "the SHA-256 fix in `4b97c84`",
+    "doc_id fix in 4b97c84",
+    "the SHA-256 check moved in 4b97c84",
+    // `upstream` is a word, not a repository: it says nothing checkable about whose
+    // commit follows.
+    "not upstream yet; landed locally in 4b97c84",
 ];
 
 const COMMIT_HASH_MUST_NOT_FLAG: &[&str] = &[
     // Attributed to a repository that does not squash: resolvable, and evidence.
-    "fixed upstream in 4.16.13 by commit 86e962929bf2be13a721053141b33e4381f0312",
+    // `upstream` counts only with the project it means named after it.
+    "fixed upstream in GTK 4.16.13 by commit 86e962929bf2be13a721053141b33e4381f0312",
+    "landed upstream glib as 86e962929bf2 in 2.80",
     "GNOME/gtk `b300698629` (GNOME/gtk#4134) fixed it in 4.19.3",
     "fixed by GNOME/gtk commit 492b44f20c in the 4.6 branch",
     // Attribution as a trailing parenthetical, which is how several real citations in
@@ -364,6 +419,13 @@ const COMMIT_HASH_MUST_NOT_FLAG: &[&str] = &[
     "let mask = 0xdeadbeef;",
     "sha256: 1f95a92d037f5292da05e6ab1037032ff21ddb7b20d4ac8e83e3674c864c07b0",
     "doc_id = \"3f2ac91b4d5e6f708192a3b4c5d6e7f8\"",
+    // The marker's own operand, through the grammar the narrowed window still admits:
+    // separators, and `is`/`of`.
+    "doc_id = \"abc1234\"",
+    // The same, escaped inside a Rust string literal, as the swap-file codec's fixture is.
+    "let bytes = b\"+++scribobulate-swap 1\\ndoc_id = \\\"3f2ac91b4d5e6f708192a3b4c5d6e7f8\\\"\\n\";",
+    "the archive's SHA-256 is `51bd9f60c7d23a66…`",
+    "the SHA-256 of `51bd9f60c7d23a66…` matches",
     "assert!(DocId::from_hex(\"3f2ac91b4d5e6f70/192a3b4c5d6e7f8\").is_none());",
     "b\"7f2c1a09b000-7f2c1a0a0000 r--p 000c0000 08:02 1 /usr/lib/x.so\"",
     "commit: \"0badc0de\",",

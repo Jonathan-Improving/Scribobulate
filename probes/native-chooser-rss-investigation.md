@@ -1,7 +1,8 @@
 # The macOS native-file-chooser RSS investigation
 
-**What this is.** The full investigation behind `sdd/ISSUES.md`'s entry on native
-file-chooser RSS growth on macOS: measurements, attributions, the retain-cycle analysis, the
+**What this is.** The full investigation of native file-chooser RSS growth on macOS —
+the footprint of `GtkFileChooserNative` that climbs with every open and close of the native
+chooser and never comes back: measurements, attributions, the retain-cycle analysis, the
 upstream patch sketch and its two hazards, and the several ways the instruments misled the
 people reading them.
 

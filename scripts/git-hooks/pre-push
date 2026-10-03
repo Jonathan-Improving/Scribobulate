@@ -10,11 +10,21 @@
 #
 # It checks the COMMITS BEING PUSHED, not the working tree. A push sends commits; an
 # uncommitted fix in the tree would otherwise pass a push whose commits fail, and an
-# uncommitted mess would refuse a push whose commits are clean. When the pushed commit
-# is HEAD and the tree holds nothing uncommitted (untracked files included), the tree IS
-# that commit and is checked in place. Otherwise each pushed commit is checked out into
-# a temporary detached worktree, sharing this clone's target directory so dependencies
-# are not rebuilt, and checked there.
+# uncommitted mess would refuse a push whose commits are clean. EVERY commit, not only each
+# ref's tip: a fmt slip in commit 3 of 5, fixed in commit 4, is still a pushed commit that
+# fails the step. Per ref that is `git rev-list <remote oid>..<local oid>`; for a new ref
+# (or a remote oid this clone does not have) it is every commit not already on a remote,
+# `git rev-list <local oid> --not --remotes`, since a commit any remote holds was gated when
+# it got there. Deleted refs send nothing and are skipped.
+#
+# When the commit is HEAD and the tree holds nothing uncommitted (untracked files
+# included), the tree IS that commit and is checked in place. Every other commit is checked
+# out, in turn, into ONE temporary detached worktree that shares this clone's target
+# directory, so dependencies are not rebuilt and successive commits build incrementally.
+# A commit older than scripts/pipeline.steps has no contract to read; it is reported as
+# UNCHECKED rather than refused, so pushing history to a fresh remote is possible at all.
+# "Older" means no ancestor ever had the file: a commit that DELETES or renames the contract
+# also lacks it, and is refused rather than mistaken for history.
 #
 # The commands are READ from scripts/pipeline.steps for this platform, through the same
 # parser every runner uses, never written here: a second copy of a step's command is a
@@ -25,14 +35,114 @@
 #
 # Enable once per clone:   git config core.hooksPath scripts/git-hooks
 # Run without pushing:     git push --dry-run
+# Prove it refuses:        scripts/git-hooks/pre-push --self-test
 # Override for one push:   git push --no-verify
 #
-# On Windows, push from a shell that carries the GTK build environment
-# (packaging/windows/README.md). From a bare shell clippy fails in the -sys crates'
-# build scripts with "The pkg-config command could not be found" and the push is
-# refused; that is the environment, not the hook.
+# On Windows the hook brings its own build environment, by ASKING that tree's runner for
+# it (`pipeline.ps1 -PrintSetupEnv`) rather than restating it here. Without that, a push
+# from a bare shell died in the -sys crates' build scripts with "The pkg-config command
+# could not be found" and was refused — a gate whose verdict depended on which window you
+# typed in, and whose error named pkg-config rather than the environment. The values are
+# never copied into this file: the GTK prefix has one owner, pipeline.ps1's param block
+# (POLICY, "A number has one owner"), and a copy here would go stale while reading as
+# current. A tree with no runner — an older commit, or the self-test's synthetic repo —
+# is left alone, since its commands need no toolchain.
 
 set -uo pipefail
+
+# --self-test: build a throwaway repo whose contract's fmt step fails when a file named BAD
+# is present, push two histories at a throwaway bare remote through THIS hook, and assert
+# the verdicts: a BAD commit behind a clean tip is refused (the tip-only defect this hook
+# had), a clean history is accepted (so "refuses everything" cannot pass), a commit that
+# deletes the contract is refused, and an orphan history that never had one is accepted
+# UNCHECKED (so the deletion refusal is not "no contract, no push"). It needs no
+# cargo; the hook is command-agnostic, so a stand-in command exercises the enumeration.
+if [ "${1-}" = "--self-test" ]; then
+    hook="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+    lib="$(dirname "$hook")/../pipeline-lib.sh"
+    [ -f "$lib" ] || { echo "pre-push self-test: no $lib" >&2; exit 1; }
+    st="$(mktemp -d "${TMPDIR:-/tmp}/scrib-prepush-selftest.XXXXXX")" || exit 1
+    trap 'rm -rf "$st"' EXIT
+    (
+        set -e
+        export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+        unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+        git init -q --bare "$st/remote.git"
+        git init -q -b main "$st/work"
+        cd "$st/work"
+        git config user.email selftest@invalid
+        git config user.name selftest
+        git config core.hooksPath "$(dirname "$hook")"
+        mkdir scripts
+        cp "$lib" scripts/pipeline-lib.sh
+        for p in linux macos windows; do
+            printf 'cmd.%s fmt test ! -e BAD\ncmd.%s clippy true\n' "$p" "$p"
+        done >scripts/pipeline.steps
+        git add -A && git commit -qm base
+        git remote add origin "$st/remote.git"
+        git push -q origin main >/dev/null 2>&1
+        # The negative: a failing commit buried behind a clean tip, on an existing ref.
+        touch BAD && git add BAD && git commit -qm "bad"
+        git rm -q BAD && git commit -qm "clean tip"
+        if git push -q origin main >"$st/neg.log" 2>&1; then
+            echo "pre-push self-test: FAILED — a failing commit behind a clean tip was accepted" >&2
+            exit 1
+        fi
+        grep -q "'fmt' failed" "$st/neg.log" || {
+            echo "pre-push self-test: FAILED — refused, but not by the fmt step:" >&2
+            tail -3 "$st/neg.log" >&2
+            exit 1
+        }
+        # The same on a NEW ref, which takes the --not --remotes path.
+        if git push -q origin main:fresh >"$st/new.log" 2>&1; then
+            echo "pre-push self-test: FAILED — a new ref carrying a failing commit was accepted" >&2
+            exit 1
+        fi
+        grep -q "'fmt' failed" "$st/new.log" || {
+            echo "pre-push self-test: FAILED — new ref refused, but not by the fmt step:" >&2
+            tail -3 "$st/new.log" >&2
+            exit 1
+        }
+        # The positive: rewrite away the bad commit; a clean history must go through.
+        git reset -q --hard HEAD~2
+        echo ok >GOOD && git add GOOD && git commit -qm "good 1"
+        echo ok2 >GOOD && git commit -qam "good 2"
+        git push -q origin main >"$st/pos.log" 2>&1 || {
+            echo "pre-push self-test: FAILED — a clean history was refused:" >&2
+            tail -3 "$st/pos.log" >&2
+            exit 1
+        }
+        # A commit that DELETES the contract has no contract either, and must not pass as
+        # one that predates it.
+        git rm -q scripts/pipeline.steps && git commit -qm "drop the contract"
+        if git push -q origin main >"$st/del.log" 2>&1; then
+            echo "pre-push self-test: FAILED — a commit deleting the contract was accepted" >&2
+            exit 1
+        fi
+        grep -q "removed the contract" "$st/del.log" || {
+            echo "pre-push self-test: FAILED — contract deletion refused, but not as one:" >&2
+            tail -3 "$st/del.log" >&2
+            exit 1
+        }
+        git reset -q --hard HEAD~1
+        # ...while history that genuinely predates it (no ancestor ever had the file) still
+        # goes through, UNCHECKED, so the refusal above is not "no contract, no push".
+        git checkout -q --orphan prehistory
+        git rm -rq --cached . && git clean -fdxq
+        echo old >OLD && git add OLD && git commit -qm "before the contract"
+        git push -q origin prehistory >"$st/old.log" 2>&1 || {
+            echo "pre-push self-test: FAILED — history predating the contract was refused:" >&2
+            tail -3 "$st/old.log" >&2
+            exit 1
+        }
+        grep -q "UNCHECKED" "$st/old.log" || {
+            echo "pre-push self-test: FAILED — predating history passed without UNCHECKED" >&2
+            exit 1
+        }
+    ) || exit 1
+    echo "pre-push self-test: ok (buried failing commit refused on an existing and a new ref; clean history accepted; contract deletion refused; pre-contract history accepted UNCHECKED)"
+    exit 0
+fi
 
 TOP="$(git rev-parse --show-toplevel)" || exit 1
 cd "$TOP" || exit 1
@@ -42,28 +152,101 @@ case "$(uname -s)" in
     Darwin*) PLATFORM=macos ;;
     MINGW* | MSYS* | CYGWIN*) PLATFORM=windows ;;
     *)
-        echo "pre-push: unrecognised platform '$(uname -s)'; not checking." >&2
-        exit 0
+        # REFUSE, not pass: a hook that waves a push through unchecked on a platform it does
+        # not know is a gate that is silently off. Scribobulate's contract declares only
+        # linux/macos/windows (every Git-for-Windows shell reports MINGW/MSYS/CYGWIN), so
+        # there is no platform this blocks that it could have checked.
+        echo "pre-push: unrecognised platform '$(uname -s)': scripts/pipeline.steps has no" \
+            "cmd.<platform> for it, so the push is refused UNCHECKED. Override this one push" \
+            "with --no-verify." >&2
+        exit 1
         ;;
 esac
 CONTRACT="scripts/pipeline.steps"
 export PLATFORM CONTRACT
 
 # Git feeds one line per pushed ref: <local ref> <local oid> <remote ref> <remote oid>.
-# An all-zero local oid is a deletion, which sends no commits to check.
+# An all-zero local oid is a deletion, which sends no commits to check. Commits are
+# gathered oldest first and de-duplicated across refs.
 oids=()
-while read -r _lref loid _rref _roid; do
+while read -r _lref loid _rref roid; do
     [[ "$loid" =~ ^0+$ ]] && continue
-    [[ " ${oids[*]-} " == *" $loid "* ]] && continue
-    oids+=("$loid")
+    if [[ "$roid" =~ ^0+$ ]] || ! git cat-file -e "$roid^{commit}" 2>/dev/null; then
+        range=("$loid" --not --remotes)
+    else
+        range=("$roid..$loid")
+    fi
+    list="$(git rev-list --reverse "${range[@]}")" || {
+        echo "pre-push: could not list the commits being pushed; refusing to push unchecked." >&2
+        exit 1
+    }
+    for c in $list; do
+        [[ " ${oids[*]-} " == *" $c "* ]] && continue
+        oids+=("$c")
+    done
 done
 [ "${#oids[@]}" -eq 0 ] && exit 0
+echo "pre-push: checking ${#oids[@]} commit(s) being pushed"
+
+# The platform's build environment, for the tree in the current directory, asked of that
+# tree's OWN runner so the answer matches the commit being checked. Only Windows needs one:
+# on Linux and macOS the toolchain is already on PATH, which is why this gap went unseen
+# from both of those seats.
+#
+# PATH arrives as a single directory rather than a joined list because the two shells
+# disagree about what a PATH is — bash's is POSIX and colon-separated, the toolchain's is
+# Windows and semicolon-separated — so it is converted with cygpath and joined here, in
+# bash's own grammar. Handing bash a Windows PATH breaks bash.
+setup_platform_env() {
+    [ "$PLATFORM" = windows ] || return 0
+    # $TOP's runner, NOT the checked-out commit's. The COMMANDS belong to the commit --
+    # that is what CI will run, and the hook reads them from its contract. The ENVIRONMENT
+    # does not: where gvsbuild put its tree is a fact about this machine, identical for
+    # every commit being pushed. Reading it from each commit would also refuse any commit
+    # older than this change, whose runner has no such mode, which is a worse gate than the
+    # one being fixed.
+    local runner="$TOP/packaging/windows/pipeline.ps1"
+    [ -f "$runner" ] || return 0
+    local out line name value
+    out="$(powershell -NoProfile -File "$runner" -PrintSetupEnv)" || {
+        echo "pre-push: '$runner -PrintSetupEnv' failed, so the build environment is" \
+            "unknown; refusing to push unchecked." >&2
+        return 1
+    }
+    while IFS= read -r line; do
+        # STRIP THE CR. PowerShell ends every line CRLF, and `read` splits on LF alone, so
+        # each value arrives with a trailing \r welded to it -- a directory that does not
+        # exist, in a variable that reads correctly everywhere it is printed. MEASURED here
+        # on three of the four values; the fourth escaped only because command
+        # substitution had already eaten the final line ending, which is the kind of
+        # accident that makes this look fine until someone adds a fifth.
+        #
+        # It went unnoticed because nothing on this box NEEDED the polluted variables:
+        # gvsbuild's pkgconf finds its own .pc files from a default rooted at its binary, so
+        # a PKG_CONFIG_PATH of pure nonsense still resolves gtk4 (measured), and LIB/INCLUDE
+        # reach no linker under fmt or clippy. The gate was passing for reasons unrelated to
+        # the environment it thought it was setting.
+        line="${line%$'\r'}"
+        [ -n "$line" ] || continue
+        name="${line%%=*}"
+        value="${line#*=}"
+        if [ "$name" = PATH_PREPEND ]; then
+            PATH="$(cygpath -u "$value"):$PATH"
+            export PATH
+        else
+            export "$name=$value"
+        fi
+    done <<EOF
+$out
+EOF
+}
 
 # Runs fmt and clippy in the current directory, reading their commands from that tree's
 # contract. A subshell, so sourcing the library and exporting nothing leaks between runs.
 check_tree() (
     # shellcheck source=scripts/pipeline-lib.sh
     source scripts/pipeline-lib.sh
+    setup_platform_env || exit 1
     for id in fmt clippy; do
         cmd="$(contract_value "cmd.$PLATFORM" "$id")"
         if [ -z "$cmd" ]; then
@@ -81,30 +264,50 @@ check_tree() (
 )
 
 HEAD_OID="$(git rev-parse HEAD)"
-TMP_TREES=()
+tmp=""
 cleanup() {
-    for t in "${TMP_TREES[@]-}"; do
-        [ -n "$t" ] || continue
-        git -C "$TOP" worktree remove --force "$t" >/dev/null 2>&1 || rm -rf "$t"
-    done
+    if [ -n "$tmp" ]; then
+        git -C "$TOP" worktree remove --force "$tmp" >/dev/null 2>&1 || rm -rf "$tmp"
+    fi
     git -C "$TOP" worktree prune >/dev/null 2>&1
 }
 trap cleanup EXIT
 
 for oid in "${oids[@]}"; do
     short="$(git rev-parse --short "$oid")"
+    if ! git cat-file -e "$oid:$CONTRACT" 2>/dev/null; then
+        # "No contract in this commit" means two different things, and only one of them is
+        # harmless. If NOTHING in the commit's ancestry ever touched the path, the
+        # commit predates the contract and has no steps to run. If an ancestor touched it,
+        # this commit (or one before it) DELETED or renamed it — and waving that through as
+        # "predates" would let one commit switch the gate off for every commit after it.
+        if [ -n "$(git log -1 --format=%H "$oid" -- "$CONTRACT")" ]; then
+            echo "pre-push: $short has no $CONTRACT, but its history does — this commit" \
+                "or an ancestor removed the contract, so the push is refused. Restore it," \
+                "or override this one push with --no-verify." >&2
+            exit 1
+        fi
+        echo "pre-push: UNCHECKED $short — it predates $CONTRACT, so it has no steps to run." >&2
+        continue
+    fi
     if [ "$oid" = "$HEAD_OID" ] && [ -z "$(git status --porcelain)" ]; then
         echo "pre-push: checking $short (HEAD, clean tree) in place"
         check_tree || exit 1
         continue
     fi
-    tmp="$(mktemp -d "${TMPDIR:-/tmp}/scrib-prepush.XXXXXX")" || exit 1
-    TMP_TREES+=("$tmp")
+    if [ -z "$tmp" ]; then
+        tmp="$(mktemp -d "${TMPDIR:-/tmp}/scrib-prepush.XXXXXX")" || exit 1
+        git worktree add --detach --quiet "$tmp" "$oid" || {
+            echo "pre-push: could not check out $short; refusing to push unchecked." >&2
+            exit 1
+        }
+    else
+        git -C "$tmp" checkout --detach --quiet --force "$oid" || {
+            echo "pre-push: could not check out $short; refusing to push unchecked." >&2
+            exit 1
+        }
+    fi
     echo "pre-push: checking $short in a temporary worktree ($tmp)"
-    git worktree add --detach --quiet "$tmp" "$oid" || {
-        echo "pre-push: could not check out $short; refusing to push unchecked." >&2
-        exit 1
-    }
     (
         cd "$tmp" || exit 1
         unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE

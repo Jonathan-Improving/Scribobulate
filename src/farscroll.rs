@@ -345,7 +345,7 @@ pub(crate) fn wire_buffer_ends_scroll(view: &gtk::TextView) {
             // forcing validation from wherever it is called (GTK4Rs/AP-22). By now the
             // layout is valid, so it takes GTK's own immediate-flush fast path
             // (gtktextview.c:2790-2795) and GTK computes the destination itself.
-            #[allow(clippy::disallowed_methods)]
+            #[expect(clippy::disallowed_methods)]
             view.scroll_to_mark(&insert, 0.0, false, 0.0, 0.0);
         });
     });
@@ -389,7 +389,7 @@ pub(crate) fn scroll_to_mark_when_ready(
     let target = crate::saferizer::buffer_mark::BufferMark::new(mark.clone(), &buffer);
 
     // The immediate attempt: correct and sufficient whenever the layout is valid.
-    #[allow(clippy::disallowed_methods)]
+    #[expect(clippy::disallowed_methods)]
     view.scroll_to_mark(mark, within_margin, use_align, xalign, yalign);
 
     after_line_heights_validated(view, move |view| {
@@ -403,7 +403,7 @@ pub(crate) fn scroll_to_mark_when_ready(
         let Some(mark) = target.scroll_mark(&buffer) else {
             return; // the buffer was swapped; a fresh render owns the position now
         };
-        #[allow(clippy::disallowed_methods)]
+        #[expect(clippy::disallowed_methods)]
         view.scroll_to_mark(mark, within_margin, use_align, xalign, yalign);
     });
 }

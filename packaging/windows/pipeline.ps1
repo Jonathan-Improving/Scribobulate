@@ -70,6 +70,7 @@
 param(
     [string] $Prefix = $(if ($env:SCRIB_GTK_PREFIX) { $env:SCRIB_GTK_PREFIX } else { 'C:\gtk-build\gtk\x64\release' }),
     [switch] $ListSteps,
+    [switch] $PrintSetupEnv,
     [switch] $SelfTest,
     [switch] $SkipIntegration,
     [switch] $Package
@@ -285,6 +286,21 @@ function Test-Contract {
 
         if ($class -and $class -cnotin @('required', 'informational', 'review', 'packaging')) {
             Write-Err "pipeline: step '$id' has unknown class '$class'"
+            $errs++
+        }
+
+        # The verdict GRAMMAR, enumerated rather than assumed. Until this existed the run
+        # handler matched `marker:` and treated everything else as `exit`, so a verdict this
+        # port did not implement -- `absent:` when it arrived in the contract -- was read as
+        # plain `exit` and its guard vanished SILENTLY, on the platform that never runs the
+        # shell port. A gate that disappears without a word is the failure mode the whole
+        # contract exists to prevent, and it is exactly what an unenumerated default does.
+        #
+        # `marker:`/`absent:` must carry text: an empty one matches every line (marker) or
+        # refuses the step unconditionally (absent), and both read as a configured gate.
+        if ($verdict -and $verdict -cnotin @('exit', 'review') -and
+            $verdict -cnotmatch '^(marker|absent):.+') {
+            Write-Err "pipeline: step '$id' has unknown verdict '$verdict'"
             $errs++
         }
 
@@ -901,6 +917,24 @@ function Invoke-SelfTest {
            Lines = (New-ProbeContract -Drop @('verdict'))
            Want = $false; Expect = @("step 'probe' has no verdict") },
 
+        # The verdict ENUMERATION. Without it an unimplemented verdict falls through to the
+        # `exit` default and its guard is silently gone -- which is how `absent:` would have
+        # behaved on this port alone, with the shell port enforcing it and nothing saying
+        # the two disagreed.
+        @{ Rule = 'a verdict this port does not implement'
+           Lines = (New-ProbeContract -Drop @('verdict') -Add @('verdict probe  banana'))
+           Want = $false; Expect = @("step 'probe' has unknown verdict 'banana'") },
+
+        # Empty text on either text-carrying verdict: `marker:` would match every line and
+        # `absent:` would refuse the step unconditionally, and both read as a configured gate.
+        @{ Rule = 'absent: with no text'
+           Lines = (New-ProbeContract -Drop @('verdict') -Add @('verdict probe  absent:'))
+           Want = $false; Expect = @("step 'probe' has unknown verdict 'absent:'") },
+
+        @{ Rule = 'marker: with no text'
+           Lines = (New-ProbeContract -Drop @('verdict') -Add @('verdict probe  marker:'))
+           Want = $false; Expect = @("step 'probe' has unknown verdict 'marker:'") },
+
         @{ Rule = 'a step with no class'
            Lines = (New-ProbeContract -Drop @('class'))
            Want = $false; Expect = @("step 'probe' has no class") },
@@ -958,6 +992,28 @@ function Invoke-SelfTest {
         @{ Rule = 'a command naming a repo-relative script that is not there'
            Lines = (New-ProbeContract -Drop @('cmd.windows') `
                                       -Add @('cmd.windows probe  powershell -File packaging/windows/no-such-script.ps1'))
+           Want = $false; Expect = @("names 'packaging/windows/no-such-script.ps1', which does not exist") },
+
+        # A SCRIPT INSIDE A COMMAND SUBSTITUTION IS STILL A SCRIPT THIS COMMAND NAMES, and
+        # the substitution is the position where a missing one is WORST: its failure is
+        # silent -- the shell puts an empty string in its place and the step runs a command
+        # SHORTER than the contract states, which for a test selection means a run WIDER
+        # than intended rather than a run that fails. That is why the rule extracts paths
+        # with a regex over the whole line instead of matching whitespace tokens; a token
+        # glob strips a bare `$(` and `)` but passes `"$(scripts/x.sh)"` silently.
+        #
+        # Both spellings, because they fail a token-splitting implementation DIFFERENTLY:
+        # unquoted, the path arrives glued to `$(` and `)`; quoted, glued to `"` as well.
+        # The bash port gained the same two cases, so one grammar is proven on
+        # both sides rather than asserted to be shared.
+        @{ Rule = 'a script named inside an unquoted command substitution'
+           Lines = (New-ProbeContract -Drop @('cmd.windows') `
+                                      -Add @('cmd.windows probe  echo $(packaging/windows/no-such-script.ps1)'))
+           Want = $false; Expect = @("names 'packaging/windows/no-such-script.ps1', which does not exist") },
+
+        @{ Rule = 'a script named inside a quoted command substitution'
+           Lines = (New-ProbeContract -Drop @('cmd.windows') `
+                                      -Add @('cmd.windows probe  echo "$(packaging/windows/no-such-script.ps1)"'))
            Want = $false; Expect = @("names 'packaging/windows/no-such-script.ps1', which does not exist") },
 
         @{ Rule = 'ordinals that decrease in file order'
@@ -1107,6 +1163,48 @@ function Invoke-SelfTest {
         return $false
     }
     Write-Host "   a surface line repeats the step's own marker lines and leaves the verdict alone"
+
+    # ABSENT. The property is the one a `surface` line CANNOT give: a step that
+    # exits 0 while its own output says it measured nothing must FAIL. The refused text
+    # reaches the output only by EXECUTION, for the same reason the surface case builds it
+    # from an env var -- the `$ <cmd>` echo line must not contain it, or a port that scanned
+    # the echo instead of the run would pass.
+    $absBase = @($base | Where-Object { $_ -cne 'verdict probe  exit' }) +
+               @('verdict probe  absent:SKIPPED [TDD')
+    $absHit = Invoke-SyntheticStep -Lines ($absBase + @(
+        'cmd.windows probe  SCRIB_SELFTEST_A=SKIPPED echo %SCRIB_SELFTEST_A% [TDD 6.6]: not measured'))
+    foreach ($want in @("REFUSED: this step's verdict requires 'SKIPPED [TDD' to be absent",
+                        'SKIPPED [TDD 6.6]: not measured', 'FAIL')) {
+        if (-not "$($absHit.Text)".Contains($want)) {
+            Write-Err "pipeline: an absent: step that printed the refused text is missing '$want'"
+            Write-Err "  got: $($absHit.Text.Trim())"
+            return $false
+        }
+    }
+    if ($absHit.Ok) {
+        Write-Err 'pipeline: an absent: step printed the refused text and still passed'
+        return $false
+    }
+    $script:Failed = @()
+
+    # THE NEGATIVE, without which the above is satisfied by a rule that refuses everything.
+    $absClean = Invoke-SyntheticStep -Lines ($absBase + @('cmd.windows probe  echo test a ... ok'))
+    if (-not $absClean.Ok -or "$($absClean.Text)".Contains('REFUSED')) {
+        Write-Err 'pipeline: an absent: step with clean output must PASS'
+        Write-Err "  got: $($absClean.Text.Trim())"
+        return $false
+    }
+
+    # A non-zero exit is still the step's own verdict, and its real code must survive rather
+    # than be flattened to the 1 the refusal would have set.
+    $absRc = Invoke-SyntheticStep -Lines ($absBase + @('cmd.windows probe  exit 3'))
+    if ($absRc.Text -notlike '*FAIL (exit 3)*' -or $absRc.Ok) {
+        Write-Err 'pipeline: an absent: step that exits non-zero must still FAIL with its own code'
+        Write-Err "  got: $($absRc.Text.Trim())"
+        return $false
+    }
+    $script:Failed = @()
+    Write-Host '   an absent: verdict fails a step that exits 0 having measured nothing'
 
     # ---------------------------------------------------------------------------------
     # Carve-outs (F-GATE-003). Three separable properties, tested separately because a
@@ -1570,20 +1668,41 @@ function Invoke-ContractStep {
     # port's `run_step`: a marker verdict only sees what its own re-run prints, and an
     # integration body that skips itself prints its marker in step 5's output and nowhere
     # else. Surfacing never changes the verdict; the exit code still decides.
+    #
+    # An `absent:<text>` verdict reads the SAME captured copy: the exit code still decides,
+    # AND a line of the step's own output containing <text> fails it. It exists for a gate
+    # whose bodies can refuse to measure and still return green -- the memory class's
+    # `SKIPPED [TDD` -- where a step judged by its exit code alone reports PASS
+    # having measured nothing, and the run that passes is the one nobody reads.
     $surface = Get-ContractValue 'surface' $Id
-    if ($surface) {
+    $absent = ''
+    if ($verdict -cmatch '^absent:') { $absent = $verdict.Substring('absent:'.Length) }
+    if ($surface -or $absent) {
         # Tee-Object -Variable never creates the variable when the command prints nothing,
         # and StrictMode then throws on the read below; seed it empty.
         $stepOut = @()
         Invoke-ContractCommand -CommandLine $cmd | Tee-Object -Variable stepOut
         # -SimpleMatch and -CaseSensitive for the same reasons as the marker branch above.
-        $hits = @($stepOut | Select-String -SimpleMatch -CaseSensitive -Pattern $surface |
-                  ForEach-Object { $_.Line.Trim() })
-        if ($hits.Count) {
-            Write-Host "    surfaced '$surface':"
-            foreach ($h in $hits) { Write-Host "    $h" -ForegroundColor Yellow }
-        } else {
-            Write-Host "    no tests reported '$surface'"
+        if ($surface) {
+            $hits = @($stepOut | Select-String -SimpleMatch -CaseSensitive -Pattern $surface |
+                      ForEach-Object { $_.Line.Trim() })
+            if ($hits.Count) {
+                Write-Host "    surfaced '$surface':"
+                foreach ($h in $hits) { Write-Host "    $h" -ForegroundColor Yellow }
+            } else {
+                Write-Host "    no tests reported '$surface'"
+            }
+        }
+        if ($absent) {
+            $bad = @($stepOut | Select-String -SimpleMatch -CaseSensitive -Pattern $absent |
+                     ForEach-Object { $_.Line.Trim() })
+            if ($bad.Count) {
+                Write-Host "    REFUSED: this step's verdict requires '$absent' to be absent from its output:"
+                foreach ($b in $bad) { Write-Host "    $b" -ForegroundColor Red }
+                # Only promote a zero exit code; a non-zero one is already the step's
+                # verdict and its real number is more use in the FAIL line than a 1.
+                if ($script:StepExitCode -eq 0) { $script:StepExitCode = 1 }
+            }
         }
     } else {
         Invoke-ContractCommand -CommandLine $cmd
@@ -1598,9 +1717,176 @@ function Invoke-ContractStep {
 }
 
 # --------------------------------------------------------------------------------------
+# The build environment, as VALUES rather than as assignments, so there is exactly one
+# definition of it and two consumers: the setup phase below applies it to this process,
+# and `-PrintSetupEnv` hands it to scripts/git-hooks/pre-push, which runs under Git for
+# Windows' bash and cannot read a PowerShell script.
+#
+# THE HOOK USED TO HAVE NO ENVIRONMENT AT ALL. `git push` from a bare shell died in the
+# -sys crates' build scripts with "The pkg-config command could not be found" and refused
+# the push, and the hook's own header told the reader to go and find a shell that carried
+# the environment. That is a gate whose answer depends on which window you typed in.
+#
+# The hook ASKS rather than copies. $Prefix's default lives in the param block and nowhere
+# else (POLICY, "A number has one owner"); a bash copy of `C:\gtk-build\...` would be the
+# second one, and it would go stale silently while reading as current.
+#
+# PATH is returned as `PATH_PREPEND`, a lone directory rather than a joined list, because
+# the two shells disagree about what a PATH is: bash's is POSIX and colon-separated, the
+# toolchain's is Windows and semicolon-separated. Handing bash a Windows PATH breaks bash
+# itself. One directory is unambiguous, and the caller joins it in its own grammar.
+# --------------------------------------------------------------------------------------
+# Git for Windows' bash, for the one contract command that needs a POSIX shell: the
+# pre-push hook's own self-test, which steps 8 on Linux and macOS already run.
+#
+# DERIVED FROM git.exe, NEVER LOOKED UP ON PATH, and that is the whole substance of this
+# function. `C:\Windows\System32\bash.exe` is the WSL launcher: on a machine where WSL is
+# installed it is what a PATH lookup finds FIRST, and it would run the hook inside a Linux
+# distribution -- a different filesystem, a different git, no Windows paths -- which fails
+# in ways that read as the hook being broken rather than as the wrong interpreter. On this
+# box bash is not on PATH at all (measured), so the naive lookup does not merely find the
+# wrong one, it finds nothing, and the step would have been "works on my machine" in
+# reverse.
+#
+# git.exe is the anchor because the project cannot run without it, and Git for Windows ships
+# bash beside it. The walk goes UP from git's own directory (\cmd, \bin or \mingw64\bin are
+# all possible) looking for bin\bash.exe, so it survives the layouts without knowing them.
+# A candidate under the Windows directory is refused outright: nothing legitimate puts Git's
+# bash there, and that is precisely where the impostor lives.
+# --------------------------------------------------------------------------------------
+function Get-GitBash {
+    $git = Get-Command git.exe -CommandType Application -ErrorAction SilentlyContinue |
+           Select-Object -First 1
+    if (-not $git) {
+        throw 'git.exe not found, so Git for Windows'' bash cannot be located. The pipeline needs it for the pre-push hook self-test (step 8).'
+    }
+    $windir = [Environment]::GetFolderPath('Windows')
+    $dir = Split-Path $git.Source -Parent
+    while ($dir) {
+        $cand = Join-Path $dir 'bin\bash.exe'
+        if ((Test-Path $cand) -and -not $cand.StartsWith($windir, [StringComparison]::OrdinalIgnoreCase)) {
+            return $cand
+        }
+        $dir = Split-Path $dir -Parent
+    }
+    throw "Found git at $($git.Source) but no bin\bash.exe above it. Install Git for Windows (which ships bash); do NOT put System32\bash.exe on PATH -- that is WSL."
+}
+
+function Get-SetupEnvironment {
+    # pkgconf/pkg-config ship inside the gvsbuild tree; there is no system-wide
+    # pkg-config, so $Prefix\bin must be on PATH or gtk4-sys's build script cannot probe.
+    # build.rs also shells out to glib-compile-resources from the same place.
+    #
+    # LIB/INCLUDE are appended to only when there is something to append -- the same guard
+    # build.bat carries, and for the same reason: prepending onto an unset variable leaves
+    # a trailing `;`, and an empty entry in those lists means "the current directory" to
+    # the toolchain.
+    $e = [ordered] @{}
+    $e['PKG_CONFIG_PATH'] = "$Prefix\lib\pkgconfig"
+    $e['LIB']             = if ($env:LIB)     { "$Prefix\lib;$env:LIB" }         else { "$Prefix\lib" }
+    $e['INCLUDE']         = if ($env:INCLUDE) { "$Prefix\include;$env:INCLUDE" } else { "$Prefix\include" }
+    $e['PATH_PREPEND']    = "$Prefix\bin"
+    return $e
+}
+
+# --------------------------------------------------------------------------------------
+# Client-area animation -- PROVISIONING for the animation half of the GTK suite, and the
+# whole half depends on it. A hosted Windows image has it OFF, which is a real
+# accessibility preference and the one `src/platform/win32/reduced_motion.rs` reads. With
+# it off, `policy::effective_play` is false no matter what a test sets, so
+# `EnableAnimationsGuard::set` refuses to run rather than let 49 playback assertions fail
+# for a reason none of them mentions -- the guard behaving exactly as designed, on a
+# machine nobody had configured for it.
+#
+# It is provisioned here rather than worked around in the tests because the alternative is
+# a seam that forces the platform's answer, and the platform's answer is precisely what the
+# animation policy exists to obey.
+#
+# IT LIVES IN THE RUNNER, NOT IN CI. The workflow invokes the runner whole and names no
+# step (POLICY section Continuous integration), so a provisioning step only CI performed
+# meant the suite was runnable on the hosted image and silently unrunnable for anyone who
+# ran the gate locally with the preference off -- the asymmetry invisible from either side.
+#
+# READS BACK AND FAILS: the only trustworthy evidence that the call took is
+# SPI_GETCLIENTAREAANIMATION agreeing afterwards. Setting and assuming would hand the
+# pipeline the same 49 failures with one more green line above them.
+#
+# AND IT RESTORES. On CI the image is discarded, so a restore is free; on a contributor's
+# own machine the preference is THEIRS, and leaving it flipped after the run would make the
+# gate a permanent edit to an accessibility setting nobody agreed to. The run says what it
+# changed, and the `finally` at the bottom of this file puts it back. Both halves are
+# announced, because a silent change is the thing being avoided and a silent restore is how
+# someone concludes the first announcement was wrong.
+# --------------------------------------------------------------------------------------
+$script:AnimationWasOff = $false
+
+function Get-ClientAreaAnimation {
+    # The value travels in pvParam and uiParam MUST be 0 -- MEASURED on this seat: every
+    # uiParam=1 spelling returns FALSE with ERROR_INVALID_PARAMETER and moves nothing. Do
+    # not "also try" the other spelling as insurance; under the pvParam reading a uiParam=1
+    # call is read as FALSE and would UNDO the call before it, provisioning green and
+    # leaving the suite red.
+    if (-not ('Spi' -as [type])) {
+        Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class Spi {
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool SystemParametersInfo(uint a, uint p, ref int v, uint f);
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool SystemParametersInfo(uint a, uint p, IntPtr v, uint f);
+}
+'@
+    }
+    $v = 0
+    [void][Spi]::SystemParametersInfo(0x1042, 0, [ref]$v, 0)
+    return $v
+}
+
+function Set-ClientAreaAnimation {
+    param([Parameter(Mandatory = $true)][int] $On)
+    [void](Get-ClientAreaAnimation)   # forces the Add-Type, so [Spi] resolves below
+    # The BOOL return, never GetLastError: the successful calls were measured leaving a
+    # stale ERROR_ENVVAR_NOT_FOUND behind them.
+    $ok = [Spi]::SystemParametersInfo(0x1043, 0, [IntPtr] $On, 0x0002)
+    $after = Get-ClientAreaAnimation
+    return ($ok -and $after -eq $On)
+}
+
+function Initialize-ClientAreaAnimation {
+    $before = Get-ClientAreaAnimation
+    Write-Host ('    {0,-18} {1}' -f 'animation', "SPI_CLIENTAREAANIMATION=$before")
+    if ($before -ne 0) { return }
+
+    if (-not (Set-ClientAreaAnimation -On 1)) {
+        throw ("Could not turn client-area animation on for this session. " +
+               "Every animation-playback test will refuse to run (see " +
+               "EnableAnimationsGuard::set), so the pipeline is stopped here, " +
+               "where the cause is named, rather than 49 assertions later.")
+    }
+    $script:AnimationWasOff = $true
+    Write-Host '    client-area animation was OFF and is now ON for this run.' -ForegroundColor Yellow
+    Write-Host '    It is YOUR setting; it is restored when this run ends.' -ForegroundColor Yellow
+}
+
+function Restore-ClientAreaAnimation {
+    if (-not $script:AnimationWasOff) { return }
+    $script:AnimationWasOff = $false
+    if (Set-ClientAreaAnimation -On 0) {
+        Write-Host 'client-area animation restored to OFF, as it was before this run.'
+    } else {
+        # Loud, and not a throw: the gate's verdict is about the code under test, and
+        # failing a passing run over the restore would misreport it. Say it so the person
+        # can put it back by hand.
+        Write-Host 'WARNING: could not restore client-area animation to OFF. Set it back in' -ForegroundColor Yellow
+        Write-Host 'Settings > Accessibility > Visual effects > Animation effects.' -ForegroundColor Yellow
+    }
+}
+
+# --------------------------------------------------------------------------------------
 # Setup phase -- environment, no verdict, cannot be skipped or reordered, and NOT a step.
-# Its description comes from the contract; the four assignments live here because only
-# this platform has them.
+# Its description comes from the contract; the four assignments and the animation
+# preference live here because only this platform has them.
 # --------------------------------------------------------------------------------------
 function Invoke-SetupPhase {
     Show-Announce "setup phase ($PLATFORM)"
@@ -1625,18 +1911,10 @@ function Invoke-SetupPhase {
         throw "GTK prefix not found at $Prefix. Build it with gvsbuild first -- see packaging/windows/README.md, or set SCRIB_GTK_PREFIX."
     }
 
-    # pkgconf/pkg-config ship inside the gvsbuild tree; there is no system-wide
-    # pkg-config, so $Prefix\bin must be on PATH or gtk4-sys's build script cannot probe.
-    # build.rs also shells out to glib-compile-resources from the same place.
-    #
-    # LIB/INCLUDE are appended to only when there is something to append -- the same guard
-    # build.bat carries, and for the same reason: prepending onto an unset variable leaves
-    # a trailing `;`, and an empty entry in those lists means "the current directory" to
-    # the toolchain.
-    $env:PATH            = "$Prefix\bin;$env:PATH"
-    $env:PKG_CONFIG_PATH = "$Prefix\lib\pkgconfig"
-    $env:LIB             = if ($env:LIB)     { "$Prefix\lib;$env:LIB" }         else { "$Prefix\lib" }
-    $env:INCLUDE         = if ($env:INCLUDE) { "$Prefix\include;$env:INCLUDE" } else { "$Prefix\include" }
+    foreach ($kv in (Get-SetupEnvironment).GetEnumerator()) {
+        if ($kv.Key -ceq 'PATH_PREPEND') { $env:PATH = "$($kv.Value);$env:PATH"; continue }
+        Set-Item -Path "Env:$($kv.Key)" -Value $kv.Value
+    }
 
     Write-Host ('    {0,-18} {1}' -f 'prefix', $Prefix)
     foreach ($m in @('gtk4', 'gtksourceview-5', 'glib-2.0')) {
@@ -1644,6 +1922,16 @@ function Invoke-SetupPhase {
         if (-not $v) { throw "pkg-config cannot resolve $m" }
         Write-Host ('    {0,-18} {1}' -f $m, $v)
     }
+
+    # Resolved HERE and published as SCRIB_BASH so the contract can name one POSIX shell
+    # without restating a path. Every contract command is dispatched through `cmd /c`, which
+    # expands %SCRIB_BASH% at the point of use. Resolving it in the setup phase also means a
+    # machine without Git bash fails in the setup phase, where the message says so, rather
+    # than at step 8 with cmd reporting that '"%SCRIB_BASH%"' is not recognised.
+    $env:SCRIB_BASH = Get-GitBash
+    Write-Host ('    {0,-18} {1}' -f 'bash', $env:SCRIB_BASH)
+
+    Initialize-ClientAreaAnimation
 }
 
 # Inno Setup discovery and the installer invocation now live in package.ps1, which the
@@ -1672,6 +1960,29 @@ function Invoke-SetupPhase {
 # --------------------------------------------------------------------------------------
 if ($SelfTest) {
     if (-not (Invoke-SelfTest)) { exit 1 }
+    exit 0
+}
+
+# -PrintSetupEnv: the build environment on stdout as NAME=VALUE lines, for a caller that
+# cannot source PowerShell -- scripts/git-hooks/pre-push, under Git for Windows' bash.
+#
+# It sits beside -SelfTest and before the contract gate deliberately: it reads no contract
+# and runs no step, so a malformed contract must not stop a push from getting its
+# environment, and the hook would then fail on `cargo` for a reason that has nothing to do
+# with the contract.
+#
+# The missing-prefix check is the SAME throw the setup phase makes. Printing a confident
+# environment that points at a directory which is not there would move the failure into
+# cargo's build scripts, which is exactly the unreadable error this whole change exists to
+# remove. Message to stderr, so a caller eval-ing stdout cannot swallow it.
+if ($PrintSetupEnv) {
+    if (-not (Test-Path $Prefix)) {
+        [Console]::Error.WriteLine("GTK prefix not found at $Prefix. Build it with gvsbuild first -- see packaging/windows/README.md, or set SCRIB_GTK_PREFIX.")
+        exit 1
+    }
+    foreach ($kv in (Get-SetupEnvironment).GetEnumerator()) {
+        Write-Output ("{0}={1}" -f $kv.Key, $kv.Value)
+    }
     exit 0
 }
 
@@ -1720,6 +2031,11 @@ try {
     }
 }
 finally {
+    # Restore before Pop-Location, and inside the SAME finally, so every exit path from the
+    # run -- a failed step, a throw out of the setup phase, the packaging branch -- puts the
+    # preference back. A restore placed after the try would be skipped by a throw, which is
+    # precisely the run that leaves a machine altered.
+    Restore-ClientAreaAnimation
     Pop-Location
 }
 

@@ -579,7 +579,7 @@ pub(crate) struct Renderer {
     /// misaligns from the first one (GTK4Rs/AP-320). Writing at a mark means the
     /// renderer creates the anchors itself, which is why this is the seam rather than a
     /// buffer-to-buffer copy.
-    at: Option<WriteMark>,
+    at: Option<OwnedMark>,
     /// Buffer offset a REGION render began writing at, `None` for a full render.
     ///
     /// Kept because [`Self::finish_region`] needs the region's own extent and the write
@@ -710,7 +710,10 @@ pub(crate) struct DisclosureFrame {
 /// a fact only the render knows. Collapsing a block is a delete of [`Self::body`];
 /// expanding one is a write at its (empty) start.
 ///
-/// One entry per disclosure this render actually DREW, in document order. A block
+/// One entry per disclosure this render actually DREW, in the order the blocks CLOSE
+/// (post-order: an inner block precedes the block containing it). That is not the
+/// order the toggles are recorded in, so pair an extent with its toggle by position
+/// (`summary.start`), never by index. A block
 /// nested inside a collapsed one draws nothing — not even a summary line — and so has
 /// no extent; its content is inside its ancestor's body and moves with it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -870,35 +873,7 @@ pub(crate) struct CollapsedSite {
 #[derive(Debug, Clone)]
 pub(crate) struct RegionSeed(InterBlock);
 
-/// A region render's write mark, which deletes itself from the buffer when the render
-/// that made it goes away.
-///
-/// **A wrapper rather than a `Drop` on [`Renderer`]**, and the reason is mechanical:
-/// `Renderer` has its maps moved out of it field by field when a render finishes
-/// (`preview::build`), and a type that implements `Drop` cannot be partially moved
-/// from. Owning the mark in a one-field guard keeps the guarantee and costs the
-/// callers nothing.
-///
-/// The guarantee itself is `ReaderAnchor`'s argument one module over: the create and
-/// the last use are in different functions, so a delete at each exit is the rule the
-/// next exit forgets. The mark lives in the LIVE buffer, which a tab keeps for its
-/// whole life, so one left behind is never collected — and a `GtkTextMark` has no
-/// visible effect until something enumerates them, which is why it accumulated
-/// silently, one per splice (F-AP2-003).
-#[derive(Debug)]
-pub(crate) struct WriteMark(gtk::TextMark);
-
-impl Drop for WriteMark {
-    fn drop(&mut self) {
-        use gtk::prelude::{TextBufferExt, TextMarkExt};
-        if self.0.is_deleted() {
-            return;
-        }
-        if let Some(buffer) = self.0.buffer() {
-            buffer.delete_mark(&self.0);
-        }
-    }
-}
+pub(crate) use crate::saferizer::owned_mark::OwnedMark;
 
 impl Renderer {
     /// Tell this render it is writing into a LIVE, on-screen view, so every anchored
@@ -956,7 +931,7 @@ impl Renderer {
         let iter = self.buf.iter_at_offset(offset);
         // Assigning over an existing mark drops it, and dropping it deletes it: a
         // second `write_at` cannot strand the first.
-        self.at = Some(WriteMark(self.buf.create_mark(None, &iter, false)));
+        self.at = Some(OwnedMark::new(self.buf.create_mark(None, &iter, false)));
         self.region_start = Some(offset);
     }
 
@@ -968,7 +943,7 @@ impl Renderer {
     pub(super) fn tip(&self) -> gtk::TextIter {
         use gtk::prelude::TextBufferExt;
         match &self.at {
-            Some(mark) => self.buf.iter_at_mark(&mark.0),
+            Some(mark) => self.buf.iter_at_mark(mark.mark()),
             None => self.buf.end_iter(),
         }
     }
@@ -1158,7 +1133,7 @@ impl Renderer {
         // Every open level, so the deepest wins on priority exactly as it does when the
         // levels close in order.
         for depth in 1..=self.inter.blockquote_starts.len() {
-            let depth = (depth as u8).clamp(1, crate::tags::MAX_QUOTE_DEPTH);
+            let depth = depth.clamp(1, usize::from(crate::tags::MAX_QUOTE_DEPTH)) as u8;
             self.apply_tag_per_line(crate::tags::TagName::Blockquote { depth }, start, end);
         }
         if !self.inter.blockquote_starts.is_empty() {

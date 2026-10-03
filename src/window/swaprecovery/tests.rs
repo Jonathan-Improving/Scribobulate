@@ -118,8 +118,8 @@ fn recovery_repairs_the_derived_source_and_not_only_the_editor_buffer() {
 
 /// The `.swap` files filed under `stem` in the (test-redirected) swap directory.
 ///
-/// Filtered by stem because the directory is not this test's alone: tabs left alive by
-/// earlier tests on the same main thread can still snapshot into it.
+/// Filtered by stem as a second line of defence: `with_state_home_for_test` discards
+/// and closes every window a test opened before lifting its redirect.
 fn swaps_left(state_home: &std::path::Path, stem: &str) -> Vec<std::path::PathBuf> {
     let dir = state_home.join("scribobulate").join("swap");
     let prefix = format!("{stem}-");
@@ -257,6 +257,87 @@ fn a_recovery_that_leaves_the_tab_clean_removes_its_snapshot() {
                 .label_text()
                 .contains("Recovered"),
             "and a recovery that brought nothing unsaved back is not announced"
+        );
+    });
+}
+
+/// The same clean recovery on a STALE baseline (the file changed after the snapshot)
+/// raises no external-change conflict: nothing unsaved came back, so there is nothing
+/// to reconcile.
+///
+/// Mutation: move the `came_back` return in `apply_recovered_content` below the stale branch
+/// and the conflict flag is raised for a clean tab.
+#[gtktest::test]
+fn a_clean_recovery_on_a_stale_baseline_raises_no_conflict() {
+    let dir = tempfile::tempdir().unwrap();
+    crate::session::with_state_home_for_test(dir.path(), || {
+        let app =
+            super::super::gtk_integration_tests::test_app("com.extollit.scribobulate.it.rec14s");
+        let doc = dir.path().join("notes.md");
+        std::fs::write(&doc, "alpha\nbeta").unwrap();
+        let win = new_window(&app, "IT", "alpha\nbeta", Some(&doc));
+        let tab = winstate::state(&win).expect("a tab");
+        let doc_id = DocId::generate();
+        tab.adopt_doc_id(doc_id.clone());
+        seed_swap(
+            dir.path(),
+            &header(doc_id, Some(&doc), b"an older version of the file"),
+            "alpha\rbeta",
+        );
+
+        gtk::glib::MainContext::default().block_on(recover_after_restore(&app));
+
+        assert!(
+            !tab.is_dirty(),
+            "precondition: the applied content is the file's"
+        );
+        assert!(
+            !tab.pending_external.get(),
+            "a recovery that left the tab clean must not raise a conflict prompt"
+        );
+    });
+}
+
+/// A recovery is written as a load, not an edit: one Ctrl+Z cannot revert the recovered
+/// work to the file (the way back is Discard recovery), and the caret starts at the top
+/// like every other load.
+///
+/// Mutation: write the buffer with a raw `set_text` again and `can_undo` turns true.
+#[gtktest::test]
+fn a_recovery_is_a_load_that_undo_cannot_revert() {
+    use gtk::prelude::TextBufferExt;
+    let dir = tempfile::tempdir().unwrap();
+    crate::session::with_state_home_for_test(dir.path(), || {
+        let app =
+            super::super::gtk_integration_tests::test_app("com.extollit.scribobulate.it.recundo");
+        let doc = dir.path().join("notes.md");
+        std::fs::write(&doc, "on disk").unwrap();
+        let win = new_window(&app, "IT", "on disk", Some(&doc));
+        let tab = winstate::state(&win).expect("a tab");
+        let doc_id = DocId::generate();
+        tab.adopt_doc_id(doc_id.clone());
+        seed_swap(
+            dir.path(),
+            &header(doc_id, Some(&doc), b"on disk"),
+            "recovered work\nline two",
+        );
+
+        gtk::glib::MainContext::default().block_on(recover_after_restore(&app));
+
+        assert_eq!(
+            tab.editor_text(),
+            "recovered work\nline two",
+            "precondition: recovered"
+        );
+        assert!(
+            !tab.editor_buf.can_undo(),
+            "Undo must not revert a recovery to the file"
+        );
+        let caret = tab.editor_buf.iter_at_mark(&tab.editor_buf.get_insert());
+        assert_eq!(
+            caret.offset(),
+            0,
+            "the caret starts at the top, as on every load"
         );
     });
 }

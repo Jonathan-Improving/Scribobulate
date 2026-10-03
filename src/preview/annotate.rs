@@ -72,7 +72,8 @@ pub(crate) fn capture_editor_selection(
 ///
 /// The card's Save resolves it once, at the one choke point the mutation is applied
 /// (`window::annotate::apply_annotation_edit`), so the annotation lands on the text the
-/// reader selected or on nothing at all — never on a different range.
+/// reader selected or on nothing at all — never on another occurrence of the same
+/// words, because the target is held with its neighbours (`docref::capture_in_context`).
 #[derive(Clone, Debug)]
 pub(crate) struct PendingTarget {
     span: crate::docref::AnchoredSpan,
@@ -88,10 +89,17 @@ impl PendingTarget {
             SelectionTarget::Point(range) => (range, true),
         };
         Some(Self {
-            // `Nearest`, the default: an annotation target is prose the reader chose,
-            // and the nearest occurrence to where it was is the text that moved. Compare
-            // a disclosure's opening delimiter, which a document repeats (`docref`).
-            span: crate::docref::AnchoredSpan::capture(source, span)?,
+            // **In context**: an annotation target is prose the reader chose, which a
+            // document repeats (`the`, `flat`), so the selected text alone cannot name
+            // one place. Its neighbours make it distinctive; `Nearest` then only breaks
+            // a tie between occurrences whose surroundings also match. If the edit
+            // touched the neighbours, the target does not resolve and the card's commit
+            // reports that rather than writing onto another occurrence.
+            span: crate::docref::AnchoredSpan::capture_in_context(
+                source,
+                span,
+                crate::docref::Ambiguity::Nearest,
+            )?,
             point,
         })
     }

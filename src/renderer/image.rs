@@ -156,6 +156,9 @@ pub(crate) fn image_placeholder_tooltip(
         ImageResolution::Refused => {
             format!("Blocked image (enable Show Unsafe Images to load): {src}")
         }
+        ImageResolution::NetworkShare => {
+            format!("Network share images are never loaded: {src}")
+        }
         ImageResolution::Missing => format!("Image not found: {src}"),
         // Resolved to a path/URI, but the texture never loaded — the file exists
         // (or the URL was fetched) yet could not be decoded as an image.
@@ -170,6 +173,19 @@ mod image_placeholder_tests {
     use super::image_placeholder_tooltip;
     use crate::links::ImageResolution;
     use std::path::PathBuf;
+
+    /// A network-share refusal says so, and does not send the reader to a toggle that
+    /// would not admit it.
+    #[test]
+    fn a_network_share_placeholder_names_the_share_not_the_toggle() {
+        let tip = image_placeholder_tooltip(&ImageResolution::NetworkShare, false, r"\\h\s\x.png")
+            .expect("a placeholder");
+        assert!(
+            tip.starts_with("Network share images are never loaded"),
+            "{tip}"
+        );
+        assert!(!tip.contains("Show Unsafe Images"), "{tip}");
+    }
 
     #[test]
     fn loaded_image_has_no_placeholder() {

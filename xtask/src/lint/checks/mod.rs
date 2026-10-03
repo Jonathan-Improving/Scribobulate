@@ -43,6 +43,7 @@ pub fn run_all(tree: &Tree) -> bool {
         register::next_free_number_is_free(tree),
         register::register_prescribes_a_banned_route(tree),
         architecture::held_reference_rows(tree),
+        references::policy_step_cited(tree),
     ];
     verdicts.into_iter().all(|ok| ok)
 }

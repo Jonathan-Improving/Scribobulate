@@ -41,13 +41,12 @@ fn editor_count(hay: &str, query: &str, opts: FindOptions) -> Result<i32, String
     let settings = sourceview::SearchSettings::new();
     // Exactly what the find bar hands the engine — the application's own wrapping for a
     // whole-word regular expression, and the engine's own for a literal
-    // (`window::findbar::refresh_find` / `push_options_to_engine`). Setting the RAW
+    // (`matcher::configure_engine_options` / `configure_engine_query`, the functions the
+    // find bar itself calls). Setting the RAW
     // query here instead would measure an engine the application never drives, which is
     // how this file came to record a false conclusion once already.
-    settings.set_case_sensitive(opts.case_sensitive);
-    settings.set_at_word_boundaries(super::matcher::engine_applies_word_boundaries(opts));
-    settings.set_regex_enabled(opts.regex);
-    settings.set_search_text(Some(super::matcher::editor_pattern(query, opts).as_str()));
+    super::matcher::configure_engine_options(&settings, opts);
+    super::matcher::configure_engine_query(&settings, query, opts);
     let sc = sourceview::SearchContext::new(&buf, Some(&settings));
     crate::testpump::until(
         crate::testpump::Clock::Idle,
@@ -135,28 +134,11 @@ fn whole_word_draws_the_word_boundary_at_the_same_characters() {
     }
 }
 
-/// **Question 1 — how whole word wraps a regular expression.** A bare `\bcat|dog\b`
-/// binds each anchor to one branch of the alternation, so it would match `dogma`'s
-/// `dog` while the non-capturing `\b(?:cat|dog)\b` would not. The two panes would then
-/// disagree on any alternation the reader types with *whole word* ticked.
-///
-/// MEASURED: GtkSourceView wraps with the non-capturing group, and so does the matcher.
-#[gtktest::test]
-fn whole_word_wraps_an_alternation_as_one_group() {
-    const HAY: &str = "cat dog concat dogma a cat, a dog.\n";
-    agree(
-        HAY,
-        "cat|dog",
-        opts(false, true, true),
-        "alternation wrapping",
-    );
-    agree(
-        HAY,
-        "cat|dog",
-        opts(false, false, true),
-        "alternation, unwrapped",
-    );
-}
+// Whole word over a regular-expression ALTERNATION is not a parity case here: both
+// panes compile the same `editor_pattern` string, so a case built from it agrees
+// whatever the wrapper is. GtkSourceView's own wrapper is ungrouped (`matcher.rs`), and
+// the guard that fails when the application's wrapping regresses drives the find bar:
+// `bartests::whole_word_bounds_an_alternation_the_same_way_in_both_panes`.
 
 /// **Question 3 — compile flags.** The matcher compiles with MULTILINE, so `^` anchors
 /// at every line start rather than only at the start of the text. If GtkSourceView did

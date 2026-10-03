@@ -361,29 +361,15 @@ async fn apply_recovered_content(
     // its own tests pin. The substitution is length- and position-preserving, so every
     // offset either half holds still indexes the same logical position.
     let body = crate::lineendings::normalize_lone_cr(&swap.body);
-    tab.loading.set(true);
-    tab.editor_buf.set_text(&body);
-    // `source` is the text every DERIVED view renders from — the preview, the outline,
-    // the annotations list — and it is NOT the editor buffer. Setting only the buffer
-    // leaves the preview showing pre-recovery content: the editor tells the truth and
-    // every projection of it lies, which for a user who works in Preview mode is the
-    // whole feature silently failing.
-    //
-    // Every other content-changing path in the tree does this in the same breath as the
-    // buffer write (open, save, reload, live re-render, mode switch) — recovery is one
-    // of them and had to be told, which is exactly the Derived-view CAM's "mutates
-    // document state a derived view projects" clause.
-    //
-    // MEASURED, not reasoned: the whole in-crate suite passed with this line missing,
-    // because the assertions read `editor_text()` — the half that worked (GTK4Rs/AP-78). It
-    // took a live run to see it (GTK4Rs/AP-104). The baseline is deliberately NOT touched:
-    // the recovered tab must stay dirty against what is on disk.
-    tab.set_source(&body);
-    tab.loading.set(false);
-    // Recovery mutates content the same way a reload does, so it owes the same
-    // announcement — a monitor read that went out while recovery was working through
-    // its list must not land on top of the recovered text (`winstate::DocEpoch`).
-    tab.doc_epoch.bump();
+    // Through the loaders' shared write (`reload::write_loaded_text`): the find passage
+    // released, `source` set in the same breath as the buffer — `source` is what every
+    // DERIVED view renders from, and a recovery once left the preview showing the
+    // pre-recovery text because only the buffer was written (GTK4Rs/AP-78) — the buffer
+    // written as a non-undoable load, so one Ctrl+Z cannot revert the recovered work to
+    // the file, and the read epoch bumped so a monitor read in flight cannot land on top
+    // of it (`winstate::DocEpoch`). The baseline is deliberately NOT touched: the
+    // recovered tab must stay dirty against what is on disk.
+    super::write_loaded_text(window, tab, &body);
     // Before the invariant runs, never after: it is what tells the tab that a snapshot
     // already sits on disk under its name. Run the other way round, a recovery that left
     // the tab clean met an invariant that believed there was nothing to delete, and the
@@ -431,6 +417,13 @@ async fn apply_recovered_content(
         refresh_annotations(window);
     }
 
+    // Whether anything unsaved actually came back. A snapshot can normalise to the disk
+    // text (a lone CR is the case), and then there is nothing to reconcile or announce:
+    // the conflict prompt and the recovery notice would both describe a clean document.
+    let came_back = tab.needs_close_prompt();
+    if !came_back {
+        return false;
+    }
     if stale {
         // The twin changed on disk since the snapshot was taken, so the recovered content
         // sits on a stale baseline. The work still comes back — losing it is the failure
@@ -443,7 +436,7 @@ async fn apply_recovered_content(
         super::reload::show_conflict_toast(window);
     }
     show_recovery_toast(window, tab, swap.header.written_at);
-    tab.needs_close_prompt()
+    true
 }
 
 /// Remove the file a recovery was read from, **only if the tab will now snapshot to a

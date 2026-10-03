@@ -314,7 +314,7 @@ impl ViewportRect {
 /// which is therefore expected log noise from this call, not a bug in it. Either way the
 /// rectangle means nothing as an anchor once the bool is false, so `None` here discards it
 /// unread rather than trying to characterise which fallback it was.
-#[allow(clippy::disallowed_methods)]
+#[expect(clippy::disallowed_methods)]
 pub(crate) fn pointing_to(popover: &impl IsA<gtk::Popover>) -> Option<gdk::Rectangle> {
     let (is_set, rect) = popover.as_ref().pointing_to();
     is_set.then_some(rect)

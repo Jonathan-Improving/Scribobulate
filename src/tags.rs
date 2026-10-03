@@ -97,8 +97,9 @@ const CODE_INLINE_QUOTE_NAME: &str = "code-inline-quote";
 /// **The inline-code chip's whole surface family, in one place.**
 ///
 /// [`setup_tags_with_theme`] registers from this and every test that walks the family
-/// reads it, so a surface added to `CodeRunSurface` cannot reach the vocabulary while
-/// missing a registration — or reach a registration while missing the checks that hold
+/// reads it, and `the_code_chip_family_lists_every_surface` checks it against
+/// `CodeRunSurface::all`, which does not compile on a new variant until it is walked, so a surface cannot reach the vocabulary
+/// while missing a registration — or reach a registration while missing the checks that hold
 /// the family's invariants (the wrap mode GTK4Rs/AP-136 is about, and the annotation
 /// highlight's priority over every chip).
 pub(crate) const CODE_INLINE_SURFACES: [CodeRunSurface; HEADING_LEVELS + 2] = [
@@ -786,6 +787,22 @@ pub(crate) fn setup_tags_with_theme(buf: &TextBuffer, palette: &Palette, zoom: f
 
 #[cfg(test)]
 mod list_depth_tests {
+
+    /// `CODE_INLINE_SURFACES` holds exactly the surfaces `CodeRunSurface::all` walks,
+    /// which is an exhaustive match beside the enum: a new variant does not compile
+    /// until it is placed in that walk, and then this fails until the tag list has it.
+    #[test]
+    fn the_code_chip_family_lists_every_surface() {
+        let every = crate::palette::CodeRunSurface::all();
+        for surface in &every {
+            assert!(
+                super::CODE_INLINE_SURFACES.contains(surface),
+                "{surface:?} has no registration in CODE_INLINE_SURFACES"
+            );
+        }
+        assert_eq!(every.len(), super::CODE_INLINE_SURFACES.len());
+    }
+
     use super::{TagName, MAX_LIST_DEPTH};
 
     /// QA round 3, P-4. `TagName::name()` must be total for ANY depth, including

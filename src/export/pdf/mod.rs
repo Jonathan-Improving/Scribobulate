@@ -23,7 +23,7 @@
 //! page* — could only be reached by building a document, building a Pango context, and
 //! running the whole measurement pass to inspect what came out. Those answers are now
 //! asked directly, by unit tests that need no display, which is the extraction POLICY
-//! § Build pipeline step 5 describes.
+//! § Build pipeline describes.
 //!
 //! The old doc said "if this file grows a decision, logic has leaked into it". It had
 //! grown several. They live in [`decide`] and [`geometry`] now, and the same warning

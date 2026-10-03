@@ -210,28 +210,64 @@ fn restore_textview_scroll_to_line(sw: &ScrolledWindow, view: &TextView, line: i
         if !view.is_realized() {
             return; // torn down (or not yet on screen) — nothing to scroll
         }
-        let buffer = view.buffer();
-        let clamped = line.clamp(0, (buffer.line_count() - 1).max(0));
-        let iter = buffer
-            .iter_at_line(clamped)
-            .unwrap_or_else(|| buffer.end_iter());
-        // Reuse a single persistent mark (moved, never recreated) — mirrors
-        // `CodePreviewView::scroll_to_buffer_offset` exactly; a create+delete each
-        // call raced GTK's first-paragraph pinning and left the view at the top.
-        // The shared idiom lives in `codeview::move_or_create_mark` (QA M-5).
-        let mark = crate::codeview::move_or_create_mark(&buffer, "scrib-scroll-restore", &iter);
-        // (1) authoritative, validation-safe scroll to the top of `line`;
-        // scroll_to_mark's internal flush_scroll finalises `upper` (the only
-        // validation force here — see the doc comment's myth-bust #1 note).
-        #[allow(clippy::disallowed_methods)] // deliberate raw call — see clippy.toml
-        view.scroll_to_mark(&mark, 0.0, true, 0.0, 0.0);
-        // (2) non-animating clamp re-enables the size-allocate refresh path.
-        let vadj = sw.vadjustment();
-        let max = (vadj.upper() - vadj.page_size()).max(0.0);
-        if vadj.value() > max {
-            crate::saferizer::scrollpos::jump(&vadj, max);
+        // **The allocation gate the preview's twin has** (`CodePreviewView::run_scroll_work`):
+        // mapped is not allocated, and a `scroll_to_mark` issued before the first layout
+        // pass is consumed against no viewport. Re-issued on the first frame that has one,
+        // bounded by wall clock, with the scroller held weakly because the tick is owned
+        // by the view inside it.
+        if view.visible_rect().height() <= 0 {
+            let deadline = gtk::glib::monotonic_time()
+                + i64::try_from(RESTORE_AWAIT_ALLOC.as_micros()).unwrap_or(i64::MAX);
+            let sw_weak = sw.downgrade();
+            view.add_tick_callback(move |widget, _| {
+                let Some(view) = widget.downcast_ref::<TextView>() else {
+                    return gtk::glib::ControlFlow::Break;
+                };
+                let Some(sw) = sw_weak.upgrade() else {
+                    return gtk::glib::ControlFlow::Break;
+                };
+                if !view.is_realized() || gtk::glib::monotonic_time() >= deadline {
+                    return gtk::glib::ControlFlow::Break;
+                }
+                if view.visible_rect().height() <= 0 {
+                    return gtk::glib::ControlFlow::Continue;
+                }
+                scroll_textview_to_line(&sw, view, line);
+                gtk::glib::ControlFlow::Break
+            });
+            return;
         }
+        scroll_textview_to_line(&sw, &view, line);
     });
+}
+
+/// How long an editor scroll restore waits for the view's first allocation. Wall clock,
+/// because the allocation arrives with a layout pass on the frame clock (GTK4Rs/AP-122).
+const RESTORE_AWAIT_ALLOC: std::time::Duration = std::time::Duration::from_millis(1000);
+
+/// The scroll itself, on an allocated view: see [`restore_textview_scroll_to_line`].
+fn scroll_textview_to_line(sw: &ScrolledWindow, view: &TextView, line: i32) {
+    let buffer = view.buffer();
+    let clamped = line.clamp(0, (buffer.line_count() - 1).max(0));
+    let iter = buffer
+        .iter_at_line(clamped)
+        .unwrap_or_else(|| buffer.end_iter());
+    // Reuse a single persistent mark (moved, never recreated) — mirrors
+    // `CodePreviewView::scroll_to_buffer_offset` exactly; a create+delete each
+    // call raced GTK's first-paragraph pinning and left the view at the top.
+    // The shared idiom lives in `codeview::move_or_create_mark` (QA M-5).
+    let mark = crate::codeview::move_or_create_mark(&buffer, "scrib-scroll-restore", &iter);
+    // (1) authoritative, validation-safe scroll to the top of `line`;
+    // scroll_to_mark's internal flush_scroll finalises `upper` (the only
+    // validation force here — see the doc comment's myth-bust #1 note).
+    #[expect(clippy::disallowed_methods)] // deliberate raw call — see clippy.toml
+    view.scroll_to_mark(&mark, 0.0, true, 0.0, 0.0);
+    // (2) non-animating clamp re-enables the size-allocate refresh path.
+    let vadj = sw.vadjustment();
+    let max = (vadj.upper() - vadj.page_size()).max(0.0);
+    if vadj.value() > max {
+        crate::saferizer::scrollpos::jump(&vadj, max);
+    }
 }
 
 /// Restore a scroller to an exact buffer `line` — the *same-buffer* entry point

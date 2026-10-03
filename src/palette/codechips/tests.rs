@@ -215,6 +215,21 @@ fn a_tile_only_band_offers_no_chip() {
     assert_eq!(surface_at(&t, Some(0), 0), CodeRunSurface::Heading(0));
 }
 
+/// A band made of a SCENE alone paints no surface of its own — the scene is a picture
+/// in a corner over the page — so a code run in that heading sits on the page, or on
+/// the quote panel when the heading is in a filled quote, and keeps that surface's chip.
+#[test]
+fn a_scene_only_band_leaves_the_run_on_what_is_behind_it() {
+    let mut t = themed("[themes.t]\nbackground = \"#ffffff\"\nforeground = \"#111111\"\nblockquote_bg = \"#101010\"\n");
+    t.sprites.heading_band_scene[1] = Some(crate::sprite::SpriteRef::Compiled("a-corner-picture"));
+    assert!(
+        t.heading_band_decor(1).is_present(),
+        "a scene alone IS a band"
+    );
+    assert_eq!(surface_at(&t, Some(1), 0), CodeRunSurface::Page);
+    assert_eq!(surface_at(&t, Some(1), 1), CodeRunSurface::Quote);
+}
+
 /// The precedence: a banded heading wins over a quote it sits inside, because the band
 /// is the nearer surface. h6-and-deeper folds onto h5's slot like every other key.
 #[test]

@@ -72,10 +72,13 @@ pub(crate) struct TickFit {
 /// box — the caller then draws the default checkmark, so the checked state never goes
 /// blank.
 pub(crate) fn tick_fit(ink: Ink, bx: Square) -> Option<TickFit> {
-    let longer = ink.w.max(ink.h);
-    if longer <= 0.0 || bx.side <= 0.0 {
+    // BOTH extents: an ink rectangle with no width (or no height) draws nothing, and
+    // Pango reports exactly that for an empty or zero-width run (w=0, h=1 MEASURED on
+    // Windows), which a longer-side test let through as a tick to draw.
+    if ink.w <= 0.0 || ink.h <= 0.0 || bx.side <= 0.0 {
         return None;
     }
+    let longer = ink.w.max(ink.h);
     let scale = bx.side * TICK_FILL / longer;
     let (cx, cy) = (bx.x + bx.side / 2.0, bx.y + bx.side / 2.0);
     Some(TickFit {
@@ -83,6 +86,58 @@ pub(crate) fn tick_fit(ink: Ink, bx: Square) -> Option<TickFit> {
         x: cx - (ink.x + ink.w / 2.0) * scale,
         y: cy - (ink.y + ink.h / 2.0) * scale,
     })
+}
+
+/// The default checkmark's three points as fractions of the box's side — the one
+/// definition the preview gutter, the copy button's confirmation, the PDF raster and the
+/// HTML sink's fallback all draw.
+pub(crate) const CHECKMARK: [(f64, f64); 3] = [(0.24, 0.52), (0.42, 0.70), (0.76, 0.30)];
+
+/// The default checkmark's stroke width at [`DESIGN_SIDE`].
+pub(crate) const CHECKMARK_STROKE: f64 = 2.0;
+
+/// Trace the default checkmark inside a `size`-square box at `(x, y)`.
+pub(crate) fn checkmark_path(cr: &cairo::Context, x: f64, y: f64, size: f64) {
+    let [(ax, ay), (bx, by), (cx, cy)] = CHECKMARK;
+    cr.move_to(x + size * ax, y + size * ay);
+    cr.line_to(x + size * bx, y + size * by);
+    cr.line_to(x + size * cx, y + size * cy);
+}
+
+/// The ink rectangle `text` draws in the default font, measured on a scratch surface.
+fn ink_of(cr: &cairo::Context, text: &str) -> (gtk::pango::Layout, Ink) {
+    let layout = pangocairo::functions::create_layout(cr);
+    layout.set_text(text);
+    let (ink_rect, _) = layout.pixel_extents();
+    let ink = Ink {
+        x: f64::from(ink_rect.x()),
+        y: f64::from(ink_rect.y()),
+        w: f64::from(ink_rect.width()),
+        h: f64::from(ink_rect.height()),
+    };
+    (layout, ink)
+}
+
+/// Whether a themed tick draws anything at all. A glyph with no ink (U+200B)
+/// gets the default checkmark instead in every sink, so a checked box is never empty
+/// (TDD 18.63). The same predicate [`tick_fit`] applies, asked of a unit box.
+pub(crate) fn tick_has_ink(text: &str) -> bool {
+    let Ok(surface) = cairo::ImageSurface::create(cairo::Format::ARgb32, 1, 1) else {
+        return true;
+    };
+    let Ok(cr) = cairo::Context::new(&surface) else {
+        return true;
+    };
+    let (_, ink) = ink_of(&cr, text);
+    tick_fit(
+        ink,
+        Square {
+            x: 0.0,
+            y: 0.0,
+            side: 1.0,
+        },
+    )
+    .is_some()
 }
 
 /// The share of a raster's side the box occupies. The PDF sink draws a marker picture as
@@ -119,19 +174,22 @@ pub(crate) fn raster(tick: Option<&str>, ink: &gtk::gdk::RGBA) -> Option<crate::
         rounded_rect(&cr, bx.x, bx.y, side, side, DESIGN_RADIUS * k);
         cr.stroke().ok()?;
         if let Some(text) = tick {
-            let layout = pangocairo::functions::create_layout(&cr);
-            layout.set_text(text);
-            let (ink_rect, _) = layout.pixel_extents();
-            let ink_box = Ink {
-                x: f64::from(ink_rect.x()),
-                y: f64::from(ink_rect.y()),
-                w: f64::from(ink_rect.width()),
-                h: f64::from(ink_rect.height()),
-            };
-            if let Some(fit) = tick_fit(ink_box, bx) {
-                cr.translate(fit.x, fit.y);
-                cr.scale(fit.scale, fit.scale);
-                pangocairo::functions::show_layout(&cr, &layout);
+            let (layout, ink_box) = ink_of(&cr, text);
+            match tick_fit(ink_box, bx) {
+                Some(fit) => {
+                    cr.translate(fit.x, fit.y);
+                    cr.scale(fit.scale, fit.scale);
+                    pangocairo::functions::show_layout(&cr, &layout);
+                }
+                // An ink-less tick draws the default checkmark, so the checked state
+                // is never an empty box (TDD 18.63), as the preview's gutter does.
+                None => {
+                    cr.set_line_width(CHECKMARK_STROKE * k);
+                    cr.set_line_cap(cairo::LineCap::Round);
+                    cr.set_line_join(cairo::LineJoin::Round);
+                    checkmark_path(&cr, bx.x, bx.y, side);
+                    cr.stroke().ok()?;
+                }
             }
         }
     }
@@ -180,6 +238,57 @@ mod tests {
         let ink_cy = fit.y + (ink.y + ink.h / 2.0) * fit.scale;
         assert!((ink_cx - (BOX.x + BOX.side / 2.0)).abs() < 1e-9);
         assert!((ink_cy - (BOX.y + BOX.side / 2.0)).abs() < 1e-9);
+    }
+
+    /// An ink-less glyph is detected as one: U+200B (zero width space) parses as a theme
+    /// glyph and draws nothing in every font, and a visible tick draws.
+    ///
+    /// Not U+2800 (braille blank): blank where a font carries it, but on Windows the
+    /// default face lacks it and Pango draws a placeholder box, which has ink (MEASURED,
+    /// w=20 h=21). Whether a glyph is ink-less is a property of the font stack, so the
+    /// fixture must be blank in all of them.
+    #[test]
+    fn an_inkless_glyph_is_measured_as_having_no_ink() {
+        assert!(
+            !tick_has_ink("\u{200B}"),
+            "a zero width space draws nothing"
+        );
+        assert!(tick_has_ink("x"), "a visible glyph draws");
+    }
+
+    /// An ink rectangle with no width draws nothing, whatever its height, so it is no
+    /// tick to fit (Pango's answer for an empty run is w=0, h=1).
+    ///
+    /// Mutation: test only the longer side again and this fails.
+    #[test]
+    fn a_zero_width_ink_fits_nothing() {
+        let sliver = Ink {
+            x: 0.0,
+            y: 0.0,
+            w: 0.0,
+            h: 1.0,
+        };
+        assert!(tick_fit(sliver, BOX).is_none());
+    }
+
+    /// TDD 18.63 in the PDF's raster: an ink-less tick still draws the default checkmark,
+    /// so the checked raster is never the empty box.
+    ///
+    /// Mutation: drop the `None` arm's stroke in `raster` and the two rasters match.
+    #[test]
+    fn an_inkless_tick_rasters_the_default_checkmark() {
+        let ink = gtk::gdk::RGBA::new(0.0, 0.0, 0.0, 1.0);
+        let pixels = |tick: Option<&str>| {
+            let (mut surface, _, _) = raster(tick, &ink).expect("a raster");
+            let bytes = surface.data().expect("pixel data").to_vec();
+            bytes
+        };
+        let empty = pixels(None);
+        let inkless = pixels(Some("\u{200B}"));
+        assert_ne!(
+            inkless, empty,
+            "the checked raster must not be the empty box"
+        );
     }
 
     #[test]

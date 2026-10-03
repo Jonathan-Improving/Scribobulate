@@ -1476,7 +1476,7 @@ mod gtk_integration_tests {
             );
             // A test ASSERTING on the gate, not branching on it to write — the
             // distinction clippy.toml's ban draws.
-            #[allow(clippy::disallowed_methods)]
+            #[expect(clippy::disallowed_methods)]
             let still_busy = st.write_gate.is_busy();
             assert!(
                 !still_busy,

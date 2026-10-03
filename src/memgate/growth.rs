@@ -15,13 +15,14 @@
 //! 8,650,512-byte delta arriving at sample 20 of 69 and 2,165,459 bytes arriving
 //! at sample 5 — pass or fail decided by the allocation's timing rather than the
 //! program's growth. The leak this class exists for (ScrAP-351) is ~12 MB *per
-//! render*, the same magnitude as that single step, so no tolerance separates
-//! them.
+//! render* on a real document's image (~1.05 MB at the test fixture's scale), the
+//! same magnitude as that single step, so no tolerance separates them.
 //!
 //! **What separates them is how much of the growth ONE allocation explains.**
-//! Two clauses, neither of which can see where in the run anything happened:
+//! Two clauses:
 //!
-//! * **Residual growth** — total growth minus the largest single adjacent rise.
+//! * **Residual growth** — total growth minus the largest single adjacent rise, over
+//!   the worst contiguous stretch of the window (so a fall cannot cancel a climb).
 //!   A quantity allocated once is entirely accounted for by that subtraction,
 //!   however large it is and wherever it lands; a quantity added on every render
 //!   leaves `(n − 1)` of itself behind. On the measured traces the two are two
@@ -79,13 +80,38 @@ pub(crate) fn total_growth(samples: &[u64]) -> i64 {
     }
 }
 
-/// Growth that the single largest allocation does not account for.
+/// Growth that the single largest allocation does not account for, over the worst
+/// STRETCH of the window.
 ///
 /// This is the whole shape test. One retained allocation, flat either side,
 /// leaves zero here whatever its size and wherever it sits; `x` added on every
 /// one of `n` samples leaves `(n − 1)·x`.
+///
+/// **Every contiguous stretch is judged, not only first-to-last** (operator decision,
+/// 2026-10-02). Judged end to end, one fall inside the window was subtracted from the
+/// climb around it: a ~1 MB-per-render leak with a single 6 MB release in the middle
+/// read as no growth. A stretch before or after the fall still shows its climb. A fall
+/// itself is never growth, so a footprint the OS trims (Windows) passes; the cost is
+/// that memory rising over several samples and then released is judged on the rise.
 pub(crate) fn residual_growth(samples: &[u64]) -> i64 {
-    total_growth(samples) - largest_rise(samples) as i64
+    worst_stretch(samples).map_or(0, |(_, _, residual)| residual)
+}
+
+/// The stretch `[start, end]` (sample indices, inclusive) that [`residual_growth`]
+/// reports, with its residual, or `None` for fewer than two samples. Reported in the
+/// run log so a reading near the bound says WHERE the growth was.
+pub(crate) fn worst_stretch(samples: &[u64]) -> Option<(usize, usize, i64)> {
+    let mut worst: Option<(usize, usize, i64)> = None;
+    for start in 0..samples.len() {
+        for end in start + 1..samples.len() {
+            let stretch = &samples[start..=end];
+            let residual = total_growth(stretch) - largest_rise(stretch) as i64;
+            if worst.is_none_or(|(_, _, w)| residual > w) {
+                worst = Some((start, end, residual));
+            }
+        }
+    }
+    worst
 }
 
 /// `Ok(())` when the series after `warmup` grew no more than
@@ -106,14 +132,18 @@ pub(crate) fn assert_no_growth(
     }
     let total = total_growth(rest);
     let rise = largest_rise(rest);
-    let residual = residual_growth(rest);
+    let (from, to, residual) = worst_stretch(rest).unwrap_or((0, 0, 0));
     if residual > bounds.residual_bytes as i64 {
+        // The stretch's OWN figures: its growth less its largest rise IS the residual,
+        // where the whole window's figures need not add up to it under a fall.
+        let stretch = &rest[from..=to];
         return Err(format!(
-            "footprint grew {total} bytes across {} samples, of which one allocation of \
-             {rise} bytes explains only part: {residual} bytes of growth remain, over the \
+            "footprint grew {} bytes across samples {from}..={to}, of which one allocation \
+             of {} bytes explains only part: {residual} bytes of growth remain, over the \
              {} byte residual bound — that is a climb, not a step; \
              samples after warmup: {rest:?}",
-            rest.len(),
+            total_growth(stretch),
+            largest_rise(stretch),
             bounds.residual_bytes
         ));
     }
@@ -138,13 +168,13 @@ pub(crate) fn assert_no_growth(
 /// host, rather than only from a red one.
 pub(crate) fn describe(samples: &[u64], warmup: usize, bounds: Bounds) -> String {
     let rest = after_warmup(samples, warmup);
+    let (from, to, residual) = worst_stretch(rest).unwrap_or((0, 0, 0));
     format!(
         "{} samples after warmup={warmup}: total growth {} bytes, largest rise {} bytes, \
-         residual {} bytes (bounds: residual {}, total {})",
+         residual {residual} bytes over samples {from}..={to} (bounds: residual {}, total {})",
         rest.len(),
         total_growth(rest),
         largest_rise(rest),
-        residual_growth(rest),
         bounds.residual_bytes,
         bounds.total_bytes
     )
@@ -296,6 +326,29 @@ mod tests {
     #[test]
     fn a_plateau_passes() {
         assert_no_growth(&[100, 180, 200, 200, 201, 200, 200, 201], 2, BOUNDS).unwrap();
+    }
+
+    /// A climb with one large fall inside it still fails: judged first-to-last, a fall
+    /// that cancels the climb (here 100 000 against nine rises of 12 000) left a negative
+    /// residual and the gate passed on the leak.
+    ///
+    /// Mutation: judge `residual_growth` over the whole window only and this passes.
+    #[test]
+    fn a_climb_with_one_large_fall_still_fails() {
+        let mut series = climbing(13, 12_000);
+        for sample in series.iter_mut().skip(7) {
+            *sample -= 100_000;
+        }
+        let err = assert_no_growth(&series, 3, BOUNDS).unwrap_err();
+        assert!(err.contains("a climb, not a step"), "{err}");
+        // The message reports the stretch's own figures, which add up to the residual:
+        // the climb after the fall, samples 4..=9 after warm-up — five
+        // rises of 12 000, one of them explained, 48 000 left.
+        assert!(
+            err.contains("grew 60000 bytes across samples 4..=9")
+                && err.contains("48000 bytes of growth remain"),
+            "{err}"
+        );
     }
 
     /// Footprint that falls, because the allocator returned pages, is not growth

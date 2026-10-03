@@ -17,6 +17,7 @@
 //!
 //! QA round-1 H2: it resolves its target window AND label fresh from the tab's own `content_box` on every fire (`tabs::resolve_tab_window` + `winstate::chrome`) instead of a captured `window`/`match_count_label` pair, which would go stale the moment the tab moves to a different window.
 use super::*;
+use crate::saferizer::owned_mark::OwnedMark;
 
 /// Wire the window-shared find bar widgets carried in `chrome`. Every closure
 /// looks the active tab's search engine up fresh via `state(window)`, so this
@@ -62,9 +63,21 @@ pub(super) fn wire_find_bar(window: &ApplicationWindow, chrome: &Chrome) {
                     }
                     // Show the match count label only if there is a search string.
                     mc.set_visible(!st.chrome().find_entry.text().is_empty());
-                    st.search_context.set_highlight(true);
+                    // The engine lights the whole buffer, so only when no passage
+                    // confines the search; a held passage is repainted once the bar is
+                    // revealed, below.
+                    let unscoped = st.find_scope.borrow().is_none();
+                    st.search_context.set_highlight(unscoped);
                 }
                 fr.set_reveal_child(true);
+                if let Some(st) = state(&w) {
+                    if st.find_scope.borrow().is_some() && current_mode(&w).is_editor_visible() {
+                        crate::window::find::update_editor_readout(
+                            &st,
+                            st.find_cursor.get().editor_index(),
+                        );
+                    }
+                }
                 // Select all text in the entry so the next keystroke replaces it.
                 //
                 // SELECT BEFORE FOCUSING, and do not reorder these two lines.
@@ -554,8 +567,8 @@ fn capture_find_scope(window: &ApplicationWindow, st: &Rc<TabState>) {
             // All inserts at exactly those boundaries when the first or last match is
             // flush with them.
             FindScope::Editor {
-                start: st.editor_buf.create_mark(None, &start, true),
-                end: st.editor_buf.create_mark(None, &end, false),
+                start: OwnedMark::new(st.editor_buf.create_mark(None, &start, true)),
+                end: OwnedMark::new(st.editor_buf.create_mark(None, &end, false)),
             }
         }),
         FindTarget::Preview(view) => view.buffer().selection_bounds().map(|(start, end)| {
@@ -634,16 +647,21 @@ pub(super) fn refresh_find(window: &ApplicationWindow, st: &Rc<TabState>) {
     // which also runs from the engine's own asynchronous count notification and so can
     // fire after the bar has closed and deliberately turned the highlight off.
     // Computed out of the borrow first: the setter can re-enter (GTK4Rs/AP-61).
+    // Only while the bar is open: a menu toggle of Match Case or Whole Word, and the
+    // entry's delayed `search-changed` after a tab switch, both reach here with it closed.
     let unscoped = st.find_scope.borrow().is_none();
-    st.search_context.set_highlight(unscoped);
+    let open = crate::window::find::find_bar_open(st);
+    st.search_context.set_highlight(unscoped && open);
     // **The query the editor's engine is given is not always the query the reader
     // typed.** For a whole-word REGULAR EXPRESSION the application wraps it — see
     // `matcher::editor_pattern` — because GtkSourceView's own wrapper is ungrouped and
     // binds each `\b` to one branch of an alternation. Every other case passes through
     // unchanged.
-    let pattern = crate::window::find::editor_pattern(text.as_str(), st.find_options.get());
-    st.search_settings
-        .set_search_text((!pattern.is_empty()).then_some(pattern.as_str()));
+    crate::window::find::configure_engine_query(
+        &st.search_settings,
+        text.as_str(),
+        st.find_options.get(),
+    );
     label.set_visible(!text.is_empty());
     // The step cursor indexes a list that has just been replaced, whichever pane owns
     // it, so the next Next/Prev starts from the top.
@@ -652,7 +670,8 @@ pub(super) fn refresh_find(window: &ApplicationWindow, st: &Rc<TabState>) {
     // editor isn't visible). Otherwise the source context's occurrences-count
     // notification refreshes the label.
     match find_target(window) {
-        FindTarget::Preview(view) => resync_preview_find(window, st, &view, text.as_str()),
+        FindTarget::Preview(view) if open => resync_preview_find(window, st, &view, text.as_str()),
+        FindTarget::Preview(_) => {}
         FindTarget::Editor => update_editor_readout(st, 0),
         // Deliberately NOT the editor arm: in pure-preview mode the editor's
         // occurrence count describes a buffer the user cannot see, so showing
@@ -735,20 +754,7 @@ pub(super) fn adopt_find_options(window: &ApplicationWindow, st: &Rc<TabState>) 
 /// there is nothing to recount then, but the engine still has to be holding this tab's
 /// options before the bar next opens.
 fn push_options_to_engine(st: &Rc<TabState>) {
-    let options = st.find_options.get();
-    let FindOptions {
-        case_sensitive,
-        whole_word: _,
-        regex,
-    } = options;
-    st.search_settings.set_case_sensitive(case_sensitive);
-    // NOT the reader's `whole_word` outright: for a regular expression the wrapping is
-    // the application's, because the engine's own is ungrouped
-    // (`matcher::WORD_WRAPPED`), and letting it wrap again would nest one correct
-    // bounding inside one incorrect one.
-    st.search_settings
-        .set_at_word_boundaries(crate::window::find::engine_applies_word_boundaries(options));
-    st.search_settings.set_regex_enabled(regex);
+    crate::window::find::configure_engine_options(&st.search_settings, st.find_options.get());
 }
 
 /// Wire `search_context`'s `occurrences-count` notification to keep its

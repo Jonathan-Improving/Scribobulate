@@ -98,7 +98,7 @@ use gtk::prelude::*;
 ///
 /// Everywhere else it is GDK's `set_text` alone.
 pub(crate) fn set_text(clipboard: &gtk::gdk::Clipboard, text: &str) {
-    #[allow(clippy::disallowed_methods)] // the sanctioned writer; see clippy.toml
+    #[expect(clippy::disallowed_methods)] // the sanctioned writer; see clippy.toml
     clipboard.set_text(text);
     #[cfg(target_os = "macos")]
     crate::platform::mac::pasteboard::write_text(text);
@@ -786,7 +786,7 @@ mod gtk_integration_tests {
         let (win, _ctx) = present(&view);
         let clipboard = view.clipboard();
 
-        #[allow(clippy::disallowed_methods)] // seeding a copy the way GTK's own widgets make one
+        #[expect(clippy::disallowed_methods)] // seeding a copy the way GTK's own widgets make one
         clipboard.set_text("old");
         set_text(&clipboard, "new");
 

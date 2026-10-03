@@ -605,8 +605,8 @@ pub(crate) fn update_undo_redo_state(window: &ApplicationWindow) {
 ///
 /// This is also the file-side half of the no-lone-carriage-return rule
 /// ([`crate::lineendings`]) — the single choke point every file load, live reload,
-/// session restore and crash recovery already funnels through, so none of them has to
-/// know about it.
+/// session restore and crash recovery funnels through (the loaders via
+/// `reload::write_loaded_text`), so none of them has to know about it.
 ///
 /// **There IS a clipboard-side half**, and it is not here: the `insert-text` hook
 /// [`crate::lineendings::new_editor_buffer`] arms at the buffer's birth closes the

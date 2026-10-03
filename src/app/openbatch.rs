@@ -24,7 +24,9 @@
 //! Gathering first keeps every decision that reads or writes `target_window` inside
 //! one uninterrupted synchronous pass. Two overlapping batches then serialise
 //! naturally: each builds atomically, and the only thing that can vary is which
-//! finishes first.
+//! finishes first. The build re-asks "is this file already open?" per document for
+//! the same reason: a duplicate decided before the reads cannot see a tab the other
+//! batch built while this one was reading.
 
 use super::open::{
     attach_file_backing, find_open_tab_for_path, find_reusable_blank_tab, focus_tab,
@@ -102,7 +104,16 @@ pub(super) fn on_open(app: &Application, files: &[gtk::gio::File], hint: &str) {
             docs.push(crate::docio::read_document(f.path().as_deref()).await);
         }
         build_opened_batch(&app, docs, &hint, cold_start).await;
+        #[cfg(test)]
+        BATCHES_BUILT.with(|n| n.set(n.get() + 1));
     });
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many open batches have finished building on this thread, so a test can wait
+    /// for the event that ends a race between two batches rather than for a time.
+    pub(crate) static BATCHES_BUILT: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 /// Turn already-read documents into windows and tabs. Runs to completion without
@@ -148,6 +159,21 @@ async fn build_opened_batch(app: &Application, docs: Vec<LoadedDoc>, hint: &str,
             source,
             backing,
         } = doc;
+
+        // **Already open? Asked again here, after the reads.** `on_open` asks before
+        // it reads, but a second `open` naming the same file can arrive while this
+        // batch is awaiting its reads, pass that check (nothing is open yet) and read
+        // the file too. Whichever batch builds second finds the first one's tab here
+        // and focuses it, so one document never gets two tabs, each with its own
+        // baseline, monitor and swapfile. Nothing below yields, so the answer stays
+        // true for the rest of this pass.
+        if let Some((win, tab)) = backing
+            .as_deref()
+            .and_then(|p| find_open_tab_for_path(app, p))
+        {
+            focus_tab(&win, &tab);
+            continue;
+        }
 
         // Each branch yields both the target window AND the specific tab
         // this iteration produced. The tab is resolved explicitly (by id

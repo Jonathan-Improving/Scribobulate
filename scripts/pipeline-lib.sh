@@ -168,6 +168,18 @@ validate_contract() {
                 ;;
         esac
 
+        # An unknown verdict is REFUSED, not read as `exit`: a runner that falls through
+        # to the exit code on a verdict it does not recognise drops whatever the verdict
+        # added, silently, and that is exactly how an `absent:` guard would vanish from a
+        # port that never learned it.
+        case "$verdict" in
+            ''|exit|review|marker:?*|absent:?*) ;;
+            *)
+                echo "pipeline: step '$id' has unknown verdict '$verdict'" >&2
+                errs=$((errs + 1))
+                ;;
+        esac
+
         local plat cmd na
         for plat in $platforms; do
             cmd=$(contract_value "cmd.$plat" "$id")
@@ -299,31 +311,27 @@ validate_contract() {
     # Worth having because an opt-in step is exactly where a typo survives: `package`
     # does not run unless asked, so a misspelled path there would otherwise be found by
     # whoever first tries to cut a release, which is the worst moment to find it.
-    # A SCRIPT INSIDE A COMMAND SUBSTITUTION IS STILL A SCRIPT THIS COMMAND NAMES.
-    # `$(scripts/foo.sh)` arrives here as one token ending `)`, so the patterns below miss
-    # it and the check passes over the one position where a missing script is WORST: the
-    # substitution's failure is silent — the shell puts an empty string in its place and
-    # the step runs a command shorter than the contract states, which for a test selection
-    # means a run WIDER than intended rather than a run that fails. The wrappers are
-    # stripped so the path inside is checked exactly like a bare one.
+    # A SCRIPT INSIDE A COMMAND SUBSTITUTION IS STILL A SCRIPT THIS COMMAND NAMES, and so
+    # is one wrapped in quotes or butted against `;`/`&&`. Those are the positions where a
+    # missing script is WORST: a substitution's failure is silent — the shell puts an empty
+    # string in its place and the step runs a command shorter than the contract states,
+    # which for a test selection means a run WIDER than intended rather than a run that
+    # fails. Paths are therefore EXTRACTED by a regex that finds them anywhere in the line,
+    # not matched against whitespace tokens: the earlier token glob stripped a bare `$(` and
+    # `)` but passed `"$(scripts/x.sh)"` silently. The regex is the one pipeline.ps1 uses
+    # (minus its `\` separator, which no cmd.linux/cmd.macos line uses), so both ports
+    # share one grammar for this rule rather than two that disagree at the edges.
     for id in $ids; do
         local cmdline tok
         cmdline=$(contract_value "cmd.$PLATFORM" "$id")
         [ -n "$cmdline" ] || continue
-        for tok in $cmdline; do
-            tok="${tok#\$(}"
-            tok="${tok#\`}"
-            tok="${tok%\`}"
-            tok="${tok%)}"
-            case "$tok" in
-                */*.sh|*/*.ps1)
-                    if [ ! -e "$tok" ]; then
-                        echo "pipeline: step '$id' cmd.$PLATFORM names '$tok', which does not exist" >&2
-                        errs=$((errs + 1))
-                    fi
-                    ;;
-            esac
-        done
+        while IFS= read -r tok; do
+            [ -n "$tok" ] || continue
+            if [ ! -e "$tok" ]; then
+                echo "pipeline: step '$id' cmd.$PLATFORM names '$tok', which does not exist" >&2
+                errs=$((errs + 1))
+            fi
+        done < <(printf '%s\n' "$cmdline" | grep -oE '[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*\.(ps1|sh)')
     done
 
     # Ordinals must be non-decreasing in file order, so a reorder that forgets to
@@ -660,6 +668,14 @@ contract_negative_cases() {
         "step 2 beta" "intent beta b" "verdict beta exit" "class beta nonsense" \
         "cmd.linux beta true" "cmd.macos beta true" "cmd.windows beta true" \
         || failed="$failed case"
+    contract_rejects "unknown verdict" "unknown verdict" \
+        "step 2 beta" "intent beta b" "verdict beta exit-ish" "class beta required" \
+        "cmd.linux beta true" "cmd.macos beta true" "cmd.windows beta true" \
+        || failed="$failed case"
+    contract_rejects "absent verdict with no text" "unknown verdict" \
+        "step 2 beta" "intent beta b" "verdict beta absent:" "class beta required" \
+        "cmd.linux beta true" "cmd.macos beta true" "cmd.windows beta true" \
+        || failed="$failed case"
     contract_rejects "missing intent" "has no intent" \
         "step 2 beta" "verdict beta exit" "class beta required" \
         "cmd.linux beta true" "cmd.macos beta true" "cmd.windows beta true" \
@@ -734,6 +750,15 @@ contract_negative_cases() {
         "cmd.linux beta true \$(scripts/definitely-not-here.sh)" \
         "cmd.macos beta true \$(scripts/definitely-not-here.sh)" \
         "cmd.windows beta true \$(scripts/definitely-not-here.sh)" || failed="$failed case"
+
+    # The same rule through a QUOTED substitution, which the old whitespace-token glob
+    # passed silently: the token `"$(scripts/x.sh)"` ends in `"`, so neither wrapper strip
+    # applied and no pattern matched. Deleting the regex extraction must go red here.
+    contract_rejects "command substitutes a script that does not exist, quoted" "does not exist" \
+        "step 2 beta" "intent beta b" "verdict beta exit" "class beta required" \
+        "cmd.linux beta echo \"\$(scripts/definitely-not-here.sh)\"" \
+        "cmd.macos beta echo \"\$(scripts/definitely-not-here.sh)\"" \
+        "cmd.windows beta echo \"\$(scripts/definitely-not-here.sh)\"" || failed="$failed case"
 
     # PAIRED NEGATIVE. The stripping must not turn "any token with a bracket on it" into a
     # path check — a rule that fires on everything is as useless as one that fires on
@@ -913,9 +938,30 @@ execution_cases() {
     _reset; _step beta required; _cmds beta "printf 'SKIPPED [X]\\n'"; _run beta
     _want_not "without a surface line nothing is surfaced" "surfaced '"
 
+    # ── absent: a passing command that printed the refused text FAILS ────────────────
+    _absent() {
+        _add "step 2 beta"; _add "intent beta does a thing"
+        _add "verdict beta absent:SKIPPED [TDD"; _add "class beta required"
+    }
+    _reset; _absent; _cmds beta "printf 'test a ... ok\\nSKIPPED [TDD 6.6]: not measured\\n'"
+    _run beta
+    _want    "a refused line fails an exit-0 step"   "FAIL"
+    _want    "the refused line itself is shown"      "SKIPPED [TDD 6.6]: not measured"
+    _want_rc "…and returns 1"                        1
+
+    # Paired negative: the same verdict over output without the text passes.
+    _reset; _absent; _cmds beta "printf 'test a ... ok\\n'"; _run beta
+    _want     "an absent: step with clean output PASSES" "PASS"
+    _want_not "…and refuses nothing"                     "REFUSED"
+    _want_rc  "…and returns 0"                           0
+
+    # The exit code still decides on its own.
+    _reset; _absent; _cmds beta 'false'; _run beta
+    _want_rc "an absent: step that exits non-zero still fails" 1
+
     DO_PACKAGE="$saved_pkg"
     OVERRIDDEN_STEPS="$saved_over"
-    unset -f _reset _add _step _cmds _carve _disarm _run _want _want_not _want_rc
+    unset -f _absent _reset _add _step _cmds _carve _disarm _run _want _want_not _want_rc
 
     [ -z "$failed" ]
 }
@@ -1061,21 +1107,38 @@ run_step() {
     # marker verdict can only see what its own re-run prints: step 4b re-runs the unit tests,
     # while an integration body that skips itself prints its marker in step 5's output and
     # nowhere else. Surfacing never changes the verdict; the exit code still decides.
-    local surface rc=0
+    #
+    # An `absent:<text>` verdict reads the same copy: the exit code still decides, AND a
+    # line of the step's own output containing <text> fails it. It exists for a gate whose
+    # bodies can refuse to measure and return green — the memory class's `SKIPPED [TDD`
+    # — where a step judged by its exit code alone reports PASS having measured
+    # nothing, and the run that passes is the one nobody reads.
+    local surface absent="" rc=0
     surface=$(contract_value surface "$id")
-    if [ -n "$surface" ]; then
+    case "$verdict" in absent:*) absent="${verdict#absent:}" ;; esac
+    if [ -n "$surface" ] || [ -n "$absent" ]; then
         local log hits
         log=$(mktemp -t "scrib-surface.XXXXXX")
         eval "$cmd" 2>&1 | tee "$log"
         rc=${PIPESTATUS[0]}
-        hits=$(grep -F -- "$surface" "$log" || true)
-        rm -f "$log"
-        if [ -n "$hits" ]; then
-            echo "    surfaced '$surface':"
-            echo "$hits" | sed 's/^/    /'
-        else
-            echo "    no tests reported '$surface'"
+        if [ -n "$surface" ]; then
+            hits=$(grep -F -- "$surface" "$log" || true)
+            if [ -n "$hits" ]; then
+                echo "    surfaced '$surface':"
+                echo "$hits" | sed 's/^/    /'
+            else
+                echo "    no tests reported '$surface'"
+            fi
         fi
+        if [ -n "$absent" ]; then
+            hits=$(grep -F -- "$absent" "$log" || true)
+            if [ -n "$hits" ]; then
+                echo "    REFUSED: this step's verdict requires '$absent' to be absent from its output:"
+                echo "$hits" | sed 's/^/    /'
+                [ "$rc" -ne 0 ] || rc=1
+            fi
+        fi
+        rm -f "$log"
     else
         eval "$cmd" || rc=$?
     fi

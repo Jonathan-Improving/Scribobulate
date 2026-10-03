@@ -526,6 +526,22 @@ mod gtk_integration_tests {
         let window = gtk::Window::new();
         window.set_child(Some(&view));
         let body = rgb(super::body_selection_ink(&plain).expect("inside a view"));
+        // The assertion below can only tell the two inks apart where the host theme
+        // inks them differently; under a theme that inks both selections alike it
+        // would pass on the defect, so it says so instead of passing.
+        let own = rgb(super::probe_ink(
+            plain.upcast_ref(),
+            &[glib::Object::new::<super::SelectionNodeProbe>().upcast()],
+        ));
+        if own == body {
+            println!(
+                "SKIPPED [TDD 18.16]: the host theme inks a label's selection and the \
+                 body's alike, so this guard cannot discriminate here"
+            );
+            plain.unparent();
+            window.destroy();
+            return;
+        }
         GtkWindowExt::set_focus(&window, Some(&plain));
         plain.select_region(0, 5);
         refresh_cell_selection_ink(&plain);

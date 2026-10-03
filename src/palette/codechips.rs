@@ -61,6 +61,28 @@ pub(crate) enum CodeRunSurface {
 }
 
 impl CodeRunSurface {
+    /// Every surface, in order, walked through [`successor`](Self::successor) from
+    /// `Page`. The one enumeration the tag vocabulary's completeness test compares
+    /// `tags::CODE_INLINE_SURFACES` against.
+    #[cfg(test)]
+    pub(crate) fn all() -> Vec<Self> {
+        std::iter::successors(Some(CodeRunSurface::Page), |s| s.successor()).collect()
+    }
+
+    /// The next surface in [`all`](Self::all)'s order. An exhaustive match, so a new
+    /// variant does not compile until it is placed in the walk.
+    #[cfg(test)]
+    fn successor(self) -> Option<Self> {
+        match self {
+            CodeRunSurface::Page => Some(CodeRunSurface::Heading(0)),
+            CodeRunSurface::Heading(level) if level + 1 < HEADING_LEVELS => {
+                Some(CodeRunSurface::Heading(level + 1))
+            }
+            CodeRunSurface::Heading(_) => Some(CodeRunSurface::Quote),
+            CodeRunSurface::Quote => None,
+        }
+    }
+
     /// The colour question this position asks.
     pub(crate) fn fill(self) -> CodeSurface {
         match self {
@@ -201,7 +223,10 @@ pub(crate) fn surface_at(
 ) -> CodeRunSurface {
     if let Some(level) = heading_level {
         let level = level.min(HEADING_LEVELS - 1);
-        if theme.heading_band_decor(level).is_present() {
+        // A band that paints a surface, not merely one that is present: a scene-only
+        // level draws a picture over the page (or quote panel), which stays behind the
+        // run.
+        if theme.heading_band_decor(level).paints_a_surface() {
             return CodeRunSurface::Heading(level);
         }
     }
@@ -251,7 +276,7 @@ fn tint(surface: gdk::RGBA, ink: gdk::RGBA) -> gdk::RGBA {
 
 /// `c` composited over `under`, so a translucent fill is tinted from the colour a
 /// reader actually sees.
-fn over(under: gdk::RGBA, c: gdk::RGBA) -> gdk::RGBA {
+pub(crate) fn over(under: gdk::RGBA, c: gdk::RGBA) -> gdk::RGBA {
     mix_rgba(under, c, c.alpha() as f64)
 }
 

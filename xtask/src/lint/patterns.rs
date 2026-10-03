@@ -59,7 +59,26 @@ pub fn issues_rx() -> &'static Regex {
         // live citation inside `sdd/TDD.md`. The register's letters are positional and
         // a numbered variant is exactly the shape someone reaches for.
         //
-        r#"\bISSUES(\.md)?([ .:_-]*([a-z]+ )?[A-Z][0-9]*\b|[ .:_-]*#[A-Z]+[0-9]*\b|[ .:_-]*"[^"]+")|\bCLSD-[0-9]+\b"#,
+        // The separator between `ISSUES(.md)` and the designator takes the Markdown and
+        // prose forms too: a closing backtick, a quote, a possessive `'s`, a comma, an
+        // opening paren. It was `[ .:_-]*`, and the commonest Markdown form of all — the
+        // path in backticks, then the connector and the letter — walked through it, with
+        // a live instance in `probes/`. The TITLE alternative's separator has no quote in
+        // it and must be NON-EMPTY, so a file name that is itself quoted, followed later
+        // by another quoted name, is not read as a quoted title.
+        //
+        // The fourth alternative is the DESCRIPTION form, a title pointer without the
+        // quotes: the register's file name, a possessive, then "entry on <subject>". That
+        // was the live instance.
+        //
+        // Three alternatives answer MEASURED blind spots of round 6: every
+        // alternative anchored on `ISSUES` and looked rightwards, so the designator
+        // could not precede the file name, nor could the bare noun with `in`/`of`, nor
+        // could prose sit between the file name and a trailing designator. The corpus
+        // holds the measured lines; quoting them here would trip this very check.
+        // `[^.]` bounds each to one sentence. The separator also takes the typographic apostrophe `’`, which
+        // `sdd/TDD.md` uses, and the description form an adjective before its noun.
+        r#"\bISSUES(\.md)?((?:[ .:_,(`"*-]|['’]s?)*([a-z]+ )?[A-Z][0-9]*\b|(?:[ .:_,(`"*-]|['’]s?)*#[A-Z]+[0-9]*\b|[ .:_,(`*-]+"[^"]+"|(?:[ .:_,(`"*-]|['’]s?)*([a-z]+ )?(entry|item|issue) (on|about|for|covering|describing)\b|[^.]{0,40}\b(entry|item|issue) [A-Z][0-9]*\b)|\b(entry|item|issue) [A-Z][0-9]*\b[^.]{0,40}\bISSUES|\bentry (in|of) [^.]{0,20}ISSUES|\bCLSD-[0-9]+\b"#,
     )
 }
 
@@ -313,7 +332,7 @@ fn commit_hash_rx() -> &'static Regex {
 /// verifying it is standing in. So the discriminator is whether the text AROUND the hash
 /// says whose commit it is.
 ///
-/// # Why these four, and why the list used to be longer
+/// # Why so few, and why the list used to be longer
 ///
 /// It began as twelve, including a bare lowercase `gtk`, tested with a WHOLE-LINE
 /// `contains`. In a GTK project that is close to a blanket exemption, and it was: the
@@ -323,13 +342,30 @@ fn commit_hash_rx() -> &'static Regex {
 /// by a `GTK4Rs/AP-N` citation beside it. A gate green over its own motivating instances,
 /// while its documentation asserted it had found them.
 ///
-/// So: four markers that name a REPOSITORY rather than a toolkit, matched
-/// case-insensitively, and matched POSITIONALLY — see [`WINDOW_BEFORE`].
-const FOREIGN_SOURCE_MARKERS: &[&str] = &["gnome/", "upstream", "http://", "https://"];
+/// So: markers that name a REPOSITORY rather than a toolkit, matched case-insensitively,
+/// and matched POSITIONALLY — see [`WINDOW_BEFORE`]. The bare word `upstream` was one of
+/// them until round 5, and it is a word rather than a repository: *"not upstream yet;
+/// landed locally in `…`"* was exempt by position. It now counts only followed by the
+/// project it means — [`upstream_repo_rx`].
+const FOREIGN_SOURCE_MARKERS: &[&str] = &["gnome/", "http://", "https://"];
+
+/// `upstream` followed by a named upstream project, optionally through `in`/`by`/`at`.
+fn upstream_repo_rx() -> &'static Regex {
+    static RX: OnceLock<Regex> = OnceLock::new();
+    rx(
+        &RX,
+        r"(?i)\bupstream\s+((in|by|at)\s+)?(gtk|glib|gnome|gdk-pixbuf|libadwaita|pango|cairo|librsvg|harfbuzz|gtk-rs|gtk4-rs)\b",
+    )
+}
 
 /// Contexts where a hex run is DATA rather than any kind of citation — a parser's own
 /// fixture, or an identifier being decoded. Narrow on purpose: each names a construct in
 /// this tree, not a shape a citation might coincidentally take.
+///
+/// POSITIONAL, like the foreign markers, and for the same reason: each exempts only the
+/// hex value it GOVERNS — the marker's own operand, see [`data_gap_rx`] — never every
+/// hash on the line. Until round 5 this list was a whole-line veto, so *"the archive's
+/// SHA-256 is `51bd…`; the loader fix landed in `4b97c84`"* reported nothing.
 const HEX_DATA_MARKERS: &[&str] = &[
     // A document identifier being parsed or asserted on.
     "from_hex", "DocId", "doc_id",
@@ -355,6 +391,34 @@ const WINDOW_BEFORE: usize = 80;
 /// ``fixed by commit `b30…` (GNOME/gtk#4134)``.
 const WINDOW_AFTER: usize = 40;
 
+/// What may sit between a data marker's END and the value it governs: `SHA-256 is \``,
+/// `doc_id = "`, `from_hex("`, `SHA-256 of \``. GRAMMATICAL, not a distance: separators
+/// and the words `is`/`of`, nothing else. A governed value is the marker's own operand,
+/// and any other word between them means the hash belongs to a different phrase. Until
+/// round 6 this was "any 16 characters", so *"the SHA-256 fix in `4b97c84`"* was exempt
+/// — a few words of prose fit inside a window, never inside this grammar. The
+/// backslash is a separator too, for the escaped quote of a value inside a Rust string
+/// literal — `src/swapfile/codec.rs` holds a swap-file fixture written exactly that way.
+fn data_gap_rx() -> &'static Regex {
+    static RX: OnceLock<Regex> = OnceLock::new();
+    rx(&RX, r#"^[\s:=(`"'\\]*(?:(?:is|of)[\s:=(`"'\\]+)*$"#)
+}
+
+/// And after, for the `/proc/<pid>/maps` fixture, whose permission triplet FOLLOWS the
+/// address range it makes unmistakable (`7f2c1a0a0000 r--p`).
+const DATA_GAP_AFTER: usize = 4;
+
+/// Is the hex value at `at..end` the operand of a data marker right beside it?
+fn data_marker_adjacent(line: &str, at: usize, end: usize) -> bool {
+    HEX_DATA_MARKERS.iter().any(|marker| {
+        line.match_indices(marker).any(|(start, m)| {
+            let marker_end = start + m.len();
+            (marker_end <= at && data_gap_rx().is_match(&line[marker_end..at]))
+                || (start >= end && line[end..start].chars().count() <= DATA_GAP_AFTER)
+        })
+    })
+}
+
 /// Is the hash at `at..end` attributed to another repository by the text around it?
 fn attributed_nearby(line: &str, at: usize, end: usize) -> bool {
     let from = line[..at]
@@ -370,9 +434,10 @@ fn attributed_nearby(line: &str, at: usize, end: usize) -> bool {
         .map_or(end, |(i, c)| end + i + c.len_utf8());
     let window = line[from..to].to_ascii_lowercase();
     FOREIGN_SOURCE_MARKERS.iter().any(|m| window.contains(m))
+        || upstream_repo_rx().is_match(&window)
 }
 
-/// A hex run that is not a commit hash however it looks./// A hex run that is not a commit hash however it looks.
+/// A hex run that is not a commit hash however it looks.
 ///
 /// Every term is a real construct this tree contains, not a hypothetical. Without them
 /// the check reports colour literals and digests as citations, which is the failure mode
@@ -429,9 +494,6 @@ pub fn commit_hash_citations(line: &str) -> Vec<String> {
     if line.contains("SCRIB_GIT_COMMIT") {
         return Vec::new();
     }
-    if HEX_DATA_MARKERS.iter().any(|m| line.contains(m)) {
-        return Vec::new();
-    }
     // Blank out the shapes that are hex but never object names, PRESERVING LENGTH, so
     // every offset below still indexes the original line and the attribution window is
     // read from the real text rather than from a rewritten copy.
@@ -455,12 +517,27 @@ pub fn commit_hash_citations(line: &str) -> Vec<String> {
             if attributed_nearby(line, at, at + hit.len()) {
                 return None;
             }
+            // Data, by the marker that governs THIS value — not by one elsewhere on the
+            // line. See `data_marker_adjacent`.
+            if data_marker_adjacent(line, at, at + hit.len()) {
+                return None;
+            }
             Some(hit.to_string())
         })
         .collect();
     found.sort();
     found.dedup();
     found
+}
+
+/// Check 24's skipper: an INLINE module's opening line, `mod <name> {`, with any
+/// visibility. A `mod <name>;` declaration is not one — it is a one-line item.
+pub fn inline_mod_rx() -> &'static Regex {
+    static RX: OnceLock<Regex> = OnceLock::new();
+    rx(
+        &RX,
+        r"^\s*(pub(\([^)]*\))?\s+)?mod\s+[A-Za-z_][A-Za-z0-9_]*\s*\{",
+    )
 }
 
 /// Check 22's reader: a `disallowed-methods` entry's path in `clippy.toml`.
@@ -695,9 +772,10 @@ fn opens_char_literal(chars: &[char], quote: usize) -> bool {
     }
 }
 
-pub fn parser_dispatch_wildcards(text: &str) -> Vec<usize> {
-    const VOCABULARY: [&str; 3] = ["Event::", "Tag::", "TagEnd::"];
-    let bytes: Vec<char> = text.chars().collect();
+/// The brace depth AFTER every character of `bytes`, and whether each character sits
+/// inside a comment or a string/char literal — so a brace in one cannot move the depth.
+/// Shared by check 15 and check 24's test-module skipper; its corpus is check 15's.
+fn brace_model(bytes: &[char]) -> (Vec<i32>, Vec<bool>) {
     // Depth of every character, with comments and literals blanked so a brace inside
     // one cannot move it. `None` marks a character that is inside a comment/literal.
     let mut depth = vec![0i32; bytes.len()];
@@ -739,7 +817,7 @@ pub fn parser_dispatch_wildcards(text: &str) -> Vec<usize> {
         } else if c == '"' {
             string = true;
             inert[i] = true;
-        } else if c == '\'' && opens_char_literal(&bytes, i) {
+        } else if c == '\'' && opens_char_literal(bytes, i) {
             // Rust spells a CHARACTER LITERAL and a LIFETIME with the same delimiter, so
             // this arm cannot be a bare `c == '\''` — that would open a "literal" at the
             // first `'a` and blank the rest of the file, which is why the arm was simply
@@ -758,6 +836,36 @@ pub fn parser_dispatch_wildcards(text: &str) -> Vec<usize> {
         depth[i] = d;
         i += 1;
     }
+    (depth, inert)
+}
+
+/// The brace depth at the END of each line of `text`, indexed as `text.lines()` is — so a
+/// caller can find where a block opened on line `j` closes: the first line whose end depth
+/// is back at line `j - 1`'s.
+pub fn line_end_depths(text: &str) -> Vec<i32> {
+    let chars: Vec<char> = text.chars().collect();
+    let (depth, _) = brace_model(&chars);
+    let mut out = Vec::new();
+    let mut current = 0;
+    let mut open_line = false;
+    for (i, c) in chars.iter().enumerate() {
+        current = depth[i];
+        open_line = true;
+        if *c == '\n' {
+            out.push(current);
+            open_line = false;
+        }
+    }
+    if open_line {
+        out.push(current);
+    }
+    out
+}
+
+pub fn parser_dispatch_wildcards(text: &str) -> Vec<usize> {
+    const VOCABULARY: [&str; 3] = ["Event::", "Tag::", "TagEnd::"];
+    let bytes: Vec<char> = text.chars().collect();
+    let (depth, inert) = brace_model(&bytes);
 
     // Line starts, and each line's depth at its first non-space character.
     // Collected up front (not a plain `.enumerate()` over the iterator) so an annotated
@@ -843,4 +951,47 @@ pub fn parser_dispatch_wildcards(text: &str) -> Vec<usize> {
     findings.sort_unstable();
     findings.dedup();
     findings
+}
+
+/// Check 25's predicate: the 1-based line numbers on which a numbered POLICY step is cited.
+///
+/// POLICY § Build pipeline numbers none of its steps — the step list is the contract's,
+/// `scripts/pipeline.steps` — so any "POLICY … step N" sends the reader to an address that
+/// no longer exists. When the numbered list was replaced by a pointer, 23 such citations
+/// were left dangling, one of them in a reason every Linux run prints, and check 6 could
+/// not see them because a section-plus-step citation is not a path.
+///
+/// Read ACROSS a line break, because a comment wraps wherever it likes: two of the 23 put
+/// the document name at the end of one comment line and the step on the next. Each break
+/// and the comment leader after it (`//!`, `///`, `//`, `#`, `*`, `>`) reads as one space.
+/// The citation must stay inside one sentence: a full stop or semicolon ends the window,
+/// so a POLICY mention and an unrelated contract step later in the paragraph do not pair.
+pub fn policy_step_citations(text: &str) -> Vec<usize> {
+    static RX: OnceLock<Regex> = OnceLock::new();
+    let cite = rx(
+        &RX,
+        r"(?i)\bPOLICY(?:\.md)?\b[^.;\n]{0,60}?\bsteps?\s+[0-9]",
+    );
+    // The joined view, with each joined byte's source line recorded beside it.
+    let mut joined = String::with_capacity(text.len());
+    let mut line_of = Vec::with_capacity(text.len());
+    for (index, line) in text.lines().enumerate() {
+        let body = if index == 0 {
+            line
+        } else {
+            joined.push(' ');
+            line_of.push(index + 1);
+            line.trim_start()
+                .trim_start_matches(['/', '!', '#', '*', '>'])
+                .trim_start()
+        };
+        joined.push_str(body);
+        line_of.extend(std::iter::repeat_n(index + 1, body.len()));
+    }
+    let mut lines: Vec<usize> = cite
+        .find_iter(&joined)
+        .map(|m| line_of[m.start()])
+        .collect();
+    lines.dedup();
+    lines
 }

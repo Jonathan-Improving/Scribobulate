@@ -323,8 +323,12 @@ mod gtk_integration_tests {
     /// exactly as `preview::annotate::capture_selection` builds it.
     fn highlight_in(source: &str, range: std::ops::Range<usize>, comment: &str) -> AnnotationEdit {
         AnnotationEdit::Create(CreateAnnotation::Highlight {
-            target: crate::docref::AnchoredSpan::capture(source, range)
-                .expect("a valid range over the source"),
+            target: crate::docref::AnchoredSpan::capture_in_context(
+                source,
+                range,
+                crate::docref::Ambiguity::Nearest,
+            )
+            .expect("a valid range over the source"),
             comment: comment.into(),
         })
     }
@@ -511,6 +515,25 @@ mod gtk_integration_tests {
         assert_eq!(
             text_of(&b),
             "the earth is {==flat==}{>>citation needed<<} here"
+        );
+    }
+
+    /// A comment aimed at a word whose neighbouring text was edited while the card was
+    /// open writes NOTHING, never a highlight on another copy of the same word: the
+    /// write path is where a wrong guess would damage the document.
+    ///
+    /// Mutation: let a context-held target fall back to the unfiltered search, and the
+    /// first `the` gets the comment.
+    #[gtktest::test]
+    fn a_comment_whose_target_lost_its_neighbours_writes_nothing() {
+        let b = buf_with("the cat. the dog.");
+        let edit = highlight_in(&text_of(&b), 9..12, "which one?");
+        b.set_text("the cat. the cow.");
+        apply_annotation_edit(&b, edit);
+        assert_eq!(
+            text_of(&b),
+            "the cat. the cow.",
+            "a target that no longer resolves must change nothing"
         );
     }
 

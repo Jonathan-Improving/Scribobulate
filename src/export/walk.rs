@@ -784,7 +784,9 @@ impl<'a> Builder<'a> {
                 self.has_unembedded_remote = true;
                 ImageSource::Remote(url.clone())
             }
-            ImageResolution::Refused | ImageResolution::Missing => placeholder(&resolution),
+            ImageResolution::Refused | ImageResolution::NetworkShare | ImageResolution::Missing => {
+                placeholder(&resolution)
+            }
         };
         ImageRef { alt, title, source }
     }

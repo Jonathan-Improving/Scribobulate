@@ -437,6 +437,46 @@ pub fn commit_hashes_cited(tree: &Tree) -> bool {
     )
 }
 
+/// Check 25 — no file cites a numbered POLICY step.
+///
+/// POLICY § Build pipeline numbers none of its steps; the numbered list became a pointer
+/// to `scripts/pipeline.steps`, and every "POLICY step N" written against the old list
+/// went on naming an address that no longer exists — including a non-applicable reason
+/// the Linux run prints. Check 6 resolves PATHS, so a section-plus-step citation was
+/// invisible to it. Cite the section, plus the rule's name where it helps:
+/// "POLICY § Build pipeline (coverage ratchet)". A step NUMBER belongs to the contract
+/// and is cited from it ("build-pipeline step 5b"), never from POLICY.
+///
+/// WHAT THIS DOES NOT DO: it cannot tell whether a section citation names the RIGHT
+/// section — the same limit check 2 states for entry numbers. See
+/// `rx::policy_step_citations` for the cross-line reading. Corpus: `corpus_policystep.rs`.
+pub fn policy_step_cited(tree: &Tree) -> bool {
+    header(
+        "25",
+        "a citation of a numbered POLICY step (POLICY numbers none)",
+    );
+    let mut findings = Vec::new();
+    for (name, text) in tree.subset_texts(|path| path != CORPUS_FILE && path != PATTERNS_FILE) {
+        let lines: Vec<&str> = text.lines().collect();
+        for number in rx::policy_step_citations(text) {
+            let line = lines.get(number - 1).copied().unwrap_or_default();
+            findings.push(format!("{name}:{number}:{line}"));
+        }
+    }
+    if findings.is_empty() {
+        return pass();
+    }
+    fail(
+        "POLICY no longer numbers its pipeline steps:",
+        &findings,
+        &[
+            "cite the section instead: POLICY § Build pipeline, with the rule's name",
+            "where it helps, e.g. (coverage ratchet). Step numbers are the contract's",
+            "(scripts/pipeline.steps), and are cited from it, never from POLICY.",
+        ],
+    )
+}
+
 /// `path:line:text` for every scan-set member the filter keeps whose line matches.
 fn grep(
     tree: &Tree,

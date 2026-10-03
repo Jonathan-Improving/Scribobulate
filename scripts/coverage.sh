@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Scoped coverage gate — POLICY.md § "Build pipeline" step 5 states the rule; THIS SCRIPT
+# Scoped coverage gate — POLICY.md § "Build pipeline" (coverage ratchet) states the rule; THIS SCRIPT
 # is the source of truth for the values it turns on, the two floors and the scope. POLICY
 # deliberately does not restate any of them: when the number lived in both places it
 # drifted, and the floor sat ~2pt below the real figure, silently gating nothing.
@@ -21,7 +21,7 @@
 # Leg B is what fixes it. Tested GTK-wired code RAISES `FLOOR_FULL` instead of lowering
 # anything; UNtested GTK-wired code lowers it, and there is no longer a reading in which
 # that looks like ordinary drift. Leg A stays because it is the only leg that can see
-# whether a decision core has been extracted at all — POLICY step 5's scope rule is that
+# whether a decision core has been extracted at all — POLICY § Build pipeline's scope rule is that
 # pure logic belongs in a headless test, and a full-suite figure alone would let every
 # decision hide behind a live window.
 #
@@ -271,7 +271,7 @@ cd "$(dirname "$0")/.."
 # worth knowing. Their PRECISION is no longer the standard.
 #
 # THE RULE NOW: FLOOR is a whole number and moves one whole point at a time, per the
-# header and POLICY step 5. Sub-point movement is noise, not news.
+# header and POLICY § Build pipeline (coverage ratchet). Sub-point movement is noise, not news.
 #
 # MEASURED on this tree, this host: 15737 lines, 3620 missed -> 77.00% LINES (regions read
 # 77.79%, functions 79.26% — third column, per the header's warning).
@@ -313,7 +313,7 @@ cd "$(dirname "$0")/.."
 # are where the 0.60 came from, so the raise is the scope rule working, not drift.
 #
 # WHY THIS IS NOT A LOWERING of master's 77.53: the two numbers are not on the same
-# scale. 77.53 was a floor quoted to the second decimal, which POLICY step 5 retired
+# scale. 77.53 was a floor quoted to the second decimal, which POLICY § Build pipeline (coverage ratchet) retired
 # precisely because it tracked the host; 77 is the largest whole number the merged
 # measurement supports. Nothing that was covered has become uncovered -- 77.60 measured
 # now is ABOVE the 77.42 that note banked.
@@ -495,7 +495,7 @@ cd "$(dirname "$0")/.."
 # sprite-paint and PDF-key tests. `codeview/`'s exclusion needed no narrowing after all:
 # `marker_substitute` — the one pure decision function the exclusion was swallowing —
 # moved OUT of `codeview/gutter.rs` into `theme/decor.rs` as part of the sprite-seam
-# work, which is precisely the extraction POLICY step 5 describes as the mechanism by
+# work, which is precisely the extraction POLICY § Build pipeline describes as the mechanism by
 # which the floor rises. Measured 81.78% after, at a clean worktree.
 #
 # RAISED 81.45 -> 82.15 by QA round 1's Medium mitigation batch. 82.16 printed in the
@@ -568,12 +568,12 @@ cd "$(dirname "$0")/.."
 #
 # Both tails above this line are kept, because between them they carry the whole
 # scope-rule argument. They disagree on FORM, not on direction: `ci` retired
-# second-decimal floors and wrote the whole-number rule into POLICY step 5; `master`
+# second-decimal floors and wrote the whole-number rule into POLICY § Build pipeline; `master`
 # never saw that rule and went on ratcheting in hundredths, each step deliberately short
 # of its own measurement for the same reason the whole-number rule exists -- a floor
 # pinned to the last run fails on arithmetic noise.
 #
-# THE MERGE SETTLES IT ON THE WRITTEN RULE. POLICY step 5 is the only place either
+# THE MERGE SETTLES IT ON THE WRITTEN RULE. POLICY § Build pipeline (coverage ratchet) is the only place either
 # discipline is stated as a rule, it merged without conflict, and a script that
 # contradicts it is the second copy this file's own header warns about. So FLOOR is a
 # whole number here.
@@ -778,7 +778,7 @@ FULL_BUDGET="${SCRIB_COVERAGE_FULL_BUDGET:-1800}"
 #                   `marker_substitute` used to be a second such piece, and QA round 1
 #                   named the exclusion swallowing it. It is no longer here: the
 #                   marker's precedence moved to `theme::decor`, which is gated and at
-#                   100%. That is the shape POLICY step 5 asks for — extract the
+#                   100%. That is the shape POLICY § Build pipeline asks for — extract the
 #                   decision core rather than widen the gate — and it is why this
 #                   exclusion did not need narrowing.
 #   outline_view.rs the outline sidebar's GObject subclass (HeadingObject), its
@@ -855,7 +855,7 @@ FULL_BUDGET="${SCRIB_COVERAGE_FULL_BUDGET:-1800}"
 # nothing — which rung of the decoration applies is `theme::decor`'s, and when a frame is
 # due or a sprite may play is `animation::schedule`'s and `animation::sprites`'s — and
 # its assertions need a realized widget and a frame clock, so they run in leg B.
-# ⚠ Excluding these is the thing POLICY step 5 warns about, so it is worth being explicit:
+# ⚠ Excluding these is the thing POLICY § Build pipeline warns about, so it is worth being explicit:
 # what is excluded is the WIRING, and every decision any of them takes was extracted into
 # a file that stayed in scope. If a future change puts logic back into one of these, the
 # answer is to extract it again, not to widen this term.
@@ -1066,7 +1066,7 @@ Decide which side each file belongs on, then record the decision:
     scripts/coverage.sh with the NARROWEST term that names it, and its rationale beside
     the others, then re-run with --update-scope in the same commit.
 
-Do not widen IGNORE merely to restore the number. POLICY step 5's scope rule is to
+Do not widen IGNORE merely to restore the number. POLICY § Build pipeline's scope rule is to
 extract the decision core out of the excluded file instead; every widened exclusion is
 coverage quietly surrendered, and this gate now makes you say so out loud.
 

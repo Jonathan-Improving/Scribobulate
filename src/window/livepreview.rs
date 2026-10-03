@@ -16,17 +16,14 @@ pub(super) fn wire_live_preview(content_box: &gtk::Box, buffer: &sourceview::Buf
     let cb = content_box.downgrade();
 
     sv_buffer.connect_changed(move |_| {
-        let Some(window) = resolve_tab_window(&cb) else {
+        // The tab whose buffer fired, which is not necessarily the window's active tab:
+        // a session restore or a swap recovery fills a background tab's buffer too.
+        let Some(tab) = cb
+            .upgrade()
+            .and_then(|content_box| crate::winstate::tab_by_content_box(content_box.upcast_ref()))
+        else {
             return;
         };
-
-        // Guard: live re-render/outline-refresh only matter in editor-backed
-        // modes (the preview re-render is split-only; the outline tracks edits
-        // in both edit and split).
-        if !current_mode(&window).is_editor_visible() {
-            return;
-        }
-        let Some(st) = state(&window) else { return };
 
         // The edit moved every source byte offset after it, and a `FoldKey` IS an offset
         // into the text the preview renders from — which in split mode is THIS buffer
@@ -41,9 +38,27 @@ pub(super) fn wire_live_preview(content_box: &gtk::Box, buffer: &sourceview::Buf
         // (in split mode that field is not the text the keys index, so the flush leaves
         // the map alone by design). Below the guard, a reloaded document kept the
         // previous one's fold keys.
-        if st.view_mode.get() == crate::winstate::ViewMode::Split {
-            st.note_source_offsets_moved();
+        //
+        // On the FIRING tab, by its own mode: the window's active tab is a different
+        // document whenever a background tab's buffer is filled.
+        if tab.view_mode.get() == crate::winstate::ViewMode::Split {
+            tab.note_source_offsets_moved();
         }
+
+        let Some(window) = resolve_tab_window(&cb) else {
+            return;
+        };
+        // Guard: live re-render/outline-refresh only matter in editor-backed
+        // modes (the preview re-render is split-only; the outline tracks edits
+        // in both edit and split).
+        if !current_mode(&window).is_editor_visible() {
+            return;
+        }
+        // The re-render and outline refresh below are the ACTIVE tab's; a background
+        // tab is rendered when it is shown.
+        let Some(st) = state(&window).filter(|active| active.id == tab.id) else {
+            return;
+        };
 
         // Ignore programmatic buffer replacement (load / external reload) beyond that —
         // those re-render the preview and outline themselves.
@@ -506,6 +521,61 @@ mod gtk_integration_tests {
             "and the pane the switch REBUILT was rendered at it — a model that survives \
              onto a pane built at the document's own state is the same defect by a \
              longer route"
+        );
+    }
+
+    /// A programmatic fill of a BACKGROUND tab's buffer (a session restore, a swap
+    /// recovery) forgets that tab's folds and leaves the active tab's alone. The
+    /// handler acted on the window's active tab, so it cleared the wrong map.
+    ///
+    /// Mutation: resolve the tab through `state(&window)` again and the active tab's
+    /// folds are lost while the background tab keeps its stale ones.
+    #[gtktest::test]
+    fn filling_a_background_tab_forgets_its_folds_not_the_active_ones() {
+        use crate::fold::FoldState;
+        use gtk::prelude::TextBufferExt;
+
+        let app = gtk::Application::new(
+            Some("com.extollit.scribobulate.integrationtest.foldbackground"),
+            gtk::gio::ApplicationFlags::NON_UNIQUE,
+        );
+        app.register(gtk::gio::Cancellable::NONE)
+            .expect("register (emits startup) before building any window");
+        const DOC: &str = "<details open>\n<summary>One</summary>\n\nBody.\n\n</details>\n";
+        let window = crate::window::new_window(&app, "IT-foldbg", DOC, None);
+        change_action_state(&window, "view-mode", &"split".to_variant());
+        let active = state(&window).expect("the window's tab");
+        let background = crate::window::create_tab_in_window(&window, DOC, None, false, true)
+            .and_then(crate::winstate::tab_by_id)
+            .expect("a background tab");
+        assert_eq!(
+            state(&window).map(|s| s.id),
+            Some(active.id),
+            "precondition"
+        );
+        background.view_mode.set(crate::winstate::ViewMode::Split);
+        let key = crate::renderer::disclosure::scan_document(
+            DOC,
+            crate::renderer::frontmatter::Show::AsDisclosure,
+        )[0]
+        .fold_key();
+        active.folds.borrow_mut().toggle(key);
+        background.folds.borrow_mut().toggle(key);
+
+        // A programmatic replacement of the background tab's text.
+        background.loading.set(true);
+        background.editor_buf.set_text(&format!("x{DOC}"));
+        background.loading.set(false);
+
+        assert_eq!(
+            *background.folds.borrow(),
+            FoldState::default(),
+            "the tab whose text moved must forget its folds"
+        );
+        assert_ne!(
+            *active.folds.borrow(),
+            FoldState::default(),
+            "the active tab's folds name an unmoved document and must survive"
         );
     }
 }

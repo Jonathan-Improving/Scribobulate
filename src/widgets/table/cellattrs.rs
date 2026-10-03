@@ -79,7 +79,7 @@ pub(crate) fn set_layer(label: &Label, layer: Layer, list: Option<pango::AttrLis
     });
     *layers.borrow_mut().slot(layer) = list;
     let composed = layers.borrow().composed();
-    #[allow(clippy::disallowed_methods)] // The one sanctioned writer — see the module header.
+    #[expect(clippy::disallowed_methods)] // The one sanctioned writer — see the module header.
     label.set_attributes(composed.as_ref());
     force_cell_repaint(label);
 }

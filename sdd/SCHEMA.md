@@ -33,6 +33,7 @@ member. For a stateful action the work is driven by `change-state`, not
 | `app.new` | — | — | Open a new empty document window. |
 | `app.open` | — | — | Present the file chooser and open the chosen file. |
 | `app.quit` | — | — | Quit the application, prompting for unsaved documents. |
+| `app.play-animations` | — | `b` | Whether animated images play (TDD 27.5). |
 | `app.about` | — | — | Show the About dialog. |
 | `app.markdown-help` | — | — | Show the bundled Markdown reference. |
 | `app.preview-theme` | `s` | `s` | The active reading theme, identified by theme id. Radio group backing the theme menu. |
@@ -84,6 +85,8 @@ member. For a stateful action the work is driven by `change-state`, not
 | `win.annotations` | — | `b` | Whether the annotations sidebar section is shown. |
 | `win.outline-expand-all` | — | — | Expand every outline node. |
 | `win.outline-collapse-all` | — | — | Collapse the outline to its root headings. |
+| `win.filter-outline` | — | — | Show the Outline pane if hidden, open its filter and focus the box; from inside an open box, close it. |
+| `win.filter-annotations` | — | — | The same for the Annotations pane. |
 | `win.show-statusbar` | — | `b` | Whether the status bar is shown. |
 | `win.show-unsafe-images` | — | `b` | Whether images outside the document's directory are rendered. Per tab. |
 | `win.allow-outside-links` | — | `b` | Whether links outside the document's directory may be opened. |

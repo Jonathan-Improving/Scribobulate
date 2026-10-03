@@ -132,11 +132,24 @@ pub(crate) fn create_state_dir(dir: &Path) -> std::io::Result<()> {
             .create(dir)?;
         if migrating {
             // `create_dir_all` leaves an EXISTING directory's mode alone, so a tree made
-            // by an earlier build stays 0775 until something narrows it. Best-effort: a
-            // failure here must not stop the session being saved.
-            if let Ok(meta) = std::fs::metadata(dir) {
-                if meta.permissions().mode() & 0o077 != 0 {
-                    let _ = std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700));
+            // by an earlier build stays 0775 until something narrows it.
+            //
+            // **A tighten that does not take is an error, as on Windows.** An existing
+            // directory has no `0700`-created floor under it: if the chmod is refused
+            // (owned by someone else, a read-only mount) the directory stays readable by
+            // other local users, and callers writing unsaved document text into it must
+            // be able to decline. The session save already degrades on an `Err`.
+            let meta = std::fs::metadata(dir)?;
+            if meta.permissions().mode() & 0o077 != 0 {
+                if let Err(e) =
+                    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+                {
+                    log::warn!(
+                        "state dir {}: could not narrow mode {:o} to 0700: {e}",
+                        dir.display(),
+                        meta.permissions().mode() & 0o777
+                    );
+                    return Err(e);
                 }
             }
         }
@@ -195,17 +208,42 @@ static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Run `f` with `XDG_STATE_HOME` pointed at `dir` for the duration, restoring
 /// the prior value on the way out. Holds [`ENV_LOCK`] for the duration.
+///
+/// **Every window `f` opened is closed first, with each of its tabs' snapshots
+/// discarded**, before the redirect is lifted, and on a failing test as well as a
+/// passing one. A dirty tab left alive keeps a snapshot timer armed, and when it fires
+/// it resolves the swap directory from `XDG_STATE_HOME` at that moment, which is
+/// process-global: a later test's redirect then receives the stray write and its
+/// recovery reopens it into a tab that test never asked for. Windows that existed
+/// before `f` are left alone.
 #[cfg(test)]
 pub(crate) fn with_state_home_for_test<T>(dir: &std::path::Path, f: impl FnOnce() -> T) -> T {
     let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let prev = std::env::var_os("XDG_STATE_HOME");
+    let _restore = RestoreStateHome {
+        prev: std::env::var_os("XDG_STATE_HOME"),
+        windows_before: crate::window::toplevels_for_test(),
+    };
     std::env::set_var("XDG_STATE_HOME", dir);
-    let out = f();
-    match prev {
-        Some(v) => std::env::set_var("XDG_STATE_HOME", v),
-        None => std::env::remove_var("XDG_STATE_HOME"),
+    f()
+}
+
+/// The teardown half of [`with_state_home_for_test`], in a `Drop` so a test that fails
+/// is cleaned up too. Declared after the lock guard, so it runs while the lock is held.
+#[cfg(test)]
+struct RestoreStateHome {
+    prev: Option<std::ffi::OsString>,
+    windows_before: Vec<gtk::Window>,
+}
+
+#[cfg(test)]
+impl Drop for RestoreStateHome {
+    fn drop(&mut self) {
+        crate::window::close_windows_opened_since_for_test(&self.windows_before);
+        match self.prev.take() {
+            Some(v) => std::env::set_var("XDG_STATE_HOME", v),
+            None => std::env::remove_var("XDG_STATE_HOME"),
+        }
     }
-    out
 }
 
 #[cfg(test)]

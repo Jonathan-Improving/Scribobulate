@@ -102,7 +102,7 @@ impl Drop for WritePass<'_> {
 // This module's tests are the gate's OWN unit tests: `is_busy` is the observable
 // they assert the state machine through, which is the reading the ban's rule
 // explicitly permits (assert on it, never branch on it to write).
-#[allow(clippy::disallowed_methods)]
+#[allow(clippy::disallowed_methods)] // not `expect`: these plain #[test]s vanish in the gtk_suite root, so it could not be met there
 mod tests {
     use super::*;
 

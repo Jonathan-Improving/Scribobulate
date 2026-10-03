@@ -13,24 +13,6 @@ use std::collections::{BTreeMap, BTreeSet};
 const REGISTER: &str = "sdd/ANTI-PATTERNS.md";
 const MANIFEST: &str = "sdd/scrap-numbers.manifest";
 
-/// Check 9 — ScrAP numbers are frozen IDs: never renumbered, never reused. A deleted or
-/// merged entry keeps a landing-spot stub under its heading forever; an entry RETIRED to a
-/// skill (manifest line `N -> GTK4Rs/AP-M` or `N -> GEP-M`) has no heading and may be cited nowhere, since
-/// the citation that resolves is the skill's.
-///
-/// Until this existed the rule was enforced by a person hand-diffing the heading set against
-/// the shared branch through a migration that rewrote 80% of the file — which worked, and is
-/// exactly the kind of guarantee that stops working the first time nobody remembers to run
-/// it. It matters more since the citation sweep: hundreds of comments in `src/` cite a
-/// register by number, and a silently dropped heading breaks working citations in both
-/// directions.
-///
-/// THE MANIFEST IS A DIFF SEED, NOT A SNAPSHOT. It was generated from the shared branch,
-/// where the heading set is independently known good, NOT from the working file.
-/// Regenerating it from whatever the file currently says would bless a heading that had
-/// already gone missing and hold the gate green forever after — a check that cannot fail,
-/// built that way at construction time. So: to ADD an entry, append its number. NEVER
-/// regenerate this file wholesale.
 /// Check 22 — no register entry PRESCRIBES a route `clippy.toml` bans.
 ///
 /// **Second occurrence of this class in two review rounds, which makes it a mechanism.**
@@ -47,8 +29,18 @@ const MANIFEST: &str = "sdd/scrap-numbers.manifest";
 /// **Scope, stated because a wider check would be unusable.** This matches a banned
 /// method's own leaf NAME in the register, which cannot distinguish "do this" from "do
 /// not do this". Several entries legitimately name a banned call in order to warn about
-/// it — so the check requires the name to be absent OR accompanied by a word that marks
-/// it as a warning. It is a prompt to re-read, not a proof of prescription.
+/// it — so the check requires the name to be absent OR marked as a warning by its OWN
+/// clause: a warning word, whole and case-insensitive, within a short window before the
+/// name (cut at the last sentence or clause break), a two-way connective ("avoid",
+/// "instead of", "rather than") whose direct object is the name, or a passive "banned"
+/// just after it. A trait-method ban is matched as prose spells it, by its type and as a
+/// method call (`spellings`). The first
+/// version vetoed the whole LINE on any of a list of everyday words ("not ", "was ",
+/// "ban" — which matched "urban"), so it had never produced a finding on the real register;
+/// check 20 had already been through the same correction. Entry titles, TOC rows and the
+/// descriptive `**Symptom**`/`**Root cause**` fields are not read: a title names the
+/// mistake, and those fields report what happened. It is a prompt to re-read, not a proof
+/// of prescription. Corpus: `corpus_register.rs`.
 pub fn register_prescribes_a_banned_route(tree: &Tree) -> bool {
     header(
         "22",
@@ -60,56 +52,7 @@ pub fn register_prescribes_a_banned_route(tree: &Tree) -> bool {
     let Some(register) = tree.text(REGISTER) else {
         return fail("the register is missing; refusing to guess", &[], &[]);
     };
-    // The leaf name of every banned path: `gtk4::gdk::Texture::from_file` → `from_file`
-    // is too common a word, so the last TWO segments are used (`Texture::from_file`),
-    // which is how the register spells them.
-    let banned: Vec<String> = rx::banned_path_rx()
-        .captures_iter(bans)
-        .filter_map(|c| {
-            let path = c.get(1)?.as_str();
-            let mut parts = path.rsplit("::");
-            let leaf = parts.next()?;
-            let owner = parts.next()?;
-            Some(format!("{owner}::{leaf}"))
-        })
-        .collect();
-    // Words that mark a mention as a warning rather than an instruction.
-    const WARNS: &[&str] = &[
-        "ban",
-        "BAN",
-        "never",
-        "Never",
-        "NEVER",
-        "not ",
-        "NOT",
-        "no longer",
-        "refus",
-        "forbid",
-        "avoid",
-        "instead of",
-        "rather than",
-        "was ",
-        "used to",
-        "⚠",
-        // An entry's TITLE names the mistake — that IS the anti-pattern being
-        // catalogued — so the verbs that mark a title as describing an error are
-        // warnings too. Without these, every entry whose subject is a banned call
-        // reports itself, which is the false-positive rate that gets a check disabled.
-        "Assuming",
-        "assuming",
-        "Mistaking",
-        "mistaking",
-        "Treating",
-        "treating",
-    ];
-    let mut findings = Vec::new();
-    for (index, line) in register.lines().enumerate() {
-        for name in &banned {
-            if line.contains(name.as_str()) && !WARNS.iter().any(|w| line.contains(w)) {
-                findings.push(format!("{REGISTER}:{}: {name} — {line}", index + 1));
-            }
-        }
-    }
+    let findings = banned_route_findings(bans, register);
     if findings.is_empty() {
         return pass();
     }
@@ -122,6 +65,70 @@ pub fn register_prescribes_a_banned_route(tree: &Tree) -> bool {
             "if it WARNS about it, say so in the same sentence.",
         ],
     )
+}
+
+/// Check 22's predicate over the two texts it reads, `clippy.toml` and the register. Pure,
+/// so the corpus calls exactly what the check calls.
+pub(crate) fn banned_route_findings(bans: &str, register: &str) -> Vec<String> {
+    // The leaf name of every banned path: `gtk4::gdk::Texture::from_file` → `from_file`
+    // is too common a word, so the last TWO segments are used (`Texture::from_file`),
+    // which is how the register spells them.
+    let banned: Vec<String> = rx::banned_path_rx()
+        .captures_iter(bans)
+        .filter_map(|c| {
+            let path = c.get(1)?.as_str();
+            let mut parts = path.rsplit("::");
+            let leaf = parts.next()?;
+            let owner = parts.next()?;
+            Some(spellings(owner, leaf))
+        })
+        .flatten()
+        .collect();
+    let mut findings = Vec::new();
+    for (index, line) in register.lines().enumerate() {
+        if describes_rather_than_prescribes(line) {
+            continue;
+        }
+        for name in &banned {
+            let mut from = 0;
+            while let Some(found) = line[from..].find(name.as_str()) {
+                let at = from + found;
+                let end = at + name.len();
+                from = end;
+                // A longer method that merely STARTS with a banned one is another method:
+                // `Pixbuf::from_stream` is not `Pixbuf::from_stream_at_scale`.
+                // (The method-call spelling ends in `(`, so it carries its own boundary.)
+                if name.ends_with(|c: char| c.is_alphanumeric() || c == '_')
+                    && line[end..]
+                        .chars()
+                        .next()
+                        .is_some_and(|c| c.is_alphanumeric() || c == '_')
+                {
+                    continue;
+                }
+                if !warned_nearby(line, at, end) {
+                    findings.push(format!("{REGISTER}:{}: {name} — {line}", index + 1));
+                    break;
+                }
+            }
+        }
+    }
+    findings
+}
+
+/// How prose spells one banned path. `Owner::leaf` always. A TRAIT method's owner is an
+/// `*Ext` trait no register line ever writes — prose says `TextView::scroll_to_mark` or
+/// `view.scroll_to_mark(…)` — so for those the type (`Ext` removed) and the method-call
+/// form are matched too. Without them half the ban list was invisible to this check while
+/// its PASS read as covering all of it. The BARE leaf is deliberately not
+/// matched: `text`, `cancel`, `new` are ordinary words.
+fn spellings(owner: &str, leaf: &str) -> Vec<String> {
+    let mut names = vec![format!("{owner}::{leaf}")];
+    if let Some(ty) = owner.strip_suffix("Ext").filter(|ty| !ty.is_empty()) {
+        names.push(format!("{ty}::{leaf}"));
+        names.push(format!(".{leaf}("));
+    }
+    names
 }
 
 /// Check 21 — the register's declared next-free number is above every heading it has.
@@ -143,26 +150,17 @@ pub fn next_free_number_is_free(tree: &Tree) -> bool {
     let Some(text) = tree.text(REGISTER) else {
         return fail("the register is missing; refusing to guess", &[], &[]);
     };
-    let declared = text
-        .lines()
-        .find_map(|line| rx::next_free_rx().captures(line))
-        .and_then(|caps| caps.get(1)?.as_str().parse::<u32>().ok());
-    let Some(declared) = declared else {
-        return fail(
-            "no \"Next free number: N\" line found in the register header",
-            &[],
-            &["the header is the only guard on minting; it may not be removed"],
-        );
+    let (declared, highest) = match next_free_verdict(text) {
+        NextFree::Free => return pass(),
+        NextFree::Missing => {
+            return fail(
+                "no \"Next free number: N\" line found in the register header",
+                &[],
+                &["the header is the only guard on minting; it may not be removed"],
+            )
+        }
+        NextFree::Taken { declared, highest } => (declared, highest),
     };
-    let highest = text
-        .lines()
-        .filter_map(|line| rx::entry_number_rx().captures(line))
-        .filter_map(|caps| caps.get(1)?.as_str().parse::<u32>().ok())
-        .max()
-        .unwrap_or(0);
-    if declared > highest {
-        return pass();
-    }
     fail(
         &format!("the header declares {declared} free, but entry {highest} already has a body"),
         &[],
@@ -173,6 +171,143 @@ pub fn next_free_number_is_free(tree: &Tree) -> bool {
     )
 }
 
+/// How much text before a banned name may carry the word that marks it as a warning.
+/// Check 20's lesson, applied here: a whole-line veto over everyday words is no gate,
+/// because a register line is a long sentence of prose and almost always contains one.
+const WARN_WINDOW_BEFORE: usize = 60;
+/// And after, for the passive form (`` `X::y` stays banned ``), which is the only form a
+/// following word may take: "use `X::y` instead of Z" is the prescription's OWN alternative.
+const WARN_WINDOW_AFTER: usize = 40;
+
+/// Whole words, case-insensitive, and ONLY words that cannot open a prescription. `ban`
+/// must not match inside "urban" or "banner", and the bare "not"/"was" the first version
+/// carried are gone: they vetoed "the old loader did not cache" and "it was the fastest
+/// route", which say nothing about the call. So are the two-way words the second version
+/// carried: "used to", "no longer", a bare "never" and "refusing" describe
+/// something else as often as they warn about the call, and "never block the main loop:
+/// load with `X::y`" is a prescription.
+fn warn_before_rx() -> &'static regex::Regex {
+    static RX: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    RX.get_or_init(|| {
+        regex::Regex::new(
+            r"(?i)\b(bans?|banned|forbid(s|den)?|never use|do not|don't|must not|not use)\b|⚠",
+        )
+        .expect("check 22's warning pattern compiles")
+    })
+}
+
+/// The connectives that work in BOTH directions — "route through X rather than `T::f`"
+/// warns, "rather than X, call `T::f`" prescribes — count only when the banned name is
+/// their DIRECT object: nothing between them and the name but quoting and, for the
+/// method-call spelling, the receiver (`avoid \`view.scroll_to_mark(…)\``).
+fn warn_direct_object_rx() -> &'static regex::Regex {
+    static RX: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    RX.get_or_init(|| {
+        regex::Regex::new(r#"(?i)\b(avoid(s|ed|ing)?|instead of|rather than)\s+[`*"']*\w*$"#)
+            .expect("check 22's direct-object pattern compiles")
+    })
+}
+
+fn warn_after_rx() -> &'static regex::Regex {
+    static RX: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    RX.get_or_init(|| {
+        regex::Regex::new(r"(?i)\b(banned|forbidden|disallowed)\b|⚠")
+            .expect("check 22's passive warning pattern compiles")
+    })
+}
+
+/// Is the banned name at `at..end` marked as a warning by its OWN clause? The window
+/// before is cut at the last sentence or clause break, so "never mind that. Use `X::y`"
+/// is a prescription.
+fn warned_nearby(line: &str, at: usize, end: usize) -> bool {
+    let from = line[..at]
+        .char_indices()
+        .rev()
+        .take(WARN_WINDOW_BEFORE)
+        .last()
+        .map_or(at, |(i, _)| i);
+    let before = &line[from..at];
+    // A register clause also ends at a comma, a colon or a dash: "to avoid the copy, use
+    // `X::y`" is a prescription whose warning-looking word belongs to the clause before.
+    let before = [". ", "; ", "? ", "! ", ", ", ": ", " — ", " - "]
+        .iter()
+        .filter_map(|brk| before.rfind(brk).map(|i| i + brk.len()))
+        .max()
+        .map_or(before, |cut| &before[cut..]);
+    let to = line[end..]
+        .char_indices()
+        .take(WARN_WINDOW_AFTER)
+        .last()
+        .map_or(end, |(i, c)| end + i + c.len_utf8());
+    warn_before_rx().is_match(before)
+        || warn_direct_object_rx().is_match(before)
+        || warn_after_rx().is_match(&line[end..to])
+}
+
+/// A line that names a mistake or reports what happened rather than saying what to do:
+/// an entry heading or TOC row (an anti-pattern's TITLE names the mistake — that is what
+/// the entry IS), and the two descriptive fields. A prescription lives in the others
+/// (`**Resolution**`, `**Lesson**`, `**Scribobulate**`, `**See**`, ...), which stay checked.
+fn describes_rather_than_prescribes(line: &str) -> bool {
+    let line = line.trim_start();
+    line.starts_with('#')
+        || line.starts_with('|')
+        || line.starts_with("**Symptom**")
+        || line.starts_with("**Root cause**")
+}
+
+/// Check 21's verdict on a register text.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum NextFree {
+    /// The declared number is above every heading.
+    Free,
+    /// No `Next free number: N` line at all.
+    Missing,
+    /// The declared number is at or below the highest heading present.
+    Taken { declared: u32, highest: u32 },
+}
+
+/// Check 21's whole decision, pure, so the corpus calls exactly what the check calls --
+/// the comparison included, since `>` against `>=` is the one mutation that matters.
+pub(crate) fn next_free_verdict(text: &str) -> NextFree {
+    let Some(declared) = text
+        .lines()
+        .find_map(|line| rx::next_free_rx().captures(line))
+        .and_then(|caps| caps.get(1)?.as_str().parse::<u32>().ok())
+    else {
+        return NextFree::Missing;
+    };
+    let highest = text
+        .lines()
+        .filter_map(|line| rx::entry_number_rx().captures(line))
+        .filter_map(|caps| caps.get(1)?.as_str().parse::<u32>().ok())
+        .max()
+        .unwrap_or(0);
+    if declared > highest {
+        NextFree::Free
+    } else {
+        NextFree::Taken { declared, highest }
+    }
+}
+
+/// Check 9 — ScrAP numbers are frozen IDs: never renumbered, never reused. A deleted or
+/// merged entry keeps a landing-spot stub under its heading forever; an entry RETIRED to a
+/// skill (manifest line `N -> GTK4Rs/AP-M` or `N -> GEP-M`) has no heading and may be cited nowhere, since
+/// the citation that resolves is the skill's.
+///
+/// Until this existed the rule was enforced by a person hand-diffing the heading set against
+/// the shared branch through a migration that rewrote 80% of the file — which worked, and is
+/// exactly the kind of guarantee that stops working the first time nobody remembers to run
+/// it. It matters more since the citation sweep: hundreds of comments in `src/` cite a
+/// register by number, and a silently dropped heading breaks working citations in both
+/// directions.
+///
+/// THE MANIFEST IS A DIFF SEED, NOT A SNAPSHOT. It was generated from the shared branch,
+/// where the heading set is independently known good, NOT from the working file.
+/// Regenerating it from whatever the file currently says would bless a heading that had
+/// already gone missing and hold the gate green forever after — a check that cannot fail,
+/// built that way at construction time. So: to ADD an entry, append its number. NEVER
+/// regenerate this file wholesale.
 pub fn number_immutability(tree: &Tree) -> bool {
     header(
         "9",

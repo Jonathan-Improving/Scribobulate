@@ -71,6 +71,37 @@ pub(crate) fn engine_applies_word_boundaries(opts: FindOptions) -> bool {
     opts.whole_word && !opts.regex
 }
 
+/// Put `opts` on the editor engine's settings: the three option properties, exactly as
+/// the find bar hands them over. The one definition of that mapping, so the parity
+/// fixtures (`super::parity`) measure the engine the application drives rather than a
+/// copy of it.
+pub(crate) fn configure_engine_options(settings: &sourceview::SearchSettings, opts: FindOptions) {
+    use sourceview::prelude::SearchSettingsExt;
+    let FindOptions {
+        case_sensitive,
+        whole_word: _,
+        regex,
+    } = opts;
+    settings.set_case_sensitive(case_sensitive);
+    // NOT the reader's `whole_word` outright: for a regular expression the wrapping is
+    // the application's, because the engine's own is ungrouped (`WORD_WRAPPED`), and
+    // letting it wrap again would nest one correct bounding inside one incorrect one.
+    settings.set_at_word_boundaries(engine_applies_word_boundaries(opts));
+    settings.set_regex_enabled(regex);
+}
+
+/// Put `query` on the editor engine's settings as the pattern [`editor_pattern`] makes
+/// of it. An empty query clears the search text rather than setting `""`.
+pub(crate) fn configure_engine_query(
+    settings: &sourceview::SearchSettings,
+    query: &str,
+    opts: FindOptions,
+) {
+    use sourceview::prelude::SearchSettingsExt;
+    let pattern = editor_pattern(query, opts);
+    settings.set_search_text((!pattern.is_empty()).then_some(pattern.as_str()));
+}
+
 /// A compiled query, ready to be run against any number of texts.
 pub(crate) enum Matcher {
     /// An empty query. Matches nothing, in every mode — including regex, where an

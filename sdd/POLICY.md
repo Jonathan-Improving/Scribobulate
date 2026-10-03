@@ -28,28 +28,21 @@ in preparation for merging to master, run the following, typically (but not alwa
 - **Windows**: `packaging/windows/pipeline.ps1`
 A task is not complete until every step passes, and the remote Github CI is the final ratifying gate for all three platforms. 
 
-The steps in detail are:
+The steps are the contract's, `scripts/pipeline.steps`; `scripts/pipeline.sh --list-steps`
+prints them. What the contract cannot enforce, and this document owns:
+- Clippy runs with every feature enabled and zero warnings; an `#[allow]` carries its
+  reason in a comment on the same line.
+- Coverage (Linux) is a no-regression ratchet, not a target. Floors are whole numbers,
+  and one drops only in a change that raises the other. Fractional drift is noise: do
+  not report it or adjust for it. Logic added to a file excluded from coverage (GTK
+  wiring) is extracted into a pure module so it is measured.
+- A change to user-visible behaviour updates `tests/MANUAL-TEST.md` in the same change,
+  and the TDD rubric too if the contract itself changed.
+- A change to the architecture updates the system diagram in the same change.
+- The installer step is the one opt-in step.
+- Linux runs the GTK tests on a throwaway display and session bus; macOS and Windows run
+  them against their real windowing system.
 
-1. Format check.
-2. Clippy, zero warnings, with every feature enabled so gated test code is linted too.
-   Fix a warning; an `#[allow]` needs its reason in a comment on the same line.
-3. Release build.
-4. Unit tests.
-5. Integration and coverage steps, and all platforms run the per-render memory-growth tests.  Per platform instructions are as follows:
-   - **macOS and Windows**: Run the GTK integration tests
-   - **Linux**: Coverage gate — a no-regression ratchet, not a target. Floors are whole numbers, and
-     one drops only in a change that raises the other. Fractional drift is noise: do not
-     report it or adjust for it. When adding logic to a file excluded from coverage (GTK wiring), extract the
-     decision into a pure module so it is measured.  The GTK tests must pass.
-6. Manual-test alignment — a change to user-visible behaviour updates
-   `tests/MANUAL-TEST.md` in the same change, and the TDD rubric too if the contract
-   itself changed.
-7. Diagram alignment — a change to the architecture updates the system diagram in the
-   same change.
-8. Cross-reference lint — citations, document paths and numbered entries must resolve.
-9. Installer artefact — the one opt-in step.
-
-- All platforms must perform GTK tests on a throwaway display and session bus.
 - The step list lives in one contract file that every runner and the CI workflow derive
   from. Change a step there — never in a runner, and never by naming steps in CI.
 - Never skip a step. A step that does not apply on a platform is announced in the run

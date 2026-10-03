@@ -137,6 +137,7 @@ pub(crate) mod sidebarfilter;
 pub(crate) mod span;
 /// Sprite decoration: a theme naming an image file.
 pub(crate) mod sprite;
+pub(crate) mod strbound;
 /// The registry `#[gtktest::test]` submits into. Gated on `test` as well as the
 /// feature so it never reaches the shipped library: a `harness = false` target is
 /// built `--cfg test`, so this one gate covers both the lib-test target and the
@@ -179,6 +180,7 @@ pub(crate) mod theme;
 pub(crate) mod widgets;
 pub(crate) mod window;
 pub(crate) mod winstate;
+pub(crate) mod words;
 // Linux-only by construction: every path in it is XDG/X11 desktop plumbing —
 // `~/.XCompose`, `$XDG_CONFIG_HOME`, `mimeapps.list`, `/etc/keyd` — wired together
 // with `std::os::unix` symlinks that do not exist on other targets. Gating the

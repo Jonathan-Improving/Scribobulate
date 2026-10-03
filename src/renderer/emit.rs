@@ -44,7 +44,7 @@ impl Renderer {
     pub(super) fn apply(&self, tag: TagName, si: &gtk::TextIter, ei: &gtk::TextIter) {
         // The ONE sanctioned fixed-tag `apply_tag_by_name` (clippy.toml bans the rest,
         // N6): the name is `TagName`-derived, so it cannot typo or drift from `tags.rs`.
-        #[allow(clippy::disallowed_methods)]
+        #[expect(clippy::disallowed_methods)]
         self.buf.apply_tag_by_name(tag.name(), si, ei);
     }
 
@@ -90,8 +90,10 @@ impl Renderer {
         let list = crate::tags::list_indent_px(self.inter.lists.len() as i32, self.zoom, m);
         // Clamped exactly as the tag family is, so the inset can never claim more
         // margin than `bq-{depth}` actually applies on a pathologically nested document.
-        let quote_depth =
-            (self.inter.blockquote_depth as u8).min(crate::tags::MAX_QUOTE_DEPTH) as i32;
+        let quote_depth = self
+            .inter
+            .blockquote_depth
+            .min(usize::from(crate::tags::MAX_QUOTE_DEPTH)) as i32;
         list + 2 * crate::tags::quote_indent_px(quote_depth, self.zoom, m)
     }
 
@@ -387,7 +389,7 @@ impl Renderer {
                 let ei = self.buf.iter_at_offset(tok_end);
                 // Dynamic per-syntect-colour tag: NOT a fixed, enumerable name, so it
                 // stays outside `TagName`/the typed sink and keeps its own apply (N6).
-                #[allow(clippy::disallowed_methods)]
+                #[expect(clippy::disallowed_methods)]
                 self.buf.apply_tag_by_name(&fg_name, &si, &ei);
             }
         }
@@ -405,7 +407,10 @@ impl Renderer {
         // [block_start, end_iter). The block's *background* is self-drawn by the preview
         // view — record the block's char extent for it (GTK4Rs/AP-21).
         let ei = self.tip();
-        let quote_depth = (self.inter.blockquote_depth as u8).min(crate::tags::MAX_QUOTE_DEPTH);
+        let quote_depth = self
+            .inter
+            .blockquote_depth
+            .min(usize::from(crate::tags::MAX_QUOTE_DEPTH)) as u8;
         self.apply_tag_per_line(TagName::CodeBlock { quote_depth }, block_start, ei.offset());
         // The depth travels WITH the span: the card is self-drawn, so nothing downstream
         // can ask the tags how far this block's text was pushed in (`CodeBlockSpan`).

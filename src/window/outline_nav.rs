@@ -301,12 +301,13 @@ fn resolve_heading(
 /// Scroll the active pane to a heading. Preview-tethered in preview/split modes
 /// (the user's stated preference); in pure-edit mode — which has no preview — it
 /// moves the editor caret instead, so the panel is useful in every mode.
-/// `row_index` is the activated row's place in the build that produced it. It is the
-/// index the PREVIEW's own `heading_sites` are in — the outline build and the render
-/// are refreshed by the same tick, so they are the same generation — and it is
-/// deliberately NOT the index the live document would give, which is a different list
-/// during the 300 ms the debounce is out. The editor caret, by contrast, wants the LIVE
-/// offset, which is what `resolve_heading` answers.
+/// `row_index` is the activated row's place in the build that produced it, used to
+/// scroll the PREVIEW, whose `heading_sites` are indexed the same way when the outline
+/// build and the render come from the same source. That is the usual case and the
+/// preview scroll trusts it; it is not trusted for the Back/Forward record, which is
+/// durable, so `record_outline_activation` re-finds the heading by path in the
+/// render's own source instead. The editor caret wants the LIVE offset, which is what
+/// `resolve_heading` answers.
 fn navigate_to_heading(window: &ApplicationWindow, path: &HeadingPath, row_index: usize) {
     let Some(st) = state(window) else { return };
     // Resolved against the live document, never against the row's build-time offsets.
@@ -379,12 +380,16 @@ fn scroll_preview_to_heading_revealing(
 /// Record an outline activation as a within-document navigation, addressing the
 /// heading by its **slug** rather than by the `doc_index` the row carries.
 ///
-/// The index is a positional reference into a collection every re-render
-/// rebuilds — "the weakest reference there is" (Document-Reference CAM) — and it
-/// goes stale with the document's text completely unchanged, so nothing about the
-/// content would warn us. The slug for that index comes from the same render that
-/// produced the row, so the two cannot disagree; a heading the render did not
-/// produce simply records nothing.
+/// The row's index is a positional reference into a collection every re-render
+/// rebuilds — "the weakest reference there is" (Document-Reference CAM) — so it is not
+/// what is recorded. The heading is found by its PATH (each ancestor's title, then its
+/// own) in the headings of the very source the current render walked, and that
+/// position indexes the same render's `heading_sites`. Path and render therefore cannot
+/// disagree, and two headings with the same title under different parents, or a
+/// heading titled `Example 1` before one titled `Example`, each record their own slug.
+/// A heading that render did not produce, or one hidden inside a collapsed block,
+/// records nothing, which degrades the entry to "just this document" rather than
+/// pointing it somewhere wrong (TDD 23.14).
 fn record_outline_activation(window: &ApplicationWindow, st: &Rc<TabState>, path: &HeadingPath) {
     let Some(sw) = st.split.preview_scroller() else {
         return;
@@ -395,37 +400,32 @@ fn record_outline_activation(window: &ApplicationWindow, st: &Rc<TabState>, path
     else {
         return;
     };
-    let Some(title) = path.last().map(|step| step.title.as_str()) else {
-        return;
-    };
-    let slug = crate::preview::scrib_render_data(&view)
-        .and_then(|rd| slug_for_title(&rd.borrow().heading_sites, title));
+    let slug = crate::preview::scrib_render_data(&view).and_then(|rd| {
+        let rd = rd.borrow();
+        slug_for_path(&rd.md_owned, &rd.heading_sites, path)
+    });
     if let Some(slug) = slug {
         crate::window::record_in_document_jump(window, st, crate::winstate::NavSpot::Heading(slug));
     }
 }
 
-/// The anchor slug the CURRENT RENDER gave the heading titled `title`, if it gave it
-/// one at all.
-///
-/// **Found by the title rather than by an index**, which is the whole point: the render
-/// and the outline build are refreshed by the same debounce but are not the same list,
-/// and an index into one applied to the other names a neighbouring heading. That
-/// mistake is the worst kind available here, because it LAUNDERS a stale reference into
-/// a durable record — the Back/Forward entry then resolves perfectly, to the wrong
-/// heading, and nothing later can notice.
-///
-/// The match itself is `links::slug_is_for`, which lives beside the rule that produces
-/// a slug so the two cannot drift; the first site it accepts is this heading's, because
-/// the uniquing suffix is assigned in document order. `None` — a heading the
-/// render did not produce, or one hidden inside a collapsed block — records nothing,
-/// which degrades the entry to "just this document" rather than pointing it somewhere
-/// wrong (TDD 23.14).
-fn slug_for_title(sites: &[crate::outline::HeadingSite], title: &str) -> Option<String> {
-    sites.iter().find_map(|site| {
-        let slug = site.slug.as_deref()?;
-        crate::links::slug_is_for(slug, title).then(|| slug.to_string())
-    })
+/// The anchor slug a render gave the heading at `path`, given the source that render
+/// walked and its `heading_sites`. `None` when the path names no heading in that source,
+/// when the sites are not one per heading of it (they then describe another source), or
+/// when the heading is hidden and so has no slug.
+fn slug_for_path(
+    rendered: &str,
+    sites: &[crate::outline::HeadingSite],
+    path: &HeadingPath,
+) -> Option<String> {
+    let headings = extract_headings(rendered);
+    if headings.len() != sites.len() {
+        return None;
+    }
+    let index = crate::outline::expansion::paths_in_document_order(&build_tree(&headings))
+        .iter()
+        .position(|p| p == path)?;
+    sites.get(index)?.slug.clone()
 }
 
 /// Move the editor caret to the heading at source byte offset `src_offset` and
@@ -1654,5 +1654,57 @@ mod scroll_spy_cost_tests {
         );
 
         window.destroy();
+    }
+}
+
+#[cfg(test)]
+mod slug_tests {
+    use super::{build_tree, extract_headings, slug_for_path};
+    use crate::outline::HeadingSite;
+
+    /// One site per heading, each carrying a slug that names its own position, so the
+    /// assertion reads which heading was picked.
+    fn sites(n: usize) -> Vec<HeadingSite> {
+        (0..n)
+            .map(|i| HeadingSite {
+                offset: i as i32,
+                hidden_by: Vec::new(),
+                slug: Some(format!("site-{i}")),
+            })
+            .collect()
+    }
+
+    /// The heading at `path` gets ITS slug, not the first heading with the same title:
+    /// a second `## Example` under another parent, and an `Example` that follows a
+    /// heading titled `Example 1` (whose slug `example-1` the old title match accepted
+    /// as an `Example` slug).
+    ///
+    /// Mutation: pick the first path with the same last title instead of the exact
+    /// path and both assertions fail.
+    #[test]
+    fn a_repeated_title_records_the_heading_that_was_activated() {
+        let md = "# A\n## Example\n# B\n## Example\n# C\n## Example 1\n## Example\n";
+        let headings = extract_headings(md);
+        let paths = crate::outline::expansion::paths_in_document_order(&build_tree(&headings));
+        let sites = sites(headings.len());
+        // Document order: A, A/Example, B, B/Example, C, C/Example 1, C/Example.
+        assert_eq!(
+            slug_for_path(md, &sites, &paths[3]).as_deref(),
+            Some("site-3")
+        );
+        assert_eq!(
+            slug_for_path(md, &sites, &paths[6]).as_deref(),
+            Some("site-6")
+        );
+    }
+
+    /// Sites that are not one per heading describe another source, so nothing is
+    /// recorded rather than an index applied across the two.
+    #[test]
+    fn sites_from_another_source_record_nothing() {
+        let md = "# A\n## B\n";
+        let headings = extract_headings(md);
+        let paths = crate::outline::expansion::paths_in_document_order(&build_tree(&headings));
+        assert_eq!(slug_for_path(md, &sites(3), &paths[1]), None);
     }
 }

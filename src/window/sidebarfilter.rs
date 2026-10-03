@@ -162,10 +162,10 @@ impl FilterBar {
     /// Build a pane's filter chrome. Every handler resolves its window from the widget
     /// at emission time (GTK4Rs/AP-52), so nothing here needs the window yet.
     pub(crate) fn new(pane: SidebarPaneKind) -> Self {
-        let entry = gtk::SearchEntry::new();
+        // Through the application's field constructor, which names the field and wires
+        // the macOS eager clipboard write and word navigation every field gets.
+        let entry = crate::widgets::textfield::named_search_entry(pane.control_name());
         entry.set_placeholder_text(Some(pane.placeholder()));
-        entry.set_hexpand(true);
-        crate::a11y::name_field(&entry, pane.control_name());
         // BEFORE the bar connects to the entry: GtkSearchBar hangs its own close-on-
         // Escape on this same signal, and only a handler connected ahead of it can stop
         // the emission before it runs (see `on_stop_search`).

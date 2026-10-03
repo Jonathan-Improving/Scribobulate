@@ -532,6 +532,9 @@
 - **And given** an image whose `src` is an absolute path, a `..` traversal, or a symlink (under the doc folder) pointing outside the document's directory
 - **When** it is rendered
 - **Then** the file is **not** loaded — the canonicalized target must stay at or beneath the document's directory (an untitled document, having no directory, resolves no local images)
+- **And given** an image or a document link whose path reaches a network share outside the document's folder — a Windows `\\host\share` path, any spelling of one, or a symbolic link in the folder whose target is one. A chain of links too long to follow, or a link that cannot be read, is treated as one: where it leads is unknown
+- **When** it is rendered, or the link is clicked
+- **Then** nothing touches the share: the path is refused before any filesystem call, whatever "Show Unsafe Images" or "Load Unsafe Linked Documents" says — reaching a share authenticates with the user's credentials, which neither toggle is consent to — and the reader is told it is a network share rather than that the file is missing. A document opened from a share still loads the images in its own folder
 - **And given** an image, local or remote, whose header declares dimensions that decode past the project's pixel cap — a decompression bomb, which is small enough on disk to clear every byte limit and expands to hundreds of megabytes or more
 - **When** it is rendered
 - **Then** its dimensions are read from the header and it is refused **before** the decode, showing the ordinary broken-image placeholder — cost is part of the threat model, and a byte cap bounds the transfer while saying nothing about what it expands to
@@ -758,7 +761,7 @@
 
 ### 4.13 Option+Left/Right moves the caret by a word in every text surface, on macOS
 <!-- Why this rubric is macOS-scoped BY MECHANISM rather than by convention: Option+Left/Right in the editor silently ran GtkSourceView's own `move-words` binding — a word-TRANSPOSITION edit, not navigation — instead of moving the caret, because macOS has no other claim on that key and, ON QUARTZ, GtkSourceView's own class binding wins over the app's Back/Forward accelerator (§23.6) declared on the same keystroke — an ordering measured to be REVERSED on Win32 and X11 (ScrAP-311), so this rubric is macOS-scoped by mechanism and not merely by convention. See accel.rs MAC_RESERVED and macwordnav.rs for the full mechanism, sourced to `gtksourceview.c:953`. -->
-- **Given** any of this application's text surfaces has focus, on macOS — the document editor, the find field, the replace field, the annotation comment entry, or the shared prompt field behind Go To Line, Rename and Insert Link/Image/Table
+- **Given** any of this application's text surfaces has focus, on macOS — the document editor, the find field, the replace field, the Outline and Annotations filter boxes, the annotation comment entry, or the shared prompt field behind Go To Line, Rename and Insert Link/Image/Table
 - **When** the reader presses Option+Left or Option+Right
 - **Then** the caret moves one word back or forward, exactly as Ctrl+Left/Ctrl+Right already do on every platform (Linux/Windows convention) — Option is the macOS spelling of the same movement, not a second, different one
 - **And** the buffer's content and word order are completely unchanged — this is caret movement only, never the word-transposition edit `GtkSourceView` itself would otherwise perform on this key (that edit is what wins the key on Quartz with no interceptor; on Win32 and X11 the accelerator wins instead and this rubric has nothing to guard — ScrAP-311)
@@ -916,7 +919,10 @@
 - **And given** a planted series that climbs on every sample
 - **When** the same assertion is applied
 - **Then** it fails, and its message names the growth it measured and the part one allocation explains
-- **Evidence, recorded here for the same reason as 6.9's**: the predicate was mutation-tested against the REAL gates, not only planted series. Retaining every decode (`std::mem::forget` on the loaded image) reddens 6.9 at 3.35 MB of residual growth on the animated WebP and 30.7 MB on the PNG control; retaining every presented frame reddens 6.10's playback half at 34.5 MB. Four consecutive clean runs on the same host sit at 0.27 MB against a 2 MB bound — two orders of magnitude from the failures, so the verdict does not rest on host noise
+- **And given** a planted series that climbs, falls once by more than it has climbed, and climbs again
+- **When** the same assertion is applied
+- **Then** it still fails: growth is judged over every stretch of the series, so a fall cannot cancel a climb on either side of it, and the message names the stretch whose growth it reports
+- **Evidence, recorded here for the same reason as 6.9's**: the predicate was mutation-tested against the REAL gates, not only planted series. Retaining every decode (`std::mem::forget` on the loaded image) reddens 6.9 on the animated WebP: 3.34–3.36 MB of residual over a ten-sample window cleared the bound by only ~6%, so 6.9 samples twenty, where the same mutation reads 9.35 MB, about three times it; the PNG control reddens at 30.7 MB, and retaining every presented frame reddens 6.10's playback half at 34.5 MB. The bound is `memgate::footprint::GROWTH_BOUNDS`; clean runs read at most ~1.25 MB (macOS playback)
 
 ### 6.12 A single allocation too large to be warm-up still fails
 - **Given** a planted series with exactly one increase, larger than the absolute ceiling on total growth
@@ -2215,7 +2221,7 @@
 ### 14.4 Out-of-folder local images load when the toggle is on
 - **Given** a document referencing a local image outside the document folder
 - **When** "Show Unsafe Images" is **on**
-- **Then** the image is loaded from its absolute path and displayed inline
+- **Then** the image is loaded from its absolute path and displayed inline — except a path on a network share, which the toggle never admits (2.7)
 
 ### 14.5 Toggling off immediately shows broken-image placeholders
 - **Given** "Show Unsafe Images" is on and the preview shows remote or out-of-folder images
@@ -2242,7 +2248,7 @@
 - **Given** an image that cannot be displayed — blocked by policy, its path/URL unresolvable (**not found** at render time), or a resolved file/URL that fails to decode as an image
 - **When** the document is rendered (including after toggling "Show Unsafe Images")
 - **Then** a broken-image placeholder icon (`image-missing`) is shown in its place — the render **never** silently degrades to the bare alt string
-- **And** the placeholder's tooltip states the reason and the offending `src`: "Blocked image (enable Show Unsafe Images to load): …", "Image not found: …", or "Could not load image: …"
+- **And** the placeholder's tooltip states the reason and the offending `src`: "Blocked image (enable Show Unsafe Images to load): …", "Network share images are never loaded: …" (2.7), "Image not found: …", or "Could not load image: …"
 - **And** in particular, toggling "Show Unsafe Images" on an image whose file is absent at that instant replaces the "blocked" placeholder with a "not found" placeholder (icon retained) — it does **not** remove the icon and leave only alt text, which read as the toggle having done nothing
 - **And** "blocked" is reserved for a reference the toggle could actually admit — a remote URL, or a local path that **exists** and escapes the document folder. A path that is *contained* (or would be) but has **no file behind it at render time** reads as **not found**, with the gate on or off: it is unresolvable, not refused, and the "enable Show Unsafe Images" wording would otherwise invite the reader to lift a safety gate that was never what stopped them. This is what a document and its images arriving together — a checkout, a sync, a generator — looks like when the image loses the race by a frame (the render is a snapshot; the reason it gives must still be true)
 
@@ -2474,6 +2480,7 @@
 - **And given** text is selected in either pane, a table cell included
 - **Then** it shows "N of M words" for the selection
 - **And given** several windows are opened at once, **Then** each one counts its own document — no window is left waiting on a count that never arrives
+- **And** a word is what a reader takes for one: `don't` and `well-known` are one word each, while an underscore separates words as a space does (`snake_case` is two); double-clicking in a table cell selects by the same rule, which is also body text's
 
 ### 16.12 The status bar shows the zoom level
 - **Given** a preview is visible
@@ -3307,7 +3314,7 @@ appearance that predates the feature; `Sepia` is the book-like reading theme.
 ### 19.3 The toggle lifts containment for the current tab's own links only
 - **Given** "Load Unsafe Linked Documents" is turned ON for a tab
 - **When** a link in THAT tab's document resolves outside its folder
-- **Then** navigation is permitted (the target still canonicalizes to a real file)
+- **Then** navigation is permitted (the target still canonicalizes to a real file) — except a target on a network share, which the toggle never admits (2.7)
 - **And** the tab landed on has its OWN toggle at its default (OFF) — turning the toggle on in one tab never grants navigation permission to whatever the linked document links to next; permission re-roots at every hop and cannot ratchet across the filesystem
 
 ### 19.4 The toggle is per-tab and does not persist
