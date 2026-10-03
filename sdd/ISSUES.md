@@ -40,14 +40,10 @@ described from a different vantage point.
 | A | Any | Production | A large document leaves the process spinning a CPU core at ~100% while idle — a GTK/Pango relayout pass that re-shapes text every main-loop iteration and never converges | High |
 | B | Mac | Upstream | macOS only: every native file-chooser invocation (Open, Save, Export) grows RSS by ~1.1 MB and does not give it back. Roughly four fifths is AppKit's own price for presenting an `NSSavePanel` — reproduced with no GTK in the process — with about a fifth GTK-attributable. Caching the panel upstream would recover ~95% | Medium |
 | D | Any | Production | The preview's Annotate bubble sits over the line above a selection, so a click there can land on the bubble: in a table, a double- or triple-click on the cell above a selected cell can lose a press and act as a single click | Low |
-| E | Any | Test | Flaky test: closing the outline's filter sometimes leaves the outline scrolled to the top rather than to the highlighted row. Failed twice on Linux CI, green on rerun and locally; cause not established | Low |
 | G | Windows | Upstream | After an edit the editor's scrollbar slider is sometimes not drawn until the next scroll (2 of 40 Enters); a GTK defect still open upstream | Low |
-| J | Windows | Test | Flaky test: overwriting a crash-recovery snapshot sometimes finds the old, shorter snapshot still on disk after the write loop ends | Low |
 | L | Any | Production | After a link jump, Back or Cmd+Home sometimes scrolls only part of the way to its target (reported once; not reproduced on Linux or macOS) | Low |
-| M | Windows | Test | Flaky test: a cancelled snapshot write sometimes leaves its temporary file behind on Windows, though the previous snapshot is intact | Low |
 | N | Windows | Test | Flaky test: the GTK suite sometimes aborts on Windows on a `g_signal_handler_disconnect` critical near the comment-card tests (1 run in 7) | Low |
 | O | Mac | Production | A document's `/net/<host>/…` image is canonicalized on render, which reaches the host through the automounter — but only where the user has enabled `/net`, which stock macOS 27 does not | Low |
-| P | Any | Production | In Preview, Find Next can repeat a match inside a table after an external reload adds a match earlier in that table | Low |
 
 ## Closed issues
 
@@ -366,24 +362,6 @@ placement is shared code; macOS and Windows have not been driven.
   the selection. Changes a placement other features and tests rely on.
 - Accept it: the reader can dismiss the bubble by clicking elsewhere first.
 
-## E. The sidebar filter's focus-restore test is flaky
-
-**Severity**: Low (a test fails intermittently; no user-visible failure has been observed).
-
-**Observed** (2026-09-30 and 2026-10-01, Linux CI): `window::sidebarfilter::gtk_integration_tests::closing_the_filter_returns_the_focus_to_the_highlighted_row`
-failed twice — once on master (run 36750840804) and once on `bug/selection-color` under
-coverage leg B (run 36804063069) — and passed on rerun and locally. The first failure
-panicked at "the highlighted row is scrolled into view, not the top of the list": the
-outline scroller's vertical adjustment was still `0.0` after the filter closed.
-
-**Not established**: the cause. Suspected: the restore scroll lands on a later frame than
-the frame-clock wait the test makes, which waits only for focus.
-
-**Mitigation options**:
-- Make the test wait for the scroll itself rather than for focus.
-- Find whether the restore scroll is genuinely racy in the app; if it is, this is a
-  Production defect rather than a test one, and the fix belongs there.
-
 ## G. On Windows the editor's scrollbar slider sometimes goes missing after an edit
 
 **Severity**: Low (the slider alone, occasionally, and the next scroll brings it back).
@@ -413,24 +391,6 @@ Any pointer motion brings it back. Judged negligible by the operator.
 - Accept it until GTK fixes gtk#6057.
 - Give the editor non-overlay scrollbars, as the preview has. Untested whether a classic
   scrollbar shows the same lag.
-
-## J. A crash-recovery overwrite test is flaky on Windows
-
-**Severity**: Low (the test; nothing shows the snapshot write itself is wrong).
-
-`window::swap::tests::overwriting_a_snapshot_never_exposes_a_partial_file` failed on the
-GitHub Windows runner on 2026-10-01 with "the new snapshot is the longer one": after the
-test's wait loop ended, the file on disk still held the first, shorter snapshot. The same
-commit passed on rerun, and on Linux and macOS. Seen once.
-
-The wait loop ends as soon as the tab reports no write in flight. If it checks before the
-second write has started, it ends at once and reads the old file; whether that is what
-happened was not established.
-
-**Mitigation options**:
-- Wait for the snapshot file to change (or for a write-complete signal) rather than for
-  "nothing in flight", which is also true before the write begins.
-- Accept until it recurs, and capture the timing then.
 
 ## L. After a link jump, Back or Cmd+Home sometimes scrolls only part of the way
 
@@ -462,29 +422,6 @@ preview was scrolling were not recorded, and the original document and steps wer
 - Make Back to the top of a document land at absolute 0, like Ctrl+Home, if the padding
   offset above is judged a defect.
 - Accept until it is reproduced.
-
-## M. A cancelled snapshot write sometimes leaves its temp file on Windows
-
-**Severity**: Low (the test's cleanup check; the previous snapshot stayed intact).
-
-`window::swap::close_semantics_tests::a_cancelled_close_discards_the_temp_instead_of_promoting_it`
-failed on the GitHub Windows runner on 2026-10-01: the destination still held the previous
-snapshot, as the test requires, but its second check found GIO's temporary file
-(`.goutputstream-XXXXXX`) still in the directory. The same commit passed on rerun, and on
-Linux and macOS. Seen once.
-
-**Not established**: why the temp was still listed. Unlike J, this test has no wait loop:
-it writes, closes with a cancelled `Cancellable`, and reads the directory in one synchronous
-stretch. One candidate is Windows completing the delete late (a file deleted while another
-process, such as a virus scanner, holds a handle stays listed until that handle closes); it
-was not measured. J is a different test with a different suspected cause (its wait loop
-can end before the write starts); both are Windows-only and read a file straight after a GIO
-operation, so check whether one mechanism explains both before fixing either.
-
-**Mitigation options**:
-- Poll the directory briefly for the temp to disappear before asserting, keeping the
-  destination check strict.
-- Accept until it recurs, and capture what holds the file then.
 
 ## N. The GTK suite sometimes aborts on Windows on a signal-disconnect critical
 
@@ -535,20 +472,6 @@ canonicalizing `/net/203.0.113.1/…` returns NotFound in microseconds (mac seat
   "blocked" versus "not found" distinction for local escapes, which then cannot be told
   apart without touching the filesystem.
 - Accept: the exposure needs a setting the user chose.
-
-## P. In Preview, Find Next can repeat a match inside a table after a reload
-
-**Severity**: Low (one repeated step; the count stays right).
-
-A preview find hit is held by its buffer position, but every cell hit of one table shares
-the table's anchor position. When an external reload adds a match earlier in the same
-table, the held hit resolves one place early and Find Next lands on the match already
-shown. Hidden hits in a collapsed block share their block's summary position the same way.
-Found by QA review (round 5); declined as costing more than it is worth, and recorded so
-the limit is not rediscovered.
-
-**Mitigation**: give each cell hit a stable key (row, column, byte offset) and compare on
-it when resuming.
 
 ## CLSD-02. A paragraph that mixes fonts lays out wider than the wrap width it was given
 
