@@ -131,6 +131,7 @@ src/outline/tree.rs
 src/palette/codechips.rs
 src/palette/mod.rs
 src/pangospan.rs
+src/platform/linux/process.rs
 src/platform/mod.rs
 src/platform/x11.rs
 src/preview/annotate.rs
@@ -182,6 +183,7 @@ src/session/statedir.rs
 src/sidebarfilter.rs
 src/span.rs
 src/sprite.rs
+src/strbound.rs
 src/swapfile/codec.rs
 src/swapfile/digest.rs
 src/swapfile/mod.rs
@@ -240,4 +242,5 @@ src/winstate/swap.rs
 src/winstate/tab.rs
 src/winstate/viewmode.rs
 src/winstate/writegate.rs
+src/words.rs
 src/workaround.rs

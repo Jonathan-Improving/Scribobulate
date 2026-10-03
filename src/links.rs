@@ -2097,8 +2097,11 @@ mod tests {
         let link = |target: &Path, at: &Path| std::os::unix::fs::symlink(target, at);
         #[cfg(windows)]
         let link = |target: &Path, at: &Path| std::os::windows::fs::symlink_dir(target, at);
-        // l0 -> local, l<n> -> l<n-1>: following l<n> takes n + 1 hops.
-        if link(&local, &doc.join("l0")).is_err() {
+        // l0 -> local, l<n> -> l<n-1>: following l<n> takes n + 1 hops. Every target is
+        // RELATIVE: an absolute one is re-walked from the root, and on macOS the temp dir
+        // sits under `/var`, itself a link to `/private/var`, which added a hop the
+        // count below does not expect (MEASURED on the macOS CI runner).
+        if link(Path::new("../local"), &doc.join("l0")).is_err() {
             println!("SKIPPED [TDD 2.7]: this host cannot create a symbolic link here");
             return;
         }

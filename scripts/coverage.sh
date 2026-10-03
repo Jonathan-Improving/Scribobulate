@@ -855,11 +855,15 @@ FULL_BUDGET="${SCRIB_COVERAGE_FULL_BUDGET:-1800}"
 # nothing — which rung of the decoration applies is `theme::decor`'s, and when a frame is
 # due or a sprite may play is `animation::schedule`'s and `animation::sprites`'s — and
 # its assertions need a realized widget and a frame clock, so they run in leg B.
+# `saferizer/owned_mark` is a `GtkTextMark` wrapper whose whole body is a `Drop` that
+# calls `delete_mark` on a live buffer. It decides nothing, and its assertion needs a
+# real `GtkTextBuffer`, so it is exercised in leg B by `preview/splice/tests` and
+# `window/find/bartests`, which check the marks are deleted.
 # ⚠ Excluding these is the thing POLICY § Build pipeline warns about, so it is worth being explicit:
 # what is excluded is the WIRING, and every decision any of them takes was extracted into
 # a file that stayed in scope. If a future change puts logic back into one of these, the
 # answer is to extract it again, not to widen this term.
-IGNORE='src[/\\](window[/\\](tabs[/\\]|editbar[/\\]|navhistory[/\\])?[a-z_]+|app[/\\](appactions|menubar|openbatch|open|setup)|clipboard|main|lib|gtk_suite|suite_registry|logging|tags|codeview[/\\][a-z_]+|outline_view|preview[/\\]annotate[/\\]overlay|animation[/\\](tick|sprites[/\\]mod|paintable[/\\](mod|drive)|visibility[/\\]watch)|imagecache[/\\]loader|widgets[/\\](sprite_icon|table[/\\]mod|tab[/\\](imp|bar|ops|view|mod)))\.rs'
+IGNORE='src[/\\](window[/\\](tabs[/\\]|editbar[/\\]|navhistory[/\\])?[a-z_]+|app[/\\](appactions|menubar|openbatch|open|setup)|clipboard|main|lib|gtk_suite|suite_registry|logging|tags|codeview[/\\][a-z_]+|outline_view|preview[/\\]annotate[/\\]overlay|animation[/\\](tick|sprites[/\\]mod|paintable[/\\](mod|drive)|visibility[/\\]watch)|imagecache[/\\]loader|saferizer[/\\]owned_mark|widgets[/\\](sprite_icon|table[/\\]mod|tab[/\\](imp|bar|ops|view|mod)))\.rs'
 
 # IGNORE_TESTONLY — leg B's extra filter, and ONLY leg B's.
 #
