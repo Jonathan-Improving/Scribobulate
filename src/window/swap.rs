@@ -126,7 +126,7 @@ pub(crate) fn flush_now(tab: &Rc<TabState>) {
     // read without taking it, and a `SourceId` that is merely DROPPED does not cancel its
     // source. Calling `cancel_pending` after that take handed it an already-empty cell, so
     // it removed nothing and the debounce stayed armed - firing a second, unasked-for
-    // snapshot after this flush had already written one.
+    // snapshot after this flush had already written one (GTK4Rs/AP-353).
     let armed = tab.swap.pending.take();
     if armed.is_none() && tab.swap.deadline.get().is_none() {
         return;
