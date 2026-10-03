@@ -274,9 +274,9 @@ fn write_snapshot(tab: &Rc<TabState>) {
 /// exists separately at all (GEP-83). `std::fs::rename` first tries a POSIX-semantics
 /// rename (`SetFileInformationByHandle`, `FileRenameInfoEx`), which replaces a file that
 /// has open readers (MEASURED rustc 1.97.1 / Win10 19045: 0 refusals in 1000 with a held
-/// reader, against 1000 of 1000 for `MoveFileExW`). It falls back to `MoveFileExW` where
-/// the filesystem lacks those semantics, so the refusal stays possible and is still
-/// reported rather than assumed away.
+/// reader, against 1000 of 1000 for `MoveFileExW`). Where the filesystem lacks those
+/// semantics std is understood to fall back to `MoveFileExW` (not probed), so the refusal
+/// is still handled and reported rather than assumed away.
 ///
 /// **The refusal depends on WHICH file the other handle is on, and the error code is the
 /// tell.** Measured across all eight share masks, both positions, on local NTFS
