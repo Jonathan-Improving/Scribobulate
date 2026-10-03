@@ -290,7 +290,7 @@ fn platform_set_huge_page_collapse_disabled(disabled: bool) {
 /// link walk only asks about the prefix it has already resolved), because the answer
 /// is read through `dir`'s own path.
 ///
-/// Only macOS answers. Elsewhere this is `false`, which is what the gate did before.
+/// macOS and Linux answer. Elsewhere this is `false`, which is what the gate did before.
 pub(crate) fn mounts_on_lookup(dir: &std::path::Path) -> bool {
     platform_mounts_on_lookup(dir)
 }
@@ -300,7 +300,12 @@ fn platform_mounts_on_lookup(dir: &std::path::Path) -> bool {
     mac::automount::is_automount_directory(dir)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
+fn platform_mounts_on_lookup(dir: &std::path::Path) -> bool {
+    linux::automount::is_automount_directory(dir)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 fn platform_mounts_on_lookup(dir: &std::path::Path) -> bool {
     let _ = dir;
     false
