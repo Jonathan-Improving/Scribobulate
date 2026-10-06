@@ -94,6 +94,7 @@ impl CommentEntry {
         scroller.set_propagate_natural_height(false);
         scroller.set_min_content_height(rows_px(&field, VISIBLE_ROWS));
         scroller.set_child(Some(&field));
+        pin_horizontal_offset(&field);
 
         let placeholder = gtk::Label::new(None);
         placeholder.add_css_class("dim-label");
@@ -255,6 +256,48 @@ pub(crate) fn focus_at_end(field: &sourceview::View) {
     let buf = field.buffer();
     buf.place_cursor(&buf.end_iter());
     field.scroll_mark_onscreen(&buf.get_insert());
+}
+
+/// Hold a comment field's horizontal offset at its origin, permanently.
+///
+/// The field wraps and its scroller has no horizontal scrollbar, so nothing it shows should
+/// ever be off to one side. `PolicyType::Never` hides the scrollbar but does not stop the
+/// view writing its horizontal adjustment. On the marker card's Edit route, any opening
+/// after the first could leave the offset at ~500 px against a range of zero: the whole
+/// comment drawn off to the left, a field that looked empty.
+///
+/// The cause is an ANIMATED scroll (GTK 4.6.9, measured; GTK4Rs/AP-354). The reused card is
+/// already mapped, so the scroller animates the adjustment it hands the field. Edit's
+/// `scroll_mark_onscreen` runs before the field has its wrap width, sees the comment as one
+/// long row, and animates toward its end. The wrap then shrinks the range without
+/// cancelling the animation, and each tick writes the stale target unclamped.
+///
+/// So the field gets an adjustment of its OWN, which the scroller never animates (it only
+/// animates the ones it owns, and only reads its own to decide whether a scrollbar shows,
+/// which `Never` already decides). With no animation, the view's own re-clamp applies.
+///
+/// The value-changed pin then answers anything left, but it is safe only on an adjustment
+/// that never animates. On the scroller's own adjustment it crashed: when the field is
+/// unmapped mid-animation, GTK writes the animation's target, the pin's write ends the
+/// animation, and GTK then disconnects the tick handler it had just cleared
+/// (`gtk_adjustment_enable_animation`, a fatal critical under `fatal-criticals`).
+///
+/// The cost of the pin: a single word wider than the field (a long URL) is clipped at the
+/// right edge instead of following the caret.
+///
+/// The two halves are each sufficient for the reported defect, so the Edit test fails only
+/// with BOTH removed (mutation-checked; GTK4Rs/AP-254). The private adjustment is the fix;
+/// the pin is the rule that this field never scrolls sideways, kept for the cases no
+/// animation is involved in, such as a word wider than the field.
+fn pin_horizontal_offset(field: &sourceview::View) {
+    let own = gtk::Adjustment::new(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+    field.set_hadjustment(Some(&own));
+    own.connect_value_changed(|adj| {
+        if adj.value() != adj.lower() {
+            // A supersede is the point: no horizontal scroll may stand.
+            crate::saferizer::scrollpos::jump(adj, adj.lower());
+        }
+    });
 }
 
 /// The height of `rows` text rows in `field`'s own font, plus its vertical margins.
