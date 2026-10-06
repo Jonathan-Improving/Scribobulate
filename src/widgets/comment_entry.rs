@@ -262,15 +262,21 @@ pub(crate) fn focus_at_end(field: &sourceview::View) {
 ///
 /// The field wraps and its scroller has no horizontal scrollbar, so nothing it shows should
 /// ever be off to one side. `PolicyType::Never` hides the scrollbar but does not stop the
-/// view writing its own `hadjustment`: measured on the marker card's Edit route, reopening
-/// the card left the offset at 573 px against a range of zero — the whole comment drawn
-/// off to the left, a field that looked empty — on every open after the first. The
-/// adjustment held a value outside its own range, so no clamp downstream repairs it.
+/// view writing its own `hadjustment`. On the marker card's Edit route, any opening after
+/// the first could leave the offset at ~500 px against a range of zero: the whole comment
+/// drawn off to the left, a field that looked empty.
 ///
-/// Which GTK path writes that value is not established, and this does not depend on it:
-/// whatever writes the offset, the next `value-changed` puts it back. The cost is that a
-/// single word wider than the field (a long URL) is clipped at the right edge instead of
-/// following the caret.
+/// The mechanism (GTK 4.6.9, measured): the reused card is already mapped, so the new
+/// scroller animates its scrolls. Edit's `scroll_mark_onscreen` runs before the field's
+/// layout has its wrap width, sees the comment as one long row, and starts an animation
+/// toward its end. The wrap then shrinks the range, but the view's re-clamp only fires when
+/// the CURRENT value is outside it, and the value has not moved yet. The animation's ticks
+/// write their stored target with no clamp, and the view skips re-clamping while an
+/// animation runs, so the out-of-range value stays until something else forces a layout.
+///
+/// The pin answers every write, including each animation tick. The cost is that a single
+/// word wider than the field (a long URL) is clipped at the right edge instead of following
+/// the caret.
 fn pin_horizontal_offset(hadj: &gtk::Adjustment) {
     hadj.connect_value_changed(|adj| {
         if adj.value() != adj.lower() {
