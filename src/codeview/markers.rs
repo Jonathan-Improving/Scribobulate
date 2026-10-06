@@ -1404,6 +1404,13 @@ mod a11y_integration_tests {
     /// strictly required, so a loaded machine cannot shorten it below its intent.
     const FIRST_PAINT_DRAIN: Duration = Duration::from_millis(250);
 
+    /// How long the Edit-field test waits after clicking Edit before reading the field's
+    /// horizontal offset. Measured against the switch to the edit page, which is deferred
+    /// to an idle (GTK4Rs/AP-30) and then needs the popover's layout pass that writes the
+    /// offset; there is no event marking "nothing more will write it", so this span is
+    /// the wait. Before the fix the wrong offset was already present at 400 ms.
+    const EDIT_PAGE_SETTLE: Duration = Duration::from_millis(400);
+
     /// How long the `CardFocus::Leave` negative drains before reading `has_focus()`.
     ///
     /// Measured against the one `glib::idle_add_local_once` that `CardFocus::Take` queues
@@ -1537,6 +1544,67 @@ mod a11y_integration_tests {
                 );
             }
             other => panic!("expected an EditComment, got {other:?}"),
+        }
+        win.destroy();
+    }
+
+    /// TDD 17.57: the Edit field shows the comment it holds, on every opening of the card.
+    ///
+    /// The reported defect: Edit on an existing comment showed an apparently EMPTY field
+    /// about every other time, because the whole text was scrolled off to one side of a
+    /// field that has no horizontal scrollbar. Measured here before the fix: the first
+    /// open was correct, and from the second on the field's horizontal offset sat at 573 px
+    /// against a range of zero. So one opening proves nothing — the card is reopened
+    /// several times, and every opening is checked.
+    #[gtktest::test]
+    fn the_edit_field_opens_unscrolled_however_often_the_card_is_reopened() {
+        use gtk::subclass::prelude::*;
+        let md = "Intro.\n\nThe {==claim==}{>>an existing comment long enough to wrap \
+                  over several rows of the comment field<<} here.\n\nfiller\n";
+        let pane = crate::preview::render(md, None, 1.0, false, &crate::fold::FoldState::default());
+        let view = view_of(pane.clone());
+        let win = gtk::Window::new();
+        win.set_default_size(700, 400);
+        win.set_child(Some(&pane));
+        win.present();
+        settle("the margin chips to paint", || hitbox_count(&view) > 0);
+        // Edit is offered only when a mutation sink is installed.
+        view.set_annotation_sink(std::rc::Rc::new(|_e: AnnotationEdit| {}));
+        for opening in 1..=4 {
+            assert!(view.open_stepped_marker_popover(0, Direction::Next));
+            settle("the marker popover to open", || {
+                view.has_open_marker_popover()
+            });
+            let popover: gtk::Popover = view
+                .imp()
+                .marker_card
+                .borrow()
+                .clone()
+                .expect("the card exists once opened")
+                .upcast();
+            find_button(&popover, "Edit")
+                .expect("the card offers Edit")
+                .emit_clicked();
+            let field = find_descendant::<sourceview::View>(&popover)
+                .expect("the edit page holds the comment field");
+            // No predicate marks "the field has settled at its offset": the wrong offset
+            // is written during the page switch's layout, so the read waits out the
+            // deferred switch plus several frames of layout and then looks.
+            crate::testpump::drain_for(crate::testpump::Clock::Frame, EDIT_PAGE_SETTLE);
+            assert!(
+                field.is_mapped(),
+                "opening {opening}: the edit page is showing"
+            );
+            assert_eq!(
+                field.visible_rect().x(),
+                0,
+                "opening {opening}: the comment field is scrolled sideways, so its text \
+                 is off screen and the field looks empty"
+            );
+            view.popdown_marker_popover();
+            settle("the marker popover to close", || {
+                !view.has_open_marker_popover()
+            });
         }
         win.destroy();
     }

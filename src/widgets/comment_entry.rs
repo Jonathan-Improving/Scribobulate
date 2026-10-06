@@ -94,6 +94,7 @@ impl CommentEntry {
         scroller.set_propagate_natural_height(false);
         scroller.set_min_content_height(rows_px(&field, VISIBLE_ROWS));
         scroller.set_child(Some(&field));
+        pin_horizontal_offset(&scroller.hadjustment());
 
         let placeholder = gtk::Label::new(None);
         placeholder.add_css_class("dim-label");
@@ -255,6 +256,28 @@ pub(crate) fn focus_at_end(field: &sourceview::View) {
     let buf = field.buffer();
     buf.place_cursor(&buf.end_iter());
     field.scroll_mark_onscreen(&buf.get_insert());
+}
+
+/// Hold a comment field's horizontal offset at its origin, permanently.
+///
+/// The field wraps and its scroller has no horizontal scrollbar, so nothing it shows should
+/// ever be off to one side. `PolicyType::Never` hides the scrollbar but does not stop the
+/// view writing its own `hadjustment`: measured on the marker card's Edit route, reopening
+/// the card left the offset at 573 px against a range of zero — the whole comment drawn
+/// off to the left, a field that looked empty — on every open after the first. The
+/// adjustment held a value outside its own range, so no clamp downstream repairs it.
+///
+/// Which GTK path writes that value is not established, and this does not depend on it:
+/// whatever writes the offset, the next `value-changed` puts it back. The cost is that a
+/// single word wider than the field (a long URL) is clipped at the right edge instead of
+/// following the caret.
+fn pin_horizontal_offset(hadj: &gtk::Adjustment) {
+    hadj.connect_value_changed(|adj| {
+        if adj.value() != adj.lower() {
+            // A supersede is the point: no horizontal scroll, animated or not, may stand.
+            crate::saferizer::scrollpos::jump(adj, adj.lower());
+        }
+    });
 }
 
 /// The height of `rows` text rows in `field`'s own font, plus its vertical margins.
