@@ -272,7 +272,8 @@ pub(crate) fn focus_at_end(field: &sourceview::View) {
 /// toward its end. The wrap then shrinks the range, but the view's re-clamp only fires when
 /// the CURRENT value is outside it, and the value has not moved yet. The animation's ticks
 /// write their stored target with no clamp, and the view skips re-clamping while an
-/// animation runs, so the out-of-range value stays until something else forces a layout.
+/// animation runs, so the out-of-range value stays until something else forces a layout
+/// (GTK4Rs/AP-354).
 ///
 /// The pin answers every write, including each animation tick. The cost is that a single
 /// word wider than the field (a long URL) is clipped at the right edge instead of following
