@@ -892,7 +892,7 @@ The identity events (matrix columns):
 | 2 | The live-reload `gio::FileMonitor`, the `expect_self_delete` guard and `backing_missing` — **one mechanism, not three** | ✓ | ✓ | ✓ | `attach_file_backing`; `window::rename` for the cancel-first path; GTK4Rs/AP-62 |
 | 3 | The crash-recovery swap file's **stem** and its header `path` | ✓ | ✓ | ✓ | `swapfile::swap_path`; `window::swap::delete_snapshot`; `swaprecovery::retire_source_snapshot` |
 | 4 | Name surfaces — window title, tab label + tooltip, View ▸ Documents (menu **and** combo) | ✓ | ✓ | ✓ | *reference row* → [Derived-view CAM row 4](#derived-view-cam--surfaces-that-mirror-document-state) |
-| 5 | The relative-resource base `TabState::doc_dir()` — images, local link navigation, Insert Link/Image relativisation | ✓ | ✓ | — | `links::resolve_contained_image`; `links::relativize_for_insert` |
+| 5 | The relative-resource base `TabState::doc_dir()` — images, local link navigation, Insert Link/Image relativisation | ✓ | ✓ | — | `links::resolve_contained_image`; `links::relativize_for_insert`; a folder change re-renders the preview, `window::save::rerender_for_new_folder` |
 | 6 | Same-file identity: the open-tab dedup lookup and the per-path write gate | ✓ | ✓ | ✓ | `app::find_open_tab_for_path`; `winstate::WriteGate` |
 | 7 | Operations already in flight over the old path | ✓ | ✓ | ✓ | *reference row* → [Deferred-operation CAM column E](#deferred-operation-cam--work-whose-completion-lands-later) |
 | 8 | The persisted session record and the last-visited dialog directory | ✓ | ✓ | ✓ | `session/`; `app::remember_dialog_dir` |
@@ -901,7 +901,9 @@ Rules that give the matrix its teeth:
 
 - **A path change is not a content change.** It must not touch the saved baseline,
   the dirty flag, the buffer, the undo stack, the reading position or the rendered
-  preview, and must not re-read the file. Stating this is what keeps an identity
+  preview, and must not re-read the file — save one same-content re-render of the
+  preview when the FOLDER changes (row 5), which keeps the reading position and
+  re-resolves only what the image paths point at. Stating this is what keeps an identity
   change *out* of the Reading-Position and Document-Reference matrices instead of
   quietly acquiring cells in both (TDD 24.2).
 - **One choke point re-points the backing, and the monitor and its self-delete guard
@@ -937,12 +939,12 @@ defects in Save As**, recorded here so the sweep's extent is honest rather than 
    observed in real use, the snapshot's capture time matching the second the chooser
    opened. Fixed by the row 3 rule above; pinned by
    `window::swap::tests::save_as_removes_the_snapshot_filed_under_the_previous_name`.
-2. **Save As to a different directory may leave the preview's images resolved against
-   the old `doc_dir()`** until something else re-renders. Row 5, from the one existing
-   member that can change directory.
-
-Candidate 2 is **INFERRED from source, not yet measured**, and belongs to Save As
-rather than to Rename; `save.rs`'s `drive_save_as` test helper makes it cheap to settle.
+2. **Save As into another folder left the preview's images resolved against the old
+   folder — MEASURED, FIXED.** The preview resolves relative images at render time and
+   a save does not re-render, so the old folder's picture stayed (one the out-of-folder
+   block would refuse) until something redrew the pane. Fixed by a same-content
+   re-render when the folder changes; pinned by
+   `window::save::gtk_integration_tests::save_as_into_another_folder_re_resolves_the_previews_images`.
 
 ## Hot-path CAM — handlers on a continuously-firing signal
 
