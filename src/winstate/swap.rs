@@ -5,7 +5,8 @@
 //! with no display and no filesystem; the GTK timers and the actual write live in
 //! `window/swap.rs`.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::path::PathBuf;
 
 /// Per-tab snapshot bookkeeping. One of these hangs off each `TabState`.
 #[derive(Default)]
@@ -24,11 +25,19 @@ pub(crate) struct SwapState {
     /// completes. Latest-wins: the flag says *something changed*, never *what*, because
     /// the payload is re-read from the live buffer at write time anyway.
     pub(crate) coalesced: Cell<bool>,
-    /// Whether we believe a swap file currently exists for this tab. Lets the
-    /// clean-document path skip a `unlink` syscall on every keystroke without weakening
-    /// the invariant: it is only ever an optimisation over "delete unconditionally", and
-    /// a stale `true` costs one harmless failed delete.
-    pub(crate) on_disk: Cell<bool>,
+    /// The swap file this tab last put on disk, if we believe one is there.
+    ///
+    /// **The file actually written, never a name recomputed from current state.** A swap
+    /// file's name carries the document's stem, so a Save As or a Rename changes the name
+    /// the tab *would* write next. A delete that recomputed the name removed nothing
+    /// (`NotFound` is quiet by design) and orphaned the old file, which the next launch
+    /// then offered as a stale recovery of a document saved long since (Document-Identity
+    /// CAM row 3). Recording the path is what lets a delete, and a promote under a new
+    /// name, remove the file that is really there.
+    ///
+    /// `None` also lets the clean-document path skip an `unlink` on every keystroke; a
+    /// stale `Some` costs one harmless failed delete.
+    pub(crate) on_disk: RefCell<Option<PathBuf>>,
     /// Bumped every time this tab's snapshot is withdrawn (a save, a Discard, an edit
     /// back to the saved text). A write already handed to GIO captures the value it
     /// started under and promotes its temp only if the value is unchanged when it

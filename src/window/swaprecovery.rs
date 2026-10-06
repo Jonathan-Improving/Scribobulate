@@ -458,7 +458,7 @@ fn retire_source_snapshot(tab: &Rc<TabState>, swap: &FoundSwap) {
     if current.as_deref() == Some(swap.file.as_path()) {
         // Same file: the live snapshot supersedes it in place. Record that one exists so
         // the invariant's delete arm knows there is something to remove later.
-        tab.swap.on_disk.set(true);
+        tab.swap.on_disk.replace(Some(swap.file.clone()));
         return;
     }
     if let Err(e) = std::fs::remove_file(&swap.file) {

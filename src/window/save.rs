@@ -471,7 +471,7 @@ fn show_save_error(window: &ApplicationWindow, err: &std::io::Error) {
 /// attach the file backing (title, the path-dependent Copy Full Path / Reload
 /// actions, and the live-reload monitor — started AFTER the write, so it sees no
 /// self-event). Returns whether the write succeeded.
-async fn adopt_and_save(
+pub(super) async fn adopt_and_save(
     window: &ApplicationWindow,
     st: &Rc<TabState>,
     path: std::path::PathBuf,

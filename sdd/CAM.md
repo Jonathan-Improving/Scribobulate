@@ -915,10 +915,12 @@ Rules that give the matrix its teeth:
   state that it cannot and stop. Rename holds the directory fixed by construction —
   the primitive it uses cannot express a move — which is what makes row 5 a provable
   no-op for it rather than an obligation nobody would think to write.
-- **Row 3 is a no-op for Rename by POSITION IN THE LIFECYCLE, not by exemption.** The
-  dirty↔swap invariant means a clean document has no snapshot to orphan, and Rename
-  is gated on clean. That ends the moment Rename is permitted on a dirty document —
-  recorded here rather than left implicit, exactly like Reading-Position CAM row 10's.
+- **Row 3 is answered by remembering the file written, never by recomputing its name.**
+  The swap file's name carries the stem, so after any path change the recomputed name is
+  one nothing was written to. `SwapState::on_disk` records the path actually promoted;
+  the delete removes that, and a promote under a new name removes the one it supersedes
+  (`window::swap::record_promoted`). That holds for Rename even once it is permitted on a
+  dirty document, which today it is not.
 - **A `tests/MANUAL-TEST.md` check per applicable ✓** — the cross-CAM rule.
 
 ### The back-sweep this matrix obliges
@@ -926,25 +928,21 @@ Rules that give the matrix its teeth:
 The cross-CAM new-row rule requires sweeping what already shipped in the category.
 The category's three prior members all live in `save.rs` / `open.rs`, so the sweep is
 affordable and was **not** skipped. Drafting these rows produced **two candidate
-defects in Save As**, both **INFERRED from source and neither yet measured** — they
-are hypotheses, not findings, and are recorded here so the sweep's extent is honest
-rather than implied:
+defects in Save As**, recorded here so the sweep's extent is honest rather than implied:
 
-1. **Save As from an untitled dirty buffer may orphan its swap file.** Opening the
-   native chooser deactivates the window, so the focus-flush files a snapshot as
-   `untitled-<docid>.swap`. `adopt_and_save` then sets `st.path` **before** the write,
-   so when the document goes clean `delete_snapshot` computes `<newstem>-<docid>.swap`
-   and removes nothing — `NotFound` is swallowed by design. The next launch would then
-   offer a spurious recovered untitled tab holding pre-save content. Distinct from the
-   Deferred-operation 4/B–5/B open cell (that is a delete racing an in-flight write to
-   the *same* name; this one can never succeed, because it computes a different name).
+1. **Save As from an untitled dirty buffer orphaned its swap file — MEASURED, FIXED.**
+   The chooser's focus flush filed `untitled-<docid>.swap`; `adopt_and_save` set the
+   path before the write, so the delete computed `<newstem>-<docid>.swap` and removed
+   nothing. The next launch offered the pre-save text back as a recovered untitled tab —
+   observed in real use, the snapshot's capture time matching the second the chooser
+   opened. Fixed by the row 3 rule above; pinned by
+   `window::swap::tests::save_as_removes_the_snapshot_filed_under_the_previous_name`.
 2. **Save As to a different directory may leave the preview's images resolved against
    the old `doc_dir()`** until something else re-renders. Row 5, from the one existing
    member that can change directory.
 
-**Neither is fixed under this matrix, and neither is confirmed.** Both are cheap to
-settle (`save.rs` already has a `drive_save_as` test helper) and both belong to Save
-As rather than to Rename.
+Candidate 2 is **INFERRED from source, not yet measured**, and belongs to Save As
+rather than to Rename; `save.rs`'s `drive_save_as` test helper makes it cheap to settle.
 
 ## Hot-path CAM — handlers on a continuously-firing signal
 
