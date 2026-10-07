@@ -419,8 +419,13 @@ mod gtk_integration_tests {
         popover
     }
 
+    /// popdown-then-unparent (GTK4Rs/AP-123), with the loop turned between them.
+    /// Measured on GTK 4.6 under Xvfb: unparenting before the loop has run after the
+    /// popdown makes the NEXT popup in this test raise a fatal
+    /// `gdk_surface_get_device_position` critical (cause not identified).
     fn close(popover: &gtk::Popover) {
         popover.popdown();
+        pump_for(200);
         popover.unparent();
     }
 
