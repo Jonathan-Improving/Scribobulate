@@ -108,6 +108,7 @@
 - **Given** one or more tabs added in the background by a bulk open/restore whose previews have not yet been rendered
 - **When** the tab strip is shown
 - **Then** each not-yet-rendered tab displays a small loading spinner beside its title, which clears the moment that tab's preview is built (by the pre-render pump or on first activation), so the user can see which tabs are still pending
+- **And** a tab the pre-render pump does not warm (one restored in Edit or Split mode, which renders only on first activation) stops spinning once the pump reaches it, so no spinner runs indefinitely in an idle window
 
 ### 1.9 A document that begins with a UTF-8 byte-order mark
 - **Given** a Markdown file whose bytes begin `EF BB BF` — the encoding Windows tooling emits by default (PowerShell's `Set-Content -Encoding utf8`, and Notepad for years), so an ordinary authoring path rather than a curiosity

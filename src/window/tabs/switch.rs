@@ -433,16 +433,29 @@ fn materialize_deferred_preview(window: &ApplicationWindow, st: &Rc<TabState>) {
 /// The split arrangement plays no part in this gate — it is app-wide and
 /// already correct on every tab regardless of activation (see
 /// `materialize_deferred_preview`'s doc comment).
+///
+/// Such an excluded tab also has its busy spinner cleared here: the spinner
+/// says "the pump is still warming this tab", which for an excluded tab is never
+/// true, and a GtkSpinner left running drives a full-window repaint every frame
+/// for as long as the tab stays unvisited. Clearing it here rather than where
+/// the spinner is set covers every path that defers a tab (session restore sets
+/// the view mode only after the tab and its spinner exist; a theme change
+/// re-defers every tab), and runs before the pump can `Break`, since a tick
+/// sweeps every tab ahead of the first plain-preview one it renders.
 pub(crate) fn prerender_one_deferred_tab(app: &gtk::Application) -> bool {
     for win in app.windows() {
         let Ok(w) = win.downcast::<ApplicationWindow>() else {
             continue;
         };
         for st in winstate::tabs_for_window(&w) {
-            if st.needs_render.get() && st.view_mode.get() == ViewMode::Preview {
+            if !st.needs_render.get() {
+                continue;
+            }
+            if st.view_mode.get() == ViewMode::Preview {
                 materialize_deferred_preview(&w, &st);
                 return true;
             }
+            st.chrome().tabs.set_tab_busy(&st.content_box, false);
         }
     }
     false
@@ -666,6 +679,12 @@ mod gtk_integration_tests {
             "tab P has its preview now"
         );
 
+        let chrome = winstate::chrome(&window).expect("chrome registered");
+        assert!(
+            chrome.tabs.tab_busy(&tab_s.content_box),
+            "sanity: deferred tab S starts with its spinner running"
+        );
+
         // The only deferred tab left is the Split tab — the pump must NOT touch
         // it (it would drive the active tab's GActions) and must report idle.
         assert!(
@@ -679,6 +698,12 @@ mod gtk_integration_tests {
         assert!(
             tab_s.split.preview_scroller().is_none(),
             "the pump rendered nothing for tab S"
+        );
+        // ...but it must stop tab S's spinner: nothing is warming it, and a
+        // running spinner repaints the window every frame until it is clicked.
+        assert!(
+            !chrome.tabs.tab_busy(&tab_s.content_box),
+            "a tab the pump leaves for activation must not keep spinning"
         );
 
         window.destroy();
