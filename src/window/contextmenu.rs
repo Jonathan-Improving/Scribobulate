@@ -15,6 +15,27 @@ fn dismiss_context_popover(po: &gtk::Popover) {
     let po = po.clone();
     gtk::glib::idle_add_local_once(move || po.popdown());
 }
+/// Give `popover` its menu `body` inside a vertical scroller, so the menu's MINIMUM
+/// height no longer equals its full height.
+///
+/// On GTK ≥ 4.14 a popover closes itself on the next frame when its surface is given
+/// less room than its minimum size (GTK4Rs/AP-86). With the rows set straight in the
+/// popover, the minimum was the whole menu (about 500 pt), so a right-click in the band
+/// of the screen where the menu fits neither above nor below the pointer opened the
+/// menu and closed it within one frame — the reader saw nothing, and the band depends
+/// on screen height and window position, not on the document. Inside the scroller the
+/// menu keeps its natural height wherever it fits (`propagate_natural_height`) and
+/// scrolls where it does not, which is what GTK's own `GtkPopoverMenu` does. Every
+/// right-click menu (this one and the tab menu) goes through here (TDD 9.39).
+pub(crate) fn install_menu_body(popover: &gtk::Popover, body: &impl IsA<gtk::Widget>) {
+    let scroller = gtk::ScrolledWindow::new();
+    scroller.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+    scroller.set_propagate_natural_height(true);
+    scroller.set_propagate_natural_width(true);
+    scroller.set_child(Some(body));
+    popover.set_child(Some(&scroller));
+}
+
 /// Attach the right-click context menu to any text view (preview GtkTextView or
 /// editor GtkSourceView).  Finds the inner GtkTextView if `container` is a
 /// GtkScrolledWindow.  Table-cell label data is read from qdata at click time so
@@ -340,7 +361,7 @@ pub(crate) fn attach_context_menu(container: &gtk::Widget) {
         stack.add_named(&main_box, Some("main"));
         stack.add_named(&case_box, Some("change-case"));
         stack.set_visible_child_name("main");
-        popover.set_child(Some(&stack));
+        install_menu_body(&popover, &stack);
         popover.add_controller(key_controller);
 
         let Some(root) = view.root() else { return };
@@ -363,4 +384,107 @@ pub(crate) fn attach_context_menu(container: &gtk::Widget) {
         popover.popup();
     });
     view.add_controller(right_click);
+}
+
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+mod gtk_integration_tests {
+    use super::*;
+
+    /// Taller than any monitor, so the popover cannot be given its natural height on
+    /// either side of its anchor — the situation a right-click near the middle of a
+    /// screen shorter than twice the menu puts the real context menu in.
+    const TALLER_THAN_ANY_MONITOR: i32 = 20_000;
+
+    /// Wall-clock settle: a popover's surface is sized and its self-dismissal decided
+    /// on a frame-clock tick, which turns of the loop alone never advance
+    /// (GTK4Rs/AP-261).
+    fn pump_for(ms: u64) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_millis(ms);
+        while std::time::Instant::now() < deadline {
+            while glib::MainContext::default().iteration(false) {}
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
+
+    fn popped_over(
+        window: &gtk::Window,
+        install: impl Fn(&gtk::Popover, &gtk::Box),
+    ) -> gtk::Popover {
+        let body = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        body.set_size_request(100, TALLER_THAN_ANY_MONITOR);
+        let popover = gtk::Popover::new();
+        install(&popover, &body);
+        popover.set_parent(window);
+        popover.popup();
+        pump_for(500);
+        popover
+    }
+
+    /// popdown-then-unparent (GTK4Rs/AP-123), with GTK's 500 ms tooltip hover timeout
+    /// let run out in between. The 20000 px popover covers the pointer, so GTK's
+    /// tooltip binds to the popover's surface and arms that timeout; on GTK 4.6, if it
+    /// fires after `unparent()` has destroyed the surface, it raises a
+    /// `gdk_surface_get_device_position` critical, fatal under the suite.
+    fn close(popover: &gtk::Popover) {
+        popover.popdown();
+        pump_for(600);
+        popover.unparent();
+    }
+
+    /// The context menu must open wherever the reader right-clicks. On GTK ≥ 4.14 a
+    /// popover closes itself on the next frame when the screen gives it less room than
+    /// its MINIMUM size (GTK4Rs/AP-86), so a menu whose minimum is its full height
+    /// opened and vanished in the band of the screen where it fits neither above nor
+    /// below the pointer.
+    ///
+    /// Two halves, because they reach different platforms:
+    /// * the **effect** (the menu stays open) is only expressible where GTK
+    ///   self-dismisses — below 4.14 a too-tall popover is clipped instead, so that
+    ///   half is announced as skipped there, and its control proves the rig can fail;
+    /// * the **state** that causes it (the body's minimum height does not grow with
+    ///   its content) holds on every GTK and is asserted everywhere.
+    #[gtktest::test]
+    fn a_context_menu_taller_than_the_screen_still_opens() {
+        let window = gtk::Window::new();
+        window.set_default_size(400, 300);
+        // Something must hold focus, as it always does in the app: a popover opened
+        // over a window with no focus widget trips `gtk_widget_is_ancestor` while
+        // saving the focus it will restore, a critical that is fatal on Linux.
+        let focus_target = gtk::Button::with_label("focus");
+        window.set_child(Some(&focus_target));
+        window.present();
+        focus_target.grab_focus();
+        pump_for(300);
+        assert!(window.is_mapped(), "no display: the window never mapped");
+
+        let self_dismisses = gtk::check_version(4, 14, 0).is_none();
+        let bare = popped_over(&window, |p, b| p.set_child(Some(b)));
+        if self_dismisses {
+            assert!(
+                !bare.is_visible(),
+                "control: on GTK >= 4.14 a popover whose minimum exceeds the screen closes \
+                 itself; if it stayed open this rig cannot express the defect"
+            );
+        } else {
+            println!("SKIPPED [9.39]: effect half — GTK < 4.14 clips a too-tall popover instead of closing it");
+        }
+        close(&bare);
+
+        let menu = popped_over(&window, install_menu_body);
+        if self_dismisses {
+            assert!(
+                menu.is_visible(),
+                "the context menu closed itself because the screen could not fit it"
+            );
+        }
+        let body = menu.child().expect("the menu has a body");
+        let (min_h, _, _, _) = body.measure(gtk::Orientation::Vertical, -1);
+        assert!(
+            min_h < TALLER_THAN_ANY_MONITOR / 10,
+            "the menu body's minimum height ({min_h}) follows its content, so a screen \
+             shorter than the menu dismisses it"
+        );
+        close(&menu);
+        window.destroy();
+    }
 }
