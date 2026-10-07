@@ -357,7 +357,8 @@ fn show_tab_context_menu(
         }
     }
 
-    popover.set_child(Some(&box_));
+    // Scrolls rather than self-dismissing where the screen cannot fit it (TDD 9.39).
+    crate::window::contextmenu::install_menu_body(&popover, &box_);
     popover.add_controller(key_controller);
     popover.connect_closed(|p| p.unparent());
     popover.popup();
@@ -710,5 +711,39 @@ mod gtk_integration_tests {
 
             window.destroy();
         });
+    }
+
+    /// TDD 9.39: the tab menu takes the same scrolling body as the document menu, so
+    /// its minimum height stops being its full height and GTK ≥ 4.14 cannot close it
+    /// on the frame it opens wherever the screen cannot fit it. The effect itself is
+    /// tested once, on `install_menu_body`; this pins the tab menu to it.
+    #[gtktest::test]
+    fn the_tab_menu_scrolls_rather_than_closing_where_the_screen_cannot_fit_it() {
+        let app = gtk::Application::new(
+            Some("com.extollit.scribobulate.integrationtest.tabcontextmenu.fit"),
+            gtk::gio::ApplicationFlags::NON_UNIQUE,
+        );
+        app.register(gtk::gio::Cancellable::NONE)
+            .expect("register (emits startup) before building any window");
+        let window = crate::window::new_window(&app, "IT", "# A", None);
+        let tab = state(&window).expect("state registered after new_window");
+        let chrome = winstate::chrome(&window).expect("chrome registered");
+
+        show_tab_context_menu(&window, &chrome.tabs, &tab, 10.0, 10.0);
+
+        let bar = chrome.tabs.bar_widget();
+        let popover = std::iter::successors(bar.first_child(), |w| w.next_sibling())
+            .find_map(|w| w.downcast::<gtk::Popover>().ok())
+            .expect("the tab menu is parented to the tab bar");
+        assert!(
+            popover
+                .child()
+                .and_downcast::<gtk::ScrolledWindow>()
+                .is_some(),
+            "the tab menu's body is not in a scroller, so a screen shorter than the \
+             menu closes it the frame it opens"
+        );
+        popover.popdown();
+        window.destroy();
     }
 }

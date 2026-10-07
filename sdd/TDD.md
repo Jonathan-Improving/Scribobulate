@@ -1593,6 +1593,11 @@
 - **When** the user invokes Paste from any of those surfaces
 - **Then** the clipboard's text is inserted at the editor caret, replacing any editor selection — the same result as Ctrl+V
 
+### 9.39 A right-click menu opens wherever the reader right-clicks
+- **Given** the preview, the editor or a tab
+- **When** the reader right-clicks anywhere on screen, including where the full menu fits neither above nor below the pointer
+- **Then** the context menu opens (scrolling if it cannot be shown whole) and stays open
+
 ## 10. Markdown formatting commands
 
 > The Format menu, its toolbar section, and the caret overlay all drive one

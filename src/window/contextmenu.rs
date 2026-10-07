@@ -25,8 +25,9 @@ fn dismiss_context_popover(po: &gtk::Popover) {
 /// menu and closed it within one frame — the reader saw nothing, and the band depends
 /// on screen height and window position, not on the document. Inside the scroller the
 /// menu keeps its natural height wherever it fits (`propagate_natural_height`) and
-/// scrolls where it does not, which is what GTK's own `GtkPopoverMenu` does.
-fn install_menu_body(popover: &gtk::Popover, body: &impl IsA<gtk::Widget>) {
+/// scrolls where it does not, which is what GTK's own `GtkPopoverMenu` does. Every
+/// right-click menu (this one and the tab menu) goes through here (TDD 9.39).
+pub(crate) fn install_menu_body(popover: &gtk::Popover, body: &impl IsA<gtk::Widget>) {
     let scroller = gtk::ScrolledWindow::new();
     scroller.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
     scroller.set_propagate_natural_height(true);
@@ -465,7 +466,7 @@ mod gtk_integration_tests {
                  itself; if it stayed open this rig cannot express the defect"
             );
         } else {
-            println!("SKIPPED [9.24]: effect half — GTK < 4.14 clips a too-tall popover instead of closing it");
+            println!("SKIPPED [9.39]: effect half — GTK < 4.14 clips a too-tall popover instead of closing it");
         }
         close(&bare);
 
