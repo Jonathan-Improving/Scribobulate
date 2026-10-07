@@ -53,6 +53,8 @@ prints them. What the contract cannot enforce, and this document owns:
   checks before an edit — this document is the owner. Either way the ban is on the
   SECOND copy, which goes stale silently while reading as current.
 
+Clean-up any leftover processes from test runs after testing is completed or before signing-off on a task or during debriefing.
+
 ## Continuous integration
 
 - CI invokes the platform runners whole and names no step, so adding a step never means
