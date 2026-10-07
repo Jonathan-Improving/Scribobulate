@@ -419,13 +419,14 @@ mod gtk_integration_tests {
         popover
     }
 
-    /// popdown-then-unparent (GTK4Rs/AP-123), with the loop turned between them.
-    /// Measured on GTK 4.6 under Xvfb: unparenting before the loop has run after the
-    /// popdown makes the NEXT popup in this test raise a fatal
-    /// `gdk_surface_get_device_position` critical (cause not identified).
+    /// popdown-then-unparent (GTK4Rs/AP-123), with GTK's 500 ms tooltip hover timeout
+    /// let run out in between. The 20000 px popover covers the pointer, so GTK's
+    /// tooltip binds to the popover's surface and arms that timeout; on GTK 4.6, if it
+    /// fires after `unparent()` has destroyed the surface, it raises a
+    /// `gdk_surface_get_device_position` critical, fatal under the suite.
     fn close(popover: &gtk::Popover) {
         popover.popdown();
-        pump_for(200);
+        pump_for(600);
         popover.unparent();
     }
 
