@@ -189,21 +189,24 @@ pub(crate) fn apply_annotation_edit(buf: &gtk::TextBuffer, edit: AnnotationEdit)
             let Some(range) = target.resolve(&old) else {
                 return;
             };
-            // Extend/edit an intersecting highlight rather than nesting a new one.
-            crate::annotate::insert_or_extend_highlight(&old, range, &comment)
+            // Never written into front matter, code, an HTML block or math (TDD 17.59).
+            match crate::annotate::landing::for_highlight(&old, range) {
+                // Extend/edit an intersecting highlight rather than nesting a new one.
+                crate::annotate::Landing::Highlight(range) => {
+                    crate::annotate::insert_or_extend_highlight(&old, range, &comment)
+                }
+                crate::annotate::Landing::Point(slot) => insert_point(&old, slot, &comment),
+            }
         }
         AnnotationEdit::Create(CreateAnnotation::Point { target, comment }) => {
             let Some(at) = target.resolve(&old).map(|r| r.end) else {
                 return;
             };
-            // A cross-block point comment anchors at the
-            // selection END, which can map INSIDE an existing construct — splicing there
-            // silently corrupts it and swallows the comment. Snap the anchor outside any
-            // construct it lands in before splicing (issue: multi-block-over-existing-
-            // annotation; both the preview sink and the editor card route through here, so
-            // the guard lives at this one choke point).
-            let at = crate::annotate::point_comment_anchor(&old, at);
-            crate::annotate::insert_point_comment(&old, at, &comment)
+            insert_point(
+                &old,
+                crate::annotate::landing::for_point(&old, at),
+                &comment,
+            )
         }
         // Task checkbox toggle: a single `[ ]`↔`[x]`
         // state-char flip located in the LIVE source (`old`). Pure `&str -> String`
@@ -219,6 +222,19 @@ pub(crate) fn apply_annotation_edit(buf: &gtk::TextBuffer, edit: AnnotationEdit)
         return;
     }
     splice_minimal(buf, &old, &new);
+}
+
+/// Write a point comment. A cross-block point comment anchors at the selection END,
+/// which can map INSIDE an existing construct — splicing there silently corrupts it and
+/// swallows the comment — so a bare one is snapped outside any construct first (both
+/// the preview sink and the editor card route through here, so the guard lives at this
+/// one choke point). One framed onto its own line after a block sits at a line start,
+/// which no construct straddles.
+fn insert_point(old: &str, mut slot: crate::annotate::Slot, comment: &str) -> String {
+    if slot.is_bare() {
+        slot.at = crate::annotate::point_comment_anchor(old, slot.at);
+    }
+    crate::annotate::insert_point_comment(old, &slot, comment)
 }
 
 /// Re-render the preview so a just-applied annotation (create / edit / remove)
@@ -331,6 +347,48 @@ mod gtk_integration_tests {
             .expect("a valid range over the source"),
             comment: comment.into(),
         })
+    }
+
+    /// TDD 17.59 at the choke point every annotate surface writes through (the preview's
+    /// card and the editor pane's card alike): neither a highlight nor a point comment is
+    /// ever written into a block other tools read verbatim — front matter here; the
+    /// landing module's own tests cover each kind. Mutation note: route either
+    /// create arm of `apply_annotation_edit` past the landing module and its half fails.
+    #[gtktest::test]
+    fn no_annotation_is_ever_written_into_front_matter() {
+        let fm = "---\ntitle: Hello\n---\n\nBody.\n";
+        let after = "---\ntitle: Hello\n---\n{>>note<<}\n\nBody.\n";
+
+        let buf = undo_enabled_buf(fm);
+        apply_annotation_edit(
+            &buf,
+            highlight_in(fm, 0..fm.find("\n\n").unwrap() + 1, "note"),
+        );
+        assert_eq!(
+            text_of(&buf),
+            after,
+            "a highlight over the block lands after it"
+        );
+
+        let buf = undo_enabled_buf(fm);
+        let at = fm.find("Hello").unwrap();
+        apply_annotation_edit(
+            &buf,
+            AnnotationEdit::Create(CreateAnnotation::Point {
+                target: crate::docref::AnchoredSpan::capture_in_context(
+                    fm,
+                    at..at + 5,
+                    crate::docref::Ambiguity::Nearest,
+                )
+                .expect("a valid range over the source"),
+                comment: "note".into(),
+            }),
+        );
+        assert_eq!(
+            text_of(&buf),
+            after,
+            "a point comment inside the block lands after it"
+        );
     }
 
     fn action_enabled(window: &ApplicationWindow, name: &str) -> bool {

@@ -856,7 +856,11 @@ mod tests {
             hl.src_span.end.raw(),
             "the anchor snaps to the construct end"
         );
-        let out = crate::annotate::insert_point_comment(&original, safe, "my comment");
+        let out = crate::annotate::insert_point_comment(
+            &original,
+            &crate::annotate::Slot::bare(safe),
+            "my comment",
+        );
 
         // Both the existing highlight+comment AND the new point comment survive, as two
         // distinct, well-formed annotations — nothing swallowed, nothing corrupted.

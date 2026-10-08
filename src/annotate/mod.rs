@@ -21,9 +21,11 @@
 //! `{--del--}`, `{~~a~>b~~}`) are recognised but styled inert (deferred, not
 //! designed out — see [`scan::AnnKind`]).
 
+pub(crate) mod landing;
 pub(crate) mod mutate;
 pub(crate) mod scan;
 
+pub(crate) use landing::{Landing, Slot};
 pub(crate) use mutate::{
     edit_comment, insert_or_extend_highlight, insert_point_comment, merged_comment_for,
     point_comment_anchor, remove_annotation,

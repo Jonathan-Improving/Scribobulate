@@ -2365,6 +2365,83 @@ mod gtk_integration_tests {
         );
     }
 
+    /// TDD 17.59, end to end through a real render: a selection inside a block other
+    /// tools read verbatim — front matter, a fenced or indented code block, an HTML
+    /// block — is never written into. The preview widens a selection in any of them to
+    /// the whole block, so written as a highlight `{==` landed ahead of the opening fence
+    /// and the file meant something else to every other Markdown tool. The comment is
+    /// kept, on its own line after the block, the block's bytes are untouched, the page
+    /// renders exactly as before, and the comment's marker shows.
+    #[gtktest::test]
+    fn annotating_a_verbatim_block_leaves_it_intact_and_keeps_the_comment() {
+        let cases = [
+            ("---\ntitle: Hello\nauthor: Me\n---\n\nBody text here.\n", "Hello", "Me\n---\n"),
+            ("Intro.\n\n```rust\nlet x = 1;\n```\n\nOutro.\n", "x = 1", "1;\n```\n"),
+            ("Intro.\n\n~~~\nlet x = 1;\n~~~\n\nOutro.\n", "x = 1", "1;\n~~~\n"),
+            ("Intro.\n\n    let x = 1;\n\nOutro.\n", "x = 1", "x = 1;\n"),
+            (
+                "Intro.\n\n<details>\n<summary>Sum word</summary>\n\nBody word.\n\n</details>\n\nOutro.\n",
+                "word",
+                "</details>\n",
+            ),
+        ];
+        for (md, word, close) in cases {
+            let block_end = md.find(close).expect("closing line in fixture") + close.len();
+            let products = build_render_products(md, None, 1.0, false);
+            let text = buffer_slice(&products.buf);
+            let a = char_off(&text, word);
+            let create = crate::preview::annotate::capture_selection(
+                &products.maps.copymap,
+                &products.maps.shifts,
+                &products.maps.md_owned,
+                &products.maps.original_owned,
+                a,
+                a + word.chars().count() as i32,
+            )
+            .and_then(|target| target.with_comment("note"));
+            let out = match create {
+                Some(crate::codeview::CreateAnnotation::Highlight { target, comment }) => {
+                    let range = target.resolve(md).expect("the claim is in the source");
+                    let crate::annotate::Landing::Point(slot) =
+                        crate::annotate::landing::for_highlight(md, range)
+                    else {
+                        panic!("{md:?}: a verbatim block is never wrapped");
+                    };
+                    crate::annotate::insert_point_comment(md, &slot, &comment)
+                }
+                Some(crate::codeview::CreateAnnotation::Point { target, comment }) => {
+                    let at = target.resolve(md).expect("the anchor is in the source").end;
+                    let slot = crate::annotate::landing::for_point(md, at);
+                    crate::annotate::insert_point_comment(md, &slot, &comment)
+                }
+                None => panic!("{md:?}: a selection in the block captures"),
+            };
+            let at = out.find("{>>note<<}").expect("the comment is written");
+            assert!(
+                at >= block_end && out.starts_with(&md[..block_end]),
+                "{md:?}: the block keeps every byte and the comment follows it, got {out:?}"
+            );
+            let cut = crate::annotate::landing::removal_span(&out, at..at + "{>>note<<}".len());
+            assert_eq!(
+                format!("{}{}", &out[..cut.start], &out[cut.end..]),
+                md,
+                "{md:?}: nothing was replaced, and removing the comment restores the file"
+            );
+            let after = build_render_products(&out, None, 1.0, false);
+            assert_eq!(
+                buffer_slice(&after.buf),
+                text,
+                "{md:?}: the page renders as before"
+            );
+            assert_eq!(
+                after.markers.len(),
+                1,
+                "{md:?}: the comment keeps its marker"
+            );
+            assert_eq!(after.markers[0].comment, "note");
+        }
+    }
+
     /// Annotating a selection that spans inline code + bold produces ONE
     /// well-formed highlight whose `{==…==}` wraps both constructs WHOLE — never
     /// splitting a `` ` `` or `**` (the inline-construct-split regression). Drives
