@@ -106,12 +106,18 @@ pub(crate) fn point_comment_anchor(source: &str, at: usize) -> usize {
         .map_or(at, |a| a.src_span.end.raw())
 }
 
-/// Insert a bare point comment `{>>comment<<}` at byte offset `at` in `source`
-/// (the cross-block fallback — anchored at the selection END).
-/// Callers apply [`point_comment_anchor`] to `at` first, so the splice never lands inside
-/// an existing construct.
-pub(crate) fn insert_point_comment(source: &str, at: usize, comment: &str) -> String {
+/// Insert a point comment at `slot` in `source`: `slot.before`, `{>>comment<<}`,
+/// `slot.after`. A bare slot is the cross-block fallback (anchored at the selection
+/// END), and callers apply [`point_comment_anchor`] to it first, so the splice never
+/// lands inside an existing construct; a framed slot puts the comment on a line of its
+/// own after a block it must not enter (TDD 17.59).
+pub(crate) fn insert_point_comment(
+    source: &str,
+    slot: &super::landing::Slot,
+    comment: &str,
+) -> String {
     // Total for the same reason as `insert_highlight_comment` above (P-6).
+    let at = slot.at;
     let (Some(before), Some(after)) = (source.get(..at), source.get(at..)) else {
         log::warn!(
             "refusing to insert a point comment at an unusable offset {at} \
@@ -120,11 +126,13 @@ pub(crate) fn insert_point_comment(source: &str, at: usize, comment: &str) -> St
         );
         return source.to_string();
     };
-    let mut out = String::with_capacity(source.len() + comment.len() + 6);
+    let mut out = String::with_capacity(source.len() + comment.len() + 16);
     out.push_str(before);
+    out.push_str(&slot.before);
     out.push_str(COMMENT_OPEN);
     out.push_str(&sanitize_comment(comment));
     out.push_str(COMMENT_CLOSE);
+    out.push_str(&slot.after);
     out.push_str(after);
     out
 }
@@ -157,6 +165,16 @@ pub(crate) fn remove_annotation(
         Some(inner) if inner.start < span.start || inner.end > span.end => return None,
         Some(inner) => Some(source.get(inner)?),
         None => None,
+    };
+    // A point comment on a line of its own takes that line with it (and the blank
+    // line it was set off by), so a comment written after a block comes out leaving
+    // the file as it was (TDD 17.59).
+    let (head, tail) = match kept {
+        Some(_) => (head, tail),
+        None => {
+            let cut = super::landing::removal_span(source, span);
+            (&source[..cut.start], &source[cut.end..])
+        }
     };
     let mut out = String::with_capacity(source.len());
     out.push_str(head);
@@ -232,6 +250,11 @@ pub(crate) fn intersecting_highlights(
 ///
 /// `extract` yields annotations in document order, so the join is in source order.
 pub(crate) fn merged_comment_for(source: &str, range: Range<usize>) -> Option<String> {
+    // Asked of the range the highlight will actually be written over: one that lands
+    // as a comment after a block merges nothing (TDD 17.59).
+    let super::Landing::Highlight(range) = super::landing::for_highlight(source, range) else {
+        return None;
+    };
     let ext = super::extract(source);
     // N1-phase-2: the selection is carried in typed CLEANED space through the whole
     // merge, so it cannot be crossed with an original offset (the recurring bug class).
@@ -491,6 +514,23 @@ mod merged_comment_tests {
 mod tests {
     use super::*;
 
+    /// TDD 17.59: Remove undoes what a comment written after a block added — its line,
+    /// and the blank line that set it off — so the file is as it was.
+    #[test]
+    fn removing_a_comment_on_its_own_line_restores_the_file() {
+        let md = "<div>\nx\n</div>\n\nOutro.\n";
+        let at = md.find("x").unwrap();
+        let super::super::Landing::Point(slot) =
+            super::super::landing::for_highlight(md, at..at + 1)
+        else {
+            panic!("an HTML block is never wrapped");
+        };
+        let out = insert_point_comment(md, &slot, "c");
+        let ext = super::super::extract(&out);
+        let span = ext.annotations[0].src_span.start.raw()..ext.annotations[0].src_span.end.raw();
+        assert_eq!(remove_annotation(&out, span, None).as_deref(), Some(md));
+    }
+
     #[test]
     fn highlight_comment_wraps_the_range() {
         // "the earth is flat" — annotate "flat" (bytes 13..17).
@@ -603,7 +643,11 @@ mod tests {
         let src = "end of thought.";
         // at the very end
         assert_eq!(
-            insert_point_comment(src, src.len(), "expand on this"),
+            insert_point_comment(
+                src,
+                &crate::annotate::Slot::bare(src.len()),
+                "expand on this"
+            ),
             "end of thought.{>>expand on this<<}"
         );
     }
@@ -632,7 +676,11 @@ mod tests {
         assert_eq!(point_comment_anchor(src, inside), span_end);
         // And splicing at the snapped anchor yields TWO well-formed annotations, the
         // existing one intact — the whole point of the snap.
-        let out = insert_point_comment(src, point_comment_anchor(src, inside), "new");
+        let out = insert_point_comment(
+            src,
+            &crate::annotate::Slot::bare(point_comment_anchor(src, inside)),
+            "new",
+        );
         assert_eq!(out, "The earth is {==flat==}{>>cite<<}{>>new<<} today.");
         let ext = super::super::extract(&out);
         assert_eq!(ext.annotations.len(), 2);
@@ -645,7 +693,7 @@ mod tests {
         let src = "first. second.";
         // after "first." (offset 6)
         assert_eq!(
-            insert_point_comment(src, 6, "note"),
+            insert_point_comment(src, &crate::annotate::Slot::bare(6), "note"),
             "first.{>>note<<} second."
         );
     }
@@ -721,7 +769,7 @@ mod tests {
     #[test]
     fn remove_point_comment_deletes_the_whole_construct() {
         let original = "first. second.";
-        let annotated = insert_point_comment(original, 6, "note");
+        let annotated = insert_point_comment(original, &crate::annotate::Slot::bare(6), "note");
         let span = 6..6 + "{>>note<<}".len();
         assert_eq!(
             remove_annotation(&annotated, span, None).as_deref(),
@@ -786,12 +834,15 @@ mod tests {
             "a non-boundary end must leave the document untouched"
         );
         assert_eq!(
-            insert_point_comment(source, 2, "note"),
+            insert_point_comment(source, &crate::annotate::Slot::bare(2), "note"),
             source,
             "a non-boundary anchor must leave the document untouched"
         );
         // Out of range entirely.
-        assert_eq!(insert_point_comment(source, 9_999, "note"), source);
+        assert_eq!(
+            insert_point_comment(source, &crate::annotate::Slot::bare(9_999), "note"),
+            source
+        );
         assert_eq!(insert_highlight_comment(source, 0..9_999, "note"), source);
     }
 
@@ -803,6 +854,9 @@ mod tests {
             insert_highlight_comment("aébc", 0..3, "note"),
             "{==aé==}{>>note<<}bc"
         );
-        assert_eq!(insert_point_comment("aébc", 3, "note"), "aé{>>note<<}bc");
+        assert_eq!(
+            insert_point_comment("aébc", &crate::annotate::Slot::bare(3), "note"),
+            "aé{>>note<<}bc"
+        );
     }
 }

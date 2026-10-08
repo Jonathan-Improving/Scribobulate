@@ -306,6 +306,7 @@ mod normalize_inline_tabs_tests {
             "preview/build.rs",
             "docio/mod.rs",
             "renderer/disclosure.rs",
+            "annotate/landing.rs", // where an annotation may be written (TDD 17.59)
         ];
 
         let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -443,6 +444,17 @@ mod normalize_inline_tabs_tests {
                 .is_empty(),
             "fixture: unnormalised, the straddling fence must form — otherwise the \
              assertion above proves nothing"
+        );
+
+        // annotate/landing.rs — the page shows a table, so an annotation over a cell's
+        // text is ordinary text, never a block to keep out. (The pre-pass leaves
+        // leading tabs alone, so it cannot move a code block's edge; this pins that
+        // the site agrees with the page about the table, which is what it can get wrong.)
+        let at = TAB_TABLE.find("Value").expect("fixture");
+        assert_eq!(
+            crate::annotate::landing::for_highlight(TAB_TABLE, at..at + 5),
+            crate::annotate::Landing::Highlight(at..at + 5),
+            "annotate/landing.rs: a table cell read as a block to keep out"
         );
 
         // And the pre-pass keeps a heading's own text in step with the rendered one.

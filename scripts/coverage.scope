@@ -51,6 +51,7 @@ src/animation/schedule.rs
 src/animation/source.rs
 src/animation/visibility/mod.rs
 src/animation/worker.rs
+src/annotate/landing.rs
 src/annotate/mod.rs
 src/annotate/mutate.rs
 src/annotate/scan.rs

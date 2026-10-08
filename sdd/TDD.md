@@ -18,7 +18,7 @@
 | 14 | Show Unsafe Images | 14.1 – 14.10 |
 | 15 | Tabbed documents | 15.1 – 15.22 |
 | 16 | Keyboard-shortcuts help & status surfaces | 16.1 – 16.17 |
-| 17 | Annotation & review (CriticMarkup) | 17.1 – 17.53 |
+| 17 | Annotation & review (CriticMarkup) | 17.1 – 17.59 |
 | 18 | Preview reading themes | 18.1 – 18.58 |
 | 19 | Local document-link navigation | 19.1 – 19.13 |
 | 20 | Annotations viewer | 20.1 – 20.25 |
@@ -598,7 +598,7 @@
 - **When** the user copies
 - **Then** **both** fences are reconstructed around the selected code, the closing fence on a line of its own, so the paste is a complete code block (2.8b/2.8e) — never an unclosed ```` ``` ````
 - **And** an **indented** (4-space) code block behaves the same, its continuation indent preserved so the copy re-parses as the same block, and a code block inside a blockquote or list item excludes that container's `> `/indent markers within (2.8g)
-- **And** annotating (`{==…==}`) a selection inside a code block still wraps the **whole** block — a copy may be divided at a character; an annotation may not
+- **And** annotating a selection inside a code block never writes into the block — a copy may be divided at a character; an annotation may not touch the block at all, and lands after it (17.59)
 
 ### 2.8i Copying across a collapsed disclosure includes its body
 - **Given** a selection that spans a collapsed disclosure block
@@ -2863,6 +2863,15 @@
 - **When** the reader clicks the **×** beside its Save button
 - **Then** the entry closes, nothing is written to the document, and the focus returns to the pane the annotation was started from — exactly as Escape does
 - **And** the × is never in the Tab order, so clicking it cannot move the focus off the field first
+
+### 17.59 Annotating never changes what the file means to other tools
+- **Given** a document holding a block that other Markdown tools read verbatim — front matter (2.27), a fenced or indented code block, or an HTML block such as an authored `<details>`
+- **When** the reader annotates a selection that falls inside it or ends on it, from the preview or the editor
+- **Then** the block is left byte-for-byte as it was, and the comment is kept on a line of its own just after the block, inside whatever quote or list holds it; its marker appears in the preview and the page otherwise renders as before
+- **And** nothing in the file is replaced: the comment is only ever inserted, never written over a blank line or the end of a block, and removing it returns the file to what it was
+- **And** a highlight that touches math (`$…$`, `$$…$$`) covers the whole formula rather than splitting it
+- **And** annotations everywhere else — headings, lists, quotes, footnotes, inline formatting — are unchanged
+- **Rationale** Scribobulate strips annotations before it reads the Markdown, so none of this shows in its own preview; every other tool — GitHub, a static-site generator, another editor — reads the markup as text. Inside a paragraph that is harmless. Ahead of an opening fence, after a closing one, inside front matter or directly after an HTML block it changes the document's structure: the code becomes a paragraph and the rest of the file becomes code, or the metadata becomes text
 
 ## 18. Preview reading themes
 

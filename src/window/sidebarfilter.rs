@@ -156,6 +156,9 @@ pub(crate) struct FilterBar {
     /// Set while [`sync_to_tab`] drives the widgets, so their signals are not mistaken
     /// for the reader editing the filter.
     syncing: Rc<Cell<bool>>,
+    /// The filter command's deferred focus step, while it is still queued. A re-sync to
+    /// a document cancels it (see [`activate_filter`]).
+    pending_focus: Rc<Cell<Option<glib::SourceId>>>,
 }
 
 impl FilterBar {
@@ -214,6 +217,7 @@ impl FilterBar {
             count,
             owner: Rc::new(RefCell::new(Weak::new())),
             syncing: Rc::new(Cell::new(false)),
+            pending_focus: Rc::new(Cell::new(None)),
         }
     }
 
@@ -300,6 +304,7 @@ pub(crate) fn sync_to_tab(window: &ApplicationWindow, pane: SidebarPaneKind, st:
     if fb.reflects(st) {
         return;
     }
+    cancel_pending_focus(fb);
     let outgoing = fb.owner.borrow().upgrade();
     if let Some(prev) = outgoing {
         if fb.bar.is_search_mode() {
@@ -464,10 +469,28 @@ fn activate_filter(window: &ApplicationWindow, pane: SidebarPaneKind) {
     // Deferred: the toggle just queued a focus move to the pane's list, and a command
     // activated from the menu bar races the menu's pop-down focus restore
     // (GTK4Rs/AP-116). Queued after both, at the same priority, this lands last.
+    //
+    // "Last" has no upper bound, though: a document still being laid out holds this
+    // priority back (GTK4Rs/T-5), so the reader can switch documents — and even come
+    // back — before it runs, and it would then pull the focus into the box on a tab
+    // switch (TDD 20.19). So every re-sync of the box to a document cancels it
+    // (`sync_to_tab`).
+    cancel_pending_focus(fb);
     let entry = fb.entry.clone();
-    glib::idle_add_local_once(move || {
+    let slot = fb.pending_focus.clone();
+    let id = glib::idle_add_local_once(move || {
+        // Fired: the id is spent, and removing it later would panic (GTK4Rs/AP-128).
+        slot.take();
         entry.grab_focus();
     });
+    fb.pending_focus.set(Some(id));
+}
+
+/// Drop the filter command's focus step if it has not run yet.
+fn cancel_pending_focus(fb: &FilterBar) {
+    if let Some(id) = fb.pending_focus.take() {
+        id.remove();
+    }
 }
 
 /// Register the two filter commands on `window`. Never disabled: a filter can always be
@@ -760,6 +783,57 @@ mod gtk_integration_tests {
             "the filter stays"
         );
         assert_eq!(doc_indices(&window), vec![0, 1, 2, 4, 5]);
+        window.destroy();
+    }
+
+    /// TDD 20.19 — the filter command puts the focus in the box from a deferred step, and
+    /// a tab switch that happens before that step runs cancels it. A document still being
+    /// laid out holds the step back (GTK4Rs/T-5), so the reader can switch away and back
+    /// first; the late step then pulled the focus into the box on the switch back. In the
+    /// suite it surfaced as `the_outline_filter_follows_the_document` failing now and then.
+    ///
+    /// Mutation-checked: without the cancel in `sync_to_tab`, the assertion fails every run.
+    #[gtktest::test]
+    fn a_filter_focus_still_pending_at_a_tab_switch_is_dropped() {
+        let window = open("sidebarfilter.pendingfocus", DOC);
+        type_filter(&window, SidebarPaneKind::Outline, "base");
+        let ch = chrome(&window);
+        let first = state(&window).unwrap().id;
+        crate::window::create_tab_in_window(&window, "# Other\n", None, false, false)
+            .expect("a second tab");
+        drain_for(Clock::Frame, Duration::from_millis(200));
+        let second = state(&window).unwrap().id;
+        let select = |id: crate::winstate::TabId| {
+            crate::window::actions::change_action_state(
+                &window,
+                "select-tab",
+                &id.to_string().to_variant(),
+            )
+        };
+        select(first);
+        drain_for(Clock::Frame, Duration::from_millis(200));
+        state(&window).unwrap().editor.grab_focus();
+        assert!(
+            !focus_within(&window, &ch.outline_filter.entry),
+            "precondition"
+        );
+
+        // The command, then away and back, all before the main loop runs its focus step.
+        window
+            .lookup_action(SidebarPaneKind::Outline.filter_action())
+            .expect("the filter command is registered")
+            .activate(None);
+        select(second);
+        select(first);
+        drain_for(Clock::Frame, Duration::from_millis(200));
+        assert!(
+            ch.outline_filter.bar.is_search_mode(),
+            "the filter is still open"
+        );
+        assert!(
+            !focus_within(&window, &ch.outline_filter.entry),
+            "a focus step queued before the switches landed after them"
+        );
         window.destroy();
     }
 
