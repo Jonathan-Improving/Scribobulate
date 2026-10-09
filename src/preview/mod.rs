@@ -33,6 +33,8 @@ mod interactions;
 #[cfg(all(test, feature = "gtk-integration-tests"))]
 mod markertests;
 pub(crate) mod qdata;
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+mod refusalnotice;
 mod render;
 mod scroll;
 pub(crate) mod sourcemap;

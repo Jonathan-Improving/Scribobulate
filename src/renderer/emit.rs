@@ -473,6 +473,7 @@ mod code_block_per_line_tests {
 
         let theme = crate::theme::active();
         let mut r = Renderer::new(
+            None,
             buf.clone(),
             theme.clone(),
             crate::palette::Palette::for_theme(&theme).code_chips,

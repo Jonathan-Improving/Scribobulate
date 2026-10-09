@@ -456,6 +456,7 @@ pub(crate) fn apply_external_reload(window: &ApplicationWindow, content: &str) {
                 // The reader's folds, which a reload has already cleared if the text
                 // moved (`TabState::set_source`) and kept if it did not.
                 render_and_wire_preview(
+                    st.id,
                     content,
                     st.doc_dir().as_deref(),
                     zoom,

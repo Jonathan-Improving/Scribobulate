@@ -216,6 +216,9 @@ fn reset_buffer_for_render(buf: &TextBuffer) {
 /// layers — the same hazard [`RenderProducts::install`] already fixed for the widget
 /// half.
 pub(super) struct Prepared<'a> {
+    /// The tab this render is shown in, told about refused images (`Renderer`'s field
+    /// of the same name); `None` for a render no reader sees.
+    notice_tab: Option<crate::winstate::TabId>,
     /// The RAW source, before tab normalisation.
     ///
     /// Marker constructs are captured from this rather than from the normalised text:
@@ -257,6 +260,7 @@ impl<'a> Prepared<'a> {
     /// active (F-BUILDPRODUCTS-001). The palette is DERIVED from it here rather than
     /// passed alongside, so the two cannot describe different themes.
     pub(super) fn new(
+        notice_tab: Option<crate::winstate::TabId>,
         md: &'a str,
         doc_dir: Option<&std::path::Path>,
         zoom: f64,
@@ -274,6 +278,7 @@ impl<'a> Prepared<'a> {
             .collect();
         let palette = Palette::for_theme(&theme);
         Self {
+            notice_tab,
             raw_src: md,
             md_norm,
             extraction,
@@ -298,6 +303,7 @@ impl<'a> Prepared<'a> {
     /// route and miss the other.
     pub(super) fn renderer(&self, buf: TextBuffer) -> Renderer {
         Renderer::new(
+            self.notice_tab,
             buf,
             self.theme.clone(),
             self.palette.code_chips,
@@ -343,8 +349,11 @@ pub(super) fn build_render_products(
 ) -> RenderProducts {
     // No reader fold state: every disclosure renders as the document states. This is
     // the right default for the export sink and for every test that is not about
-    // folding, which is why it stays a thin wrapper rather than a second path.
+    // folding, which is why it stays a thin wrapper rather than a second path. And no
+    // tab to report a refused image to: what this builds is never what the reader sees
+    // (the annotation refresh compares it against the live pane and keeps the pane).
     build_render_products_with_theme(
+        None,
         md,
         doc_dir,
         zoom,
@@ -367,6 +376,7 @@ pub(super) fn build_render_products(
 /// marker gutter) resolve their theme at PAINT time, not here, so this seam does not
 /// reach them — nor should it, since selecting a theme repaints rather than re-renders.
 pub(super) fn build_render_products_with_theme(
+    notice_tab: Option<crate::winstate::TabId>,
     md: &str,
     doc_dir: Option<&std::path::Path>,
     zoom: f64,
@@ -375,6 +385,7 @@ pub(super) fn build_render_products_with_theme(
     folds: &crate::fold::FoldState,
 ) -> RenderProducts {
     build_products_scratch(&Prepared::new(
+        notice_tab,
         md,
         doc_dir,
         zoom,
@@ -483,6 +494,7 @@ pub(super) fn build_products_scratch(prepared: &Prepared<'_>) -> RenderProducts 
 /// clearing it is ordinary bookkeeping. Cf. GTK4Rs/AP-89/GTK4Rs/AP-89, the two earlier,
 /// narrower faces of this same dangling-line-display defect.
 pub(super) fn build_render_products_into(
+    notice_tab: Option<crate::winstate::TabId>,
     buf: &TextBuffer,
     md: &str,
     doc_dir: Option<&std::path::Path>,
@@ -493,6 +505,7 @@ pub(super) fn build_render_products_into(
     build_products(
         buf,
         &Prepared::new(
+            notice_tab,
             md,
             doc_dir,
             zoom,
@@ -2193,6 +2206,7 @@ mod gtk_integration_tests {
     fn annotation_refresh_updates_tags_in_place_without_a_buffer_swap() {
         // Initial render WITHOUT the annotation.
         let pane = crate::preview::render(
+            None,
             "the earth is flat ok",
             None,
             1.0,
@@ -3232,6 +3246,7 @@ mod gtk_integration_tests {
         let before = crate::theme::active().id.clone();
 
         let alpha = super::build_render_products_with_theme(
+            None,
             md,
             None,
             1.0,
@@ -3240,6 +3255,7 @@ mod gtk_integration_tests {
             &crate::fold::FoldState::default(),
         );
         let beta = super::build_render_products_with_theme(
+            None,
             md,
             None,
             1.0,
@@ -4101,6 +4117,7 @@ mod gtk_integration_tests {
 
         // Collapsed — the default, since the synthetic `<details>` carries no `open`.
         let collapsed = super::build_render_products_with_theme(
+            None,
             md,
             None,
             1.0,
@@ -4135,6 +4152,7 @@ mod gtk_integration_tests {
         let mut folds = crate::fold::FoldState::default();
         folds.toggle(spans[0].fold_key());
         let opened = super::build_render_products_with_theme(
+            None,
             md,
             None,
             1.0,
@@ -4218,6 +4236,7 @@ mod gtk_integration_tests {
         let mut folds = crate::fold::FoldState::default();
         folds.toggle(spans[0].fold_key());
         let products = super::build_render_products_with_theme(
+            None,
             &md,
             None,
             1.0,
@@ -4260,6 +4279,7 @@ mod gtk_integration_tests {
         let render = |folds: &crate::fold::FoldState| {
             buffer_slice(
                 &super::build_render_products_with_theme(
+                    None,
                     md,
                     None,
                     1.0,
@@ -4324,6 +4344,7 @@ mod gtk_integration_tests {
 
         let theme = crate::theme::active();
         let mut r = crate::renderer::Renderer::new(
+            None,
             buf.clone(),
             theme.clone(),
             crate::palette::Palette::for_theme(&theme).code_chips,

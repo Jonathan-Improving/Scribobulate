@@ -53,7 +53,7 @@ pub(crate) use contextmenu::TabMenuItem;
 pub(crate) use dnd::{wire_tab_arrival, wire_tab_bar_dnd};
 pub(crate) use documents::{
     badge_tab_label, ellipsize, refresh_active_tab_label, refresh_documents_button,
-    refresh_documents_menu, update_window_title,
+    refresh_documents_menu, tab_display_name, update_window_title,
 };
 /// The editor builder itself, reached directly only by `farscroll`'s integration
 /// tests so they exercise the editor the app actually ships. Carries their cfg,

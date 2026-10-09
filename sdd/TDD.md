@@ -344,6 +344,16 @@
 - **And** an image over the pixel limit is refused before any memory is set aside for its pixels
 - **And** the file size limit can be changed in the configuration file
 
+### 2.23c An SVG that may use XInclude is refused, and the reader is told why (Linux and Windows)
+- **Given** a document referencing an SVG that uses XInclude — local or remote, plain or gzip-compressed, in any text encoding, with the XInclude namespace under any prefix or hidden behind character references, entities, or an SVG embedded inside it — on Linux or Windows, whose image decoder carries a published memory-corruption flaw triggered by XInclude
+- **When** it is rendered, used as a theme sprite, or exported to PDF
+- **Then** the SVG is never handed to the image decoder: the broken-image placeholder shows in its place, as for any image that cannot be shown (2.23b), and its tooltip says it was blocked because SVGs that may use XInclude are refused while the decoder has a security flaw
+- **And** the status bar of the window holding that document says so once, naming the image — or counting them when several are refused together — rather than once per image or once per re-render; the notice follows the document, never simply the window in front
+- **And** when that document is not the one in front of its window, the notice names the document too (e.g. "xinclude.md: Blocked 5 images: …"); when several documents in one window refuse images at the same time (e.g. a session restore) they share one notice that counts them (e.g. "Blocked 7 images in 2 documents: …"); and a document closed before its notice is shown gets none
+- **And** a refused theme sprite, which no document shows, is reported in the window in front as the theme's (e.g. "Blocked theme image rule.svg: …"), once per image content however often the theme is reloaded; a PDF export only logs its refusals, since the exported document's preview has already reported them
+- **And** the refusal errs towards refusing: an SVG that only *might* reach XInclude (one that declares entities, or uses an encoding the check cannot read) is refused too, while an ordinary SVG — including one embedding raster images — still shows
+- **And** on macOS, which carries a fixed decoder, nothing is refused on this account
+
 ### 2.25 A Markdown construct the renderer cannot render is visible, never silently dropped
 - **Given** a document containing constructs from parser extensions this build does not handle — math (`$E=mc^2$`, `$$…$$`), footnotes (`[^1]` and its definition), a definition list, and a wikilink
 - **When** it is rendered, and when it is exported

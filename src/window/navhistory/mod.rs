@@ -316,6 +316,7 @@ mod gtk_integration_tests {
         // The document comes back from disk without either section — the reload
         // path's re-render, driven directly so the test states its own cause.
         crate::preview::re_render(
+            None,
             &sw,
             "# Guide\n\nnothing else\n",
             None,

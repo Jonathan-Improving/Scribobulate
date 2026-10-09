@@ -8,6 +8,8 @@
 /// large EXIF block, and small enough that the probe is not a second full read.
 const PROBE_CHUNK: usize = 64 * 1024;
 
+use super::screen::Screened;
+
 /// The declared pixel dimensions of `bytes`, choosing the probe that can actually
 /// answer for this content.
 ///
@@ -59,8 +61,17 @@ pub(crate) fn probe_dimensions(bytes: &[u8]) -> Option<(i32, i32)> {
 /// (18 MB, same measurement) but takes a **path**: a caller may hold only bytes
 /// (a compiled-in sprite, a remote fetch), and re-opening a file the caller has
 /// already read and validated would reintroduce a check-then-use seam.
+///
+/// Screened first ([`super::screen`]): bytes the XInclude screen refuses answer `None`
+/// without reaching the loader.
 pub(crate) fn probe_pixel_size(raw: &[u8]) -> Option<(i32, i32)> {
-    probe_header(raw).size
+    probe_screened_size(super::screen::screen_quietly(raw)?)
+}
+
+/// [`probe_pixel_size`] for bytes the caller has already screened, so a decode does not
+/// screen the same buffer twice.
+pub(super) fn probe_screened_size(bytes: Screened<'_>) -> Option<(i32, i32)> {
+    probe_header(bytes).size
 }
 
 #[cfg(test)]
@@ -105,7 +116,7 @@ struct Header {
 /// file and its error is discarded. Closing anyway is required — an unclosed loader
 /// warns at finalize. `format` is read BEFORE the close, while the loader still holds
 /// it.
-fn probe_header(bytes: &[u8]) -> Header {
+fn probe_header(screened: Screened<'_>) -> Header {
     use gtk::gdk_pixbuf::prelude::PixbufLoaderExt;
     use std::cell::Cell;
     use std::rc::Rc;
@@ -113,6 +124,7 @@ fn probe_header(bytes: &[u8]) -> Header {
     #[cfg(test)]
     HEADER_PROBES.with(|n| n.set(n.get() + 1));
 
+    let bytes = screened.bytes();
     let seen: Rc<Cell<Option<(i32, i32)>>> = Rc::new(Cell::new(None));
     #[expect(clippy::disallowed_methods)] // this module IS the sanctioned route
     let loader = gtk::gdk_pixbuf::PixbufLoader::new();
@@ -180,7 +192,7 @@ pub(crate) fn probe_vector_dimensions(bytes: &[u8]) -> Option<(i32, i32)> {
 /// [`probe_vector_dimensions`] is the only sanctioned entry, because it is the one that
 /// enforces the richimg-first precondition above.
 fn probe_vector(bytes: &[u8]) -> Option<(i32, i32)> {
-    let Header { size, format } = probe_header(bytes);
+    let Header { size, format } = probe_header(super::screen::screen_quietly(bytes)?);
     let (w, h) = size?;
     if !format?.is_scalable() {
         return None;

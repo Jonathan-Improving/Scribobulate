@@ -266,6 +266,21 @@ pub(crate) fn tab_by_id(tab_id: TabId) -> Option<Rc<TabState>> {
     TABS.with(|m| m.borrow().get(&tab_id).cloned())
 }
 
+/// Where `tab_id` lives NOW: its window's chrome, and whether it is that window's active
+/// tab. `None` when no window lists it (closed, or between windows). Resolved at the
+/// moment of asking, which is the point: a tab can move between windows, so anything
+/// reporting about a tab later asks here rather than holding a window.
+pub(crate) fn tab_placement(tab_id: TabId) -> Option<(Rc<WindowChrome>, bool)> {
+    WINDOWS.with(|m| {
+        m.borrow().values().find_map(|e| {
+            e.tabs
+                .borrow()
+                .contains(&tab_id)
+                .then(|| (e.chrome.clone(), e.active_tab.get() == Some(tab_id)))
+        })
+    })
+}
+
 /// Find a registered tab by its `content_box` widget identity, independent of
 /// which window (if any) currently lists it — used by the cross-window
 /// tab-arrival handler (`window/tabs/`'s

@@ -114,6 +114,8 @@ src/imagecache/policy.rs
 src/imagedecode/admission.rs
 src/imagedecode/decode.rs
 src/imagedecode/probe.rs
+src/imagedecode/screen.rs
+src/imagedecode/xinclude.rs
 src/imagefetch.rs
 src/keynav.rs
 src/limits.rs

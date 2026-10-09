@@ -118,7 +118,15 @@ mod recorder;
 fn compare_routes(direction: &str, start_expanded: bool) {
     let md = tall_document();
     let control = measure("re-render", &md, start_expanded, |rig, folds, _key| {
-        crate::preview::re_render(&rig.scroller, &tall_document(), None, ZOOM, false, folds);
+        crate::preview::re_render(
+            None,
+            &rig.scroller,
+            &tall_document(),
+            None,
+            ZOOM,
+            false,
+            folds,
+        );
     });
 
     let spliced = measure("splice", &md, start_expanded, |rig, folds, key| {

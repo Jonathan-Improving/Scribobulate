@@ -217,21 +217,32 @@ fn track_sidebar_split(paned: &gtk::Paned) {
 /// hand-repeated at every call site that builds a preview widget for
 /// content_box.
 pub(crate) fn render_and_wire_preview(
+    notice_tab: crate::winstate::TabId,
     md: &str,
     doc_dir: Option<&std::path::Path>,
     zoom: f64,
     allow_unsafe_images: bool,
     folds: &crate::fold::FoldState,
 ) -> gtk::Widget {
-    let widget = render(md, doc_dir, zoom, allow_unsafe_images, folds);
+    let widget = render(
+        Some(notice_tab),
+        md,
+        doc_dir,
+        zoom,
+        allow_unsafe_images,
+        folds,
+    );
     widget.set_vexpand(true);
     attach_context_menu(&widget);
     widget
 }
 
 /// Assemble the window chrome around `toolbar`, render the initial content into the
-/// swappable slot, and set the assembled tree as the window's child.
+/// swappable slot, and set the assembled tree as the window's child. `tab_id` is the
+/// first tab's, already allocated, so its first render can name the tab it is shown in.
+#[allow(clippy::too_many_arguments)] // one per input the window's first build is made of
 pub(super) fn build_chrome(
+    tab_id: crate::winstate::TabId,
     window: &ApplicationWindow,
     toolbar: &crate::widgets::wrapbox::ToolbarWrapBox,
     md: &str,
@@ -252,6 +263,7 @@ pub(super) fn build_chrome(
     // A FIRST build: there is no reader state yet, and saying so here is the point of
     // the argument existing (F-AP-B-101).
     let initial_preview = render_and_wire_preview(
+        tab_id,
         md,
         doc_dir,
         zoom_level,

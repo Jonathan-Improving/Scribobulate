@@ -148,6 +148,18 @@ defects before they were features:
   graph mentions them — and neither, therefore, do their own dependencies. The SVG loader
   alone pulls in librsvg, which the application does not link.
 
+### librsvg has a security floor
+
+The bundled librsvg must be **2.63.2 or newer** (CVE-2026-96889, a use-after-free reachable
+from any SVG through the pixbuf loader). The app's XInclude screen is compiled out on macOS
+because the bundle carries the fix, so `bundle.sh` enforces it: after signing,
+`packaging/macos/verify-librsvg.sh` loads the **staged** dylib, reads its runtime version
+and fails the build below the floor. It reads the artefact, not Homebrew: `brew upgrade`
+leaves the old keg in the Cellar, and only the staged copy is delivered.
+
+If the build stops there, run `brew upgrade librsvg` and build again. The gate runs on
+its own as well: `verify-librsvg.sh <.app | librsvg-2.2.dylib>`, and `--self-test`.
+
 ### It is not notarized, and the recipient is told it is "damaged"
 
 This is the remaining gap, and it is a deferred scope decision rather than an oversight.

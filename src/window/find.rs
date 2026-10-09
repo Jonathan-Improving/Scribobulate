@@ -2118,6 +2118,7 @@ mod gtk_integration_tests {
     #[gtktest::test]
     fn find_matches_a_pure_link_cell_caption() {
         let view = view_of(crate::preview::render(
+            None,
             MD_LINK_CELL,
             None,
             1.0,
@@ -2158,6 +2159,7 @@ mod gtk_integration_tests {
              - a list item linking the [Handbook](https://example.com/3)\n\n\
              > a quote citing the [Handbook](https://example.com/4)\n";
         let view = view_of(crate::preview::render(
+            None,
             MD_LINKS,
             None,
             1.0,
@@ -2202,6 +2204,7 @@ mod gtk_integration_tests {
     #[gtktest::test]
     fn clearing_find_highlight_is_in_place_and_leaves_cells_clean() {
         let view = view_of(crate::preview::render(
+            None,
             MD,
             None,
             1.0,
@@ -2304,7 +2307,14 @@ mod gtk_integration_tests {
     /// the previous render's offsets and cell labels).
     #[gtktest::test]
     fn the_preview_hit_list_is_built_once_per_buffer_and_query() {
-        let pane = crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default());
+        let pane = crate::preview::render(
+            None,
+            MD,
+            None,
+            1.0,
+            false,
+            &crate::fold::FoldState::default(),
+        );
         let sw = scroller_of(pane);
         let view = view_in(&sw);
         let cache = super::PreviewFindCache::default();
@@ -2346,6 +2356,7 @@ mod gtk_integration_tests {
         let buf_before = view.buffer();
         let gen_before = view.render_generation();
         crate::preview::re_render(
+            None,
             &sw,
             MD,
             None,
@@ -2420,6 +2431,7 @@ mod gtk_integration_tests {
         let cache = super::PreviewFindCache::default();
 
         let view1 = view_of(crate::preview::render(
+            None,
             MD1,
             None,
             1.0,
@@ -2444,6 +2456,7 @@ mod gtk_integration_tests {
         // and `view2` are first-ever renders of their own buffer, so both sit at
         // render_generation 1.
         let view2 = view_of(crate::preview::render(
+            None,
             MD2,
             None,
             1.0,

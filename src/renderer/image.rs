@@ -130,6 +130,25 @@ pub(crate) fn fit_scaled(zoomed: Extent, zoom: f64, bound: i32) -> Extent {
     }
 }
 
+/// The placeholder tooltip's reason for an image the XInclude screen refused
+/// (TDD 2.23c).
+pub(crate) const XINCLUDE_BLOCKED: &str =
+    "Blocked: SVGs that may use XInclude are refused while librsvg has a security flaw";
+
+/// The decode origin of an image the XInclude screen refused (TDD 2.23c), keyed exactly
+/// as `imagecache` names the decode's origin: the path's display form, or the URL.
+/// `None` for an image that was not refused on that account.
+pub(crate) fn xinclude_refused_origin(resolution: &ImageResolution) -> Option<String> {
+    let origin = match resolution {
+        ImageResolution::Local(path) => path.display().to_string(),
+        ImageResolution::Remote(uri) => uri.clone(),
+        ImageResolution::Refused | ImageResolution::NetworkShare | ImageResolution::Missing => {
+            return None
+        }
+    };
+    crate::imagedecode::svg_refused(&origin).then_some(origin)
+}
+
 /// The tooltip for the broken-image placeholder shown when an image cannot be
 /// displayed, or `None` when it loaded and no placeholder is needed.
 ///
@@ -162,6 +181,12 @@ pub(crate) fn image_placeholder_tooltip(
         ImageResolution::Missing => format!("Image not found: {src}"),
         // Resolved to a path/URI, but the texture never loaded — the file exists
         // (or the URL was fetched) yet could not be decoded as an image.
+        // Refused by the XInclude screen (TDD 2.23c).
+        ImageResolution::Local(_) | ImageResolution::Remote(_)
+            if xinclude_refused_origin(resolution).is_some() =>
+        {
+            format!("{XINCLUDE_BLOCKED}: {src}")
+        }
         ImageResolution::Local(_) | ImageResolution::Remote(_) => {
             format!("Could not load image: {src}")
         }
@@ -185,6 +210,23 @@ mod image_placeholder_tests {
             "{tip}"
         );
         assert!(!tip.contains("Show Unsafe Images"), "{tip}");
+    }
+
+    /// TDD 2.23c: a placeholder for an image the XInclude screen refused says why.
+    #[test]
+    fn an_svg_refused_for_xinclude_says_so_in_its_tooltip() {
+        if !crate::imagedecode::SCREENS_XINCLUDE {
+            println!("SKIPPED [2.23c]: this platform does not screen SVG XInclude");
+            return;
+        }
+        let path = PathBuf::from("/tooltip-test/hostile.svg");
+        let origin = path.display().to_string();
+        let hostile = br#"<svg xmlns:xi="http://www.w3.org/2001/XInclude"/>"#;
+        assert!(crate::imagedecode::decode(hostile, &origin).is_none());
+        let tip = image_placeholder_tooltip(&ImageResolution::Local(path), false, "hostile.svg")
+            .expect("a placeholder");
+        crate::imagedecode::forget_for_test(&origin);
+        assert_eq!(tip, format!("{}: hostile.svg", super::XINCLUDE_BLOCKED));
     }
 
     #[test]

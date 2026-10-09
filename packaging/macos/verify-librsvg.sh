@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+#
+# Is the librsvg this bundle delivers at or above the security floor?
+#
+# CVE-2026-96889 / RUSTSEC-2026-0305 (librsvg #1241): a use-after-free when a nested
+# XInclude redefines an XML entity, fixed in librsvg 2.63.2. Every SVG a document references
+# reaches librsvg through the gdk-pixbuf SVG loader, and that loader follows a `data:`
+# XInclude with no base URL. MEASURED on 2.62.3: a `data:` include drew into the pixbuf. The
+# application's own XInclude screen is compiled out on macOS because this bundle carries the
+# fix, so THIS GATE IS THE ONLY THING standing between a stale Homebrew keg and a delivered
+# use-after-free.
+#
+# THE VERSION IS READ FROM THE STAGED DYLIB, by loading it and reading its exported
+# `rsvg_{major,minor,micro}_version`. Not from `pkg-config` and not from `brew list`: both
+# describe Homebrew, and the artefact is what is delivered. `brew upgrade` leaves the old keg in
+# the Cellar beside the new one, so "Homebrew has 2.63.2" and "the bundle has 2.63.2" are two
+# different claims.
+#
+# RUN IT ONLY ON A SIGNED BUNDLE. The staged copies have had install_name_tool run over
+# them, which invalidates their signatures, and on Apple Silicon the kernel SIGKILLs a
+# process that loads one (see the loader-cache step in bundle.sh). bundle.sh therefore calls
+# this AFTER codesign. A reader killed that way exits non-zero and this gate fails closed.
+#
+# FAILS CLOSED in every other way too: no librsvg in the bundle, no python3, a dylib that
+# will not load, or missing version symbols are all failures, never a skipped check. A
+# bundle without librsvg also has no working SVG loader, so there is nothing to pass.
+#
+# Usage: packaging/macos/verify-librsvg.sh <path-to-.app | path-to-librsvg-2.2.dylib>
+#        packaging/macos/verify-librsvg.sh --self-test
+#
+# Negative control (not in --self-test, because it needs an old keg that comes and goes):
+#        packaging/macos/verify-librsvg.sh /opt/homebrew/Cellar/librsvg/2.62.3/lib/librsvg-2.2.dylib
+# must FAIL.
+set -euo pipefail
+
+FLOOR="2.63.2"
+
+# 0 when $1 >= $2, numerically per component (so 2.100.0 > 2.63.2, which a string compare
+# gets wrong).
+version_at_least() {
+    local IFS=.
+    local -a have=($1) want=($2)
+    local i h w
+    for i in 0 1 2; do
+        h="${have[$i]:-0}"; w="${want[$i]:-0}"
+        [[ "$h" =~ ^[0-9]+$ && "$w" =~ ^[0-9]+$ ]] || return 2
+        if [ "$h" -gt "$w" ]; then return 0; fi
+        if [ "$h" -lt "$w" ]; then return 1; fi
+    done
+    return 0
+}
+
+# Prints the runtime version of the librsvg at $1, or fails.
+#
+# Through Python's ctypes, NOT a compiled C probe. MEASURED on this seat (Xcode 26.5 with the
+# macOS 27 Command Line Tools SDK installed beside it): `cc` could not link even a hello-world
+# ("tapi error: malformed file ... unknown architecture arm64e.x1") while cargo still built
+# the app, so a C probe turned a toolchain mismatch into a false "librsvg unreadable".
+# `-I` keeps the interpreter from importing anything out of the working directory.
+read_version() {
+    command -v python3 >/dev/null 2>&1 \
+        || { echo "error: python3 is needed to read the librsvg version" >&2; return 1; }
+    python3 -I -c '
+import ctypes, sys
+lib = ctypes.CDLL(sys.argv[1])
+print(".".join(str(ctypes.c_uint.in_dll(lib, "rsvg_%s_version" % k).value)
+               for k in ("major", "minor", "micro")))
+' "$1"
+}
+
+self_test() {
+    local failures=0 rc
+    check() {  # $1 = have, $2 = expected (ok|fail)
+        set +e; version_at_least "$1" "$FLOOR"; rc=$?; set -e
+        if { [ "$2" = ok ] && [ "$rc" -eq 0 ]; } || { [ "$2" = fail ] && [ "$rc" -ne 0 ]; }; then
+            echo "   ok    $1 vs $FLOOR"
+        else
+            echo "   FAILED $1 vs $FLOOR (expected $2, got $rc)"; failures=$((failures + 1))
+        fi
+    }
+    # ANTI-VACUITY first: a comparator that refuses everything passes every "fail" case.
+    check "$FLOOR" ok
+    check 2.63.10 ok
+    check 2.100.0 ok
+    check 3.0.0 ok
+    check 2.63.1 fail
+    check 2.62.3 fail
+    check 1.99.99 fail
+    check garbage fail
+    # The reader, end to end, against whatever librsvg Homebrew links. Proves it loads the
+    # dylib and reads three numbers; deliberately NOT a floor check, because the
+    # self-test must not depend on which librsvg this machine happens to have.
+    local linked=/opt/homebrew/opt/librsvg/lib/librsvg-2.2.dylib got
+    if [ -e "$linked" ]; then
+        if got="$(read_version "$linked")" && [[ "$got" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "   ok    reader got $got from $linked"
+        else
+            echo "   FAILED reader got no version from $linked"; failures=$((failures + 1))
+        fi
+    else
+        echo "   SKIPPED reader case: no Homebrew librsvg at $linked"
+    fi
+    [ "$failures" -eq 0 ] || { echo ":: self-test FAILED ($failures)"; return 1; }
+    echo ":: self-test passed"
+}
+
+if [ "${1:-}" = "--self-test" ]; then
+    self_test
+    exit $?
+fi
+
+SUBJECT="${1:?usage: verify-librsvg.sh <path-to-.app | path-to-librsvg-2.2.dylib> | --self-test}"
+if [ -d "$SUBJECT" ]; then
+    DYLIB="$SUBJECT/Contents/Frameworks/librsvg-2.2.dylib"
+else
+    DYLIB="$SUBJECT"
+fi
+[ -f "$DYLIB" ] || { echo "error: no librsvg at $DYLIB (fails closed: no librsvg means no SVG loader)" >&2; exit 1; }
+
+if ! HAVE="$(read_version "$DYLIB")"; then
+    echo "error: could not read the librsvg version from $DYLIB" >&2
+    exit 1
+fi
+if version_at_least "$HAVE" "$FLOOR"; then
+    echo "   librsvg $HAVE >= $FLOOR"
+else
+    echo "error: $DYLIB is librsvg $HAVE, below the security floor $FLOOR (CVE-2026-96889)." >&2
+    echo "       brew upgrade librsvg, then rebuild the bundle." >&2
+    exit 1
+fi

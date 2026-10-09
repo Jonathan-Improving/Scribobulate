@@ -30,6 +30,9 @@ use crate::preview::qdata::{scrib_anchor_widgets, scrib_labels, scrib_render_dat
 /// Everything a splice needs about the document, so the window layer hands it forward
 /// once instead of each half reaching for `TabState` on its own.
 pub(crate) struct SpliceInputs<'a> {
+    /// The tab the pane is shown in, told about images the region refuses
+    /// (`preview::render`'s argument of the same name).
+    pub(crate) notice_tab: Option<crate::winstate::TabId>,
     pub(crate) md: &'a str,
     pub(crate) doc_dir: Option<&'a std::path::Path>,
     pub(crate) zoom: f64,
@@ -122,6 +125,7 @@ pub(crate) fn splice_disclosure(
     // `preview::build::Prepared`. It also retires the eleven-argument positional
     // hand-off this call used to be.
     let prepared = crate::preview::build::Prepared::new(
+        inputs.notice_tab,
         inputs.md,
         inputs.doc_dir,
         inputs.zoom,
@@ -941,11 +945,19 @@ mod gtk_integration_tests {
         after.toggle(key);
 
         // The pane under test: rendered at the document's own fold state, then SPLICED.
-        let pane = crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default());
+        let pane = crate::preview::render(
+            None,
+            MD,
+            None,
+            1.0,
+            false,
+            &crate::fold::FoldState::default(),
+        );
         let view = crate::preview::view_of(&pane).expect("the preview tree render() built");
         let verdict = splice_disclosure(
             &view,
             SpliceInputs {
+                notice_tab: None,
                 md: MD,
                 doc_dir: None,
                 zoom: 1.0,
@@ -963,15 +975,21 @@ mod gtk_integration_tests {
 
         // The reference pane: the same document taken to the same fold state by the
         // route the splice is claiming to be indistinguishable from.
-        let reference_pane =
-            crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default());
+        let reference_pane = crate::preview::render(
+            None,
+            MD,
+            None,
+            1.0,
+            false,
+            &crate::fold::FoldState::default(),
+        );
         let reference_view =
             crate::preview::view_of(&reference_pane).expect("the preview tree render() built");
         let scroller = reference_view
             .parent()
             .and_then(|p| p.downcast::<gtk::ScrolledWindow>().ok())
             .expect("render() puts the view in a ScrolledWindow");
-        crate::preview::re_render(&scroller, MD, None, 1.0, false, &after);
+        crate::preview::re_render(None, &scroller, MD, None, 1.0, false, &after);
 
         // **And the maps as BUILT, which is the side that makes this oracle able to
         // fail at all.** Comparing two installed panes measures nothing about the
@@ -981,6 +999,7 @@ mod gtk_integration_tests {
         // which shares no code with the install; only the WIDGET-keyed lists, which no
         // build produces, are compared pane to pane.
         let built = crate::preview::build::build_render_products_with_theme(
+            None,
             MD,
             None,
             1.0,

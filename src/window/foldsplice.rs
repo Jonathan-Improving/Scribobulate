@@ -68,6 +68,7 @@ pub(crate) fn splice_disclosure_in_place(
     let verdict = crate::preview::splice_disclosure(
         &view,
         crate::preview::SpliceInputs {
+            notice_tab: Some(st.id),
             md: &md,
             doc_dir: st.doc_dir().as_deref(),
             zoom: st.chrome().zoom_level.get(),

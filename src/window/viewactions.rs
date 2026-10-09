@@ -158,6 +158,7 @@ fn register_view_mode_action(window: &ApplicationWindow) {
                     let zoom = st.chrome().zoom_level.get();
                     let allow_unsafe = st.allow_unsafe_images.get();
                     let preview = render_and_wire_preview(
+                        st.id,
                         &md,
                         st.doc_dir().as_deref(),
                         zoom,

@@ -493,6 +493,7 @@ mod gtk_integration_tests {
         {
             let sw = st.split.preview_scroller().expect("a preview scroller");
             crate::preview::re_render(
+                None,
                 &sw,
                 &doc,
                 st.doc_dir().as_deref(),

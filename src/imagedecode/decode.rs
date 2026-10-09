@@ -9,7 +9,8 @@
 //! GIF/APNG while their codecs are still `Unsupported` stubs) — a format `richimg`
 //! owns is never retried through the leaking route this module exists to close off.
 
-use super::probe::probe_pixel_size;
+use super::probe::probe_screened_size;
+use super::screen::screen;
 use std::sync::Arc;
 
 /// The result of decoding one image: the texture to show now (always the FIRST
@@ -275,7 +276,9 @@ fn decode_gtk(bytes: &[u8], origin: &str) -> Option<DecodedImage> {
     // three formats GTK handles natively, and WebP/GIF/APNG never reach here — they go
     // to richimg), but it is not provably empty, so the refusal is logged distinctly
     // from a cap breach: if a real host ever hits it, the log says which branch refused.
-    let Some((w, h)) = probe_pixel_size(bytes) else {
+    // TDD 2.23c: screened before the probe, which is itself a loader.
+    let screened = screen(bytes, origin)?;
+    let Some((w, h)) = probe_screened_size(screened) else {
         log::warn!(
             "image {origin} not loaded: its dimensions could not be read, so the \
              {}-pixel cap cannot be enforced and the decode is refused",
@@ -291,7 +294,8 @@ fn decode_gtk(bytes: &[u8], origin: &str) -> Option<DecodedImage> {
         return None;
     }
     #[expect(clippy::disallowed_methods)] // this module IS the sanctioned route
-    let result = gtk::gdk::Texture::from_bytes(&gtk::glib::Bytes::from_owned(bytes.to_vec()));
+    let result =
+        gtk::gdk::Texture::from_bytes(&gtk::glib::Bytes::from_owned(screened.bytes().to_vec()));
     match result {
         Ok(texture) => Some(DecodedImage {
             texture,
@@ -330,7 +334,9 @@ pub(crate) fn decode_pixbuf(bytes: &[u8], origin: &str) -> Option<gtk::gdk_pixbu
     // refusal costs nothing at all: this route decodes through gdk-pixbuf itself, so
     // content its probe cannot identify is content `Pixbuf::from_stream` was going to
     // reject one step later anyway.
-    let Some((w, h)) = probe_pixel_size(bytes) else {
+    // TDD 2.23c: screened before the probe, which is itself a loader.
+    let screened = screen(bytes, origin)?;
+    let Some((w, h)) = probe_screened_size(screened) else {
         log::warn!(
             "image {origin} not loaded: its dimensions could not be read, so the \
              {}-pixel cap cannot be enforced and the decode is refused",
@@ -345,8 +351,9 @@ pub(crate) fn decode_pixbuf(bytes: &[u8], origin: &str) -> Option<gtk::gdk_pixbu
         );
         return None;
     }
-    let stream =
-        gtk::gio::MemoryInputStream::from_bytes(&gtk::glib::Bytes::from_owned(bytes.to_vec()));
+    let stream = gtk::gio::MemoryInputStream::from_bytes(&gtk::glib::Bytes::from_owned(
+        screened.bytes().to_vec(),
+    ));
     #[expect(clippy::disallowed_methods)] // this module IS the sanctioned route
     match gtk::gdk_pixbuf::Pixbuf::from_stream(&stream, gtk::gio::Cancellable::NONE) {
         Ok(pixbuf) => Some(pixbuf),
@@ -385,8 +392,12 @@ pub(crate) fn rasterize_vector_bytes(
     target_w: i32,
     origin: &str,
 ) -> Option<gtk::gdk::Texture> {
-    let stream =
-        gtk::gio::MemoryInputStream::from_bytes(&gtk::glib::Bytes::from_owned(bytes.to_vec()));
+    // TDD 2.23c. Refused content returns `None`, so the caller's natural-size fallback
+    // runs — and is refused by the same screen, which is what reports it.
+    let screened = screen(bytes, origin)?;
+    let stream = gtk::gio::MemoryInputStream::from_bytes(&gtk::glib::Bytes::from_owned(
+        screened.bytes().to_vec(),
+    ));
     #[expect(clippy::disallowed_methods)] // this module IS the sanctioned route
     match gtk::gdk_pixbuf::Pixbuf::from_stream_at_scale(
         &stream,
@@ -495,6 +506,30 @@ mod tests {
         let decoded = decode(png_fixture(), "test:wide.png").expect("GTK decodes a plain PNG");
         assert_eq!(decoded.texture.width(), 1600);
         assert!(decoded.animation.is_none());
+    }
+
+    /// TDD 2.23c: an SVG naming the XInclude namespace reaches no loader through any of
+    /// the three decode entry points, and is remembered as refused; the same SVG
+    /// without it still decodes, so the refusal is the screen's and not the loader's.
+    #[test]
+    fn an_svg_using_xinclude_is_refused_by_every_entry_point() {
+        if !crate::imagedecode::xinclude::ENFORCED {
+            println!("SKIPPED [2.23c]: this platform does not screen SVG XInclude");
+            return;
+        }
+        const PLAIN: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4"><rect width="4" height="4"/></svg>"#;
+        let hostile = PLAIN.replace(
+            "<svg ",
+            r#"<svg xmlns:xi="http://www.w3.org/2001/XInclude" "#,
+        );
+        let origin = "test:decode:xinclude.svg";
+        assert!(decode(hostile.as_bytes(), origin).is_none());
+        assert!(crate::imagedecode::svg_refused(origin));
+        assert!(decode_pixbuf(hostile.as_bytes(), origin).is_none());
+        assert!(rasterize_vector_bytes(hostile.as_bytes(), 8, origin).is_none());
+        crate::imagedecode::forget_for_test(origin);
+        let plain = decode(PLAIN.as_bytes(), "test:decode:plain.svg").expect("librsvg decodes it");
+        assert_eq!(plain.texture.width(), 4);
     }
 
     /// Truncated/garbage bytes degrade to `None` (the placeholder), never a panic —

@@ -438,6 +438,12 @@ if ! codesign --verify --deep --strict "$APP" 2>/dev/null; then
     exit 1
 fi
 
+# librsvg security floor (CVE-2026-96889), read from the STAGED dylib. AFTER signing, never
+# before: loading a staged copy whose signature install_name_tool invalidated gets the
+# reader SIGKILLed. The app's XInclude screen is compiled out on macOS on the strength of
+# this check, so it fails the build rather than warning.
+"$REPO_ROOT/packaging/macos/verify-librsvg.sh" "$APP"
+
 # Refresh Launch Services so the Dock/Finder pick up the icon immediately rather
 # than after an unpredictable cache delay.
 /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \

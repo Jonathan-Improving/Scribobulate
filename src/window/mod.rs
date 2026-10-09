@@ -87,6 +87,7 @@ pub(crate) use find::{
 pub(crate) use findbar::refresh_preview_find_highlight;
 pub(crate) use foldreveal::defer_with_window;
 pub(crate) use foldsplice::splice_disclosure_in_place;
+pub(crate) use imagerefusal::install as install_image_refusal_notice;
 pub(crate) use lifecycle::quit_all_windows;
 pub(crate) use outline_nav::apply_scroll_spy;
 pub(crate) use outline_nav::refresh_outline;
@@ -138,6 +139,7 @@ mod editoractions;
 mod export;
 mod export_pdf;
 mod findbar;
+mod imagerefusal;
 mod lifecycle;
 mod linknav;
 mod livepreview;
@@ -509,7 +511,10 @@ fn build_window(
     let (toolbar, section_boxes, format_items, heading_btn, tb_edit_btns, documents_btn, theme_btn) =
         build_toolbar();
     let doc_dir = file_path.and_then(|p| p.parent());
+    // Allocated before the first render, which names the tab it is shown in.
+    let tab_id = winstate::alloc_tab_id();
     let chrome = build_chrome(
+        tab_id,
         &window,
         &toolbar,
         md,
@@ -621,7 +626,6 @@ fn build_window(
         chrome_init.sidebar_split,
         zoom_css_provider,
     );
-    let tab_id = winstate::alloc_tab_id();
     winstate::register(
         &window,
         chrome_state.clone(),

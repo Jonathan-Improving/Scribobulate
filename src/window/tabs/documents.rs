@@ -260,14 +260,19 @@ fn tooltip_for_path(path: Option<&std::path::Path>) -> String {
         .unwrap_or_else(|| "Unsaved".to_string())
 }
 
-fn tab_display_markup(tab: &TabState) -> String {
-    let name = tab
-        .path
+/// The name the tab strip shows for `tab`'s document — its file name, or "Untitled" —
+/// as plain text. Also how a status notice names a document that is not in front.
+pub(crate) fn tab_display_name(tab: &TabState) -> String {
+    tab.path
         .borrow()
         .as_ref()
         .and_then(|p| p.file_name())
         .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "Untitled".to_string());
+        .unwrap_or_else(|| "Untitled".to_string())
+}
+
+fn tab_display_markup(tab: &TabState) -> String {
+    let name = tab_display_name(tab);
     // The label is Pango markup (so the ⚠ badge can be coloured), so the
     // filename — which can legitimately contain markup metacharacters (& < >) —
     // MUST be escaped before it is interpolated, or such a name produces

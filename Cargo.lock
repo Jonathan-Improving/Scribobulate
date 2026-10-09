@@ -1329,6 +1329,7 @@ version = "0.1.0"
 dependencies = [
  "dunce",
  "env_logger",
+ "flate2",
  "glib",
  "glib-build-tools",
  "gtk4",

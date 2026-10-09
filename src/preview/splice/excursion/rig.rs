@@ -81,7 +81,15 @@ impl Rig {
             maps,
             install,
             ..
-        } = build_render_products_with_theme(md, None, ZOOM, false, crate::theme::active(), folds);
+        } = build_render_products_with_theme(
+            None,
+            md,
+            None,
+            ZOOM,
+            false,
+            crate::theme::active(),
+            folds,
+        );
         let disclosure_extents = maps.disclosure_extents;
 
         let view = CodePreviewView::new();

@@ -258,6 +258,7 @@ impl Renderer {
                     self.anchor_image(&image);
                 } else if let Some(tooltip) = placeholder_tooltip {
                     self.anchor_broken(&tooltip);
+                    self.report_refused_image(&resolution);
                 }
             }
             Tag::HtmlBlock => {
@@ -716,6 +717,7 @@ impl Renderer {
         let resolution = resolve_image(fallback, self.doc_dir.as_deref(), self.allow_unsafe_images);
         if let Some(tooltip) = image_placeholder_tooltip(&resolution, false, fallback) {
             self.anchor_broken(&tooltip);
+            self.report_refused_image(&resolution);
         }
     }
 
@@ -785,6 +787,20 @@ impl Renderer {
         self.image_tints.push((anchor, tint.upcast()));
         self.inter.trailing_newlines = 0;
         self.inter.at_start = false;
+    }
+
+    /// If the placeholder just anchored stands in for an image the XInclude screen
+    /// refused, tell the screen which document is showing it, so the notice reaches
+    /// that document's window (TDD 2.23c; Status-notice CAM row 9). A render no reader
+    /// sees (`notice_tab` `None`) reports nothing.
+    fn report_refused_image(&self, resolution: &crate::links::ImageResolution) {
+        let Some(tab) = self.notice_tab else { return };
+        if let Some(origin) = super::image::xinclude_refused_origin(resolution) {
+            crate::imagedecode::report_shown_refusal(
+                crate::imagedecode::RefusalTarget::Document(tab),
+                &origin,
+            );
+        }
     }
 
     /// Anchor a broken-image placeholder icon with `tooltip` — shown for any image

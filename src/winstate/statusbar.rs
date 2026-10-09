@@ -278,6 +278,148 @@ pub(crate) fn base_message(
     segments.join(BASE_SEPARATOR)
 }
 
+/// Why an image was blocked, as every blocked-image notice ends (TDD 2.23c).
+const XINCLUDE_REASON: &str =
+    "SVGs that may use XInclude are refused while librsvg has a security flaw (CVE-2026-96889)";
+
+/// `origins` deduplicated and named as a reader would name each image.
+fn unique_names<'a>(origins: &[&'a str]) -> Vec<&'a str> {
+    let mut unique: Vec<&str> = origins.to_vec();
+    unique.sort_unstable();
+    unique.dedup();
+    unique.into_iter().map(origin_name).collect()
+}
+
+/// The notice for images the XInclude screen refused (TDD 2.23c): the image's name
+/// when there is one, a count when there are several, `None` when there are none.
+/// `document` names the document they were refused in, for a notice shown while that
+/// document is not the one in front of its window.
+pub(crate) fn xinclude_blocked_text(origins: &[&str], document: Option<&str>) -> Option<String> {
+    let text = match unique_names(origins).as_slice() {
+        [] => return None,
+        [one] => format!("Blocked image {one}: {XINCLUDE_REASON}"),
+        many => format!("Blocked {} images: {XINCLUDE_REASON}", many.len()),
+    };
+    Some(match document {
+        Some(document) => format!("{document}: {text}"),
+        None => text,
+    })
+}
+
+/// The notice for theme images (sprites) the XInclude screen refused — images no
+/// document shows, so the notice says they belong to the theme.
+fn xinclude_blocked_theme_text(origins: &[&str]) -> Option<String> {
+    Some(match unique_names(origins).as_slice() {
+        [] => return None,
+        [one] => format!("Blocked theme image {one}: {XINCLUDE_REASON}"),
+        many => format!("Blocked {} theme images: {XINCLUDE_REASON}", many.len()),
+    })
+}
+
+/// Whose image was refused: a document's (`id` identifies it, and `background_name`
+/// names it when it is not the one in front of its window), or the theme's.
+pub(crate) enum RefusalSubject<D> {
+    Document {
+        id: D,
+        background_name: Option<String>,
+    },
+    Theme,
+}
+
+/// One image the XInclude screen refused, placed where its notice goes: the window `W`
+/// it is reported in, and whose image it was.
+pub(crate) struct PlacedRefusal<W, D> {
+    pub(crate) window: W,
+    pub(crate) subject: RefusalSubject<D>,
+    pub(crate) origin: String,
+}
+
+/// One document's refused images within a window's share of a flush.
+struct DocumentShare<'a, D> {
+    id: &'a D,
+    background_name: Option<&'a str>,
+    origins: Vec<&'a str>,
+}
+
+/// One window's share of a flush: its theme images, and each document's images in the
+/// order the documents first appeared.
+struct WindowShare<'a, W, D> {
+    window: &'a W,
+    theme: Vec<&'a str>,
+    documents: Vec<DocumentShare<'a, D>>,
+}
+
+/// Coalesce refusals into blocked-image notices (TDD 2.23c), each paired with the
+/// window it is shown in, windows in the order their first refusal arrived.
+///
+/// Per window: theme images get one notice of their own. A window's documents get ONE
+/// notice between them — a single document keeps its own wording (named when it is not
+/// in front), several are counted together ("Blocked 7 images in 2 documents"), because
+/// a window's footer shows only its latest notice and one per document would hide all
+/// but the last. The document notice comes after the theme's, so it is the one shown.
+pub(crate) fn xinclude_blocked_notices<W: PartialEq + Clone, D: PartialEq>(
+    refusals: &[PlacedRefusal<W, D>],
+) -> Vec<(W, String)> {
+    let mut shares: Vec<WindowShare<'_, W, D>> = Vec::new();
+    for r in refusals {
+        let index = match shares.iter().position(|s| *s.window == r.window) {
+            Some(index) => index,
+            None => {
+                shares.push(WindowShare {
+                    window: &r.window,
+                    theme: Vec::new(),
+                    documents: Vec::new(),
+                });
+                shares.len() - 1
+            }
+        };
+        let share = &mut shares[index];
+        match &r.subject {
+            RefusalSubject::Theme => share.theme.push(&r.origin),
+            RefusalSubject::Document {
+                id,
+                background_name,
+            } => match share.documents.iter_mut().find(|d| d.id == id) {
+                Some(document) => document.origins.push(&r.origin),
+                None => share.documents.push(DocumentShare {
+                    id,
+                    background_name: background_name.as_deref(),
+                    origins: vec![&r.origin],
+                }),
+            },
+        }
+    }
+    let mut notices = Vec::new();
+    for share in shares {
+        if let Some(text) = xinclude_blocked_theme_text(&share.theme) {
+            notices.push((share.window.clone(), text));
+        }
+        let text = match share.documents.as_slice() {
+            [] => None,
+            [one] => xinclude_blocked_text(&one.origins, one.background_name),
+            several => {
+                let images: usize = several.iter().map(|d| unique_names(&d.origins).len()).sum();
+                Some(format!(
+                    "Blocked {images} images in {} documents: {XINCLUDE_REASON}",
+                    several.len()
+                ))
+            }
+        };
+        if let Some(text) = text {
+            notices.push((share.window.clone(), text));
+        }
+    }
+    notices
+}
+
+/// The last segment of a path or URL, as a reader would name the image.
+fn origin_name(origin: &str) -> &str {
+    origin
+        .rsplit(['/', '\\'])
+        .find(|segment| !segment.is_empty())
+        .unwrap_or(origin)
+}
+
 /// The export progress message (TDD 25.23). `done` pages have been drawn, so the page
 /// being drawn now is the next one, capped at the last. Until pagination has counted the
 /// pages (`total == 0`) there is no page to name, so it says only that it is exporting.
@@ -431,6 +573,139 @@ mod tests {
             base_message(Some(BackingLoss::Truncated), false, false),
             BackingLoss::Truncated.notice()
         );
+    }
+
+    /// TDD 2.23c — one notice names one image, and counts several.
+    #[test]
+    fn xinclude_blocked_text_names_one_image_and_counts_several() {
+        assert_eq!(xinclude_blocked_text(&[], None), None);
+        let one = xinclude_blocked_text(&["/docs/img/logo.svg"], None).expect("a notice");
+        assert!(one.starts_with("Blocked image logo.svg: "), "{one}");
+        assert!(one.contains("XInclude") && one.contains("librsvg"), "{one}");
+        let url = xinclude_blocked_text(&["https://h/x/badge.svg"], None).expect("a notice");
+        assert!(url.starts_with("Blocked image badge.svg: "), "{url}");
+        let win = xinclude_blocked_text(&[r"C:\docs\a.svg"], None).expect("a notice");
+        assert!(win.starts_with("Blocked image a.svg: "), "{win}");
+        let many = xinclude_blocked_text(&["/a.svg", "/b.svg", "/c.svg"], None).expect("a notice");
+        assert!(many.starts_with("Blocked 3 images: "), "{many}");
+    }
+
+    /// TDD 2.23c — a notice about a document that is not in front names it.
+    #[test]
+    fn xinclude_blocked_text_names_a_background_document() {
+        let text =
+            xinclude_blocked_text(&["/a.svg", "/b.svg"], Some("xinclude.md")).expect("a notice");
+        assert!(
+            text.starts_with("xinclude.md: Blocked 2 images: "),
+            "{text}"
+        );
+    }
+
+    fn placed(
+        window: u8,
+        document: u8,
+        background: Option<&str>,
+        origin: &str,
+    ) -> PlacedRefusal<u8, u8> {
+        PlacedRefusal {
+            window,
+            subject: RefusalSubject::Document {
+                id: document,
+                background_name: background.map(str::to_string),
+            },
+            origin: origin.to_string(),
+        }
+    }
+
+    fn themed(window: u8, origin: &str) -> PlacedRefusal<u8, u8> {
+        PlacedRefusal {
+            window,
+            subject: RefusalSubject::Theme,
+            origin: origin.to_string(),
+        }
+    }
+
+    /// TDD 2.23c — each notice goes to the window holding the document that refused the
+    /// image, and a background document is named.
+    #[test]
+    fn blocked_notices_follow_the_document_not_the_active_window() {
+        // Window 1 holds xinclude.md (doc 11) behind its front document; window 2 shows
+        // other.md (doc 20) in front. Refusals arrive interleaved.
+        let notices = xinclude_blocked_notices(&[
+            placed(1, 11, Some("xinclude.md"), "/x/a.svg"),
+            placed(2, 20, None, "/o/c.svg"),
+            placed(1, 11, Some("xinclude.md"), "/x/b.svg"),
+        ]);
+        assert_eq!(notices.len(), 2, "{notices:?}");
+        let (w1, t1) = &notices[0];
+        assert_eq!(*w1, 1);
+        assert!(t1.starts_with("xinclude.md: Blocked 2 images: "), "{t1}");
+        let (w2, t2) = &notices[1];
+        assert_eq!(*w2, 2);
+        assert!(
+            t2.starts_with("Blocked image c.svg: "),
+            "the front document is not named: {t2}"
+        );
+    }
+
+    /// TDD 2.23c — several documents in one window share ONE notice that counts them;
+    /// another window's document is reported on its own.
+    #[test]
+    fn blocked_notices_combine_several_documents_in_one_window() {
+        let notices = xinclude_blocked_notices(&[
+            placed(1, 10, None, "/r/front.svg"),
+            placed(1, 11, Some("back.md"), "/b/one.svg"),
+            placed(1, 11, Some("back.md"), "/b/two.svg"),
+            placed(1, 11, Some("back.md"), "/b/two.svg"),
+            placed(2, 20, Some("other.md"), "/o/x.svg"),
+        ]);
+        assert_eq!(notices.len(), 2, "{notices:?}");
+        assert_eq!(notices[0].0, 1);
+        assert!(
+            notices[0]
+                .1
+                .starts_with("Blocked 3 images in 2 documents: "),
+            "{notices:?}"
+        );
+        assert_eq!(notices[1].0, 2);
+        assert!(
+            notices[1].1.starts_with("other.md: Blocked image x.svg: "),
+            "{notices:?}"
+        );
+        // Same name, different documents: two README.md files are two documents.
+        let same_name = xinclude_blocked_notices(&[
+            placed(1, 11, Some("README.md"), "/a/x.svg"),
+            placed(1, 12, Some("README.md"), "/b/y.svg"),
+        ]);
+        assert_eq!(same_name.len(), 1, "{same_name:?}");
+        assert!(same_name[0]
+            .1
+            .starts_with("Blocked 2 images in 2 documents: "));
+        assert!(xinclude_blocked_notices::<u8, u8>(&[]).is_empty());
+    }
+
+    /// TDD 2.23c — theme images get their own notice, said to be the theme's, pushed
+    /// before the window's document notice so the document's is the one shown.
+    #[test]
+    fn blocked_notices_report_theme_images_as_the_themes() {
+        let notices = xinclude_blocked_notices(&[
+            placed(1, 10, None, "/r/front.svg"),
+            themed(1, "sprite /themes/t/rule.svg"),
+        ]);
+        let texts: Vec<&str> = notices.iter().map(|(_, t)| t.as_str()).collect();
+        assert_eq!(texts.len(), 2, "{texts:?}");
+        assert!(
+            texts[0].starts_with("Blocked theme image rule.svg: "),
+            "{texts:?}"
+        );
+        assert!(
+            texts[1].starts_with("Blocked image front.svg: "),
+            "{texts:?}"
+        );
+        let two =
+            xinclude_blocked_notices(&[themed(1, "sprite /t/a.svg"), themed(1, "sprite /t/b.svg")]);
+        assert_eq!(two.len(), 1, "{two:?}");
+        assert!(two[0].1.starts_with("Blocked 2 theme images: "), "{two:?}");
     }
 
     #[test]

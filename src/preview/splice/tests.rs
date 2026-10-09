@@ -23,6 +23,7 @@ fn both_ways(md: &str, key: FoldKey) -> BothWays {
     use gtk::prelude::TextBufferExt;
     let render = |folds: &FoldState| {
         let products = super::super::build::build_render_products_with_theme(
+            None,
             md,
             None,
             1.0,
@@ -197,6 +198,7 @@ fn a_fold_inside_a_container_still_changes_only_its_own_region() {
 fn assert_splice_matches_full_render(md: &str, before: &FoldState, after: &FoldState) {
     use gtk::prelude::TextBufferExt;
     let starting = super::super::build::build_render_products_with_theme(
+        None,
         md,
         None,
         1.0,
@@ -232,7 +234,15 @@ fn assert_splice_matches_full_render(md: &str, before: &FoldState, after: &FoldS
         None,
         &starting.anchored,
         &starting.maps.disclosure_extents,
-        &crate::preview::build::Prepared::new(md, None, 1.0, false, crate::theme::active(), after),
+        &crate::preview::build::Prepared::new(
+            None,
+            md,
+            None,
+            1.0,
+            false,
+            crate::theme::active(),
+            after,
+        ),
         key,
     )
     .expect("the toggled block was drawn in the starting render");
@@ -243,6 +253,7 @@ fn assert_splice_matches_full_render(md: &str, before: &FoldState, after: &FoldS
         .to_string();
 
     let full = super::super::build::build_render_products_with_theme(
+        None,
         md,
         None,
         1.0,
@@ -362,6 +373,7 @@ fn tables_outside_the_region_survive_the_splice_as_the_same_widgets() {
     let key = spans[0].fold_key();
 
     let starting = super::super::build::build_render_products_with_theme(
+        None,
         MD,
         None,
         1.0,
@@ -393,6 +405,7 @@ fn tables_outside_the_region_survive_the_splice_as_the_same_widgets() {
         &starting.anchored,
         &starting.maps.disclosure_extents,
         &crate::preview::build::Prepared::new(
+            None,
             MD,
             None,
             1.0,
@@ -530,6 +543,7 @@ fn everything_below_a_toggled_block_still_addresses_its_own_text() {
     after.toggle(key);
 
     let starting = super::super::build::build_render_products_with_theme(
+        None,
         MD,
         None,
         1.0,
@@ -542,7 +556,15 @@ fn everything_below_a_toggled_block_still_addresses_its_own_text() {
         None,
         &starting.anchored,
         &starting.maps.disclosure_extents,
-        &crate::preview::build::Prepared::new(MD, None, 1.0, false, crate::theme::active(), &after),
+        &crate::preview::build::Prepared::new(
+            None,
+            MD,
+            None,
+            1.0,
+            false,
+            crate::theme::active(),
+            &after,
+        ),
         key,
     )
     .expect("the toggled block was drawn in the starting render");
@@ -605,6 +627,7 @@ fn a_refusal_before_the_delete_leaves_the_buffer_untouched() {
     const MD: &str = "<details>\n<summary>One</summary>\n\nBody\n\n</details>\n\nTail.\n";
 
     let starting = super::super::build::build_render_products_with_theme(
+        None,
         MD,
         None,
         1.0,
@@ -625,6 +648,7 @@ fn a_refusal_before_the_delete_leaves_the_buffer_untouched() {
         &starting.anchored,
         &starting.maps.disclosure_extents,
         &crate::preview::build::Prepared::new(
+            None,
             MD,
             None,
             1.0,

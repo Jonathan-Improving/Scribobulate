@@ -173,6 +173,7 @@ fn re_render_preview(
         tab.scroll.pv_last.set((-1.0, -1.0));
     }
     re_render(
+        Some(tab.id),
         preview_sw,
         &md,
         tab.doc_dir().as_deref(),

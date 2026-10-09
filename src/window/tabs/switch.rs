@@ -397,6 +397,7 @@ fn materialize_deferred_preview(window: &ApplicationWindow, st: &Rc<TabState>) {
         // `source`, but cloning first matches `viewactions`' own render site.
         let md = st.source().clone();
         let preview = render_and_wire_preview(
+            st.id,
             &md,
             st.doc_dir().as_deref(),
             zoom,

@@ -659,6 +659,17 @@ fn admit_for_decode(r: &SpriteRef) -> Option<std::borrow::Cow<'static, [u8]>> {
             None
         }
         Some(_) => Some(raw),
+        // The probe screens for XInclude without recording (it has no origin to name),
+        // so ask the recording screen whether that is why: a theme image is shown by no
+        // document, so its notice is the theme's, in the window in front (TDD 2.23c;
+        // Status-notice CAM row 9), once per content however often the theme reloads.
+        None if crate::imagedecode::screen_refuses(raw.as_ref(), &format!("sprite {r}")) => {
+            crate::imagedecode::report_shown_refusal(
+                crate::imagedecode::RefusalTarget::Theme,
+                &format!("sprite {r}"),
+            );
+            None
+        }
         None => {
             log::warn!("theme: sprite {r} could not be read as an image — ignored");
             None
@@ -1223,6 +1234,36 @@ mod tests {
              stated no sprite: {:?}",
             cap.records()
         );
+    }
+
+    /// TDD 2.23c — a theme sprite the XInclude screen refuses is reported as the
+    /// theme's, once however often the theme reloads it. Named `.png`: a sprite must
+    /// carry a raster extension, but its CONTENT picks the decoder, so SVG content under
+    /// that name still reaches the loader the screen guards.
+    #[test]
+    fn a_sprite_refused_for_xinclude_is_reported_to_the_theme() {
+        if !crate::imagedecode::SCREENS_XINCLUDE {
+            println!("SKIPPED [2.23c]: this platform does not screen SVG XInclude");
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("hostile.png"),
+            br#"<svg xmlns="http://www.w3.org/2000/svg" xmlns:xi="http://www.w3.org/2001/XInclude"/>"#,
+        )
+        .expect("write fixture");
+        let r = SpriteRef::File(resolve(dir.path(), "hostile.png").expect("passes admission"));
+        let origin = format!("sprite {r}");
+        assert!(texture(&r).is_none(), "the screen refuses it");
+        clear_cache();
+        assert!(scaled(&r, 16, 16).is_none(), "the resample is refused too");
+        assert_eq!(
+            crate::imagedecode::told_for_test(&origin),
+            [crate::imagedecode::RefusalTarget::Theme],
+            "reported once, as the theme's"
+        );
+        crate::imagedecode::forget_for_test(&origin);
+        clear_cache();
     }
 
     /// `scaled` used to swallow every failure while `texture` logged, so a bullet or

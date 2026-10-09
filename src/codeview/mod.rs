@@ -1553,6 +1553,7 @@ mod gtk_integration_tests {
         let _theme = crate::theme::activate_for_test(themes.resolve("banded"));
 
         let widget = crate::preview::render(
+            None,
             ONLY_A_DISCLOSURE,
             None,
             1.0,
@@ -1621,6 +1622,7 @@ mod gtk_integration_tests {
         // frames taken at the same point in each widget's life.
         let frame = |drop_spans: bool| {
             let widget = crate::preview::render(
+                None,
                 ONLY_A_DISCLOSURE,
                 None,
                 1.0,
@@ -2496,7 +2498,14 @@ mod gtk_integration_tests {
         // ordered list item — the exact GTK4Rs/AP-127 construct (the `**OR**` line abuts the
         // code block with no blank separator).
         let md = "2. If you've configured git, otherwise either:\n   1. use our `.githooks`:\n      ```\n      git config set core.hookspath .githooks\n      ```\n      **OR**  \n   2. Add the `-s` flag when committing:\n      ```\n      git commit -s -m \"msg\"\n      ```\n";
-        let pane = crate::preview::render(md, None, 1.0, false, &crate::fold::FoldState::default());
+        let pane = crate::preview::render(
+            None,
+            md,
+            None,
+            1.0,
+            false,
+            &crate::fold::FoldState::default(),
+        );
         let view = pane
             .clone()
             .downcast::<gtk::Overlay>()
@@ -2603,6 +2612,7 @@ mod gate_tests {
         );
         for entry in DRAWN_VECTORS {
             let widget = crate::preview::render(
+                None,
                 entry.only,
                 None,
                 1.0,
@@ -2651,6 +2661,7 @@ mod gate_tests {
     #[gtktest::test]
     fn a_document_with_no_decoration_leaves_the_gate_shut() {
         let widget = crate::preview::render(
+            None,
             "Just a paragraph of prose.\n",
             None,
             1.0,

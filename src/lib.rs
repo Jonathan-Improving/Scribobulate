@@ -278,6 +278,12 @@ pub fn run() -> glib::ExitCode {
     // from `std::env` instead. See its doc comment.
     let _ = config::config();
 
+    // Route the SVG XInclude screen's refusals to the status bar (TDD 2.23c). Here, in
+    // the application's own entry, rather than in `setup_app`: the integration suite
+    // calls `setup_app` too, and a listener it installed would push notices onto
+    // whichever test window happened to be active when a unit test refused an image.
+    window::install_image_refusal_notice();
+
     // Windows: take the real Win32 window frame instead of GTK's client-side
     // decorations. GDK-Win32 defaults to CSD, so without this the app draws its own
     // GNOME-style titlebar and buttons — and gets no native resize borders, no

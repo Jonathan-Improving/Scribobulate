@@ -517,6 +517,12 @@ pub(crate) struct Renderer {
     /// (the horizontal rule's margins) must be scaled by it — widget/Pango pixel
     /// properties do NOT follow the CSS font-size zoom rides on.
     zoom: f64,
+    /// The tab this render is shown in, whose window is told when an image is refused by
+    /// the XInclude screen (TDD 2.23c). `None` for a render no reader sees — a scratch
+    /// comparison render, an export, a test — which reports nothing. An id rather than
+    /// a reference to the tab: the window that holds the tab is resolved when the notice
+    /// is shown, since a tab can move between windows in between.
+    notice_tab: Option<crate::winstate::TabId>,
     /// The loaded document's directory: the base against which image `src` paths are
     /// resolved and containment-checked (`None` for an untitled buffer → no local
     /// images resolve). See `links::resolve_image`.
@@ -1207,6 +1213,7 @@ impl Renderer {
 
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
+        notice_tab: Option<crate::winstate::TabId>,
         buf: TextBuffer,
         theme: std::rc::Rc<crate::theme::Theme>,
         code_chips: crate::palette::CodeChips,
@@ -1246,6 +1253,7 @@ impl Renderer {
             list_markers: Vec::new(),
             table: None,
             syntect_theme,
+            notice_tab,
             doc_dir,
             allow_unsafe_images,
             image_alt_depth: 0,

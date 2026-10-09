@@ -56,6 +56,7 @@ struct BothWays {
 /// Splice `md` from `before` to `after` and report `name`'s ranges either way.
 fn ranges_both_ways(md: &str, before: &FoldState, after: &FoldState, name: &str) -> BothWays {
     let starting = crate::preview::build::build_render_products_with_theme(
+        None,
         md,
         None,
         1.0,
@@ -73,12 +74,21 @@ fn ranges_both_ways(md: &str, before: &FoldState, after: &FoldState, name: &str)
         None,
         &starting.anchored,
         &starting.maps.disclosure_extents,
-        &crate::preview::build::Prepared::new(md, None, 1.0, false, crate::theme::active(), after),
+        &crate::preview::build::Prepared::new(
+            None,
+            md,
+            None,
+            1.0,
+            false,
+            crate::theme::active(),
+            after,
+        ),
         key,
     )
     .expect("the toggled block was drawn in the starting render");
 
     let full = crate::preview::build::build_render_products_with_theme(
+        None,
         md,
         None,
         1.0,
@@ -181,6 +191,7 @@ fn a_spliced_expand_leaves_the_ink_over_the_label_alone() {
     assert_eq!(
         tag_ranges(
             &crate::preview::build::build_render_products_with_theme(
+                None,
                 &md,
                 None,
                 1.0,
@@ -263,6 +274,7 @@ fn a_spliced_region_carries_the_same_container_tags_a_full_render_does() {
 fn strike_inside_a_link_label_carries_both_tags() {
     let md = "[~~label~~](http://x/y)\n";
     let rp = crate::preview::build::build_render_products_with_theme(
+        None,
         md,
         None,
         1.0,
@@ -292,6 +304,7 @@ fn strike_inside_a_link_label_carries_both_tags() {
 fn strike_wrapping_a_bare_link_carries_both_tags() {
     let md = "~~[label](http://x/y)~~\n";
     let rp = crate::preview::build::build_render_products_with_theme(
+        None,
         md,
         None,
         1.0,

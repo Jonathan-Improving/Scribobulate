@@ -21,6 +21,13 @@
 //! format reach the gdk-pixbuf loader chain by wearing a `.svg` name (Finding 1 /
 //! TDD 2.23b).
 //!
+//! **Every hand-off to gdk-pixbuf's loader chain is screened first** ([`screen`],
+//! [`xinclude`]): the loader picks librsvg by content, and a librsvg with
+//! CVE-2026-96889 corrupts memory on an SVG that uses XInclude, so on every platform
+//! but macOS (whose bundle carries the fixed librsvg) such content is refused before
+//! a loader sees a byte. The loader calls here take a `screen::Screened`, which only
+//! the screen hands out (TDD 2.23c).
+//!
 //! `clippy.toml`'s `disallowed-methods` bans SEVEN GTK/gdk-pixbuf entry points outside
 //! this module — `Texture::from_bytes`/`from_file`/`from_filename`,
 //! `Pixbuf::from_stream`/`from_file_at_scale`/`from_stream_at_scale` and
@@ -52,6 +59,8 @@ mod decode;
 #[cfg(all(test, feature = "memory-gates"))]
 pub(crate) mod decode_probe;
 mod probe;
+mod screen;
+mod xinclude;
 
 pub(crate) use admission::read_local;
 pub(crate) use decode::{
@@ -59,6 +68,14 @@ pub(crate) use decode::{
     richimg_limits, FramePixels,
 };
 pub(crate) use probe::{probe_dimensions, probe_pixel_size, probe_vector_dimensions};
+#[cfg(test)]
+pub(crate) use screen::{forget_for_test, told_for_test};
+pub(crate) use screen::{
+    on_refusal, report_shown_refusal, screen_refuses, svg_refused, take_unreported_refusals,
+    RefusalTarget,
+};
+#[cfg(test)]
+pub(crate) use xinclude::ENFORCED as SCREENS_XINCLUDE;
 
 // `Refusal` and `AnimationSource`/`DecodedImage` are named at every current call site
 // only implicitly (`Err(refusal) => …`, `.map(|decoded| decoded.texture)`), so nothing

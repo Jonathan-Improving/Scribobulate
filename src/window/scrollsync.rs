@@ -330,6 +330,7 @@ pub(super) fn rerender_split_preview_driven_by_editor(window: &ApplicationWindow
     st.scroll.driver.set(ScrollDriver::Editor);
     st.scroll.pv_last.set((-1.0, -1.0));
     re_render(
+        Some(st.id),
         &preview_sw,
         md,
         st.doc_dir().as_deref(),

@@ -67,7 +67,12 @@ pub(crate) fn view_of(widget: &gtk::Widget) -> Option<crate::codeview::CodePrevi
 /// re-resolvable against a later document ([`anchor_disclosure_control`]), so a click
 /// that arrives after the source has moved acts on the block it was pointing at rather
 /// than on a key naming the previous document.
+///
+/// `notice_tab` is the tab this pane is shown in: an image the XInclude screen refuses
+/// is reported in that tab's window, naming the document when it is not the one in
+/// front (TDD 2.23c). `None` for a pane no reader sees, which reports nothing.
 pub(crate) fn render(
+    notice_tab: Option<crate::winstate::TabId>,
     md: &str,
     doc_dir: Option<&std::path::Path>,
     zoom: f64,
@@ -85,6 +90,7 @@ pub(crate) fn render(
         cell_src_spans,
         highlight_ranges: _,
     } = crate::preview::build::build_render_products_with_theme(
+        notice_tab,
         md,
         doc_dir,
         zoom,
@@ -242,6 +248,7 @@ pub(crate) fn render(
 /// mechanism and its GTK source. Everything wired to this buffer therefore stays
 /// wired: no handler needs re-attaching after a re-render.
 pub(crate) fn re_render(
+    notice_tab: Option<crate::winstate::TabId>,
     sw: &ScrolledWindow,
     md: &str,
     doc_dir: Option<&std::path::Path>,
@@ -300,6 +307,7 @@ pub(crate) fn re_render(
         cell_src_spans,
         highlight_ranges: _,
     } = build_render_products_into(
+        notice_tab,
         &view.buffer(),
         md,
         doc_dir,
@@ -518,6 +526,7 @@ mod gtk_integration_tests {
     fn preview_view_and_code_tag_avoid_wordchar_the_atspi_abort_trigger() {
         // Site A — the preview view's default wrap mode (GetDefaultAttributes).
         let widget = render(
+            None,
             "A `code` span and some **prose**.",
             None,
             1.0,
@@ -587,7 +596,14 @@ mod gtk_integration_tests {
         let chips = crate::palette::Palette::for_theme(&theme).code_chips;
         let _active = crate::theme::activate_for_test(theme);
 
-        let pane = crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default());
+        let pane = crate::preview::render(
+            None,
+            MD,
+            None,
+            1.0,
+            false,
+            &crate::fold::FoldState::default(),
+        );
         let view = crate::preview::view_of(&pane).expect("the preview tree render() built");
         let labels = crate::preview::cell_search_targets(&view);
         let markup_of = |word: &str| {
@@ -643,7 +659,14 @@ mod gtk_integration_tests {
         const MD: &str = "# Target heading\n\n\
              | Language | Issue |\n|---|---|\n\
              | Python | \u{2611} [#6378](https://example.com/i?a=1&b=2) filed |\n";
-        let pane = crate::preview::render(MD, None, 1.0, false, &crate::fold::FoldState::default());
+        let pane = crate::preview::render(
+            None,
+            MD,
+            None,
+            1.0,
+            false,
+            &crate::fold::FoldState::default(),
+        );
         let view = crate::preview::view_of(&pane).expect("the preview tree render() built");
 
         let cell = crate::preview::cell_search_targets(&view)
@@ -752,7 +775,14 @@ mod gtk_integration_tests {
              {WIDE_ROW}\n|---|---|\n{WIDE_ROW}\n"
         );
 
-        let widget = render(&md, None, zoom, false, &crate::fold::FoldState::default());
+        let widget = render(
+            None,
+            &md,
+            None,
+            zoom,
+            false,
+            &crate::fold::FoldState::default(),
+        );
         let view = crate::preview::view_of(&widget).expect("the preview tree render() built");
         let window = gtk::Window::new();
         window.set_default_size(700, 600);
@@ -857,7 +887,14 @@ mod gtk_integration_tests {
         let mut offenders: Vec<String> = Vec::new();
         for pane_w in [400i32, 500, 700, 900] {
             for (name, md) in &cases {
-                let widget = render(md, None, 1.0, false, &crate::fold::FoldState::default());
+                let widget = render(
+                    None,
+                    md,
+                    None,
+                    1.0,
+                    false,
+                    &crate::fold::FoldState::default(),
+                );
                 let view =
                     crate::preview::view_of(&widget).expect("the preview tree render() built");
                 let window = gtk::Window::new();
@@ -935,6 +972,7 @@ mod gtk_integration_tests {
     #[gtktest::test]
     fn re_render_rebuilds_the_live_buffer_and_never_swaps_it() {
         let pane = render(
+            None,
             "# One\n\nFirst body paragraph.\n",
             None,
             1.0,
@@ -946,6 +984,7 @@ mod gtk_integration_tests {
         let before = view.buffer();
 
         re_render(
+            None,
             &sw,
             "# Two\n\nA different body paragraph.\n",
             None,
@@ -995,7 +1034,14 @@ mod choke_point_tests {
     #[gtktest::test]
     fn the_annotation_refresh_route_invalidates_like_every_other_route() {
         let md = "A paragraph with {==a claim==}{>>a note<<} in it.\n";
-        let widget = render(md, None, 1.0, false, &crate::fold::FoldState::default());
+        let widget = render(
+            None,
+            md,
+            None,
+            1.0,
+            false,
+            &crate::fold::FoldState::default(),
+        );
         let view = crate::preview::view_of(&widget).expect("the preview tree render() built");
         let sw = widget
             .downcast_ref::<gtk::Overlay>()
@@ -1041,7 +1087,14 @@ mod choke_point_tests {
             )
         };
         let md = body("");
-        let widget = render(&md, None, 1.0, false, &crate::fold::FoldState::default());
+        let widget = render(
+            None,
+            &md,
+            None,
+            1.0,
+            false,
+            &crate::fold::FoldState::default(),
+        );
         let view = crate::preview::view_of(&widget).expect("the preview tree render() built");
         let sw = widget
             .downcast_ref::<gtk::Overlay>()
