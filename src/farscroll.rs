@@ -938,6 +938,19 @@ mod gtk_integration_tests {
     /// was skipped and scrolled to the caret" produce the same viewport, and the
     /// test passes with the gate deleted — which is what an earlier version of it
     /// did.
+    ///
+    /// **So the assertion is "the caret's line is not on screen", never "the viewport
+    /// did not move".** The keystroke also queues GTK's OWN scroll, against a copy of the
+    /// end position taken when the key was pressed, and moving the caret afterwards
+    /// does not retarget it. Whether that scroll arrives is GTK's business, not this
+    /// module's: GTK animates it, and the animation dies on the first chunk of
+    /// validation (value stays near the top), unless the reduced-motion setting is on.
+    /// From GTK 4.24 `gtk_adjustment_animate_to_value` jumps instead of animating when
+    /// it is, and the view then follows the end down as validation grows the range
+    /// (measured on the GitHub macOS runner, whose image has Reduce Motion on: value
+    /// 559 414 of 560 014, top line 19 979). Both resting places are legitimate; the
+    /// only illegitimate one is the caret's line, which is where the gate-less re-issue
+    /// lands under either setting (measured: top line 14 979 and 15 000).
     #[gtktest::test]
     fn a_superseded_buffer_ends_scroll_is_abandoned() {
         let (buffer, view, scroller, window) = cold_editor();
@@ -961,14 +974,23 @@ mod gtk_integration_tests {
             }
         });
 
-        let (top, _) = view.line_at_y(adjustment.value() as i32);
+        let caret_line = buffer
+            .iter_at_line(FAR_LINE)
+            .expect("the fixture has that many lines");
+        let (line_y, line_height) = view.line_yrange(&caret_line);
+        let (shown_from, shown_to) = (
+            adjustment.value(),
+            adjustment.value() + adjustment.page_size(),
+        );
+        let caret_line_on_screen =
+            f64::from(line_y) < shown_to && f64::from(line_y + line_height) > shown_from;
+        let (top, _) = view.line_at_y(shown_from as i32);
         assert!(
-            top.line() < 100,
-            "a Ctrl+End whose caret has moved on must scroll nowhere at all — the \
-             viewport is showing line {} (value {:.0}), and line {FAR_LINE} is where \
-             the caret went, so the deferred scroll ran when it had no licence to",
+            !caret_line_on_screen,
+            "a Ctrl+End whose caret has moved on must not scroll to the caret — the \
+             viewport is showing line {} (value {shown_from:.0}), and line {FAR_LINE} is \
+             where the caret went, so the deferred scroll ran when it had no licence to",
             top.line(),
-            adjustment.value()
         );
         window.destroy();
     }

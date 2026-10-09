@@ -354,8 +354,19 @@ jobs:
       # renders broken-image placeholders — POLICY § Build records this for the hand-build
       # and it is no different here. `gtksourceview5` brings its own GTK dependency; naming
       # gtk4 explicitly keeps the requirement legible rather than incidental.
+      #
+      # `brew update` FIRST, because the delivered bundle is built from a current Homebrew
+      # and this job must test the GTK that bundle carries. Without it the runner image's
+      # stale formula snapshot decides the version: it poured GTK 4.22.4 after
+      # Homebrew moved to 4.24.1, so this job tested a GTK no bundle had. Homebrew keeps no
+      # versioned gtk4, so this tracks Homebrew rather than pinning (the Windows job pins
+      # because gvsbuild publishes versioned archives). The version is printed so a change
+      # in it is visible in the log.
       - name: Install GTK4, GtkSourceView 5 and an icon theme
-        run: brew install gtk4 gtksourceview5 adwaita-icon-theme
+        run: |
+          brew update
+          brew install gtk4 gtksourceview5 adwaita-icon-theme
+          pkg-config --modversion gtk4 gtksourceview-5
 
       - name: Rust components the pipeline's steps need
         run: rustup component add rustfmt clippy
