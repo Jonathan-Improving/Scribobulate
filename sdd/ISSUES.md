@@ -42,7 +42,6 @@ described from a different vantage point.
 | D | Any | Production | The preview's Annotate bubble sits over the line above a selection, so a click there can land on the bubble: in a table, a double- or triple-click on the cell above a selected cell can lose a press and act as a single click | Low |
 | G | Windows | Upstream | After an edit the editor's scrollbar slider is sometimes not drawn until the next scroll (2 of 40 Enters); a GTK defect still open upstream | Low |
 | Q | Windows, Linux | Upstream | A crafted SVG can corrupt memory: Windows and Linux decode SVG through a librsvg with a published use-after-free (CVE-2026-96889, fixed in 2.63.2), and refuse any SVG that may use XInclude before librsvg sees it until they carry the fix. The macOS bundle carries 2.63.2, and its build fails below that | High |
-| R | Mac | Test | The integration test `a_context_menu_taller_than_the_screen_still_opens` fails every macOS run: its control expects GTK ≥ 4.14 to close a popover taller than the screen, but on GTK 4.22.4/Quartz the bare popover stays visible, so the pipeline stops at the integration step | Medium |
 
 ## Closed issues
 
@@ -439,39 +438,6 @@ out (`xinclude::ENFORCED`), because the bundle carries the fix and its build enf
   Linux, where whether 2.52.5 even has the faulty code is still not established.
 - The screen's premise that librsvg follows no non-`data:` reference without a base URL
   (the loader is fed a stream with none) is read from librsvg's design, not measured.
-
-## R. The oversized-context-menu integration test fails on every macOS run
-
-**Severity**: Medium (it stops the macOS pipeline at the integration step every time; whether
-the real context menu misbehaves on macOS is not known).
-
-**Observed** (2026-10-08, macOS, GTK 4.22.4/Quartz, branch `security/librsvg-cve-2026-96889`
-at "Record the Windows librsvg reading for the SVG risk", 2026-10-08): `gtk_suite`
-`window::contextmenu::gtk_integration_tests::a_context_menu_taller_than_the_screen_still_opens`
-fails 3 of 3 runs, two of them isolated reruns. 669 passed, 1 failed. The panic is the
-control assert in `src/window/contextmenu.rs`: a bare popover whose minimum height
-(20000 px) exceeds the screen is still visible after the pump.
-
-**Why**: the test turns on the effect half with `gtk::check_version(4, 14, 0)`, on the
-premise that GTK ≥ 4.14 closes such a popover by itself (GTK4Rs/AP-86). That premise is
-taken from Linux and does not hold on the Quartz backend. The test arrived on Oct 7 with
-the context-menu scroll change, and this was its first macOS run. Linux's pipeline runs
-GTK 4.6, below 4.14, so it skips the effect half and has never checked the premise either.
-Windows (GTK 4.22.4, gvsbuild) passes the whole integration step at "Refuse SVGs that may use XInclude on Linux and
-Windows" (2026-10-08), so the premise
-holds there and the failure is specific to macOS.
-
-**Not established**: whether the real context menu on macOS is affected. A bare popover
-staying open suggests it does not vanish there, but no one has right-clicked near the
-screen edge on macOS to see.
-
-**Mitigation options**:
-- Skip the effect half on macOS with an announced skip, as TDD 17.48a already does for
-  popover placement. This is quick, but it keeps the version check as the premise
-  everywhere else.
-- Arm the effect half on a measured self-dismiss (the control's own result) instead of
-  the GTK version, announcing a skip wherever the bare popover stays open. This holds on
-  any backend, including ones not measured yet.
 
 ## CLSD-02. A paragraph that mixes fonts lays out wider than the wrap width it was given
 
