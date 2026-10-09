@@ -184,6 +184,11 @@ pub(super) fn resync_tab_action_state(window: &ApplicationWindow, st: &Rc<TabSta
     refresh_nav_history_actions(window);
 
     apply_mode_action_state(window, st.view_mode.get());
+    // The editor-focus gate last ran when the switch moved the focus, which
+    // happens before this tab became the active one, so it judged the focus
+    // against the outgoing tab's panes. Judge it again against this tab, after
+    // the mode-state reset above, so the focused pane is the real one too.
+    crate::window::editbar::sync_gate_to_pane_focus(window);
 }
 
 /// Phase 2 — repaint/rewire the window-shared surfaces that reflect the active
