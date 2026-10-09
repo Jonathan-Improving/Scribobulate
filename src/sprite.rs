@@ -50,7 +50,7 @@
 
 use gtk::{cairo, gdk};
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// Extensions a sprite may have. An allowlist, not a sniff: the point is to keep a
@@ -594,6 +594,14 @@ thread_local! {
     /// disk I/O — the "no new work on that path" requirement a still sprite keeps.
     static ANIMATION_BYTES: RefCell<HashMap<SpriteRef, Option<std::sync::Arc<[u8]>>>> =
         RefCell::new(HashMap::new());
+    /// Every reference [`admit_for_decode`] has refused since the cache was last
+    /// cleared. The decoded caches above each memoise their OWN failure, so without
+    /// this a refused sprite was read, probed, screened and logged once per cache it
+    /// reached — and a list bullet reaches two in one paint (`Frames::scaled` asks
+    /// [`texture`] for the animation check, then falls back to [`scaled`]), so every
+    /// theme selection logged the same refusal twice. A refusal is now decided and
+    /// logged once per reference until the theme is reloaded.
+    static INADMISSIBLE: RefCell<HashSet<SpriteRef>> = RefCell::new(HashSet::new());
 }
 
 /// The sprite as a cairo image surface, with its natural pixel size.
@@ -650,6 +658,18 @@ pub(crate) fn surface(r: &SpriteRef) -> Option<Raster> {
 /// one spelling that makes that true, content-aware so a WebP sprite is measured
 /// correctly even on a host with no gdk-pixbuf WebP loader.
 fn admit_for_decode(r: &SpriteRef) -> Option<std::borrow::Cow<'static, [u8]>> {
+    if INADMISSIBLE.with(|c| c.borrow().contains(r)) {
+        return None;
+    }
+    let admitted = admit_uncached(r);
+    if admitted.is_none() {
+        INADMISSIBLE.with(|c| c.borrow_mut().insert(r.clone()));
+    }
+    admitted
+}
+
+/// [`admit_for_decode`]'s decision, made afresh: read, probe, screen, and log a refusal.
+fn admit_uncached(r: &SpriteRef) -> Option<std::borrow::Cow<'static, [u8]>> {
     let raw = bytes(r)?;
     match crate::imagedecode::probe_dimensions(raw.as_ref()) {
         Some((w, h)) if i64::from(w) * i64::from(h) > MAX_SPRITE_PIXELS => {
@@ -780,6 +800,7 @@ pub(crate) fn clear_cache() {
     RESAMPLED.with(|c| c.borrow_mut().clear());
     SURFACES.with(|c| c.borrow_mut().clear());
     ANIMATION_BYTES.with(|c| c.borrow_mut().clear());
+    INADMISSIBLE.with(|c| c.borrow_mut().clear());
 }
 
 /// How many decoded forms the caches currently hold, including memoised failures.
@@ -794,13 +815,15 @@ pub(crate) fn clear_cache() {
 /// largest thing any of them retains. An oracle for "the caches emptied" that cannot
 /// see the biggest cache reports zero while the bytes are still held, which is the
 /// direction that reads as success. `clear_cache` has always cleared all four; only
-/// the measurement was short.
+/// the measurement was short. It also counts the refusal memo, `INADMISSIBLE`, so a
+/// theme switch is seen to forget a refusal as well as a raster.
 #[cfg(test)]
 pub(crate) fn occupancy() -> usize {
     NATURAL.with(|c| c.borrow().len())
         + RESAMPLED.with(|c| c.borrow().len())
         + SURFACES.with(|c| c.borrow().len())
         + ANIMATION_BYTES.with(|c| c.borrow().len())
+        + INADMISSIBLE.with(|c| c.borrow().len())
 }
 
 #[cfg(test)]
@@ -1254,9 +1277,22 @@ mod tests {
         .expect("write fixture");
         let r = SpriteRef::File(resolve(dir.path(), "hostile.png").expect("passes admission"));
         let origin = format!("sprite {r}");
+        // A list bullet's paint asks both caches in one pass (`Frames::scaled` asks
+        // `texture` first, then falls back to `scaled`); that used to log it twice.
+        let cap = crate::testlog::capture();
         assert!(texture(&r).is_none(), "the screen refuses it");
-        clear_cache();
         assert!(scaled(&r, 16, 16).is_none(), "the resample is refused too");
+        let refusals = |cap: &crate::testlog::Capture| {
+            cap.records()
+                .iter()
+                .filter(|rec| rec.message.contains("refused before decoding"))
+                .count()
+        };
+        assert_eq!(refusals(&cap), 1, "logged once per theme selection");
+        clear_cache();
+        assert!(scaled(&r, 16, 16).is_none(), "a reload refuses it again");
+        assert_eq!(refusals(&cap), 2, "and a reload logs it again");
+        drop(cap);
         assert_eq!(
             crate::imagedecode::told_for_test(&origin),
             [crate::imagedecode::RefusalTarget::Theme],
