@@ -4,6 +4,7 @@
 //! the chip *painting* stays in the view's `snapshot_layer` vfunc (in `mod.rs`).
 
 use super::card::AnnotationCard;
+use super::cardscroll;
 use super::CodePreviewView;
 use crate::annotations::Direction;
 use crate::widgets::comment_entry::CommentEntry;
@@ -199,7 +200,7 @@ fn build_annotation_row(
         cl.set_xalign(0.0);
         cl.set_wrap(true);
         cl.set_max_width_chars(34);
-        row.append(&cl);
+        row.append(&cardscroll::bounded_text(&cl, cardscroll::CLAIM_MAX_LINES));
     }
     let comment_label = gtk::Label::new(Some(&m.comment));
     comment_label.set_xalign(0.0);
@@ -214,11 +215,12 @@ fn build_annotation_row(
     // claim quote above is non-selectable too; the comment text lives verbatim in the
     // source document if a user wants to copy it.
 
+    let comment = cardscroll::bounded_text(&comment_label, cardscroll::COMMENT_MAX_LINES);
     let Some(sink) = sink else {
-        row.append(&comment_label);
+        row.append(&comment);
         return row.upcast();
     };
-    append_edit_remove_controls(m, &row, &comment_label, card, sink);
+    append_edit_remove_controls(m, &row, &comment, card, sink);
     row.upcast()
 }
 
@@ -252,7 +254,7 @@ fn build_annotation_row(
 fn append_edit_remove_controls(
     m: &MarkerData,
     row: &gtk::Box,
-    comment_label: &gtk::Label,
+    comment: &gtk::ScrolledWindow,
     card: &AnnotationCard,
     sink: AnnotationSink,
 ) {
@@ -313,7 +315,7 @@ fn append_edit_remove_controls(
     // keeps its comment and buttons together at the top rather than stretching them apart.
     let read_page = gtk::Box::new(gtk::Orientation::Vertical, 4);
     read_page.set_valign(gtk::Align::Start);
-    read_page.append(comment_label);
+    read_page.append(comment);
     read_page.append(&btns);
 
     let stack = gtk::Stack::new();
@@ -1084,13 +1086,17 @@ impl CodePreviewView {
         vbox.set_margin_end(8);
         vbox.set_width_request(280);
         vbox.append(&card_close_button(&card));
+        // The rows scroll as one when they outgrow the screen; the close button stays
+        // outside that scroller so it is always on the card (see `cardscroll`).
+        let rows = gtk::Box::new(gtk::Orientation::Vertical, 8);
         for (n, &idx) in idxs.iter().enumerate() {
             let Some(m) = markers.get(idx) else { continue };
             if n > 0 {
-                vbox.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+                rows.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
             }
-            vbox.append(&build_annotation_row(m, &card, sink.clone()));
+            rows.append(&build_annotation_row(m, &card, sink.clone()));
         }
+        vbox.append(&cardscroll::fit_to_screen(&rows, self));
         popover.set_child(Some(&vbox));
 
         // Bug B: keep the pane from jerking (and the popover from missing) on a marker

@@ -45,6 +45,7 @@ mod bandpaint;
 mod bands;
 mod card;
 mod cards;
+mod cardscroll;
 mod chips;
 mod copybutton;
 mod disclosurebands;

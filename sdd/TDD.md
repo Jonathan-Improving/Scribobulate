@@ -18,7 +18,7 @@
 | 14 | Show Unsafe Images | 14.1 – 14.10 |
 | 15 | Tabbed documents | 15.1 – 15.22 |
 | 16 | Keyboard-shortcuts help & status surfaces | 16.1 – 16.17 |
-| 17 | Annotation & review (CriticMarkup) | 17.1 – 17.59 |
+| 17 | Annotation & review (CriticMarkup) | 17.1 – 17.60 |
 | 18 | Preview reading themes | 18.1 – 18.58 |
 | 19 | Local document-link navigation | 19.1 – 19.13 |
 | 20 | Annotations viewer | 20.1 – 20.25 |
@@ -2882,6 +2882,12 @@
 - **And** a highlight that touches math (`$…$`, `$$…$$`) covers the whole formula rather than splitting it
 - **And** annotations everywhere else — headings, lists, quotes, footnotes, inline formatting — are unchanged
 - **Rationale** Scribobulate strips annotations before it reads the Markdown, so none of this shows in its own preview; every other tool — GitHub, a static-site generator, another editor — reads the markup as text. Inside a paragraph that is harmless. Ahead of an opening fence, after a closing one, inside front matter or directly after an HTML block it changes the document's structure: the code becomes a paragraph and the rest of the file becomes code, or the metadata becomes text
+
+### 17.60 A long annotation keeps its controls on the card
+- **Given** an annotation whose annotated text or comment is too long to fit on screen — or several such annotations on one line, which share one card
+- **When** its card opens
+- **Then** the whole card is on screen, and each annotation's Edit / Remove (or Save / Cancel while editing) sits directly under its own text, visible and clickable without scrolling past that text
+- **And** the long text scrolls inside the card rather than growing it; where several annotations share the card and still do not fit, their rows scroll together so every one stays reachable — the card never runs off the screen and never closes itself because of its size
 
 ## 18. Preview reading themes
 
