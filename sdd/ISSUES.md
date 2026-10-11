@@ -37,7 +37,7 @@ described from a different vantage point.
 
 | ID | Platform | Scope | Issue | Severity |
 |----|----------|-------|-------|----------|
-| A | Mac | Production | macOS only: an idle preview never fully rests. It holds ~4.7% of a core indefinitely, even on a 3-line document, because GTK's frame clock keeps ticking | Medium |
+| A | Mac | Production | macOS only: an idle preview never fully rests. It holds ~4.7% of a core indefinitely, even on a 3-line document, because something in the app keeps GTK's frame clock ticking; a bare GTK window does not | Medium |
 | B | Mac | Upstream | macOS only: every native file-chooser invocation (Open, Save, Export) grows RSS by ~1.1 MB and does not give it back. Roughly four fifths is AppKit's own price for presenting an `NSSavePanel` — reproduced with no GTK in the process — with about a fifth GTK-attributable. Caching the panel upstream would recover ~95% | Medium |
 | D | Any | Production | The preview's Annotate bubble sits over the line above a selection, so a click there can land on the bubble: in a table, a double- or triple-click on the cell above a selected cell can lose a press and act as a single click | Low |
 | G | Windows | Upstream | After an edit the editor's scrollbar slider is sometimes not drawn until the next scroll (2 of 40 Enters); a GTK defect still open upstream | Low |
@@ -170,10 +170,15 @@ with nothing to draw. Turning off View ▸ Play Animations does not change it.
 **Not reproduced elsewhere.** The same `large-doc.md` preview settles to 0.0% within ~15 s
 on Linux (GTK 4.6.9, Xvfb) and Windows (GTK 4.22.4), measured the same day.
 
-**Unknown.** Whether something in the app keeps a tick callback, animation or
-`queue_draw` alive in preview, or whether GDK's macOS backend ticks regardless. The cheapest
-discriminator is an empty GTK4 window on the same GTK, idle in the same way. If it also
-holds ~5%, the cause is upstream.
+**It is the app, not GTK.** MEASURED the same day: a bare gtk4-rs window on the same GTK
+4.22.4, with `GSK_RENDERER=cairo`, sits at 0.0% with no CVDisplayLink threads. That holds both
+with only a label and with a focused 3-line `GtkTextView` showing its caret. Scribobulate's
+preview, measured as the control in the same session, starts a fresh CVDisplayLink thread
+every frame (1,153 in 10 s). Something in the app keeps a tick callback, animation or redraw
+request alive in preview on macOS.
+
+**Unverified lead.** In one control run where the window was not forced to the front, the load
+fell from 4.6% to 0.4% partway through. The tick may run only while the window is active.
 
 ## B. Every native file chooser invocation grows RSS on macOS
 
