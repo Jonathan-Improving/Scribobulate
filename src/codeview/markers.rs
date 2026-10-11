@@ -1558,7 +1558,7 @@ mod a11y_integration_tests {
             }
             other => panic!("expected an EditComment, got {other:?}"),
         }
-        win.destroy();
+        crate::testpump::destroy_after_tooltip_delay(&win, || view.popdown_marker_popover());
     }
 
     /// TDD 17.57: the Edit field shows the comment it holds, on every opening of the card.
@@ -1626,7 +1626,7 @@ mod a11y_integration_tests {
                 !view.has_open_marker_popover()
             });
         }
-        win.destroy();
+        crate::testpump::destroy_after_tooltip_delay(&win, || view.popdown_marker_popover());
     }
 
     /// The precondition every other a11y assertion rests on: a presented window paints
@@ -1656,7 +1656,7 @@ mod a11y_integration_tests {
             "a presented preview to paint its margin chips into marker_hitboxes",
             || hitbox_count(&view) > 0,
         );
-        win.destroy();
+        crate::testpump::destroy_after_tooltip_delay(&win, || view.popdown_marker_popover());
     }
 
     /// The fast path: the target chip is already painted, so the popover opens on the
@@ -1687,7 +1687,7 @@ mod a11y_integration_tests {
         settle("the on-screen annotation's popover to open", || {
             view.has_open_marker_popover()
         });
-        win.destroy();
+        crate::testpump::destroy_after_tooltip_delay(&win, || view.popdown_marker_popover());
     }
 
     /// The branch a pure test cannot reach and the pointer path never runs: the target
@@ -1747,7 +1747,7 @@ mod a11y_integration_tests {
             "the off-screen annotation to be scrolled to and its popover opened",
             || view.has_open_marker_popover(),
         );
-        win.destroy();
+        crate::testpump::destroy_after_tooltip_delay(&win, || view.popdown_marker_popover());
     }
 
     /// The **visible give-up**. A navigation must leave the document AT the
@@ -1829,7 +1829,7 @@ mod a11y_integration_tests {
             vadj.value(),
             want
         );
-        win.destroy();
+        crate::testpump::destroy_after_tooltip_delay(&win, || view.popdown_marker_popover());
     }
 
     /// The GTK4Rs/AP-118 re-pin guard must hold the
@@ -1901,7 +1901,7 @@ mod a11y_integration_tests {
              back to a pre-scroll one; landed at {}",
             vadj.value()
         );
-        win.destroy();
+        crate::testpump::destroy_after_tooltip_delay(&win, || view.popdown_marker_popover());
     }
 
     /// The bound is a **wall-clock deadline**, and it is enforced. An
@@ -1969,7 +1969,7 @@ mod a11y_integration_tests {
             view.imp().pending_marker_open.borrow().is_none(),
             "an expired request must be discarded by the paint, not left armed forever"
         );
-        win.destroy();
+        crate::testpump::destroy_after_tooltip_delay(&win, || view.popdown_marker_popover());
     }
 
     /// A document with no annotations reports no target and opens nothing. The action is
@@ -2000,7 +2000,7 @@ mod a11y_integration_tests {
             "no annotations => no target"
         );
         assert!(!view.has_open_marker_popover(), "and nothing may be shown");
-        win.destroy();
+        crate::testpump::destroy_after_tooltip_delay(&win, || view.popdown_marker_popover());
     }
 
     /// `dispose` must `popdown()` an open marker popover BEFORE `unparent()`ing it.
@@ -2065,6 +2065,12 @@ mod a11y_integration_tests {
             move |_| c.set(true)
         });
 
+        // Run out the tooltip timeout the popover's mapping armed while its surface is
+        // still alive: the dispose below unrealizes it mid-delay otherwise (GTK4Rs/AP-117).
+        crate::testpump::drain_for(
+            crate::testpump::Clock::Frame,
+            crate::testpump::TOOLTIP_HOVER_DRAIN,
+        );
         // Force dispose: detach the pane and drop every strong ref this test holds.
         win.set_child(gtk::Widget::NONE);
         drop(view);
@@ -2080,7 +2086,7 @@ mod a11y_integration_tests {
             || closed.get(),
         );
 
-        win.destroy();
+        crate::testpump::destroy_after_tooltip_delay(&win, || ());
     }
 
     /// The `open_marker_popover` choke-point crash guard (GTK4Rs/AP-128/GTK4Rs/AP-128).
@@ -2201,7 +2207,7 @@ mod a11y_integration_tests {
             || caret(&view) == first,
         );
 
-        win.destroy();
+        crate::testpump::destroy_after_tooltip_delay(&win, || view.popdown_marker_popover());
     }
 
     /// `CardFocus::Leave` must leave the keyboard where the caller had it, and
@@ -2273,6 +2279,6 @@ mod a11y_integration_tests {
             !elsewhere.has_focus()
         });
 
-        win.destroy();
+        crate::testpump::destroy_after_tooltip_delay(&win, || view.popdown_marker_popover());
     }
 }

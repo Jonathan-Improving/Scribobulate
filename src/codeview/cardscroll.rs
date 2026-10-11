@@ -273,7 +273,7 @@ mod gtk_integration_tests {
             card_h <= monitor_h,
             "the card ({card_h} px) is taller than its monitor ({monitor_h} px)"
         );
-        win.destroy();
+        crate::testpump::destroy_after_tooltip_delay(&win, || card.dismiss());
     }
 
     /// **Many long annotations on one line still fit** (TDD 17.60).
@@ -303,6 +303,6 @@ mod gtk_integration_tests {
             card_h < monitor_h,
             "the card ({card_h} px) does not fit its monitor ({monitor_h} px)"
         );
-        win.destroy();
+        crate::testpump::destroy_after_tooltip_delay(&win, || card.dismiss());
     }
 }

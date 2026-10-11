@@ -847,7 +847,7 @@ mod gtk_integration_tests {
              regression — a rect written once at open and never re-derived."
         );
         assert!(card.is_visible(), "an on-screen chip keeps the card up");
-        win.destroy();
+        crate::testpump::destroy_after_tooltip_delay(&win, || view.popdown_marker_popover());
     }
 
     /// **The card releases the document.**
@@ -901,7 +901,7 @@ mod gtk_integration_tests {
         // The re-show half: bringing the chip back into view must bring its card back —
         // this is the assertion a "popdown on any scroll" patch fails.
         settle("the card to come back with its chip", || card.is_visible());
-        win.destroy();
+        crate::testpump::destroy_after_tooltip_delay(&win, || view.popdown_marker_popover());
     }
 
     /// **A card whose chip is on no monitor stays hidden (TDD 17.48a).**
@@ -946,7 +946,7 @@ mod gtk_integration_tests {
                 "SKIPPED [TDD 17.48a]: this display does not place popovers by screen \
                  coordinates, so no chip can be off every monitor in GTK's sense"
             );
-            win.destroy();
+            crate::testpump::destroy_after_tooltip_delay(&win, || view.popdown_marker_popover());
             return;
         };
         let chip = card
@@ -969,7 +969,7 @@ mod gtk_integration_tests {
             "a card whose chip is on no monitor must not be shown: GTK has no monitor to \
              place it on"
         );
-        win.destroy();
+        crate::testpump::destroy_after_tooltip_delay(&win, || view.popdown_marker_popover());
     }
 
     /// **A presentation cannot use the rectangle it happens to be holding (GTK4Rs/AP-190).**
@@ -1031,7 +1031,7 @@ mod gtk_integration_tests {
             "and what it re-derived must be the chip's ACTUAL position — matching what the \
              painter would draw, since both go through `marker_row_y_h`/`chip_rect`"
         );
-        win.destroy();
+        crate::testpump::destroy_after_tooltip_delay(&win, || view.popdown_marker_popover());
     }
 
     /// **Outside-click dismissal is armed, and is cleaned up.**
@@ -1063,6 +1063,12 @@ mod gtk_integration_tests {
              it"
         );
 
+        // Run out the tooltip timeout the card's mapping armed while its surface is alive:
+        // the teardown below unrealizes it (GTK4Rs/AP-117).
+        crate::testpump::drain_for(
+            crate::testpump::Clock::Frame,
+            crate::testpump::TOOLTIP_HOVER_DRAIN,
+        );
         card.teardown();
         let still_there = root
             .observe_controllers()
@@ -1080,7 +1086,7 @@ mod gtk_integration_tests {
             "teardown must also unparent the popover — GTK does not unparent a \
              `set_parent`-attached popover for us (GTK4Rs/AP-80/GTK4Rs/AP-80)"
         );
-        win.destroy();
+        crate::testpump::destroy_after_tooltip_delay(&win, || ());
     }
 
     /// **Cancel aborts the edit; it does not close the card.**
@@ -1149,7 +1155,7 @@ mod gtk_integration_tests {
             "the abandoned draft must not survive — a Cancel that keeps the text is a \
              postponement, and the next Edit would open on words the user discarded"
         );
-        win.destroy();
+        crate::testpump::destroy_after_tooltip_delay(&win, || view.popdown_marker_popover());
     }
 
     /// The corner **×** dismisses the card — and does NOT take the focus that belongs to
@@ -1191,7 +1197,7 @@ mod gtk_integration_tests {
         // Dismissal is the feature: clicking the corner × must dismiss the card, like
         // Escape. Never converging here is that feature missing.
         settle("the corner × to dismiss the card", || !card.is_open());
-        win.destroy();
+        crate::testpump::destroy_after_tooltip_delay(&win, || view.popdown_marker_popover());
     }
 
     /// The card must stop pointing at an annotation that no longer exists, rather than
@@ -1254,7 +1260,7 @@ mod gtk_integration_tests {
             "a card whose annotation is gone must stay down — it came up, so it anchored \
              to a stale or reused position instead of resolving to nothing"
         );
-        win.destroy();
+        crate::testpump::destroy_after_tooltip_delay(&win, || view.popdown_marker_popover());
     }
 
     /// **The card must not be a keyboard dead zone.** Every application accelerator is
@@ -1330,6 +1336,6 @@ mod gtk_integration_tests {
                  while the card holds focus it would otherwise simply stop working"
             );
         }
-        win.destroy();
+        crate::testpump::destroy_after_tooltip_delay(&win, || card.dismiss());
     }
 }

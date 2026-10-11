@@ -186,6 +186,29 @@ pub(crate) fn drain_for(_clock: Clock, deadline: Duration) {
     pump(deadline, || false);
 }
 
+/// How long [`destroy_after_tooltip_delay`] waits between closing a window's popovers and
+/// destroying it. Measured against GTK's tooltip hover delay (`HOVER_TIMEOUT`, 500 ms in
+/// gtktooltip.c at 4.6.9), plus slack, so the tooltip timeout an enter armed has fired
+/// while the popover's surface still exists.
+pub(crate) const TOOLTIP_HOVER_DRAIN: Duration = Duration::from_millis(600);
+
+/// Destroy a test window that showed a `set_parent`ed popover, without leaving GTK's
+/// tooltip timeout aimed at a destroyed surface (GTK4Rs/AP-117).
+///
+/// A popover that maps under the pointer receives an enter, and that arms the display's
+/// tooltip timeout against the popover — even on a WM-less Xvfb, and whatever the popover
+/// holds. `gtk_window_destroy` unrealizes the popover, which nulls its surface, but only a
+/// `GtkWindow` clears the tooltip's reference to itself. A timeout still pending then
+/// fires in whichever test next turns the loop, and the `GDK_IS_SURFACE` critical aborts
+/// that innocent test. So: `close` pops the popovers down (a popdown keeps the surface),
+/// the loop runs past the hover delay, and only then is the window destroyed.
+pub(crate) fn destroy_after_tooltip_delay(win: &gtk::Window, close: impl FnOnce()) {
+    use gtk::prelude::*;
+    close();
+    drain_for(Clock::Frame, TOOLTIP_HOVER_DRAIN);
+    win.destroy();
+}
+
 /// The outcome of [`until_stable`]: whether the sampled value went quiet, and the
 /// last value seen either way.
 ///
