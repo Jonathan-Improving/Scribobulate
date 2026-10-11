@@ -109,7 +109,16 @@ pub(crate) fn wire_tab_buffer_signals(content_box: &gtk::Box, buffer: &sourcevie
     });
     buffer.connect_mark_set({
         let cb = cb.clone();
-        move |_, _, _| {
+        move |buf, _, mark| {
+            // Only the caret and the selection's other end. `mark-set` fires for EVERY
+            // mark, and GtkSourceView's highlighter sets its own as it works through a
+            // document — thousands on a large one — while each pass below copies the
+            // whole buffer (`apply_scroll_spy` → `editor_cursor_doc_index`). Unfiltered,
+            // switching a 3 MB document to the editor held the main loop for ~90 s on
+            // Linux and froze the window ~130 s on Windows (Hot-path CAM row 3).
+            if mark != &buf.get_insert() && mark != &buf.selection_bound() {
+                return;
+            }
             if let Some(w) = resolve_tab_window(&cb) {
                 update_format_edit_surfaces(&w);
                 // The footer's Ln/Col indicator (TDD 9.21) tracks the caret,
@@ -712,5 +721,61 @@ mod assembly_tests {
              in `build_tab_editor`, so a middle-click paste falls back to GTK's own \
              rich-buffer route"
         );
+    }
+}
+
+/// **Hot-path CAM row 3 — the editor's `mark-set` handler answers only the caret and
+/// the selection bound.**
+///
+/// `mark-set` is emitted for every mark in the buffer, not only the two a user moves,
+/// and GtkSourceView's highlighter sets its own marks as it works through a document.
+/// The handler's work is correct whoever triggers it, so a test of what the status bar
+/// or outline SHOWS passes with or without the filter; what differs is how often it
+/// runs. The oracle is a status-bar text the handler would overwrite: a foreign mark
+/// moving must leave it alone, and a caret move (the live control) must not.
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+mod mark_filter_tests {
+    use crate::window::actions::change_action_state;
+    use crate::window::testkit::test_app;
+    use crate::winstate::state;
+    use gtk::prelude::*;
+
+    #[gtktest::test]
+    fn a_mark_other_than_the_caret_or_selection_bound_does_not_run_the_caret_handlers() {
+        let app = test_app("com.extollit.scribobulate.integrationtest.markfilter");
+        let window = crate::window::new_window(&app, "IT", "# A\n\none\ntwo\nthree\n", None);
+        change_action_state(&window, "view-mode", &"edit".to_variant());
+        let st = state(&window).expect("tab state");
+        let buf = st.editor_buf.clone();
+        let position = st.chrome().statusbar.position.clone();
+        drop(st);
+
+        buf.place_cursor(&buf.start_iter());
+        assert_eq!(
+            position.text(),
+            "Ln 1, Col 1",
+            "precondition: the handler is wired"
+        );
+
+        const SENTINEL: &str = "untouched";
+        position.set_text(SENTINEL);
+        let foreign = buf.create_mark(None, &buf.start_iter(), true);
+        buf.move_mark(&foreign, &buf.end_iter());
+        buf.delete_mark(&foreign);
+        assert_eq!(
+            position.text(),
+            SENTINEL,
+            "a mark that is neither the caret nor the selection bound ran the caret \
+             handlers — on a large document GtkSourceView's highlighter sets thousands, \
+             each costing a whole-buffer copy (Hot-path CAM row 3)"
+        );
+
+        buf.place_cursor(&buf.iter_at_line(2).expect("line 3"));
+        assert_eq!(
+            position.text(),
+            "Ln 3, Col 1",
+            "a caret move must still run them"
+        );
+        window.destroy();
     }
 }

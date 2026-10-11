@@ -37,7 +37,7 @@ described from a different vantage point.
 
 | ID | Platform | Scope | Issue | Severity |
 |----|----------|-------|-------|----------|
-| A | Any | Production | A large document leaves the process spinning a CPU core at ~100% while idle — a GTK/Pango relayout pass that re-shapes text every main-loop iteration and never converges | High |
+| A | Mac | Production | macOS only: an idle preview never fully rests. It holds ~4.7% of a core indefinitely, even on a 3-line document, because GTK's frame clock keeps ticking | Medium |
 | B | Mac | Upstream | macOS only: every native file-chooser invocation (Open, Save, Export) grows RSS by ~1.1 MB and does not give it back. Roughly four fifths is AppKit's own price for presenting an `NSSavePanel` — reproduced with no GTK in the process — with about a fifth GTK-attributable. Caching the panel upstream would recover ~95% | Medium |
 | D | Any | Production | The preview's Annotate bubble sits over the line above a selection, so a click there can land on the bubble: in a table, a double- or triple-click on the cell above a selected cell can lose a press and act as a single click | Low |
 | G | Windows | Upstream | After an edit the editor's scrollbar slider is sometimes not drawn until the next scroll (2 of 40 Enters); a GTK defect still open upstream | Low |
@@ -154,143 +154,26 @@ free today, as the probe's control demonstrates — to un-break a minor limitati
 nobody has asked for. It would be a deliberate project chosen on product grounds, not an
 increment, and it should not be started from this entry.
 
-## A. A large document pegs a CPU core at ~100% while idle (GTK/Pango relayout loop that never converges)
+## A. On macOS an idle preview holds ~4.7% of a core indefinitely
 
-**Severity**: High (the symptom is a full CPU core held at ~100% **indefinitely while idle**,
-which directly contradicts the product's negligible-footprint thesis — but it is gated to
-LARGE documents, tens of thousands of lines; typical small files are unaffected. Agent-generated
-reports and plans, the product's own primary use case, can be that large, so it is reachable in
-normal use rather than a corner case.)
+**Severity**: Medium. Small per window, but permanent, and it contradicts the product's
+negligible-idle-footprint thesis on the platform where battery matters most.
 
-Opening a large document leaves the process at ~100% CPU **forever, even after it is fully
-rendered and sitting idle with no input**. Characterised headless (Xvfb, release build of
-2026-07-26) on `tests/fixtures/large-doc.md` (3 MB / 41,785 lines): `pidstat` averaged **99.83%**
-across a 60 s idle window (20 samples, all ~100%, process alive throughout). A normal document
-(`tests/fixtures/lists.md`) opened the same way idles at **~0%**, isolating the spin to document
-size.
+**Measured** (macOS seat, 2026-10-11, release, GTK 4.22.4 / Quartz). A 3-line document in
+preview, idle for 60 s after settling, holds **4.70%** under the System theme and **4.63%**
+under Pixel Quest, so the theme is not the cause. `large-doc.md` in preview holds a steady
+4.5–5.5% for 150 s with no decay. A 3-line document in the editor holds ~2.5%. `sample(1)`
+shows the main thread parked in `poll` ~99% of the time, while short-lived CVDisplayLink
+threads keep appearing and exiting. That means the frame clock keeps requesting frames
+with nothing to draw. Turning off View ▸ Play Animations does not change it.
 
-**Second consequence, established 2026-08-07.** While the layout is invalid, GTK keeps its
-incremental line-height validation idle permanently ready, and that starves anything the app
-schedules below it. Far navigation (Ctrl+Home/End, Go To Line, find, outline) is deferred until
-validation completes for correctness reasons (GTK4Rs/AP-260), so on a document caught in this spin
-that navigation would never arrive at all. It is bounded rather than exposed — the deferral
-carries a timer-based deadline above the validate idle's priority, which degrades to a partial
-landing instead of hanging — but that mitigation exists *because of this issue* and would be
-unnecessary without it. Measured counter-point: a 200 000-line plain-prose file settles to 0 %
-CPU in ~30 s and does **not** reproduce the spin, so whatever drives it is not size alone.
+**Not reproduced elsewhere.** The same `large-doc.md` preview settles to 0.0% within ~15 s
+on Linux (GTK 4.6.9, Xvfb) and Windows (GTK 4.22.4), measured the same day.
 
-Surfaced during the macOS-port bring-up, where a stack sample suggested a GtkSourceView
-incremental-highlighter feedback loop (its progress `mark-set` re-dirtying the highlighter's own
-region). Confirmed here to reproduce on Linux — so it is **not platform-specific** — but an
-independent trace on this side **does not support the highlighter theory**.
-
-**That disagreement is now sharper, not resolved — read it with the Pango-shaping claim
-below, which it contradicts.** MEASURED 2026-09-15 on the status-bar build: the macOS seat's `sample(1)`
-put the main thread in 2320 of 2332 samples under `g_application_run` →
-`g_main_context_iteration` → `idle_worker` (libgtksourceview-5.0) → `update_syntax` →
-`gtk_source_region_add_subregion` → `gtk_text_buffer_set_mark` → `g_signal_emit`, on this
-fixture with no interaction — the first trace to NAME the highlighter. The Linux side
-re-measured the same fixture that day: 100% of one core across 60 s with no settling,
-against 0% for a one-page control. So two traces of one symptom point at different
-machinery; reconcile them before choosing a mechanism, and do not treat either as settled.
-
-**The threshold is not size alone, in both directions.** `sdd/TDD.md` (~3,800 lines,
-markup-dense) burns ~11 s and then **settles by itself**; `large-doc.md` (41,785 lines)
-never converges; the 200,000-line plain-prose file above settles in ~30 s. A reproduction
-attempt that varies only line count can therefore miss this entirely — vary the construct
-mix too.
-
-**This is not confined to the ordinary idle context, which widens both its reach and its
-reproduction.** MEASURED 2026-09-16 on macOS/Quartz: exporting an 18.5 MB document of the
-spin-prone shape ran past 100 s without completing, three times, where the same export had
-taken 47 s the day before; `sample(1)` put the main thread in
-`gtk_print_operation_run` → `print_pages` → `g_main_loop_run` — GtkPrintOperation's **own
-nested main loop** — and one of the sources that loop was dispatching was GtkSourceView's
-`idle_scan_cb` → `scan_region_forward` → `scan_subregion`, i.e. this entry's highlighter
-idle, still re-arming. So the spin competes for any loop that services the same main
-context, not just the one the application runs; an export on such a document is a *faster*
-reproduction than waiting for it to show up as idle CPU.
-
-⚠ **Do not read a stalled export as a broken Cancel.** The two are separable and look
-identical from outside: MEASURED on Linux, a 31 MB export drew no pages for minutes while
-the window repainted normally and a Cancel click WAS delivered and logged — cancel takes
-effect only between pages, so with no page ever drawn a delivered cancel sits idle. Judge
-that path by a log line at the click handler, never by the export ending.
-
-⚠ **The `Any` classification rests on TWO platforms, not three.** Reproduced on macOS and
-Linux; **Windows has never been asked**. `Any` is still the right call — the trace lands in
-Pango text shaping under a recursive GTK measure/layout pass, which is toolkit machinery
-common to every backend, so this is `Any` by *inherence* rather than by a third
-reproduction, which the header's definition admits. Recorded because the header also tells a
-reader that a platform label is evidence-backed, and here one third of that evidence is an
-inference. A Windows reproduction would upgrade it; a Windows *non*-reproduction would be a
-significant finding about the backend and must not be read as merely narrowing the label.
-
-**Trace** (gdb `thread apply all bt` on the spinning process, main thread, at idle). Every
-worker thread is parked (futex / `cond_wait`); the hot main thread is entirely in text SHAPING
-under a recursive GTK measure/layout pass:
-
-```
-#0–7   libharfbuzz   hb_shape_plan_execute / hb_shape_full          (text shaping)
-#8–14  libpango      pango_shape_item + layout
-#15–24 libgtk-4      measure / allocate / snapshot   (frames #18–22 are ONE return address ×5 → recursive widget-tree measure)
-#25–27 glib          g_main_context_dispatch → g_main_context_iteration
-#28    gio           g_application_run → main
-```
-
-There are **no GtkSourceView / highlight / mark / region frames anywhere**, and **no app-own
-frames in the hot path**. So the CPU burns in a GTK **relayout / re-shape loop that never
-converges** — a `size_allocate` / `queue_resize` pass re-shaping the large widget tree's text
-via Pango/HarfBuzz on every main-loop iteration — not the incremental highlighter.
-
-**Symptom vs driver — not yet fully pinned.** One stop-sample shows *where* the CPU is spent
-(Pango shaping under GTK measure), not *what keeps scheduling* the pass. The macOS-side
-`mark-set`-handler theory therefore survives only as a candidate **driver**: a handler that
-re-`queue_resize`s in response to a signal the relayout itself emits would produce exactly this.
-The buffer's `mark-set` is listened for in four places — `window/tabs/lifecycle.rs` (`:95`),
-`window/editbar/overlay.rs` (`:155`), `preview/interactions.rs` (`:23`),
-`preview/annotate/overlay.rs` (`:843`) — which are the suspects to bisect. (Several already
-coalesce because `mark-set` is chatty, so the culprit is more likely a coalescing timer that
-keeps re-arming than a naive re-dirty.)
-
-**Distinct from F** (same *preview-overlay relayout* family, opposite outcome): F is a **rare,
-recoverable blank** from a `GtkOverlay` snapshotted without an allocation; this one is a
-**permanent ~100% CPU spin** with no blank. (Both entries previously called each other N and O
-— letters that no longer name them.)
-
-⚠ **The `GTK_DEBUG=geometry` probe both entries recommended CANNOT RUN on the reference
-host, and its silence is not evidence.** Measured 2026-08-04: a distribution GTK is built
-without debug support, so every informational `GTK_DEBUG`/`GDK_DEBUG`/`GSK_DEBUG` key reports
-`[unavailable]` and emits nothing — an empty log therefore means *the instrument is dark*, not
-*no widget re-queued a resize* (GTK4Rs/AP-251). Restoring that key requires a locally built,
-debug-enabled GTK loaded ahead of the distribution one; `sdd/PLAN.profiling.md` records the
-cost and the alternatives.
-
-**PREREQUISITE — [`sdd/PLAN.profiling.md`](PLAN.profiling.md) is implemented FIRST, not
-alongside** (operator, 2026-08-28). This entry is the one place in the register with no
-oracle: the trace says where the CPU goes and not what keeps scheduling the pass, the
-`GTK_DEBUG=geometry` key that would answer it is dark on this host, and every mitigation
-below opens with "take several samples". Doing that with ad-hoc instrumentation is how the
-work becomes open-ended — which is why the budget for it has to be agreed up front. Build
-the instrument, then aim it. The plan is also the place that records what a debug-enabled
-GTK costs, so the decision about whether to pay it is made once, in the open, rather than
-midway through a bisect.
-
-**Mitigation options** (all of them assume the instrument above exists):
-- **Root-cause the driver** (recommended; not yet done): take several samples to confirm the
-  loop consistently sits in shaping/layout — `perf record` against the unstripped debug binary
-  gives named application frames today, with no change to the tree, and is the substitute for
-  the unavailable geometry key; then bisect the four `mark-set` handlers by
-  disabling each and re-measuring idle CPU. If one stops the spin, that handler is the driver;
-  if none does, the driver is not `mark-set`, and the search moves to whatever re-invalidates
-  the (likely preview) widget tree's layout every iteration.
-- **Likely fix shapes** (pending the driver): make the offending handler idempotent so it does
-  not re-invalidate the region it reacts to; coalesce/gate the relayout so it converges; or
-  ensure an incremental idle returns `G_SOURCE_REMOVE` once stable. Left open deliberately —
-  fixing the wrong layer (e.g. throttling shaping) would mask the loop rather than end it.
-- **Accept the limitation**: not viable long-term — an idle full-core spin on the product's own
-  primary use case (large agent-generated documents) defeats the negligible-footprint thesis the
-  project exists to honour.
+**Unknown.** Whether something in the app keeps a tick callback, animation or
+`queue_draw` alive in preview, or whether GDK's macOS backend ticks regardless. The cheapest
+discriminator is an empty GTK4 window on the same GTK, idle in the same way. If it also
+holds ~5%, the cause is upstream.
 
 ## B. Every native file chooser invocation grows RSS on macOS
 

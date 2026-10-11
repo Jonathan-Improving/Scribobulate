@@ -20,9 +20,13 @@ and neither has an oracle:
   is a main-loop source a blocked turn never lets dispatch). TDD 1.7 and 1.4c
   encode the contract as *"does not freeze"*, which is a judgement a human makes by
   looking, not a number anything can regress against.
-- **A spin at idle.** A large document currently pegs a core at ~100% forever after
-  it has finished rendering — measured, reproducible, not platform-specific, and
-  **still undiagnosed**. It sits in the debt register as high severity.
+- **A spin at idle.** A large document held a core at ~100% long after it had
+  rendered. It sat in the debt register for weeks attributed to a GTK relayout loop,
+  because a single debugger stop-sample showed only toolkit frames. One Phase 0
+  `perf` pass named it as application code: the outline's scroll-spy re-parsed the
+  whole document once per validated line, a quadratic cost that reads as "never
+  settles". It had already been fixed, unnoticed, by an unrelated performance commit;
+  a bisect confirmed which. No oracle existed to notice either the defect or its fix.
 
 Memory is in a different but related state: the knowledge exists and is good, but it
 is *scattered* — the toolkit-noise filter, the strand-on-close leak, the per-render
@@ -30,11 +34,11 @@ is *scattered* — the toolkit-noise filter, the strand-on-close leak, the per-r
 plan, the sanctioned `valgrind` invocation. There is no recorded **escalation
 order**, so every investigation re-derives one, and the cost of getting that wrong is
 on record: a previous hunt burned ~72 minutes on a debug-symbol source that was never
-going to deliver (GEP-15).
+going to deliver (GTK4Rs/AP-141).
 
 Two consequences follow. Performance regressions are invisible until a human notices
-one, and the open CPU defect has stalled — in part on an instrument that does not
-work here at all, which is the second root cause below.
+one, and a CPU defect was misdiagnosed for weeks, in part because its recommended
+instrument does not work here at all, which is the second root cause below.
 
 ### Root cause
 
@@ -51,11 +55,10 @@ is exported and silently returns 0 forever; neither `libgtk-4` nor `libglib-2.0`
 links `libsysprof-capture`. So the instruments a GTK profiling plan would naturally
 name are all dark — and one of them returns *the number a healthy process returns*.
 
-That second cause has already contaminated the open work: the CPU-spin
-investigation's recommended first instrument is a `GTK_DEBUG` key to name the
-subtree that re-queues a resize each frame. It cannot run on the reference host as
-written, and its empty output reads as *"nothing re-queues resize"* — a false
-negative banked into an open, high-severity investigation.
+That second cause contaminated the spin investigation: its recommended first
+instrument was a `GTK_DEBUG` key to name the subtree re-queuing a resize each frame.
+It cannot run on the reference host, and its empty output reads as *"nothing
+re-queues resize"*. The driver was not in GTK at all; sampling found it.
 
 ## Measured constraints (reference host, 2026-08-04)
 
@@ -72,9 +75,10 @@ depends on this application. Ubuntu jammy, **GTK 4.6.9 / GLib 2.72.4**, Xvfb,
 | `presentation_time` is `0` under Xvfb (no presentation feedback) | Build the oracle on `frame_time`; any presentation-timing check belongs on the real session |
 | `perf` present; `perf_event_paranoid=1` → unprivileged per-process sampling works | External sampling needs no privilege escalation and no host changes |
 | `valgrind` present. `heaptrack`, `sysprof`, `samply`, `hotspot` **absent** | The allocation-attribution ladder must be built from valgrind + bespoke tooling |
-| Release binary is `strip = "symbols"` — **no symbol table, no `.debug` sections** | Sampling the release build yields addresses, not app function names |
-| An unstripped `target/debug` binary exists | Named app frames are available today — unoptimized, so structurally informative and numerically meaningless |
-| GTK/GLib debug symbols unobtainable from both official sources for this exact version (GEP-15) | Frames inside the toolkit resolve to `lib+offset` at best, on every tier |
+| Release binary is `strip = "symbols"` — **no symbol table, no `.debug` sections** | Sampling the delivered release build yields addresses, not app function names |
+| `CARGO_PROFILE_RELEASE_DEBUG=true CARGO_PROFILE_RELEASE_STRIP=none cargo build --release --target-dir target/profiling` builds release optimisation **with** symbols, no manifest change | Named app frames at release speed today; used to name the spin's driver (2026-10-11) |
+| `perf record --call-graph dwarf` on that ~110 MB binary: recording is cheap, `perf report` took ~10 min per pass | Budget for it; filter with `--sort symbol` and grep for `scribobulate::` |
+| GTK/GLib debug symbols for this exact version: absent from `debuginfod.ubuntu.com` (HTTP 404) and the apt `-dbgsym` pocket (GTK4Rs/AP-141), but **present as Launchpad `.ddeb` files** whose build IDs match the installed libraries (verified 2026-10-11) | Toolkit frames can resolve to file and line; recipe under *Technical details preserved* |
 
 ## The four failure classes
 
@@ -84,7 +88,7 @@ produces a gate. Everything below is organised by what can go wrong.
 | | Class | What it looks like | Existing evidence |
 |---|---|---|---|
 | **C1** | **Stall** — a single main-loop turn overruns | The window freezes, a spinner stops, input queues | GTK4Rs/AP-106; GTK4Rs/AP-148; TDD 1.7, 1.4c |
-| **C2** | **Spin** — non-zero CPU with no work to do | A core pegged at idle; battery drain | The open large-document spin |
+| **C2** | **Spin** — non-zero CPU with no work to do | A core pegged at idle; battery drain | The large-document spin (quadratic outline re-parse; fixed on Linux, macOS unconfirmed) |
 | **C3** | **Throughput** — a core path got slower | Everything feels heavier; no single freeze | Nothing today |
 | **C4** | **Growth** — RSS climbs per cycle | Long sessions bloat; eventual OOM | GTK4Rs/AP-63, GTK4Rs/AP-63; TDD 6.3; manual §6.3, §8.6 |
 
@@ -93,7 +97,7 @@ single-threaded by design. They are also the two with no oracle at all.
 
 ## Possible approaches
 
-### 1. A cheapest-first tier ladder with explicit escalation
+### ✅ 1. A cheapest-first tier ladder with explicit escalation
 
 Four tiers, each with an entry criterion that says when to climb to the next:
 **T0** application-owned instrumentation (frame-clock deltas, phase timers) → **T1**
@@ -109,7 +113,7 @@ most of the value.
 **Cons**: T0 and T1 are code, so the ladder is not free; and a ladder is only real if
 its rungs are actually built rather than described.
 
-### 2. External tools only — change nothing in the tree
+### ❌ 2. External tools only — change nothing in the tree
 
 Run `perf` and `valgrind` against the app as it ships; keep RSS checks in the manual
 plan; write no instrumentation and no benchmarks.
@@ -122,39 +126,36 @@ the other two platforms, so the classes most likely to differ per platform stay
 unmeasured there. And against the stripped release build it yields library-level
 attribution only.
 
-### 3. Restore the toolkit's introspection first (instrumented-GTK sidecar)
+### ❌ 3. Restore the toolkit's introspection first (instrumented-GTK sidecar)
 
-Build GTK 4.6.x locally with debug enabled and load it ahead of the distribution
-library, unlocking the geometry / size-request keys and the instance counts.
+Build GTK 4.6.9 with `-Ddebug=true` and load it ahead of the distribution library.
+**Rejected:** its one motivating question, which widget re-queues a resize in the spin,
+was answered by sampling the distribution build, and the driver was application code.
+The sidecar is half a day and restores only GTK's keys; instance counts additionally
+need a GLib rebuilt with `-Dglib_debug=enabled` (another half day). It also changes the
+library under test, so its timings are not the delivered configuration's. Build recipe
+under *Technical details preserved*.
 
-**Pros**: the *only* route to the geometry key the spin investigation wants, and it
-would answer "which subtree re-queues a resize" directly rather than by inference.
-**Cons**: a real build to own and keep in step; it changes the library under test, so
-timing numbers taken against it are not the shipping configuration's numbers; and it
-is Linux-only. Best understood as a **diagnostic sidecar for one investigation**, not
-a tier of a standing strategy.
-
-### 4. Do nothing — keep the ceiling gate
+### ❌ 4. Do nothing — keep the ceiling gate
 
 **Pros**: honest if the conclusion is that a document viewer's performance is
 self-evident from using it.
-**Cons**: leaves a high-severity defect without an instrument, and leaves C1/C3
-regressions to be discovered by users. The freeze that already shipped (GTK4Rs/AP-106) is
+**Cons**: a high-severity spin went misdiagnosed for weeks with no instrument, and C1/C3
+regressions are left for users to discover. The freeze that was already delivered (GTK4Rs/AP-106) is
 the counter-example.
 
 ## Recommendation
 
-**Approach 1, phased, with approach 3 held in reserve for the spin investigation
-specifically.**
+**Approach 1, phased.**
 
-Phase 0 is deliberately first because it needs no code and unblocks the open defect.
+Phase 0 is deliberately first because it needs no code.
 
 | Phase | Work | Classes | Code? |
 |---|---|---|---|
-| **0** | Use what exists: `perf` against the unstripped debug binary for the spin's *shape*; RSS-slope runs for growth; the Inspector for tree/CSS questions | C2, C4 | **No** |
+| **0** | Use what exists: `perf` against a release build with symbols (the env override above); RSS-slope runs for growth; the Inspector for tree/CSS questions. **Done for C2**: it named the spin's driver in one pass | C2, C4 | **No** |
 | **1** | **T0** — a `profiling` feature carrying a frame-clock stall watchdog and phase timers, routed through the existing forensic log sink | C1, C2 | Yes |
 | **2** | **T1** — display-free benchmarks on the pure cores (parse, render, format, copy-as-Markdown, outline, annotations, swap codec) | C3 | Yes |
-| **3** | **T2 proper** — a `[profile.profiling]` Cargo profile (release settings, `debug` on, `strip` off) so sampling names app frames at release optimisation | C1–C3 | Manifest only |
+| **3** | **T2 proper** — a `[profile.profiling]` Cargo profile (release settings, `debug` on, `strip` off). The env override already does this; a named profile only saves typing it | C1–C3 | Manifest only |
 | **on demand** | **T3** — the allocation ladder, in order | C4 | Partly |
 
 Two points decide the ordering. First, **T0 before T2**: instrumentation the
@@ -178,11 +179,6 @@ and has returned nothing. Re-run a suspected leak with `MALLOC_ARENA_MAX=1`,
 moves, the memory is genuinely referenced rather than sitting in allocator slack.
 This is what makes the difference between "we leak" and "glibc has not trimmed".
 
-Approach 3 stays recorded and unrecommended as a *standing* tier. If the spin
-investigation exhausts sampling without naming the driver, it becomes the next step
-for that investigation alone — and the researcher question below should be answered
-before anyone starts the build.
-
 ## What is reachable without touching the tree
 
 Recorded explicitly because it is the first thing anyone will ask, and because
@@ -191,8 +187,9 @@ Phase 0 depends on it being accurate.
 | Available today | Answers | Caveat |
 |---|---|---|
 | RSS slope across scaled cycle counts | C4 | None — purely external; already the shape of manual §6.3 and §8.6 |
-| `perf` against the **release** binary | C1–C3, coarsely | Library-level attribution only (`lib+offset`); this is how the spin's existing stack sample was taken |
-| `perf` against the existing **debug** binary | C1–C3, structurally | Named app frames, but unoptimized — answers *what* is looping, never *how fast* anything is |
+| `perf` against the delivered **release** binary | C1–C3, coarsely | Library-level attribution only (`lib+offset`) |
+| `perf` against a **release build with symbols** (env override) | C1–C3 | Named app frames at release optimisation. GTK frames stay `lib+offset`, but the distribution's exported symbols (`gtk_widget_queue_resize`, `gtk_widget_allocate`) do resolve |
+| `perf` against the **debug** binary | C1–C3, structurally | Unoptimized — answers *what* is looping, never *how fast* anything is |
 | `valgrind` / massif | C4 | Run on demand, outside the pipeline; filter every stack for an application frame first (GTK4Rs/AP-59) |
 | GtkInspector (`GTK_DEBUG=interactive`) | widget tree, CSS, actions | The one surviving toolkit channel. **Its Statistics tab is dead** (GTK4Rs/AP-251) — never read object counts from it |
 | The `LD_PRELOAD` GType interposer (GTK4Rs/AP-63) | C4, by GType and callsite | No application change, but it is a tool to write. Now the *primary* attribution route, since instance counting is dark |
@@ -238,10 +235,6 @@ something.
    profiler). POLICY requires dependency justification; this is an operator
    decision, not an implementation detail. Both would be `[dev-dependencies]`,
    linked into no shipping artefact.
-3. **The instrumented-GTK sidecar** — worth a researcher round before anyone builds
-   it: the cheapest reliable way to obtain a debug-enabled GTK 4.6.x, and whether
-   the debug build flag alone restores *all* the informational keys or only some.
-   The answer decides whether approach 3 is a half-day or a multi-day commitment.
 
 ## Technical details preserved
 
@@ -254,14 +247,14 @@ something.
   `presentation_time = 0`. Reproducing it costs minutes and it depends on nothing in
   this repository — rebuild it rather than trusting this table on a different host or
   a different GTK.
-- **Confirmed dead ends — do not re-walk.** Distribution debug symbols for this
-  exact GTK/GLib version from either official source (GEP-15, ~72 minutes lost);
+- **Confirmed dead ends — do not re-walk.** `debuginfod.ubuntu.com` and the apt
+  `-dbgsym` pocket for this exact GTK/GLib version (GTK4Rs/AP-141, ~72 minutes lost);
   `g_type_get_instance_count()` and the Inspector Statistics tab; sysprof marks; any
   informational `GTK_DEBUG`/`GDK_DEBUG`/`GSK_DEBUG` key (GTK4Rs/AP-251).
 - **The stripping consequence is exact.** The release binary has no symbol table and
   no `.debug` sections, and no separate debuginfo file is retained, so there is
-  nothing for a sampler to resolve against — not merely inconvenient, *impossible*
-  short of the manifest change in Phase 3. Note also that addresses from a stripped
+  nothing for a sampler to resolve against. Sample a release build with symbols
+  instead (the env override in the constraints table). Note also that addresses from a stripped
   release build cannot be resolved against a separately-built debug binary: different
   codegen, different addresses.
 - **The allocation ladder's order, and why.** RSS slope first (free, and decides
@@ -283,3 +276,26 @@ something.
   that pool is measuring the cap, not the code — hold the scenario's I/O
   concurrency fixed, and treat a latency change there as a pool-occupancy question
   before treating it as a code regression.
+- **If a debug-enabled GTK is ever needed** (approach 3, rejected). 4.6.9's switch is
+  `-Ddebug=true`, which defines `G_ENABLE_DEBUG`; there is no `debug_flags` option.
+  Build the 4.6.9 tag against the system GLib/Pango/Cairo with `meson setup build
+  --prefix=$HOME/opt/gtk-4.6.9-debug -Ddebug=true -Doptimization=2
+  -Dintrospection=disabled -Dbuild-tests=false -Dbuild-examples=false -Ddemos=false
+  -Dgtk_doc=false -Dmedia-gstreamer=disabled -Dmedia-ffmpeg=disabled
+  -Dvulkan=disabled` and load it with `LD_LIBRARY_PATH`. The SONAME is the
+  distribution's `libgtk-4.so.1`, so GtkSourceView 5.4.1 binds to it. The `geometry`
+  key then warns `"<widget> or a child called gtk_widget_queue_resize() during
+  size_allocate()"`, naming the widget being allocated, not the caller. `layout` in 4.6
+  is the constraint solver only. `GTK_DEBUG=interactive` works on the distribution
+  build already. (Researcher, source-read 4.6.9, 2026-10-11; not built here.)
+- **GTK and GLib debug symbols, from Launchpad.** Fetch the `.ddeb` for the exact
+  installed version, `https://launchpad.net/ubuntu/+archive/primary/+files/<pkg>-dbgsym_<version>_amd64.ddeb`
+  (`libgtk-4-1` 4.6.9+ds-0ubuntu0.22.04.2; `libglib2.0-0` 2.72.4-0ubuntu2.10, from
+  `dpkg-query -W`), into its own directory, and unpack with `dpkg-deb -x <ddeb> <dir>`
+  (no sudo). Check the build ID under `<dir>/usr/lib/debug/.build-id/` against
+  `readelf -n` on the installed library. In gdb, `set debug-file-directory
+  <dir>/usr/lib/debug` is required: the GLib file keeps its DWARF in a shared `.dwz`
+  file found through that path, and without it gdb reports no line information.
+  Verified with `symbol-file`: `gtk_widget_queue_resize` → `gtk/gtkwidget.c:3656`,
+  `g_hash_table_new_full` → `glib/ghash.c:1068`. Not yet tried: attaching gdb to a
+  live process, or `perf report` using these files.
