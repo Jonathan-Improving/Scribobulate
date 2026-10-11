@@ -150,6 +150,54 @@ pub(crate) fn to_preview_char(
     src_byte_to_buf_char(source_map_inv, cleaned)
 }
 
+/// The start of an editor LINE -> preview buffer char, for the split pane's
+/// editor-driven projection: the first waypoint STRICTLY inside the line (after its
+/// first byte), otherwise [`to_preview_char`]'s at-or-before.
+///
+/// **Why the at-or-before lookup is wrong here.** A block's content waypoint sits where
+/// its CONTENT begins, after any markup: a `### Heading` line's sits past the `### `.
+/// The editor's top-of-viewport position is the line's first byte, and what the map
+/// holds AT or before that byte describes the space before the block, never the block:
+///
+/// * after a paragraph, nothing at the line start — the at-or-before lookup lands on
+///   the paragraph's last waypoint, and the preview shows that paragraph's line above
+///   the heading (MEASURED on a reader parked on a heading in Split: 72 of the 88 px
+///   the preview settled above the heading; the other 16 px was the adjustment margin,
+///   `ViewportTopIter::value_for_top_y`);
+/// * after a list, a waypoint exactly AT the line start whose buffer char is the end of
+///   the list's last line, before the block separator (MEASURED on `sdd/TDD.md`'s
+///   `### 7.5`: line start → the last bullet of 7.4; `+4` bytes → the heading). So
+///   "the first waypoint in the line" is not enough; it has to be past the first byte.
+///
+/// A line whose only waypoint is at its first byte, or that holds none at all (a blank
+/// line, a fence), keeps the at-or-before answer. For a blank line that is the block
+/// before it — accepted: the reader is between blocks there.
+///
+/// Cost: one scan from `line_start` to the next newline, plus a binary search — bounded
+/// by the line, not the document (Hot-path CAM row 1).
+pub(crate) fn line_to_preview_char(
+    source_map_inv: &[(usize, i32)],
+    shifts: &[(usize, usize)],
+    original: &str,
+    line_start: DocPosition,
+) -> i32 {
+    let at_or_before = to_preview_char(source_map_inv, shifts, line_start);
+    let start = line_start.original().raw();
+    let end = original
+        .get(start..)
+        .and_then(|rest| rest.find('\n'))
+        .map_or(original.len(), |n| start + n);
+    let clean = |byte: usize| {
+        crate::annotate::original_to_cleaned(shifts, OriginalByteOffset::new(byte)).raw()
+    };
+    let (clean_start, clean_end) = (clean(start), clean(end));
+    let i = source_map_inv.partition_point(|&(sb, _)| sb <= clean_start);
+    match source_map_inv.get(i) {
+        Some(&(src_byte, buf_char)) if src_byte < clean_end => buf_char,
+        _ => at_or_before,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -257,6 +305,98 @@ mod tests {
             10,
             "identity shifts leave the waypoint's byte untouched"
         );
+    }
+
+    /// The split projection's line lookup, on the map shape a heading actually has:
+    /// its first waypoint sits after the `### `, so the line's start byte holds none.
+    #[test]
+    fn a_line_whose_markup_precedes_its_content_maps_to_its_own_first_waypoint() {
+        let original = "para one\n\n### Heading\n\nmore\n";
+        let heading_line = original.find("###").expect("fixture");
+        let content = original.find("Heading").expect("fixture");
+        let blank_line = original.find("\n\n").expect("fixture") + 1;
+        let more = original.find("more").expect("fixture");
+        // (preview buffer char, cleaned source byte)
+        let source_map: Vec<(i32, usize)> = vec![(0, 0), (4, 5), (10, content), (18, more)];
+        let inv = invert(&source_map);
+        let shifts: Vec<(usize, usize)> = vec![(0, 0)];
+        let at = |byte| DocPosition::new(OriginalByteOffset::new(byte));
+
+        assert_eq!(
+            to_preview_char(&inv, &shifts, at(heading_line)),
+            4,
+            "control: the at-or-before lookup lands on the paragraph above"
+        );
+        assert_eq!(
+            line_to_preview_char(&inv, &shifts, original, at(heading_line)),
+            10,
+            "the heading line maps to the heading"
+        );
+        assert_eq!(
+            line_to_preview_char(&inv, &shifts, original, at(0)),
+            4,
+            "a paragraph line takes its first waypoint past the start, which is on the \
+             paragraph's own preview line"
+        );
+        assert_eq!(
+            line_to_preview_char(&inv, &shifts, "x\n", at(0)),
+            0,
+            "a line whose only waypoint is at its start keeps the at-or-before answer"
+        );
+        assert_eq!(
+            line_to_preview_char(&inv, &shifts, original, at(blank_line)),
+            4,
+            "a blank line has no waypoint of its own and keeps the block before it"
+        );
+        assert_eq!(
+            line_to_preview_char(&inv, &shifts, original, at(more)),
+            18,
+            "the last line"
+        );
+    }
+
+    /// The other shape `sdd/TDD.md` showed: after a LIST the map holds a waypoint AT
+    /// the heading line's first byte, pointing at the end of the list's last line. The
+    /// lookup must look past it to the heading's own waypoint.
+    #[test]
+    fn a_waypoint_at_the_line_start_does_not_stop_the_lookup() {
+        let original = "- item\n\n### Heading\n";
+        let heading_line = original.find("###").expect("fixture");
+        let content = original.find("Heading").expect("fixture");
+        // (preview buffer char, cleaned source byte): the item, the end of its line
+        // (keyed at the heading line's start), the heading text two separators on.
+        let source_map: Vec<(i32, usize)> = vec![(0, 2), (4, heading_line), (6, content)];
+        let inv = invert(&source_map);
+        let shifts: Vec<(usize, usize)> = vec![(0, 0)];
+        let pos = DocPosition::new(OriginalByteOffset::new(heading_line));
+        assert_eq!(
+            to_preview_char(&inv, &shifts, pos),
+            4,
+            "control: the at-or-before lookup takes the waypoint at the line start"
+        );
+        assert_eq!(line_to_preview_char(&inv, &shifts, original, pos), 6);
+    }
+
+    /// The line's bounds cross into the map's CLEANED coordinates through the shift
+    /// table. Comparing original bytes with cleaned waypoints directly is right only
+    /// for an un-annotated document.
+    #[test]
+    fn the_line_lookup_compares_in_cleaned_coordinates() {
+        // `{>>c<<}` (7 bytes) is removed from the cleaned source, so every later
+        // original byte is 7 ahead of its cleaned byte.
+        let original = "{>>c<<}x\n\n## H\n";
+        let heading_line = original.find("##").expect("fixture");
+        let content_cleaned = original.find('H').expect("fixture") - 7;
+        let source_map: Vec<(i32, usize)> = vec![(0, 0), (3, content_cleaned)];
+        let inv = invert(&source_map);
+        let shifts: Vec<(usize, usize)> = vec![(0, 0), (0, 7)];
+        let pos = DocPosition::new(OriginalByteOffset::new(heading_line));
+        assert_eq!(
+            crate::annotate::original_to_cleaned(&shifts, pos.original()).raw(),
+            heading_line - 7,
+            "precondition: the shift table carries original to cleaned as assumed"
+        );
+        assert_eq!(line_to_preview_char(&inv, &shifts, original, pos), 3);
     }
 
     /// The start of the document is representable and converts to the start of

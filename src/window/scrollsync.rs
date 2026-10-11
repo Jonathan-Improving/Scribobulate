@@ -110,9 +110,10 @@ pub(super) fn queue_scroll_sync(window: &ApplicationWindow) {
 /// Re-project the driver pane onto the follower, LINE-ACCURATELY via the render's
 /// `source_map` waypoints (Model A spike): map the driver pane's
 /// top-of-viewport document position to the follower's corresponding document
-/// position, then set the follower's adjustment straight to that position's y-pixel
-/// (non-animated). Replaces the old scale-invariant fraction projection, which
-/// drifted when one source line rendered at a different height than the next.
+/// position, then set the follower's adjustment to the value that puts that
+/// position's line at the top edge (non-animated). Replaces the old scale-invariant
+/// fraction projection, which drifted when one source line rendered at a different
+/// height than the next.
 /// Keeps all of the fraction path's anti-oscillation machinery unchanged (the
 /// `guard`, the input-chosen `driver`, the coalesced tick, `upper` listening).
 /// Idempotent — re-runs harmlessly as the follower's layout settles.
@@ -150,10 +151,14 @@ fn project_scroll(window: &ApplicationWindow) {
         let original = &rd.original_owned;
         match driver {
             // Editor drives: editor top char -> ORIGINAL byte -> CLEANED byte ->
-            // preview buffer char (inverse map, binary-searched).
+            // preview buffer char (inverse map, binary-searched). The editor's top is
+            // a LINE start, and a heading's own waypoint sits after its `#`s, so the
+            // lookup takes the first waypoint past the line's first byte
+            // (`line_to_preview_char`).
             ScrollDriver::Editor => {
                 let pos = readingpos::from_editor_char(original, view_top_offset(&st.editor));
-                let buf_char = readingpos::to_preview_char(&rd.source_map_inv, &rd.shifts, pos);
+                let buf_char =
+                    readingpos::line_to_preview_char(&rd.source_map_inv, &rd.shifts, original, pos);
                 (preview_sw.clone(), preview_view.clone().upcast(), buf_char)
             }
             // Preview drives: preview top buffer char -> CLEANED byte (forward map)
@@ -197,8 +202,17 @@ fn project_scroll(window: &ApplicationWindow) {
     // So this function both avoids caching a display itself AND drives one from GTK,
     // one line apart — worth knowing before treating any adjustment write as cheap or
     // side-effect-free (researcher-verified, 4.6.9).
+    //
+    // The adjustment value is NOT that y: its range includes the follower's
+    // `top_margin`, so the value that puts buffer `y` at the top edge is
+    // `y + top_margin` (`value_for_top_y`, GTK4Rs/AP-321's application rider). Writing
+    // the bare y parked the target line one margin below the edge, with the line
+    // before it on top. MEASURED on the preview (16 px margin): 16 of the 88 px a
+    // heading-parked reader was left short by. Both directions take the seam; the
+    // editor's margin is 0 today, so the preview->editor half is correct either way.
     let (y, _) = dst_view.line_yrange(&iter);
-    let target = (f64::from(y)).clamp(0.0, max);
+    let target =
+        crate::saferizer::viewport::ViewportTopIter::value_for_top_y(&dst_view, y).clamp(0.0, max);
 
     // One-stack-frame guard: set_value emits the follower's value-changed
     // synchronously; the guard makes note_adj_change ignore exactly that echo.

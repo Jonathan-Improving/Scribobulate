@@ -20,6 +20,10 @@
 //! What is asserted is what the reader sees: the outline's selected row, the line at the
 //! top of the reading pane, and in the editor modes the caret — never the restore's own
 //! bookkeeping, which was right all along in the preview case.
+//!
+//! The last two cases share this fixture for TDD 7.5's split sync: a reader parked ON a
+//! heading in Split, with the editor driving the preview (the projection every live
+//! reload and live-preview re-render runs), must keep the heading at the preview's top.
 
 use super::outline_nav::outline_tree_model;
 use super::*;
@@ -326,4 +330,170 @@ fn a_live_reload_returns_a_hand_scrolled_preview_to_the_same_line() {
     );
     assert_eq!(after_row, before_row, "and the outline with it");
     window.destroy();
+}
+
+/// The split preview's view, and the line in it that holds [`TARGET`].
+fn split_preview_and_heading_line(
+    window: &ApplicationWindow,
+) -> (crate::codeview::CodePreviewView, i32) {
+    let view = state(window)
+        .expect("tab")
+        .split
+        .preview_scroller()
+        .and_then(|sw| sw.child())
+        .and_then(|c| c.downcast::<crate::codeview::CodePreviewView>().ok())
+        .expect("a split preview view");
+    let heading = view
+        .buffer()
+        .start_iter()
+        .forward_search(TARGET, gtk::TextSearchFlags::empty(), None)
+        .map(|(start, _)| start.line())
+        .expect("the preview carries the target heading");
+    (view, heading)
+}
+
+/// The two panes' top lines once both have stopped moving: `(editor, preview)`.
+fn settled_split_tops(window: &ApplicationWindow) -> (i32, i32) {
+    let st = state(window).expect("tab");
+    let (view, _) = split_preview_and_heading_line(window);
+    let s = until_stable(
+        Clock::Frame,
+        Duration::from_secs(15),
+        Duration::from_millis(800),
+        || {
+            (
+                crate::saferizer::viewport::ViewportTopIter::of(&st.editor).line(),
+                crate::saferizer::viewport::ViewportTopIter::of(&view).line(),
+            )
+        },
+    );
+    assert!(s.converged, "the split panes never settled");
+    s.value.expect("sampled at least once")
+}
+
+/// What the block before [`TARGET`] is. The render's source map differs at the heading
+/// line's first byte between the two, so a lookup can be right for one and wrong for the
+/// other — MEASURED: a fix that held after a paragraph still put the end of a LIST above
+/// the heading on `sdd/TDD.md`.
+#[derive(Clone, Copy, Debug)]
+enum Before {
+    Paragraph,
+    List,
+}
+
+fn document_with(before: Before) -> String {
+    let doc = document();
+    match before {
+        Before::Paragraph => doc,
+        Before::List => doc.replace(
+            &format!("### {TARGET}\n"),
+            &format!("- a list item\n- and another\n\n### {TARGET}\n"),
+        ),
+    }
+}
+
+/// Park on [`TARGET`] in Split through the outline, which makes the PREVIEW the
+/// driver, and check both panes show the heading at the top before anything else.
+fn park_split_on_heading(suffix: &str, before: Before) -> (ApplicationWindow, String) {
+    let doc = document_with(before);
+    let window = open(suffix, "split", &doc);
+    park_in_preview(&window, false);
+    let (editor_top, preview_top) = settled_split_tops(&window);
+    let (_, heading) = split_preview_and_heading_line(&window);
+    assert_eq!(
+        preview_top, heading,
+        "precondition ({before:?}): the outline put the heading at the top of the preview"
+    );
+    assert_eq!(
+        editor_top,
+        target_line(&doc),
+        "precondition ({before:?}): the editor followed the preview onto the heading's line"
+    );
+    assert_eq!(
+        state(&window).expect("tab").editor.top_margin(),
+        0,
+        "the editor has no top margin, so the preview-to-editor half of the margin fix \
+         is not observable here (the fact `project_scroll`'s comment relies on)"
+    );
+    (window, doc)
+}
+
+/// The preview's top line must be the heading; the message names what is there instead.
+fn assert_preview_top_is_the_heading(window: &ApplicationWindow, what: &str) {
+    let (editor_top, preview_top) = settled_split_tops(window);
+    let (view, heading) = split_preview_and_heading_line(window);
+    let buf = view.buffer();
+    let start = buf.iter_at_line(preview_top).expect("a line in range");
+    let mut end = start;
+    if !end.ends_line() {
+        end.forward_to_line_end();
+    }
+    assert_eq!(
+        preview_top,
+        heading,
+        "{what}: the preview's top line must stay the heading the editor is on (editor top \
+         line {editor_top}); it is line {preview_top}, {:?}",
+        buf.slice(&start, &end, false)
+            .chars()
+            .take(40)
+            .collect::<String>()
+    );
+}
+
+/// What `rerender_split_preview_driven_by_editor` does, without the re-render: the
+/// editor drives, and both panes' de-dup records are cleared so the projection runs.
+fn hand_the_driver_to_the_editor(window: &ApplicationWindow) {
+    let st = state(window).expect("tab");
+    st.scroll.driver.set(ScrollDriver::Editor);
+    st.scroll.ed_last.set((-1.0, -1.0));
+    st.scroll.pv_last.set((-1.0, -1.0));
+    super::scrollsync::queue_scroll_sync(window);
+}
+
+/// **TDD 7.5, the line-accurate half, with the EDITOR driving.** A reader parked on a
+/// heading in Split who hands the driver to the editor (a scroll of the editor, or any
+/// live-preview re-render, which always makes the editor drive) must still see the
+/// heading at the top of the preview, not the tail of the previous section.
+///
+/// Mutation-checked, each half of the fix alone, after a paragraph: writing the line's
+/// buffer y as the adjustment value (no `value_for_top_y`) leaves the previous section's
+/// last line on top; the at-or-before lookup in place of `line_to_preview_char` targets
+/// the paragraph above the heading. Each fails here.
+#[gtktest::test]
+fn handing_the_split_driver_to_the_editor_keeps_a_heading_at_the_top_of_the_preview() {
+    let (window, _doc) = park_split_on_heading("split_heading.editor_drives", Before::Paragraph);
+    hand_the_driver_to_the_editor(&window);
+    assert_preview_top_is_the_heading(&window, "after a paragraph");
+    window.destroy();
+}
+
+/// The same, with a LIST before the heading. Mutation-checked: stopping at a waypoint
+/// AT the line's first byte (the map's entry for the end of the list) puts the list's
+/// last item on top.
+#[gtktest::test]
+fn handing_the_split_driver_to_the_editor_keeps_a_heading_after_a_list_at_the_top() {
+    let (window, _doc) = park_split_on_heading("split_heading.editor_drives_list", Before::List);
+    hand_the_driver_to_the_editor(&window);
+    assert_preview_top_is_the_heading(&window, "after a list");
+    window.destroy();
+}
+
+/// **TDD 3.2a in Split, parked ON a heading.** A live reload re-renders the preview
+/// with the editor driving, so this is the projection above reached by the route the
+/// report came from. The Split reload cases above park in a paragraph, where the
+/// defect has nothing to show.
+#[gtktest::test]
+fn a_live_reload_keeps_a_heading_at_the_top_of_the_split_preview() {
+    for (suffix, before) in [
+        ("split_heading.reload", Before::Paragraph),
+        ("split_heading.reload_list", Before::List),
+    ] {
+        let (window, doc) = park_split_on_heading(suffix, before);
+        super::reload::apply_external_reload(
+            &window,
+            &format!("{doc}\nappended by another process\n"),
+        );
+        assert_preview_top_is_the_heading(&window, &format!("after a reload, {before:?}"));
+        window.destroy();
+    }
 }

@@ -42,6 +42,7 @@ described from a different vantage point.
 | D | Any | Production | The preview's Annotate bubble sits over the line above a selection, so a click there can land on the bubble: in a table, a double- or triple-click on the cell above a selected cell can lose a press and act as a single click | Low |
 | G | Windows | Upstream | After an edit the editor's scrollbar slider is sometimes not drawn until the next scroll (2 of 40 Enters); a GTK defect still open upstream | Low |
 | Q | Windows, Linux | Upstream | A crafted SVG can corrupt memory: Windows and Linux decode SVG through a librsvg with a published use-after-free (CVE-2026-96889, fixed in 2.63.2), and refuse any SVG that may use XInclude before librsvg sees it until they carry the fix. The macOS bundle carries 2.63.2, and its build fails below that | High |
+| R | Any | Production | Suspected, not reproduced: switching from Edit to Preview or Side by Side with a heading (or list item, or quote) at the editor's top may land the preview on the paragraph above it, because the lookup picks the nearest source landmark at or before the line and a block's landmarks start after its markup | Low |
 
 ## Closed issues
 
@@ -438,6 +439,35 @@ out (`xinclude::ENFORCED`), because the bundle carries the fix and its build enf
   Linux, where whether 2.52.5 even has the faulty code is still not established.
 - The screen's premise that librsvg follows no non-`data:` reference without a base URL
   (the loader is fed a stream with none) is read from librsvg's design, not measured.
+
+## R. A mode switch may land the preview on the paragraph above a heading
+
+**Severity**: Low (suspected, not reproduced; at worst the reader sees the tail of the previous section above the heading they were on).
+
+**Suspected** (2026-10-11, Linux, by reading code during the Side by Side scroll-sync fix):
+`apply_content_reading_position` in the window's scroll-sync code maps the editor's top line
+into the preview with the same at-or-before source-map lookup that made the Side by Side
+editor-driven sync land 72 px above a heading. The render's source map has no landmark at
+the start of a block's markup (`### `, `- `, `> `); its first landmark for the block is
+after that markup, so a position at the start of a heading line resolves to the end of the
+previous block (after a list, even a landmark ON the line's first byte points at the last bullet). The Side by Side case was measured and fixed inside its own sync path
+only; this mode-switch path was deliberately left alone and has not been driven.
+
+**Reproduce first**: in Edit mode, put a heading at the very top of the editor, switch to
+Preview, and check whether the preview's top line is the heading or the paragraph above it.
+Repeat for Side by Side and for a list item and a quote at the top.
+
+**Mitigation options**:
+- Apply the same narrow correction the Side by Side sync uses (`readingpos::line_to_preview_char`):
+  map from the first landmark AFTER the top line's first byte, falling back to the old lookup.
+  Not "the first landmark inside the line": after a list, a landmark sits exactly on the
+  heading line's first byte and points at the end of the list's last bullet. Small, local;
+  a blank top line still maps to the previous block.
+- Emit a landmark at each block's source start in the render's source map, which fixes
+  every reading-position path at once. Wider reach: every reading-position, copy and
+  source-map consumer reads that map, so it needs a full Reading-Position and
+  Document-Reference CAM review.
+- Accept it if it does not reproduce, and delete this entry.
 
 ## CLSD-02. A paragraph that mixes fonts lays out wider than the wrap width it was given
 
