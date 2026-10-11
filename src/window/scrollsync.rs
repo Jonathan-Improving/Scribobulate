@@ -504,6 +504,60 @@ pub(super) fn apply_content_reading_position(
         .set(written_line.map(|line| (pos, line)));
 }
 
+/// Where the reader is in the editor pane: the line at the top of its viewport, and the
+/// caret's line and column. Captured before a live reload replaces the editor's text
+/// and put back after it ([`restore_editor_place`]).
+///
+/// Lines rather than offsets for the reason the preview's reload restore gives: a
+/// same-document reload keeps line numbers stable (an append below is exact), and a
+/// line clamps harmlessly when the text got shorter (Document-Reference CAM row 5's
+/// bargain — a drifted line mis-positions, it never acts on the wrong text).
+#[derive(Clone, Copy, Debug)]
+pub(super) struct EditorPlace {
+    top_line: i32,
+    caret_line: i32,
+    caret_col: i32,
+}
+
+pub(super) fn capture_editor_place(st: &TabState) -> EditorPlace {
+    let caret = st.editor_buf.iter_at_mark(&st.editor_buf.get_insert());
+    EditorPlace {
+        top_line: st
+            .editor_buf
+            .iter_at_offset(view_top_offset(&st.editor))
+            .line(),
+        caret_line: caret.line(),
+        caret_col: caret.line_offset(),
+    }
+}
+
+/// Put the editor back where [`capture_editor_place`] found it, after its text was
+/// replaced.
+///
+/// The caret matters as much as the viewport: in Edit and Split the outline's
+/// highlight follows the caret (TDD 12.14), so a reload that left the caret where
+/// `load_into_editor` puts it — the document's first line — moved the outline to its
+/// top entry and kept it there (MEASURED, both modes, filtered or not). The viewport
+/// goes through the progressive restore because the replaced text's line heights are
+/// unvalidated, exactly as a freshly rendered preview's are.
+pub(super) fn restore_editor_place(st: &TabState, place: EditorPlace) {
+    let buf = &st.editor_buf;
+    let line = place.caret_line.clamp(0, (buf.line_count() - 1).max(0));
+    let caret = buf
+        .iter_at_line_offset(line, place.caret_col)
+        .or_else(|| {
+            buf.iter_at_line(line).map(|mut it| {
+                if !it.ends_line() {
+                    it.forward_to_line_end();
+                }
+                it
+            })
+        })
+        .unwrap_or_else(|| buf.end_iter());
+    buf.place_cursor(&caret);
+    restore_preview_scroll_to_line_fresh(&st.split.editor_scroller(), place.top_line);
+}
+
 #[cfg(all(test, feature = "gtk-integration-tests"))]
 mod gtk_integration_tests {
     use super::*;

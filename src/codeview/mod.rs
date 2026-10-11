@@ -967,7 +967,14 @@ impl CodePreviewView {
             self,
             move |adj| {
                 if o.imp().user_scrolling.get() {
-                    let (it, _) = o.line_at_y(adj.value() as i32);
+                    // The line at the top EDGE, which is a margin above `value` in buffer
+                    // space — the line the reload restore will put back there
+                    // (`ViewportTopIter::value_for_top_y`).
+                    let top_y = crate::saferizer::viewport::ViewportTopIter::top_y_for_value(
+                        &o,
+                        adj.value(),
+                    );
+                    let (it, _) = o.line_at_y(top_y);
                     o.imp().restore_target_line.set(Some(it.line()));
                 }
                 // The document moved under the pointer; the hover state is derived from

@@ -39,6 +39,8 @@ mod find;
 mod foldreveal;
 mod foldsplice;
 mod outline_nav;
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+mod outline_reload_tests;
 mod reload;
 mod rename;
 mod save;

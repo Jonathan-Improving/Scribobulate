@@ -423,7 +423,18 @@ pub(crate) fn apply_external_reload(window: &ApplicationWindow, content: &str) {
             .unwrap_or_else(|| "(no path)".to_owned()),
         content.len()
     );
+    // Where the reader is in the editor, when the editor is what they are reading.
+    // `adopt_disk_text` puts the caret on the first line (which an explicit File ▸ Reload
+    // keeps doing; TDD 7.22 itself covers only a document's first showing), and the
+    // outline follows the caret in these modes, so without this a live reload sent both
+    // the editor and the outline to the top (TDD 3.2a).
+    let editor_place = current_mode(window)
+        .is_editor_visible()
+        .then(|| super::scrollsync::capture_editor_place(&st));
     adopt_disk_text(window, &st, content);
+    if let Some(place) = editor_place {
+        super::scrollsync::restore_editor_place(&st, place);
+    }
 
     match current_mode(window) {
         ViewMode::Preview => {

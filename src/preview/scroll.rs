@@ -14,6 +14,7 @@
 
 use super::qdata::scrib_render_data;
 use crate::codeview::CodePreviewView;
+use crate::saferizer::viewport::ViewportTopIter;
 use gtk::prelude::*;
 use gtk::{ScrolledWindow, TextView};
 use std::cell::RefCell;
@@ -391,9 +392,13 @@ fn restore_textview_scroll_to_line_progressive(sw: &ScrolledWindow, view: &TextV
         let Some(iter) = bmark.resolve(&view.buffer()) else {
             return true;
         };
+        // In ADJUSTMENT space, which is buffer y plus the view's top margin: writing the
+        // line's y itself parks it a margin below the top edge, one line into the
+        // section above (`ViewportTopIter::value_for_top_y`).
         let (y, _) = view.line_yrange(&iter);
-        crate::saferizer::scrollpos::jump(&vadj, (y as f64).clamp(0.0, max)); // NON-animating
-        let (top, _) = view.line_at_y(vadj.value() as i32);
+        let value = ViewportTopIter::value_for_top_y(&view, y);
+        crate::saferizer::scrollpos::jump(&vadj, value.clamp(0.0, max)); // NON-animating
+        let (top, _) = view.line_at_y(ViewportTopIter::top_y_for_value(&view, vadj.value()));
         top.line() == target || vadj.value() >= max
     });
 

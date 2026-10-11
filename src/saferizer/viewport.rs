@@ -74,6 +74,29 @@ impl ViewportTopIter {
     pub(crate) fn top_offset(view: &impl IsA<gtk::TextView>) -> i32 {
         Self::of(view).offset()
     }
+
+    /// The vertical-adjustment value that puts buffer `y` at the top of the viewport.
+    ///
+    /// **Not `y`.** The adjustment's range includes the view's `top_margin`, so the
+    /// viewport's top edge is at buffer `value − top_margin` (`visible_rect().y()`,
+    /// which [`Self::of`] reads). Writing a line's `line_yrange` y straight into the
+    /// adjustment parks that line `top_margin` pixels BELOW the top edge, and the line
+    /// at the top is the one before it. MEASURED (GTK 4.6.9, the preview's 16 px
+    /// margin): a live reload restoring heading 17.6 of `sdd/TDD.md` wrote 95081, the
+    /// heading's y; `scroll_to_mark` had put it at 95097. The reader saw nearly the same
+    /// screen, and the outline — which reads the top through this seam — moved its
+    /// highlight back a section. This is the same value/y confusion GTK itself made in
+    /// GTK4Rs/AP-321's compensation path.
+    pub(crate) fn value_for_top_y(view: &impl IsA<gtk::TextView>, y: i32) -> f64 {
+        f64::from(y) + f64::from(view.as_ref().top_margin())
+    }
+
+    /// The inverse of [`Self::value_for_top_y`]: the buffer y at the viewport's top edge
+    /// when the adjustment reads `value`. For a value read DURING a `value-changed`
+    /// emission, where `visible_rect` may not have caught up yet.
+    pub(crate) fn top_y_for_value(view: &impl IsA<gtk::TextView>, value: f64) -> i32 {
+        value as i32 - view.as_ref().top_margin()
+    }
 }
 
 /// The full visible range of a `GtkTextView`'s viewport: the top and bottom

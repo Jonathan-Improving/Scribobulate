@@ -650,6 +650,11 @@
 - **When** the document reloads from an external change
 - **Then** the reading position stays approximately where it was
 
+### 3.2a The outline and the caret come back with the reading position
+- **Given** a document positioned partway down — scrolled in preview, or with the caret in a lower section in edit/split — with the outline highlighting that section, filtered or not
+- **When** the file reloads because another process changed it
+- **Then** the reading pane returns to the same place, the caret (edit/split) stays where the reader put it, and the outline's highlight ends on the same section — never the top entry, and never the previous section
+
 ### 3.3 Rapid successive external edits
 - **Given** an external agent writes the file many times in quick succession
 - **When** the changes arrive
@@ -1134,10 +1139,11 @@
 - **And** the tabs that were already there stay evenly spaced, whatever changed their widths earlier in the session
 
 ### 7.22 A freshly opened document puts the working position at its beginning
-- **Given** a document is opened, restored from the previous session, or reloaded from disk
+- **Given** a document is opened, or restored from the previous session
 - **When** it is first shown in the editor — by the view-mode action, the toolbar button, or session restore
 - **Then** the caret sits at the beginning of the document, and the footer's line/column indicator reads the first line
 - **And** the outline sidebar highlights the document's first section, not its last
+- **And** this governs only a document's first showing; a later reload from disk, manual or automatic, is not a fresh open (3.2a covers the automatic one)
 
 ### 7.25 A window shows hover cursors however it was opened
 
