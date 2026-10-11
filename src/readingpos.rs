@@ -198,6 +198,34 @@ pub(crate) fn line_to_preview_char(
     }
 }
 
+/// A held reading position -> preview buffer char, for a pane opened onto a position
+/// captured from EITHER pane (a view-mode switch): [`line_to_preview_char`] when `pos` is
+/// the first byte of a source line, otherwise [`to_preview_char`].
+///
+/// A position the editor's viewport produced is a line start whenever its top line is
+/// the first display line of a source line, which is exactly where a reader parked on a
+/// heading sits; the at-or-before lookup then lands on the block above (MEASURED: an Edit
+/// reader on a heading switched to Preview opened two lines up, on the end of the
+/// paragraph or list before it). A position the preview produced comes from a waypoint,
+/// and a heading's waypoint is past its `#`s, so it is not a line start and keeps the
+/// exact inverse. A preview waypoint that IS a line start (a paragraph's first byte)
+/// gets the first waypoint further along the same source line, which lies on the same
+/// preview buffer line.
+pub(crate) fn reading_to_preview_char(
+    source_map_inv: &[(usize, i32)],
+    shifts: &[(usize, usize)],
+    original: &str,
+    pos: DocPosition,
+) -> i32 {
+    let byte = pos.original().raw();
+    let line_start = byte == 0 || original.as_bytes().get(byte - 1) == Some(&b'\n');
+    if line_start && byte <= original.len() {
+        line_to_preview_char(source_map_inv, shifts, original, pos)
+    } else {
+        to_preview_char(source_map_inv, shifts, pos)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -409,5 +437,33 @@ mod tests {
         let shifts: Vec<(usize, usize)> = vec![(0, 0)];
         assert_eq!(to_editor_char(original, DocPosition::start()), 0);
         assert_eq!(to_preview_char(&inv, &shifts, DocPosition::start()), 0);
+    }
+
+    /// A view-mode switch hands the incoming preview a position from either pane: a line
+    /// start takes the line lookup (the heading, not the list above it), a mid-line
+    /// position keeps the exact inverse.
+    #[test]
+    fn a_held_position_takes_the_line_lookup_only_at_a_line_start() {
+        let original = "- item\n\n### Heading\n";
+        let heading_line = original.find("###").expect("fixture");
+        let content = original.find("Heading").expect("fixture");
+        let source_map: Vec<(i32, usize)> = vec![(0, 2), (4, heading_line), (6, content)];
+        let inv = invert(&source_map);
+        let shifts: Vec<(usize, usize)> = vec![(0, 0)];
+        let at = |b: usize| DocPosition::new(OriginalByteOffset::new(b));
+        assert_eq!(
+            reading_to_preview_char(&inv, &shifts, original, at(heading_line)),
+            6
+        );
+        assert_eq!(
+            reading_to_preview_char(&inv, &shifts, original, at(content)),
+            6,
+            "a position the preview produced (the heading's own waypoint) maps exactly"
+        );
+        assert_eq!(
+            reading_to_preview_char(&inv, &shifts, original, at(3)),
+            to_preview_char(&inv, &shifts, at(3)),
+            "a mid-line position keeps the at-or-before lookup"
+        );
     }
 }

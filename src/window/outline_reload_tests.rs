@@ -497,3 +497,83 @@ fn a_live_reload_keeps_a_heading_at_the_top_of_the_split_preview() {
         window.destroy();
     }
 }
+
+/// The preview pane's view and top line once it has stopped moving, plus the line in it
+/// that holds [`TARGET`].
+fn settled_preview_top_and_heading(window: &ApplicationWindow) -> (i32, i32, String) {
+    let (view, heading) = split_preview_and_heading_line(window);
+    let s = until_stable(
+        Clock::Frame,
+        Duration::from_secs(15),
+        Duration::from_millis(800),
+        || crate::saferizer::viewport::ViewportTopIter::of(&view).line(),
+    );
+    assert!(s.converged, "the preview never settled");
+    let top = s.value.expect("sampled at least once");
+    let buf = view.buffer();
+    let start = buf.iter_at_line(top).expect("a line in range");
+    let mut end = start;
+    if !end.ends_line() {
+        end.forward_to_line_end();
+    }
+    let text = buf.slice(&start, &end, false).chars().take(40).collect();
+    (top, heading, text)
+}
+
+/// **TDD 7.5, a mode switch from Edit.** A reader with a heading on the editor's top line
+/// who switches to Preview or Side by Side must see that heading at the top of the
+/// preview, not the end of the block above it, whether a paragraph or a list precedes
+/// it.
+///
+/// Mutation-checked: the at-or-before lookup (`to_preview_char`) in place of
+/// `reading_to_preview_char` in `apply_content_reading_position` opened Preview two lines
+/// up, on the end of the paragraph or list. Side by Side passes either way here, because
+/// its editor-driven sync re-projects the preview with the line lookup once the switch
+/// lands; it runs so that a regression there is caught too.
+#[gtktest::test]
+fn a_mode_switch_from_edit_keeps_a_heading_at_the_top_of_the_preview() {
+    for before in [Before::Paragraph, Before::List] {
+        for to in ["preview", "split"] {
+            let doc = document_with(before);
+            let window = open(
+                &format!("mode_switch_heading.{before:?}.{to}"),
+                "edit",
+                &doc,
+            );
+            let st = state(&window).expect("tab");
+            let it = st
+                .editor_buf
+                .iter_at_line(target_line(&doc))
+                .expect("the heading line");
+            st.editor_buf.place_cursor(&it);
+            crate::farscroll::scroll_to_mark_when_ready(
+                st.editor.upcast_ref(),
+                &st.editor_buf.get_insert(),
+                0.0,
+                true,
+                0.0,
+                0.0,
+            );
+            let ed = until_stable(
+                Clock::Frame,
+                Duration::from_secs(15),
+                Duration::from_millis(800),
+                || crate::saferizer::viewport::ViewportTopIter::of(&st.editor).line(),
+            );
+            let ed_top = ed.value.expect("sampled");
+            window.change_action_state("view-mode", &to.to_variant());
+            let (top, heading, text) = settled_preview_top_and_heading(&window);
+            assert_eq!(
+                ed_top,
+                target_line(&doc),
+                "precondition: the heading tops the editor"
+            );
+            assert_eq!(
+                top, heading,
+                "{before:?}, edit to {to}: the preview must open on the heading; its top \
+                 line is {top}, {text:?}"
+            );
+            window.destroy();
+        }
+    }
+}

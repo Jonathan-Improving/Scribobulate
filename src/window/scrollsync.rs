@@ -503,7 +503,14 @@ pub(super) fn apply_content_reading_position(
                 .and_then(|view| {
                     let rd = scrib_render_data(&view)?;
                     let rd = rd.borrow();
-                    let buf_char = readingpos::to_preview_char(&rd.source_map_inv, &rd.shifts, pos);
+                    // An editor-captured position is a line start; a heading's own
+                    // waypoint is past its `#`s (`reading_to_preview_char`).
+                    let buf_char = readingpos::reading_to_preview_char(
+                        &rd.source_map_inv,
+                        &rd.shifts,
+                        &rd.original_owned,
+                        pos,
+                    );
                     Some(view.buffer().iter_at_offset(buf_char).line())
                 })
                 .unwrap_or(0);
