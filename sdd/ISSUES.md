@@ -42,7 +42,6 @@ described from a different vantage point.
 | D | Any | Production | The preview's Annotate bubble sits over the line above a selection, so a click there can land on the bubble: in a table, a double- or triple-click on the cell above a selected cell can lose a press and act as a single click | Low |
 | G | Windows | Upstream | After an edit the editor's scrollbar slider is sometimes not drawn until the next scroll (2 of 40 Enters); a GTK defect still open upstream | Low |
 | Q | Windows, Linux | Upstream | A crafted SVG can corrupt memory: Windows and Linux decode SVG through a librsvg with a published use-after-free (CVE-2026-96889, fixed in 2.63.2), and refuse any SVG that may use XInclude before librsvg sees it until they carry the fix. The macOS bundle carries 2.63.2, and its build fails below that | High |
-| S | Windows | Project | Intermittently on Windows CI, a preview↔Side by Side round trip sends the reader from mid-document to line 0 on the first switch and keeps them there; the TDD 7.5 round-trip test fails, then passes on a rerun | Medium |
 
 ## Closed issues
 
@@ -439,27 +438,6 @@ out (`xinclude::ENFORCED`), because the bundle carries the fix and its build enf
   Linux, where whether 2.52.5 even has the faulty code is still not established.
 - The screen's premise that librsvg follows no non-`data:` reference without a base URL
   (the loader is fed a stream with none) is read from librsvg's design, not measured.
-
-## S. A view-mode round trip intermittently sends the reader to the top on Windows
-
-**Severity**: Medium (intermittent; if it reaches a user, a mode switch throws away the reading position).
-
-**Observed** (Windows CI runner, GDK-Win32): `repeated_view_mode_round_trips_do_not_walk_the_reading_position`
-(TDD 7.5) failed with the same message on master on 2026-10-06 and on a branch on
-2026-10-11: "preview↔split: the one-time settle moved the reader from line 79 to 0 …
-(sequence [0, 0, 0, 0]; total_lines=159 upper=2858 page_size=511)". Both times a rerun of
-the job passed. Not seen on Linux or macOS CI. A real reader placement of 0 on the first
-switch, not a slow drift: every later trip also reads 0.
-
-**Not established**: whether a user can hit it or only the CI runner (small window,
-loaded machine), and what returns 0 — a position read before the incoming pane has a
-layout (GTK4Rs/AP-263's last-line/first-line traps are the first suspects), or a switch
-racing the settle. Reproduce on the Windows seat with repeated runs before choosing a fix.
-
-**Mitigation options**:
-- Find and gate the read that answers 0 on an unsettled pane, then make the test
-  deterministic on Windows. The proper fix.
-- Retry-on-failure in CI. Rejected in advance: it hides a possible user-facing defect.
 
 ## CLSD-02. A paragraph that mixes fonts lays out wider than the wrap width it was given
 

@@ -54,7 +54,8 @@ pub(crate) use render::view_of;
 pub(crate) use render::{re_render, refresh_annotations_in_place, render};
 
 pub(crate) use scroll::{
-    preview_heading_line, preview_heading_slugs, preview_top_line, restore_preview_scroll_to_line,
-    restore_preview_scroll_to_line_fresh, scroll_preview_to_fragment, scroll_preview_to_heading,
+    editor_restore_in_flight, preview_heading_line, preview_heading_slugs, preview_top_line,
+    restore_preview_scroll_to_line, restore_preview_scroll_to_line_fresh,
+    scroll_preview_to_fragment, scroll_preview_to_heading,
 };
 pub(crate) use splice::install::{splice_disclosure, SpliceInputs, SpliceVerdict};

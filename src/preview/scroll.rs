@@ -200,6 +200,22 @@ pub(crate) fn preview_top_line(sw: &ScrolledWindow) -> Option<i32> {
 /// `schedule_scroll_idle` choke point; a base `GtkTextView` (the source editor)
 /// has no `imp` slot to cancel through, so the two halves are applied here.
 fn restore_textview_scroll_to_line(sw: &ScrolledWindow, view: &TextView, line: i32) {
+    // Newest restore wins: one still waiting for an allocation stands down once a later
+    // one has been issued, so a slow first layout can never land an OLD line over the
+    // position a later switch or navigation asked for.
+    let generation = RESTORE_GENERATION.get(view).unwrap_or(0).wrapping_add(1);
+    RESTORE_GENERATION.set(view, generation);
+    let current = move |view: &TextView| RESTORE_GENERATION.get(view) == Some(generation);
+    RESTORE_IN_FLIGHT.set(view, Some(line));
+    let settle_or_drop = move |view: &TextView, landed: bool| {
+        if current(view) {
+            if landed {
+                watch_restore_arrival(view, generation);
+            } else {
+                RESTORE_IN_FLIGHT.set(view, None);
+            }
+        }
+    };
     let sw_weak = sw.downgrade();
     let view_weak = view.downgrade();
     gtk::glib::idle_add_local_once(move || {
@@ -208,8 +224,9 @@ fn restore_textview_scroll_to_line(sw: &ScrolledWindow, view: &TextView, line: i
         let (Some(view), Some(sw)) = (view_weak.upgrade(), sw_weak.upgrade()) else {
             return; // widget dropped before the idle ran
         };
-        if !view.is_realized() {
-            return; // torn down (or not yet on screen) — nothing to scroll
+        if !view.is_realized() || !current(&view) {
+            settle_or_drop(&view, false);
+            return; // torn down, not yet on screen, or superseded — nothing to scroll
         }
         // **The allocation gate the preview's twin has** (`CodePreviewView::run_scroll_work`):
         // mapped is not allocated, and a `scroll_to_mark` issued before the first layout
@@ -227,24 +244,107 @@ fn restore_textview_scroll_to_line(sw: &ScrolledWindow, view: &TextView, line: i
                 let Some(sw) = sw_weak.upgrade() else {
                     return gtk::glib::ControlFlow::Break;
                 };
-                if !view.is_realized() || gtk::glib::monotonic_time() >= deadline {
+                // Hidden again (the reader switched on before the first layout) or
+                // superseded: the next switch into this pane issues its own restore.
+                if !view.is_realized()
+                    || !view.is_mapped()
+                    || !current(view)
+                    || gtk::glib::monotonic_time() >= deadline
+                {
+                    settle_or_drop(view, false);
                     return gtk::glib::ControlFlow::Break;
                 }
                 if view.visible_rect().height() <= 0 {
                     return gtk::glib::ControlFlow::Continue;
                 }
                 scroll_textview_to_line(&sw, view, line);
+                settle_or_drop(view, true);
                 gtk::glib::ControlFlow::Break
             });
             return;
         }
         scroll_textview_to_line(&sw, &view, line);
+        settle_or_drop(&view, true);
     });
 }
 
-/// How long an editor scroll restore waits for the view's first allocation. Wall clock,
-/// because the allocation arrives with a layout pass on the frame clock (GTK4Rs/AP-122).
-const RESTORE_AWAIT_ALLOC: std::time::Duration = std::time::Duration::from_millis(1000);
+/// The line an editor scroll restore is still travelling to, or `None` once it has
+/// arrived, stopped, been superseded or been dropped.
+///
+/// `scroll_to_mark` on a mapped view ANIMATES (`gtk_adjustment_animate_to_value` in
+/// gtktextview.c), so for a while after the restore is issued the live top line is
+/// still the old one. A view-mode switch in that window that re-reads the live top
+/// takes that old line for the reader's position (GTK4Rs/AP-14, here on the editor).
+/// MEASURED on a starved Windows runner: the editor restore to line 79 had not yet
+/// moved when the next switch read the editor's top, the reader's position became
+/// line 0, and every later switch kept it there. The view-mode hand-off asks this
+/// before trusting the live top (`window::scrollsync::content_reading_position`).
+pub(crate) fn editor_restore_in_flight(view: &TextView) -> Option<i32> {
+    RESTORE_IN_FLIGHT.get(view).flatten()
+}
+
+/// Clear [`editor_restore_in_flight`] once the scroll the restore just issued has played
+/// out: the top line reached, or the adjustment moved and then held still for two
+/// frames. Holding still before it ever moved is NOT arrival, since that is exactly the
+/// state of an animation whose first frame has not run yet. Bounded by
+/// [`RESTORE_AWAIT_ALLOC`] so a target the view can never show (the last lines of a
+/// short document) cannot hold the flag for long.
+fn watch_restore_arrival(view: &TextView, generation: u64) {
+    let target = RESTORE_IN_FLIGHT.get(view).flatten();
+    let deadline = gtk::glib::monotonic_time()
+        + i64::try_from(RESTORE_AWAIT_ALLOC.as_micros()).unwrap_or(i64::MAX);
+    let last = std::cell::Cell::new(view.vadjustment().map(|a| a.value()));
+    let moved = std::cell::Cell::new(false);
+    let still = std::cell::Cell::new(0u8);
+    view.add_tick_callback(move |widget, _| {
+        let Some(view) = widget.downcast_ref::<TextView>() else {
+            return gtk::glib::ControlFlow::Break;
+        };
+        if RESTORE_GENERATION.get(view) != Some(generation) {
+            return gtk::glib::ControlFlow::Break; // a newer restore owns the flag
+        }
+        let value = view.vadjustment().map(|a| a.value());
+        if value != last.get() {
+            moved.set(true);
+            still.set(0);
+        } else if moved.get() {
+            still.set(still.get().saturating_add(1));
+        }
+        last.set(value);
+        let arrived = Some(crate::saferizer::viewport::ViewportTopIter::of(view).line()) == target;
+        if arrived
+            || still.get() >= 2
+            || !view.is_mapped()
+            || gtk::glib::monotonic_time() >= deadline
+        {
+            RESTORE_IN_FLIGHT.set(view, None);
+            return gtk::glib::ControlFlow::Break;
+        }
+        gtk::glib::ControlFlow::Continue
+    });
+}
+
+/// How long an editor scroll restore waits for the view's first allocation: a FAILURE
+/// bound, never the expected wait (GTK4Rs/AP-122). Wall clock, because the allocation
+/// arrives with a layout pass on the frame clock.
+///
+/// It was 1 s, short enough for a starved machine to reach: a dropped restore leaves the
+/// editor — the split's scroll driver — at the top, and it drags the preview there too
+/// (the shape of the Windows CI failure where a preview to Side by Side switch took the
+/// reader from line 79 to 0). The wait ends at the first allocated frame; what keeps a
+/// long bound from leaving a stale tick behind is the generation check and the unmapped
+/// check, not the deadline.
+const RESTORE_AWAIT_ALLOC: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// The generation of the newest editor scroll restore issued on a view (see
+/// `restore_textview_scroll_to_line`).
+const RESTORE_GENERATION: crate::saferizer::qdata_key::QdataKey<u64> =
+    crate::saferizer::qdata_key::QdataKey::new("scrib-scroll-restore-generation");
+
+/// The line the newest editor scroll restore is travelling to (see
+/// [`editor_restore_in_flight`]).
+const RESTORE_IN_FLIGHT: crate::saferizer::qdata_key::QdataKey<Option<i32>> =
+    crate::saferizer::qdata_key::QdataKey::new("scrib-scroll-restore-in-flight");
 
 /// The scroll itself, on an allocated view: see [`restore_textview_scroll_to_line`].
 fn scroll_textview_to_line(sw: &ScrolledWindow, view: &TextView, line: i32) {

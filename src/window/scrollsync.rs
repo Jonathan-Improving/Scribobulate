@@ -437,7 +437,10 @@ pub(crate) fn content_reading_position(window: &ApplicationWindow) -> DocPositio
             .iter_at_offset(view_top_offset(&st.editor))
             .line();
         if let Some((pos, line)) = stored {
-            if line == top {
+            // Still travelling there counts as there: a restore's scroll animates, and
+            // the live top reads the line it is leaving until it has played out.
+            let in_flight = crate::preview::editor_restore_in_flight(st.editor.upcast_ref());
+            if line == top || in_flight == Some(line) {
                 return pos;
             }
         }
@@ -629,6 +632,21 @@ mod gtk_integration_tests {
             },
         );
         settle(&st, "the freshly built preview");
+        // The top offset holds still at 0 while the preview is still validating, and its
+        // scrollable height keeps growing; a park issued then is clamped near the top
+        // (MEASURED in the full `window::` suite: a half-way jump landed at 42 px and the
+        // round trips measured nothing). Wait for the height itself to stop changing.
+        let height = crate::testpump::until_stable(
+            crate::testpump::Clock::Frame,
+            std::time::Duration::from_millis(8000),
+            std::time::Duration::from_millis(300),
+            || {
+                st.split
+                    .preview_scroller()
+                    .map(|sw| sw.vadjustment().upper() as i64)
+            },
+        );
+        assert!(height.converged, "the preview's height never settled");
         (window, st)
     }
 
@@ -750,6 +768,14 @@ mod gtk_integration_tests {
         // mode the loop happened to end in, and a `page_size` of 0 from an unmounted
         // pane reads as a broken fixture rather than as a timing artefact of the probe.
         let geometry = fixture_geometry(&st);
+        // A park that never took leaves the reader at line 0, where every later read is 0
+        // too and the drift checks pass without measuring anything (seen on a starved
+        // Windows runner).
+        assert!(
+            start > FIXTURE_LINES_PER_SECTION,
+            "precondition: the reader is parked mid-document before the round trips (top \
+             line {start}; {geometry})"
+        );
 
         let mut seen = Vec::new();
         for _ in 0..4 {
@@ -872,6 +898,41 @@ mod gtk_integration_tests {
         );
     }
 
+    /// **TDD 7.5, a switch back before the editor's restore has played out.** Entering Side
+    /// by Side restores the editor with an ANIMATED scroll, so for a while its live top is
+    /// still the line it is leaving. A switch back in that window must hand on the
+    /// position the editor was given, not the stale live top.
+    ///
+    /// Switching back in the same main-loop turn is the deterministic form of what a
+    /// starved Windows runner did (MEASURED there: the restore to line 79 had not moved
+    /// when the next switch read the editor, and the reader went to line 0 for good).
+    /// Mutation-checked: without the in-flight check in `content_reading_position` the
+    /// reader lands far from where it started.
+    #[gtktest::test]
+    fn switching_back_before_the_editor_restore_lands_keeps_the_reading_position() {
+        let (window, st) = windowed("com.extollit.scribobulate.integrationtest.inflight");
+        let sw = st.split.preview_scroller().expect("preview mounted");
+        let adj = sw.vadjustment();
+        crate::saferizer::scrollpos::jump(&adj, adj.upper() * 0.5);
+        let start = settled_top_line(&st);
+        assert!(
+            start > FIXTURE_LINES_PER_SECTION,
+            "precondition: the reader is parked mid-document (top line {start})"
+        );
+        crate::window::change_action_state(&window, "view-mode", &"split".to_variant());
+        assert!(
+            crate::preview::editor_restore_in_flight(st.editor.upcast_ref()).is_some(),
+            "precondition: the editor restore is still in flight when the switch back comes"
+        );
+        crate::window::change_action_state(&window, "view-mode", &"preview".to_variant());
+        let back = settled_top_line(&st);
+        assert!(
+            (back - start).abs() <= FIXTURE_LINES_PER_SECTION,
+            "the reader started on line {start} and came back on line {back}"
+        );
+        window.destroy();
+    }
+
     /// The same guarantee for the edit round trip, which drifted the OPPOSITE way
     /// before the fix — so a repair that assumed one direction would have moved
     /// this one further rather than fixing it.
@@ -890,6 +951,14 @@ mod gtk_integration_tests {
         // mode the loop happened to end in, and a `page_size` of 0 from an unmounted
         // pane reads as a broken fixture rather than as a timing artefact of the probe.
         let geometry = fixture_geometry(&st);
+        // A park that never took leaves the reader at line 0, where every later read is 0
+        // too and the drift checks pass without measuring anything (seen on a starved
+        // Windows runner).
+        assert!(
+            start > FIXTURE_LINES_PER_SECTION,
+            "precondition: the reader is parked mid-document before the round trips (top \
+             line {start}; {geometry})"
+        );
 
         let mut seen = Vec::new();
         for _ in 0..4 {
