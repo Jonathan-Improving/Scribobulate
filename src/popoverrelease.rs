@@ -5,12 +5,12 @@
 //! frames, once per display refresh and forever, after ANY `GtkPopover` has been shown
 //! and hidden. The app does nothing in those frames (no tick callback, no `queue_draw`,
 //! no snapshot), yet it holds ~4.6% of a core and starts a fresh CVDisplayLink thread
-//! every frame. A popover that is hidden and then UNREALIZED leaves nothing ticking. The
-//! macOS seat measured both, in a bare gtk4-rs window and in this app. Linux and Windows
-//! idle at 0% after the same popup and popdown, so only macOS turns this on. MEASURED with
-//! this module, macOS 4.22.4: 4.35% to 0% idle after a dropdown and a context menu. It
-//! is switched on from `app::setup` ([`set_enabled`]). The mechanism is shared code, so
-//! every platform's suite tests it.
+//! every frame (GTK4Rs/AP-359). A popover that is hidden and then UNREALIZED leaves
+//! nothing ticking. The macOS seat measured both, in a bare gtk4-rs window and in this
+//! app. Linux and Windows idle at 0% after the same popup and popdown, so only macOS
+//! turns this on. MEASURED with this module, macOS 4.22.4: 4.35% to 0% idle after a
+//! dropdown and a context menu. It is switched on from `app::setup` ([`set_enabled`]).
+//! The mechanism is shared code, so every platform's suite tests it.
 //!
 //! **One choke point for every popover.** The app builds popovers in many places, and
 //! GTK builds more itself: a `GtkDropDown`'s list, the context menu of a `GtkText`, every
