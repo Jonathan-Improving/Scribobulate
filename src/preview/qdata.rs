@@ -15,7 +15,6 @@ use crate::widgets::table::ScribTableWidget;
 use gtk::prelude::*;
 use gtk::{Label, TextChildAnchor};
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::rc::Rc;
 
 /// Per-render data shared by live closures on the preview `TextView`.  Stored
@@ -37,7 +36,7 @@ pub(crate) struct RenderData {
     pub copymap: crate::copymap::CopyTree,
     pub md_owned: String,
     pub links: Vec<(i32, i32, String)>,
-    pub heading_map: HashMap<String, i32>,
+    pub heading_map: crate::anchors::HeadingAnchors<i32>,
     /// Where each heading the SOURCE declares is reachable in this render, in
     /// document order and indexed by `outline::HeadingNode::doc_index` — the outline
     /// sidebar's scroll targets. One entry per source heading, including the ones a

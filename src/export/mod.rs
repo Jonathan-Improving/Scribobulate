@@ -306,10 +306,15 @@ pub(crate) enum Block {
         /// the level the document stated: an HTML `<h6>` is a real element and a PDF
         /// scale is a number, so neither has the preview's five-tag constraint.
         level: u8,
-        /// The heading's anchor slug, from [`crate::links::slugify`] and made unique
-        /// the same way the preview makes it — so an in-document link that works on
-        /// screen works in the artefact (TDD 25.1).
+        /// The heading's anchor slug, issued by the same
+        /// [`crate::anchors::HeadingSlugger`] the preview uses — so an in-document
+        /// link that works on screen works in the artefact (TDD 25.1).
         id: String,
+        /// The heading's emoji-free alias (`#escalations` for `## 🚨 Escalations`),
+        /// when it has one that no heading's `id` shadows — the artefact's half of the
+        /// preview's `HeadingAnchors::resolve`. A sink that can carry a second anchor
+        /// carries this one too.
+        alias: Option<String>,
         inlines: Vec<Inline>,
     },
     Paragraph(Vec<Inline>),

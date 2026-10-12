@@ -1,57 +1,10 @@
 //! Link, anchor, and resource-target handling for rendered Markdown: which URL
-//! schemes are safe to launch, opening them, image-path containment, and the
-//! GitHub-style heading-anchor slugs that drive same-document `#fragment` links.
+//! schemes are safe to launch, opening them, image-path containment, and decoding
+//! a `#fragment` (what it is matched against lives in `anchors.rs`).
 //! Extracted from `renderer.rs` to keep that module focused on AST → buffer
 //! rendering.
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-
-// ── heading anchor slugs (GitHub-style) ────────────────────────────────────────
-
-/// Convert heading text to a GitHub-style anchor slug: lowercase, then keep only
-/// letters, numbers, `_` and `-`, with spaces turned into `-`.  Matches the
-/// github-slugger algorithm (lowercase → strip everything else → spaces to
-/// hyphens); no hyphen/space collapsing or trimming.  `char::is_alphanumeric` is
-/// Unicode-aware so non-ASCII headings slug like GitHub's (precomposed forms).
-///
-/// **Do not add trimming, however reasonable the bug report sounds.** A heading
-/// that begins or ends with an emoji slugs with a *leading or trailing hyphen* —
-/// the symbol is dropped but the space beside it still becomes one — so
-/// `## Stem Repair 🩹` is `#stem-repair-`, not `#stem-repair`. That surprises
-/// readers and gets reported as an anchor bug, but it is exactly what GitHub
-/// does (`## 🚀 Getting Started` → `#-getting-started` is the widely-seen half of
-/// the same behaviour), and it is verified against `github-slugger@2.0.0` in the
-/// test below. Trimming here would fix the hand-written link and silently break
-/// every anchor GitHub actually generates — the document is what is wrong in that
-/// report, not this function.
-pub(crate) fn slugify(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for ch in text.chars() {
-        if ch == ' ' {
-            out.push('-');
-        } else if ch == '-' || ch == '_' || ch.is_alphanumeric() {
-            out.extend(ch.to_lowercase());
-        }
-        // everything else (punctuation, symbols) is dropped
-    }
-    out
-}
-
-/// Disambiguate duplicate slugs the github-slugger way: the first occurrence
-/// keeps the bare slug; later collisions get `-1`, `-2`, … (1-based, document
-/// order).  Each produced slug is also recorded, so a literal heading that
-/// already produced e.g. `notes-1` doesn't collide with a later duplicate.
-pub(crate) fn unique_slug(base: &str, seen: &mut HashMap<String, u32>) -> String {
-    let mut result = base.to_string();
-    while seen.contains_key(&result) {
-        let count = seen.entry(base.to_string()).or_insert(0);
-        *count += 1;
-        result = format!("{base}-{count}");
-    }
-    seen.insert(result.clone(), 0);
-    result
-}
 
 /// Normalise a link target into a candidate anchor slug: a leading `#` is
 /// stripped and the remainder percent-decoded (anchors with non-ASCII text may
@@ -1020,61 +973,10 @@ mod tests {
     use super::{
         anchor_target, doc_link_fragment, is_allowed_url, is_exportable_href, lexically_within,
         path_for_insert, percent_decode, percent_encode_path, reaches_a_foreign_remote_namespace,
-        resolve_contained_image, resolve_doc_link, resolve_image, scheme_of, slugify, unique_slug,
-        ImageResolution, LinkResolution,
+        resolve_contained_image, resolve_doc_link, resolve_image, scheme_of, ImageResolution,
+        LinkResolution,
     };
-    use std::collections::HashMap;
     use std::path::Path;
-
-    #[test]
-    fn slugify_matches_github() {
-        assert_eq!(slugify("2. Skill Loading"), "2-skill-loading");
-        assert_eq!(slugify("Anti-patterns to avoid"), "anti-patterns-to-avoid");
-        assert_eq!(slugify("Hello, World!"), "hello-world");
-        assert_eq!(slugify("C++ Guide"), "c-guide");
-        // underscores and existing hyphens survive; no collapsing of repeats.
-        assert_eq!(slugify("a_b"), "a_b");
-        assert_eq!(slugify("a  b"), "a--b");
-    }
-
-    /// An emoji in a heading drops out but the space beside it does not, so the
-    /// slug gains a leading or trailing hyphen. Pinned because it looks like a
-    /// defect and the "obvious" fix — trimming — would break every anchor GitHub
-    /// really generates; see [`slugify`]'s doc comment.
-    ///
-    /// Expectations measured against `github-slugger@2.0.0` (the algorithm
-    /// GitHub's own pipeline uses), not derived from this implementation, so the
-    /// test cannot agree with itself about a wrong answer.
-    #[test]
-    fn an_emoji_in_a_heading_leaves_a_hyphen_where_it_stood() {
-        assert_eq!(
-            slugify("Plant Support & Stem Repair 🩹"),
-            "plant-support--stem-repair-"
-        );
-        assert_eq!(slugify("🚀 Getting Started"), "-getting-started");
-        // …and a heading whose emoji is not space-separated keeps no hyphen.
-        assert_eq!(slugify("Roadmap🚀"), "roadmap");
-    }
-
-    #[test]
-    fn unique_slug_suffixes_duplicates() {
-        let mut seen = HashMap::new();
-        assert_eq!(unique_slug("notes", &mut seen), "notes");
-        assert_eq!(unique_slug("notes", &mut seen), "notes-1");
-        assert_eq!(unique_slug("notes", &mut seen), "notes-2");
-        // a different slug is unaffected
-        assert_eq!(unique_slug("intro", &mut seen), "intro");
-    }
-
-    #[test]
-    fn unique_slug_avoids_literal_collision() {
-        // A literal heading that already produced "notes-1" must not collide with
-        // a later duplicate of "notes".
-        let mut seen = HashMap::new();
-        assert_eq!(unique_slug("notes-1", &mut seen), "notes-1");
-        assert_eq!(unique_slug("notes", &mut seen), "notes");
-        assert_eq!(unique_slug("notes", &mut seen), "notes-2"); // skips the taken notes-1
-    }
 
     #[test]
     fn anchor_target_strips_and_decodes() {

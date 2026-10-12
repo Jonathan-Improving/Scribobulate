@@ -10,7 +10,6 @@ use super::{Align, Block, ExportDoc, ImageRef, ImageSource, Inline, ListItem, Re
 use crate::links::{self, ImageResolution};
 use crate::renderer::{is_inline_tag, BlockScripts, Script};
 use pulldown_cmark::{CodeBlockKind, Event, Tag, TagEnd};
-use std::collections::HashMap;
 
 pub(super) struct Builder<'a> {
     opts: &'a RenderOptions,
@@ -24,10 +23,10 @@ pub(super) struct Builder<'a> {
     /// claim mapper both count in.
     rendered: i32,
     content_evs: Vec<(usize, usize, i32, i32)>,
-    /// Heading slugs already issued, so a repeated heading gets `-1`, `-2`… exactly
-    /// as the preview's anchors do — an in-document link that works on screen works
-    /// in the artefact.
-    slugs: HashMap<String, u32>,
+    /// Issues heading slugs, so a repeated heading gets `-1`, `-2`… exactly as the
+    /// preview's anchors do — an in-document link that works on screen works in the
+    /// artefact.
+    slugger: crate::anchors::HeadingSlugger,
     title: Option<String>,
     table: Option<TableBuild>,
     in_table_head: bool,
@@ -175,7 +174,7 @@ impl<'a> Builder<'a> {
             open: Vec::new(),
             rendered: 0,
             content_evs: Vec::new(),
-            slugs: HashMap::new(),
+            slugger: crate::anchors::HeadingSlugger::default(),
             title: None,
             table: None,
             in_table_head: false,
@@ -198,9 +197,11 @@ impl<'a> Builder<'a> {
         // Pulldown wraps top-level content in a paragraph, so this is normally a no-op
         // — but a document that ends mid-frame must not silently lose its last run.
         self.flush_implicit();
+        let mut blocks = self.block_stack.pop().unwrap_or_default();
+        drop_shadowed_aliases(&mut blocks, &self.slugger);
         ExportDoc {
             title: self.title.take(),
-            blocks: self.block_stack.pop().unwrap_or_default(),
+            blocks,
             annotations: Vec::new(),
             has_unembedded_remote_images: self.has_unembedded_remote,
             content_evs: self.content_evs,
@@ -491,11 +492,16 @@ impl<'a> Builder<'a> {
             Open::Heading(level) => {
                 let inlines = self.close_inlines();
                 let text = plain_text(&inlines);
-                let id = links::unique_slug(&links::slugify(&text), &mut self.slugs);
+                let crate::anchors::HeadingSlugs { slug: id, alias } = self.slugger.next(&text);
                 if level == 1 && self.title.is_none() {
                     self.title = Some(text);
                 }
-                self.push_block(Block::Heading { level, id, inlines });
+                self.push_block(Block::Heading {
+                    level,
+                    id,
+                    alias,
+                    inlines,
+                });
             }
             // `flush_implicit` above pops an implicit paragraph before this match, so
             // the second arm is not reachable today. It closes the same way rather than
@@ -789,6 +795,32 @@ impl<'a> Builder<'a> {
             }
         };
         ImageRef { alt, title, source }
+    }
+}
+
+/// Clear every heading alias some heading's own `id` shadows — the export's half of
+/// `anchors::HeadingAnchors::new`. Only possible once the walk is over, because the
+/// heading that shadows an alias may come after it. Left in place, an HTML anchor for
+/// the alias would come FIRST in the document and capture the fragment from the heading
+/// GitHub resolves it to, which would make the artefact disagree with the preview.
+fn drop_shadowed_aliases(blocks: &mut [Block], slugger: &crate::anchors::HeadingSlugger) {
+    for block in blocks {
+        match block {
+            Block::Heading { alias, .. } => {
+                if alias.as_deref().is_some_and(|a| slugger.issued(a)) {
+                    *alias = None;
+                }
+            }
+            Block::BlockQuote(inner) | Block::Disclosure { body: inner, .. } => {
+                drop_shadowed_aliases(inner, slugger);
+            }
+            Block::List { items, .. } => {
+                for item in items {
+                    drop_shadowed_aliases(&mut item.blocks, slugger);
+                }
+            }
+            Block::Paragraph(_) | Block::CodeBlock { .. } | Block::Table { .. } | Block::Rule => {}
+        }
     }
 }
 

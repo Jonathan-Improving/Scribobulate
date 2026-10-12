@@ -94,7 +94,11 @@ pub(crate) fn scroll_preview_to_fragment(sw: &ScrolledWindow, fragment: &str) ->
     let Some(rd) = scrib_render_data(&view) else {
         return false;
     };
-    let offset = rd.borrow().heading_map.get(fragment).copied();
+    let offset = rd
+        .borrow()
+        .heading_map
+        .resolve(fragment)
+        .map(|(_, offset)| offset);
     match offset {
         Some(offset) => {
             view.scroll_to_buffer_offset(offset);
@@ -120,8 +124,8 @@ pub(crate) fn preview_heading_line(sw: &ScrolledWindow, slug: &str) -> Option<i3
     let offset = scrib_render_data(&view)?
         .borrow()
         .heading_map
-        .get(slug)
-        .copied()?;
+        .resolve(slug)
+        .map(|(_, offset)| offset)?;
     Some(view.buffer().iter_at_offset(offset).line())
 }
 
@@ -137,7 +141,7 @@ pub(crate) fn preview_heading_line(sw: &ScrolledWindow, slug: &str) -> Option<i3
 pub(crate) fn preview_heading_slugs(sw: &ScrolledWindow) -> Option<HashSet<String>> {
     let view = sw.child()?.downcast::<CodePreviewView>().ok()?;
     let rd = scrib_render_data(&view)?;
-    let slugs = rd.borrow().heading_map.keys().cloned().collect();
+    let slugs = rd.borrow().heading_map.slugs();
     Some(slugs)
 }
 

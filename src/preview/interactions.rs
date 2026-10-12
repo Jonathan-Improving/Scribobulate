@@ -214,18 +214,26 @@ fn cell_link_at(view: &CodePreviewView, x: f64, y: f64) -> Option<String> {
 /// refusal — is decided in one place, `window::activate_doc_link`, so no rendering
 /// layer re-implements the containment policy.
 pub(crate) fn activate_link_url(view: &CodePreviewView, url: &str) {
-    if let Some(slug) = anchor_target(url) {
+    if let Some(fragment) = anchor_target(url) {
         // Scoped borrow: resolve the heading offset and release `RenderData` before
         // touching the view. An accepted local doc-link navigation can create/focus
         // another tab and re-enter render/re-render on THIS tab, and holding a
         // `RefCell` borrow across that boundary is the GTK4Rs/AP-61 hazard (a synchronous
         // re-entrant borrow aborts).
-        let target = super::scrib_render_data(view)
-            .and_then(|rd| rd.borrow().heading_map.get(&slug).copied());
+        //
+        // The fragment may be the heading's GitHub slug or its emoji-free alias
+        // (`anchors`); `resolve` answers both and hands back the CANONICAL slug, which
+        // is what the history records, so the two link forms are one spot to it.
+        let target = super::scrib_render_data(view).and_then(|rd| {
+            rd.borrow()
+                .heading_map
+                .resolve(&fragment)
+                .map(|(slug, offset)| (slug.to_owned(), offset))
+        });
         // An unresolvable `#fragment` is inert, exactly as before: a document is free
         // to link a heading it does not have, and launching it externally would be
         // worse than doing nothing.
-        if let Some(target) = target {
+        if let Some((slug, target)) = target {
             // Record BEFORE scrolling (TDD 23.11/23.12): the departure spot is the
             // reader's live position, and `scroll_to_buffer_offset` immediately
             // overwrites the view's tracked reading line with its own target — so

@@ -4,7 +4,6 @@
 //! inline-tag pops.
 
 use super::Renderer;
-use crate::links::{slugify, unique_slug};
 use crate::widgets::table::{
     cell_markup_label, make_cell_selectable, ScribTableWidget, LINK_MARKUP_CLOSE,
 };
@@ -15,10 +14,10 @@ impl Renderer {
     pub(super) fn end_tag(&mut self, end: TagEnd) {
         match end {
             TagEnd::Heading(level) => {
-                // Compute this heading's GitHub-style anchor slug and record its
-                // position so `#slug` links can scroll here.
-                let slug = unique_slug(&slugify(&self.heading_text), &mut self.inter.slug_seen);
-                self.headings.push((slug, self.inter.heading_start));
+                // Compute this heading's anchor slugs (GitHub's, and the emoji-free
+                // alias) and record its position so `#slug` links can scroll here.
+                let slugs = self.inter.slugger.next(&self.heading_text);
+                self.headings.push((slugs, self.inter.heading_start));
                 self.insert_heading_marker(crate::theme::heading_slot(level as u8));
                 // …and its EXTENT, for the drawn band (TDD 18.25). Recorded BEFORE the
                 // terminating newline, so the span covers the heading's content only —

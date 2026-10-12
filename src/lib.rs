@@ -34,6 +34,7 @@
 pub(crate) mod a11y;
 pub(crate) mod accel;
 pub(crate) mod affordance;
+pub(crate) mod anchors;
 pub(crate) mod animation;
 pub(crate) mod annotate;
 pub(crate) mod annotations;

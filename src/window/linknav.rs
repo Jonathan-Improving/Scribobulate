@@ -328,8 +328,9 @@ mod gtk_integration_tests {
         let rd =
             crate::preview::scrib_render_data(view).expect("a rendered preview stores RenderData");
         let rd = rd.borrow();
-        *rd.heading_map
-            .get(slug)
+        rd.heading_map
+            .resolve(slug)
+            .map(|(_, offset)| offset)
             .unwrap_or_else(|| panic!("no heading slugs to \"{slug}\" in this document"))
     }
 
@@ -623,6 +624,73 @@ mod gtk_integration_tests {
             target_view.reading_line(),
             section_two,
             "the last Forward returns to the heading the link named"
+        );
+
+        drain_pending_idle();
+        window.destroy();
+    }
+
+    /// The buffer line the heading whose text contains `needle` sits on, found by
+    /// searching the rendered text — deliberately NOT through `heading_map`, so it
+    /// cannot agree with the resolver under test about a wrong answer.
+    fn line_of_heading_text(view: &CodePreviewView, needle: &str) -> i32 {
+        let (start, _) = view
+            .buffer()
+            .start_iter()
+            .forward_search(needle, gtk::TextSearchFlags::empty(), None)
+            .unwrap_or_else(|| panic!("{needle:?} is rendered"));
+        start.line()
+    }
+
+    /// The line `view`'s pending scroll target sits on.
+    fn scroll_target_line(view: &CodePreviewView) -> Option<i32> {
+        let offset = scroll_target_offset(view)?;
+        Some(view.buffer().iter_at_offset(offset).line())
+    }
+
+    /// TDD 2.17 — a heading that carries an emoji answers to BOTH fragments: the
+    /// hand-written emoji-free `#escalations` (the operator-reported defect: it
+    /// resolved to nothing, so the click did nothing) and GitHub's own
+    /// `#-escalations`, which already worked and must keep working.
+    #[gtktest::test]
+    fn an_emoji_heading_is_reached_by_its_emoji_free_and_its_github_fragment() {
+        let filler = "filler\n\n".repeat(30);
+        let md = format!(
+            "# Top\n\n[x](#escalations)\n\n{filler}## 🚨 Escalations\n\nbody\n\n\
+             {filler}## Stem Repair 🩹\n\nend\n"
+        );
+        let app = make_app("com.extollit.scribobulate.integrationtest.linknav.emojianchor");
+        let window = new_window(&app, "IT", &md, None);
+        let tab = state(&window).expect("state registered after new_window");
+        let view = preview_view_of(&tab);
+        let escalations = line_of_heading_text(&view, "Escalations");
+        assert!(escalations > 0, "sanity: the heading is not the first line");
+        assert_eq!(
+            scroll_target_line(&view),
+            None,
+            "precondition: nothing has scrolled the preview yet"
+        );
+
+        crate::preview::activate_link_url(&view, "#escalations");
+        assert_eq!(
+            scroll_target_line(&view),
+            Some(escalations),
+            "#escalations must scroll to `## 🚨 Escalations`"
+        );
+
+        let stem = line_of_heading_text(&view, "Stem Repair");
+        crate::preview::activate_link_url(&view, "#stem-repair");
+        assert_eq!(
+            scroll_target_line(&view),
+            Some(stem),
+            "a trailing emoji is stripped as a leading one is"
+        );
+
+        crate::preview::activate_link_url(&view, "#-escalations");
+        assert_eq!(
+            scroll_target_line(&view),
+            Some(escalations),
+            "GitHub's form of the same anchor still resolves"
         );
 
         drain_pending_idle();

@@ -39,7 +39,6 @@
 use crate::widgets::table::ScribTableWidget;
 use gtk::{TextBuffer, TextChildAnchor};
 use pulldown_cmark::HeadingLevel;
-use std::collections::HashMap;
 use std::sync::OnceLock;
 use syntect::highlighting::ThemeSet;
 use syntect::parsing::SyntaxSet;
@@ -393,8 +392,9 @@ struct InterBlock {
     item_starts: Vec<i32>,
     /// Buffer offset where the current heading's text begins (anchor scroll target).
     heading_start: i32,
-    /// Per-document slug occurrence counter for GitHub-style `-1`/`-2` suffixing.
-    slug_seen: HashMap<String, u32>,
+    /// Issues each heading's anchor slugs, with the per-document `-1`/`-2`
+    /// suffixing (`anchors::HeadingSlugger`).
+    slugger: crate::anchors::HeadingSlugger,
     blockquote_depth: usize,
     /// Buffer offset where each currently-open blockquote LEVEL began, innermost last.
     /// A stack rather than a single `Option`, because every level records its own span:
@@ -458,8 +458,8 @@ pub(crate) struct Renderer {
     heading: Option<HeadingLevel>,
     /// Plain text of the current heading, accumulated to compute its anchor slug.
     heading_text: String,
-    /// (anchor slug, buffer offset) for every heading — drives `#fragment` links.
-    pub headings: Vec<(String, i32)>,
+    /// (anchor slugs, buffer offset) for every heading — drives `#fragment` links.
+    pub headings: Vec<(crate::anchors::HeadingSlugs, i32)>,
     /// The buffer span of every blockquote LEVEL, with its depth.
     /// Blockquotes are buffer TEXT now (selectable, links work, no anchored widget
     /// to churn — GTK4Rs/AP-23); the preview view draws the left accent bar over each

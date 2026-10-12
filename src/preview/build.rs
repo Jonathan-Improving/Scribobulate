@@ -14,7 +14,6 @@ use crate::widgets::table::ScribTableWidget;
 use gtk::prelude::*;
 use gtk::{TextBuffer, TextChildAnchor};
 use pulldown_cmark::{Event, Tag, TagEnd};
-use std::collections::HashMap;
 
 /// Everything one render hands to the `CodePreviewView` — the CONTENT half, in its
 /// two halves.
@@ -113,7 +112,7 @@ pub(super) struct RenderMaps {
     /// order — see [`crate::outline::HeadingSite`] for why it is not the rendered
     /// list.
     pub(super) heading_sites: Vec<crate::outline::HeadingSite>,
-    pub(super) heading_map: HashMap<String, i32>,
+    pub(super) heading_map: crate::anchors::HeadingAnchors<i32>,
     /// Every block this render drew collapsed, in document order — see
     /// [`crate::renderer::CollapsedBlock`].
     pub(super) collapsed_blocks: Vec<crate::renderer::CollapsedBlock>,
@@ -694,10 +693,10 @@ pub(super) fn build_products(buf: &TextBuffer, prepared: &Prepared<'_>) -> Rende
                     hidden_by: site.chain.clone(),
                     slug: None,
                 },
-                (None, Some((slug, offset))) => crate::outline::HeadingSite {
+                (None, Some((slugs, offset))) => crate::outline::HeadingSite {
                     offset: *offset,
                     hidden_by: Vec::new(),
-                    slug: Some(slug.clone()),
+                    slug: Some(slugs.slug.clone()),
                 },
                 // A rendered heading always records itself at its `End` event, so
                 // this arm is unreachable — but the list's LENGTH is what stops
@@ -789,7 +788,7 @@ pub(super) fn build_products(buf: &TextBuffer, prepared: &Prepared<'_>) -> Rende
     // Slug → buffer offset, over the headings that actually reached the buffer: a
     // `#fragment` names a position, and a heading inside a collapsed block has none
     // until the reader expands it.
-    let heading_map: HashMap<String, i32> = r.headings.into_iter().collect();
+    let heading_map = crate::anchors::HeadingAnchors::new(r.headings);
 
     // The drawn summary band's extents, PROJECTED from the extents rather than
     // recorded beside them: one producer, so the band cannot come to disagree with

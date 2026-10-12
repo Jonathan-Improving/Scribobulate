@@ -97,8 +97,19 @@ struct Page<'a> {
 
 fn block_html(block: &Block, page: &Page<'_>, out: &mut String) {
     match block {
-        Block::Heading { level, id, inlines } => {
+        Block::Heading {
+            level,
+            id,
+            alias,
+            inlines,
+        } => {
             let _ = write!(out, "<h{level} id=\"{}\">", escape_attr(id));
+            // The emoji-free alias (`anchors`) as an empty anchor of its own, so
+            // `#escalations` reaches `## 🚨 Escalations` in the artefact as it does on
+            // screen. Empty and inline, it changes nothing a reader sees.
+            if let Some(alias) = alias {
+                let _ = write!(out, "<span id=\"{}\"></span>", escape_attr(alias));
+            }
             inlines_html(inlines, page, out);
             // The level's marker, INSIDE the heading element and after its text — the
             // artefact's half of `renderer::emit::insert_heading_marker`. Inline rather
@@ -2027,6 +2038,22 @@ mod html_sink_tests {
         let out = html_of("# My Section\n\n[go](#my-section)\n");
         assert!(out.contains("id=\"my-section\""), "{out}");
         assert!(out.contains("href=\"#my-section\""), "{out}");
+    }
+
+    /// TDD 2.17 / 25.1 — an emoji heading's emoji-free alias is an anchor in the
+    /// artefact too, beside its GitHub id; and an alias some heading's GitHub id
+    /// shadows is NOT written, or it would come first and capture the fragment from
+    /// the heading the preview resolves it to.
+    #[test]
+    fn an_emoji_headings_alias_is_an_anchor_unless_a_github_id_shadows_it() {
+        let out = html_of("## 🚨 Escalations\n\n[go](#escalations)\n");
+        assert!(out.contains("id=\"-escalations\""), "{out}");
+        assert!(out.contains("<span id=\"escalations\"></span>"), "{out}");
+
+        let out = html_of("## 🚨 Escalations\n\n> ## Escalations\n");
+        assert!(out.contains("id=\"-escalations\""), "{out}");
+        assert_eq!(out.matches("id=\"escalations\"").count(), 1, "{out}");
+        assert!(!out.contains("<span id=\"escalations\">"), "{out}");
     }
 
     #[test]

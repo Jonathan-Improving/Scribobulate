@@ -44,6 +44,7 @@
 src/a11y.rs
 src/accel.rs
 src/affordance.rs
+src/anchors.rs
 src/animation/paintable/badge.rs
 src/animation/policy/mod.rs
 src/animation/policy/watch.rs

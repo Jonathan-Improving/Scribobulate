@@ -79,6 +79,7 @@
 mod a11y;
 mod accel;
 mod affordance;
+mod anchors;
 mod animation;
 mod annotate;
 mod annotations;
