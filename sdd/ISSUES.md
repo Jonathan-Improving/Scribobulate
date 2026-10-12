@@ -182,7 +182,13 @@ bookkeeping: GTK4Rs/AP-305. The exact GDK line responsible is not yet traced.
 
 So the app triggers it at startup through `codeview::CodePreviewView::prewarm_marker_popover`
 (its popup/popdown on first map), and every user-opened popover triggers it again. Removing
-the pre-warm alone does not fix it. Linux and Windows idle at 0% in the same scenarios.
+the pre-warm alone does not fix it.
+
+**Mac only.** The pre-warm is not platform-gated, so every Linux and Windows launch performs
+the same popup-then-popdown. Both idle at 0.0% after it (MEASURED 2026-10-11: Linux GTK 4.6.9
+under Xvfb, Windows GTK 4.22.4). Windows runs the same GTK release as macOS, which places the
+defect in GDK's macOS backend rather than in GTK 4.22 generally. A user-opened popover was not
+separately measured on Linux or Windows.
 
 **Workaround (not yet implemented).** Unrealize a popover immediately after every popdown;
 the next `popup()` re-realizes it. It must cover every popover the app shows on macOS
@@ -192,7 +198,8 @@ view-parented popover's first `popup()` forces a validation that scrolls a tall 
 top and eats the click). Unrealizing may bring that first-popup cost back on every open, so
 that lesson's check must be re-run on macOS.
 
-**Unknown.** Whether a later GTK fixes it (the researcher has been asked).
+**Unknown.** Whether a later GTK fixes it, and the exact GDK line that keeps requesting
+frames. The researcher was asked on 2026-10-11 and had not answered when this was written.
 
 ## B. Every native file chooser invocation grows RSS on macOS
 
