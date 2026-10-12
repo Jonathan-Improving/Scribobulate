@@ -650,9 +650,14 @@ pub(super) fn refresh_find(window: &ApplicationWindow, st: &Rc<TabState>) {
     // Computed out of the borrow first: the setter can re-enter (GTK4Rs/AP-61).
     // Only while the bar is open: a menu toggle of Match Case or Whole Word, and the
     // entry's delayed `search-changed` after a tab switch, both reach here with it closed.
+    // And only while the editor is the pane searched: in split with the preview
+    // focused, an editor lit end to end beside a preview counting its own matches reads
+    // as two searches with two answers (TDD 11.19: the pane left keeps no highlight).
     let unscoped = st.find_scope.borrow().is_none();
     let open = crate::window::find::find_bar_open(st);
-    st.search_context.set_highlight(unscoped && open);
+    let editor_searched = matches!(find_target(window), FindTarget::Editor);
+    st.search_context
+        .set_highlight(unscoped && open && editor_searched);
     // **The query the editor's engine is given is not always the query the reader
     // typed.** For a whole-word REGULAR EXPRESSION the application wraps it — see
     // `matcher::editor_pattern` — because GtkSourceView's own wrapper is ungrouped and
@@ -860,8 +865,8 @@ pub(super) fn sync_replace_availability(st: &Rc<TabState>) {
 ///
 /// Called by the focus gate when the focus lands in the OTHER real pane of a split.
 /// The pane left behind keeps no find decoration — the preview's highlights are taken
-/// off when the search moves to the editor (the editor's engine highlight stays: it is
-/// the editor's own, and is lit whenever the bar is open). Then the whole search is
+/// off when the search moves to the editor, and `refresh_find` turns the editor's
+/// engine highlight off when it moves to the preview. Then the whole search is
 /// re-run against the new pane, so the counter, highlights and next Next all describe
 /// the pane the reader is now in (TDD 11.19).
 pub(crate) fn retarget_find_to_focused_pane(window: &ApplicationWindow) {

@@ -139,8 +139,12 @@ fn find_in_split_searches_and_scrolls_the_focused_preview() {
         preview_highlighted(&view),
         "the preview carries the match highlights"
     );
-
     let st = state(&win).expect("active tab");
+    assert!(
+        !st.search_context.is_highlight(),
+        "the editor, the pane not searched, keeps no find highlight"
+    );
+
     let mut landed = Vec::new();
     for step in 1..=PREVIEW_COUNT {
         // What the Next button and Enter both run.
@@ -224,6 +228,10 @@ fn moving_focus_between_split_panes_moves_the_open_search() {
     );
     assert!(preview_highlighted(&view), "the preview is now highlighted");
     assert!(
+        !st.search_context.is_highlight(),
+        "the editor left behind keeps no engine highlight"
+    );
+    assert!(
         !st.chrome().replace_row.is_sensitive(),
         "the preview is read-only, so replace is unavailable while it is searched"
     );
@@ -237,6 +245,10 @@ fn moving_focus_between_split_panes_moves_the_open_search() {
     assert!(
         !preview_highlighted(&view),
         "the preview keeps no highlight once the search has moved back to the editor"
+    );
+    assert!(
+        st.search_context.is_highlight(),
+        "the editor searched again is lit again"
     );
     assert!(st.chrome().replace_row.is_sensitive());
     win.destroy();
