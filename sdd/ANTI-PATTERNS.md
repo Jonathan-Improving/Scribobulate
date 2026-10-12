@@ -9,7 +9,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 2. General engineering discipline that survives deleting every Scribobulate noun? → route it to `general-engineering-principles` and cite `GEP-N` at the site. **Nothing here** either — the `**Routed**` tombstones were retired 2026-09-24 the same way as the gtk4-rs stubs.
 3. Neither — Scribobulate internals, or a non-gtk4-rs dependency (Pango, GtkSourceView, pulldown-cmark, librsvg, syntect, serde/toml, the toolchain)? → it stays here, **in ≤ 6 lines**: Symptom · Root cause · Resolution · Lesson · Scribobulate · See. Extend an existing entry rather than minting a sibling for the same root cause. Route a Pango lesson on whose API *contract* it is about, and raise it before routing.
 
-**Numbers are frozen** (check 9): never renumbered, never reused; a retired entry keeps its `## N.` heading as a landing spot. Reserved gaps — do not fill: **176–179** (Windows port; holder gone, held pending operator resolution), **186** (`feat/spelling`, inbound), **276–289** (unmerged branches). **Next free number: 361**+ (358 is in use on an unmerged branch on the `improving` remote) — check this table and announce the range you claim; never derive it from the highest heading below. (It read 354 while 354 and 355 both had bodies, so a writer who obeyed it minted a duplicate — and the same sentence forbids the one check a reader would otherwise make. Check 9 can only see a duplicate after it exists. **Check 21 now asserts the one relation the header must satisfy whatever the reserved gaps are — strictly above the highest heading present** — so this line is no longer guarded by prose alone; move it in the same change that mints.)
+**Numbers are frozen** (check 9): never renumbered, never reused; a retired entry keeps its `## N.` heading as a landing spot. Reserved gaps — do not fill: **176–179** (Windows port; holder gone, held pending operator resolution), **186** (`feat/spelling`, inbound), **276–289** (unmerged branches). **Next free number: 362**+ (358 is in use on an unmerged branch on the `improving` remote) — check this table and announce the range you claim; never derive it from the highest heading below. (It read 354 while 354 and 355 both had bodies, so a writer who obeyed it minted a duplicate — and the same sentence forbids the one check a reader would otherwise make. Check 9 can only see a duplicate after it exists. **Check 21 now asserts the one relation the header must satisfy whatever the reserved gaps are — strictly above the highest heading present** — so this line is no longer guarded by prose alone; move it in the same change that mints.)
 
 **Growth** is gated in bytes (check 11). The ratchet only tightens; consolidate in the change that trips it.
 
@@ -89,6 +89,7 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 | 356 | Deriving a text run's own fill from the PAGE when the preview draws a surface behind it | C |
 | 359 | A pixel test that counts an exact colour over antialiased text — a glyph fringe can forge it | C |
 | 360 | Assuming two libraries' renames end in the same Windows call — `std::fs::rename` is not `MoveFileExW` | C |
+| 361 | A command that scrolls the split pane the reader is NOT in — the scroll sync puts it straight back | C |
 
 ---
 
@@ -526,3 +527,11 @@ Scribobulate's register of costly dead ends. It is a **project index, not an ess
 **Lesson**: "both end in the same system call" is a claim about a library's implementation, which changes between releases; measure it. The measured share-mask half of the same comment held; only the inferred half was wrong.
 **Scribobulate**: `window::swap::promote_snapshot` (its doc comment).
 **See**: GEP-83 (judge a promote by what it decided, not by the destination's bytes).
+
+## 361. A command that scrolls the split pane the reader is NOT in — the scroll sync puts it straight back
+**Symptom**: in split mode with the preview focused, Find's Next/Previous selected each match in the editor, but neither pane scrolled; the view stayed where it was. No warning. With the editor focused, the same steps scrolled both panes.
+**Root cause**: two layers. Find chose its pane from the view mode alone ("editor unless pure preview"), so in split it always searched the editor, whichever pane had focus. And the split scroll sync takes its lead from the focused pane: when the editor's adjustment changed, the sync re-projected the leading preview's position back onto the editor. MEASURED (Linux, headless GTK test): preview focused, the editor's selection moved to lines 204 and 604 while its scroll value stayed 0 throughout; editor focused, it went 0 → 3305 → 10505 and the preview followed.
+**Resolution**: one rule picks the pane, `winstate::find_pane(mode, focused)`. In split it uses the sticky focused pane (TDD 9.25), the one Copy already follows. Search, count, highlights and stepping all act on that pane, so a step scrolls the pane that leads the sync. Moving focus to the other pane with the bar open re-runs the search there.
+**Lesson**: in split mode, a programmatic scroll only sticks on the pane that leads the sync. A command that acts on one pane must pick it from the focused pane, not the view mode, and scroll that pane. To move the other pane, make it lead first.
+**Scribobulate**: `window::find::find_target`, `winstate::viewmode::find_pane`, `window::editbar::focusgate::sync_gate_to_pane_focus`; the sync in `window::scrollsync`. Tests: `window::find::splittests`.
+**See**: GTK4Rs/AP-70 (a multi-pane action must target the focused pane); GTK4Rs/AP-16 (split sync picks its driver by input source).
