@@ -144,6 +144,13 @@ fn on_startup(app: &Application) {
     // reason: the defect is per GdkSurface, so each new window needs arming too.
     #[cfg(target_os = "macos")]
     crate::platform::mac::pointercrossing::track_pointer_crossing();
+    // Releases every popover's surface shortly after it closes. On macOS, GDK keeps
+    // painting empty frames forever once any popover has been shown and hidden (~4.6%
+    // of a core while idle); an unrealized popover does not. Linux and Windows idle at
+    // 0% without it, so they keep their surfaces. Installed before any window, so the
+    // preview's first-map popover pre-warm is covered too.
+    #[cfg(target_os = "macos")]
+    crate::popoverrelease::set_enabled(true);
     #[cfg(windows)]
     crate::platform::win32::track_system_dark_mode();
     add_new_action(app);

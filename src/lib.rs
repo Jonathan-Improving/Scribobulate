@@ -125,6 +125,11 @@ pub(crate) mod pangospan;
 /// Per-platform seams, one directory per target OS. Each child module is
 /// `#[cfg]`-gated inside `platform/mod.rs`, at its own declaration.
 pub(crate) mod platform;
+/// Releases a closed popover's surface, so a hidden popover cannot keep GDK's macOS
+/// frame clock painting. Only macOS turns it on; the suite builds it everywhere so every
+/// platform tests the mechanism.
+#[cfg(any(target_os = "macos", all(test, feature = "gtk-integration-tests")))]
+pub(crate) mod popoverrelease;
 pub(crate) mod preview;
 /// The PRIMARY-selection policy: what a selection change owes the display-global
 /// selection. Display-free, because its decisive case — a FOREIGN owner — cannot be

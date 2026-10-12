@@ -125,6 +125,7 @@ mod outline_view;
 mod palette;
 mod pangospan;
 mod platform;
+mod popoverrelease;
 mod preview;
 mod readingpos;
 mod renderer;

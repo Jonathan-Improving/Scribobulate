@@ -37,7 +37,6 @@ described from a different vantage point.
 
 | ID | Platform | Scope | Issue | Severity |
 |----|----------|-------|-------|----------|
-| A | Mac | Production | macOS only: once any popover has been shown and hidden (the preview's startup pre-warm does it at launch), GDK's macOS backend keeps the frame clock painting empty frames, holding ~4.6% of a core indefinitely. Workaround measured: unrealize each popover after popdown | Medium |
 | B | Mac | Upstream | macOS only: every native file-chooser invocation (Open, Save, Export) grows RSS by ~1.1 MB and does not give it back. Roughly four fifths is AppKit's own price for presenting an `NSSavePanel` — reproduced with no GTK in the process — with about a fifth GTK-attributable. Caching the panel upstream would recover ~95% | Medium |
 | D | Any | Production | The preview's Annotate bubble sits over the line above a selection, so a click there can land on the bubble: in a table, a double- or triple-click on the cell above a selected cell can lose a press and act as a single click | Low |
 | G | Windows | Upstream | After an edit the editor's scrollbar slider is sometimes not drawn until the next scroll (2 of 40 Enters); a GTK defect still open upstream | Low |
@@ -153,53 +152,6 @@ triple-click-line, keyboard selection and PRIMARY ownership — all of which GTK
 free today, as the probe's control demonstrates — to un-break a minor limitation
 nobody has asked for. It would be a deliberate project chosen on product grounds, not an
 increment, and it should not be started from this entry.
-
-## A. On macOS, once any popover has been shown and hidden, the app holds ~4.6% of a core indefinitely
-
-**Severity**: Medium. Small per window, but permanent, and it contradicts the product's
-negligible-idle-footprint thesis on the platform where battery matters most.
-
-**Cause (GDK's macOS backend, GTK 4.22.4).** A `GtkPopover` shown once and then hidden leaves
-the frame clock painting an empty frame every display refresh, permanently. The app does
-nothing in those frames: no tick callbacks, no `queue_draw`, no snapshot, no render. What
-cycles is `gdk_macos_monitor_display_link_cb` → `gdk_surface_thaw_updates` →
-`gdk_frame_clock_request_phase(PAINT)` on the hidden popup surface. That costs ~4.6% of a core
-and starts a fresh CVDisplayLink thread every frame. Same-family GDK-macOS freeze/thaw
-bookkeeping: GTK4Rs/AP-305. The exact GDK line responsible is not yet traced.
-
-**Measured** (macOS seat, 2026-10-11, release, `GSK_RENDERER=cairo`):
-
-| Case | Idle CPU |
-|---|---|
-| App, preview, any document or theme | ~4.6% |
-| App with the startup popover pre-warm disabled | 0% |
-| …then the toolbar theme dropdown opened and closed | ~4.6% |
-| …then a tooltip shown and hidden | 0% |
-| Bare gtk4-rs window, popover never shown | 0% |
-| Bare window, popover `popup()` + `popdown()` (same turn, deferred, or `autohide`) | ~4.5% |
-| Bare window, popover hidden then `WidgetExt::unrealize()` (same turn or next idle; also after 500 ms open) | 0% |
-| Bare window, popover hidden then unparented | 0% |
-
-So the app triggers it at startup through `codeview::CodePreviewView::prewarm_marker_popover`
-(its popup/popdown on first map), and every user-opened popover triggers it again. Removing
-the pre-warm alone does not fix it.
-
-**Mac only.** The pre-warm is not platform-gated, so every Linux and Windows launch performs
-the same popup-then-popdown. Both idle at 0.0% after it (MEASURED 2026-10-11: Linux GTK 4.6.9
-under Xvfb, Windows GTK 4.22.4). Windows runs the same GTK release as macOS, which places the
-defect in GDK's macOS backend rather than in GTK 4.22 generally. A user-opened popover was not
-separately measured on Linux or Windows.
-
-**Workaround (not yet implemented).** Unrealize a popover immediately after every popdown;
-the next `popup()` re-realizes it. It must cover every popover the app shows on macOS
-(`GtkPopover`, `GtkPopoverMenu`, `MenuButton` and `DropDown` popovers), so it belongs at one
-choke point rather than at each site. Untested risk: the pre-warm exists for GTK4Rs/AP-118 (a
-view-parented popover's first `popup()` forces a validation that scrolls a tall table to its
-top and eats the click). Unrealizing may bring that first-popup cost back on every open, so
-that lesson's check must be re-run on macOS.
-
-**Unknown.** Whether a later GTK fixes it, and the exact GDK line that keeps requesting
-frames. The researcher was asked on 2026-10-11 and had not answered when this was written.
 
 ## B. Every native file chooser invocation grows RSS on macOS
 
