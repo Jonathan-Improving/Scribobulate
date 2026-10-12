@@ -859,11 +859,16 @@ FULL_BUDGET="${SCRIB_COVERAGE_FULL_BUDGET:-1800}"
 # calls `delete_mark` on a live buffer. It decides nothing, and its assertion needs a
 # real `GtkTextBuffer`, so it is exercised in leg B by `preview/splice/tests` and
 # `window/find/bartests`, which check the marks are deleted.
+# `popoverrelease` is compiled into the shipped app on macOS only, so on Linux it exists
+# solely under the test feature and leg A cannot see it. Its body is a GLib emission
+# hook, a timeout and an `unrealize`; its pending-release bookkeeping holds `WeakRef`s
+# and `SourceId`s and has no meaning without them. It is exercised in leg B by its own
+# `#[gtktest::test]` bodies, which assert the release, the reopen and a GTK-built popover.
 # ⚠ Excluding these is the thing POLICY § Build pipeline warns about, so it is worth being explicit:
 # what is excluded is the WIRING, and every decision any of them takes was extracted into
 # a file that stayed in scope. If a future change puts logic back into one of these, the
 # answer is to extract it again, not to widen this term.
-IGNORE='src[/\\](window[/\\](tabs[/\\]|editbar[/\\]|navhistory[/\\])?[a-z_]+|app[/\\](appactions|menubar|openbatch|open|setup)|clipboard|main|lib|gtk_suite|suite_registry|logging|tags|codeview[/\\][a-z_]+|outline_view|preview[/\\]annotate[/\\]overlay|animation[/\\](tick|sprites[/\\]mod|paintable[/\\](mod|drive)|visibility[/\\]watch)|imagecache[/\\]loader|saferizer[/\\]owned_mark|widgets[/\\](sprite_icon|table[/\\]mod|tab[/\\](imp|bar|ops|view|mod)))\.rs'
+IGNORE='src[/\\](window[/\\](tabs[/\\]|editbar[/\\]|navhistory[/\\])?[a-z_]+|app[/\\](appactions|menubar|openbatch|open|setup)|clipboard|main|lib|gtk_suite|suite_registry|logging|tags|codeview[/\\][a-z_]+|outline_view|preview[/\\]annotate[/\\]overlay|animation[/\\](tick|sprites[/\\]mod|paintable[/\\](mod|drive)|visibility[/\\]watch)|imagecache[/\\]loader|saferizer[/\\]owned_mark|popoverrelease|widgets[/\\](sprite_icon|table[/\\]mod|tab[/\\](imp|bar|ops|view|mod)))\.rs'
 
 # IGNORE_TESTONLY — leg B's extra filter, and ONLY leg B's.
 #
