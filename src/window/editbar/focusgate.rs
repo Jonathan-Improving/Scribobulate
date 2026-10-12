@@ -101,14 +101,19 @@ pub(crate) fn sync_gate_to_pane_focus(window: &ApplicationWindow) -> bool {
     );
     // Record which real pane holds focus for win.copy / win.select-all (TDD 9.25),
     // then re-evaluate Copy for its selection.
-    if let Some(ch) = crate::winstate::chrome(window) {
-        ch.focused_pane.set(if in_preview {
-            crate::winstate::FocusedPane::Preview
-        } else {
-            crate::winstate::FocusedPane::Editor
-        });
-    }
+    let pane = if in_preview {
+        crate::winstate::FocusedPane::Preview
+    } else {
+        crate::winstate::FocusedPane::Editor
+    };
+    let moved =
+        crate::winstate::chrome(window).is_some_and(|ch| ch.focused_pane.replace(pane) != pane);
     recompute_copy_enabled(window);
+    // Find follows the same record in split mode (TDD 11.19), so a move to the other
+    // pane moves the open search with it.
+    if moved && current_mode(window) == crate::winstate::ViewMode::Split {
+        crate::window::findbar::retarget_find_to_focused_pane(window);
+    }
     true
 }
 

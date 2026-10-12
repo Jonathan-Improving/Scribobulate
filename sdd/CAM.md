@@ -276,7 +276,7 @@ The event classes (matrix columns):
 | 4 | Window title, tab label + tooltip, View ▸ Documents (menu **and** toolbar combo) | ✓ (dirty) | ✓ | — | ✓ | `update_window_title`/`retitle_window`; `refresh_active_tab_label`/`badge_tab_label`; `refresh_documents_menu`; `refresh_documents_button` |
 | 5 | Status bar — persistent line (lost file · live reload off · unsaved changes) | ✓ | ✓ | — | ✓ | `refresh_dirty_status` |
 | 6 | Status bar — Ln/Col indicator | ✓ | ✓ | ✓ | ✓ | `refresh_position_indicator` |
-| 7 | Find bar — match count and match highlights | ✓ | ✓ | ✓ | ✓ | `update_match_count_label`; `refresh_preview_find_highlight` (Document Rendering CAM row 8) |
+| 7 | Find bar — match count and match highlights | ✓ | ✓ | ✓ | ✓ | `update_match_count_label`; `refresh_preview_find_highlight` (Document Rendering CAM row 8). In split mode the pane searched follows focus (TDD 11.19), so a move to the other pane is a column-C rebuild too: `findbar::retarget_find_to_focused_pane` |
 | 8 | Crash-recovery notice (per-tab prompt + per-window status count) | ✓ | ✓ | ✓ | ✓ | `toast::sync_recovery_toast` |
 | 9 | Status bar — word count and line endings (document, and the selection's words) | ✓ | ✓ | — | ✓ | `refresh_text_indicators` (an edit reaches it through `note_buffer_changed`, a selection through `schedule_selection_count`) |
 | 10 | Status bar — zoom level | — | — | ✓ | ✓ | `refresh_zoom_indicator` |

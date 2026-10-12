@@ -87,6 +87,24 @@ pub(crate) fn copy_target(mode: ViewMode, focused: FocusedPane) -> Option<Focuse
     }
 }
 
+/// Which pane Find searches, steps through and scrolls (TDD 11.19): the only visible
+/// pane outside split mode, and in split mode the pane that last genuinely held focus —
+/// the same sticky record `copy_target` reads, so the find bar taking focus to be
+/// typed in never moves the search off the pane the reader was in.
+///
+/// Searching the editor while the reader works in the split's preview was doubly
+/// wrong: the counter and highlights described the other pane, and the editor's own
+/// scroll to each match was immediately undone by the split scroll sync, which takes
+/// its lead from the focused pane and so projected the unmoved preview back onto the
+/// editor — Next and Previous appeared to scroll nothing at all.
+pub(crate) fn find_pane(mode: ViewMode, focused: FocusedPane) -> FocusedPane {
+    match mode {
+        ViewMode::Preview => FocusedPane::Preview,
+        ViewMode::Edit => FocusedPane::Editor,
+        ViewMode::Split => focused,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::winstate::*;
@@ -97,6 +115,15 @@ mod tests {
             assert_eq!(m.as_str().parse::<ViewMode>(), Ok(m));
         }
         assert!("bogus".parse::<ViewMode>().is_err());
+    }
+
+    #[test]
+    fn find_searches_the_focused_pane_only_in_split() {
+        for focused in [FocusedPane::Editor, FocusedPane::Preview] {
+            assert_eq!(find_pane(ViewMode::Preview, focused), FocusedPane::Preview);
+            assert_eq!(find_pane(ViewMode::Edit, focused), FocusedPane::Editor);
+            assert_eq!(find_pane(ViewMode::Split, focused), focused);
+        }
     }
 
     #[test]

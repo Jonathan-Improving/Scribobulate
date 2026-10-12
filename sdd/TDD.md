@@ -12,7 +12,7 @@
 | 8 | Single-instance lifecycle | 8.1 – 8.8 |
 | 9 | Menu bar, toolbar, and actions | 9.1 – 9.36 |
 | 10 | Markdown formatting commands | 10.1 – 10.20 |
-| 11 | Find & replace | 11.1 – 11.10 |
+| 11 | Find & replace | 11.1 – 11.19 |
 | 12 | Document outline | 12.1 – 12.29 |
 | 13 | Preview zoom | 13.1 – 13.12 |
 | 14 | Show Unsafe Images | 14.1 – 14.10 |
@@ -1777,8 +1777,9 @@
 ## 11. Find & replace
 
 > A bottom find bar searches whatever the user is looking at — the editor buffer in
-> edit/split, the rendered preview in pure-preview mode; replace is available where
-> the buffer is editable.
+> edit mode, the rendered preview in pure-preview mode, and in split mode whichever
+> of the two panes the user was last working in; replace is available where the
+> buffer being searched is editable.
 
 ### 11.1 Opening find and find-replace
 - **Given** a document window
@@ -1792,7 +1793,7 @@
 ### 11.2 Incremental search highlights matches with a count
 - **Given** the find bar is open
 - **When** the user types a search term
-- **Then** all matches in the active view (the editor in edit/split, the **preview** in pure-preview mode) are highlighted and a count is shown ("N of M", or "No matches"); clearing the field hides the count
+- **Then** all matches in the active view (the editor in edit mode, the **preview** in pure-preview mode, the last-focused pane in split mode — 11.19) are highlighted and a count is shown ("N of M", or "No matches"); clearing the field hides the count
 
 ### 11.3 Navigating matches wraps around
 - **Given** a search term with multiple matches in the active view (editor or preview)
@@ -1808,10 +1809,10 @@
 - **Then** matches in the rendered preview are highlighted and Next/Prev navigate and scroll the preview to each match (the search targets the preview's text, not the hidden editor buffer)
 
 ### 11.4 Replace acts only where the buffer is editable
-- **Given** the find bar with the replace row in edit or split mode
+- **Given** the find bar with the replace row in edit mode, or in split mode with the editor the pane being searched
 - **When** the user invokes Replace or Replace All
 - **Then** Replace changes the current match (and advances) and Replace All changes every match in the editor
-- **And given** preview mode
+- **And given** preview mode, or split mode with the preview the pane being searched (11.19)
 - **When** the user looks at the replace controls
 - **Then** they are disabled (with an explanatory tooltip), because the preview is read-only
 
@@ -1822,7 +1823,7 @@
 - **And** the preview find-match highlights **survive every boundary that rebuilds the preview buffer** — view-mode switch, runtime theme switch, and external reload — re-applied for the active tab rather than left bare until the next match is cycled (Document Rendering CAM row 8; GTK4Rs/AP-47)
 - **And** a match position is never carried from one pane's occurrence list into the other's: the editor's list and the preview's unified body+cell list are numbered independently, so after a mode switch the counter and the next Next/Prev either resume in the list the visible pane actually owns or start from the top — never at a number that was a position in the *other* list
 - **And when** the user presses Escape or the close button
-- **Then** the bar hides, match highlighting clears (both body text and inside table cells), and focus returns to the editor
+- **Then** the bar hides, match highlighting clears (both body text and inside table cells) in every pane, and focus returns to the pane that was being searched — the editor, or in split mode the preview when that was the pane searched
 - **And Escape does this from ANYWHERE in the window, not only while the focus is inside the bar.** The usual way to be holding the bar open is to have typed a query and pressed Enter, which puts the caret back in the document — so the case where the reader most wants Escape is the case where the bar does not have focus. It is honoured on the way back UP from whatever is focused, never on the way down: every other Escape in the application — a popover or menu, the annotation card, the emoji overlay, the prompt dialog, the annotations sidebar — answers first and keeps it. Closing the find bar instead of the popover the reader is looking at is a worse defect than the one this clause exists to close, and it would present as the popover refusing to close
 - **And** with the bar shut this costs Escape nothing: the handler declines unless the bar is actually revealed
 - **And given** pure-preview mode scrolled to an arbitrary reading position (including within a tall table)
@@ -1942,6 +1943,16 @@
 - **Then** its own history is still there, in the same order — while the find bar itself restores closed and no search is in force, because a restore must not put the reader into a search they did not just ask for
 - **And** a persisted history that is malformed — over long, holding a duplicate or an empty entry — is repaired on load rather than failing the session, which would cost every window and tab to protect a convenience
 - **Coverage** `window::find::history::tests`; `window::find::bartests::each_field_offers_that_tabs_own_recent_entries`; `tests/MANUAL-TEST.md` §11.20
+
+### 11.19 In split mode, Find searches the pane the user is working in
+- **Given** split mode, with the user last working in one of the two panes (clicked into it, or moved the keyboard focus to it)
+- **When** they open find and search, and step through the matches with Next/Prev
+- **Then** the search, the count, the highlights and every step act on THAT pane — the preview when they were in the preview, the editor when they were in the editor — and each step scrolls that pane so the match it lands on is in view; the other pane follows through the ordinary split scroll sync
+- **And** opening the find bar, typing in it, or using its buttons does not change which pane is searched: focus taken by the bar, a menu or a popover is not "working in" a pane (the same rule Copy follows, 9.25)
+- **And when** the user moves to the other pane while the bar is open
+- **Then** the search moves with them at once: the count and highlights describe the new pane, the pane they left keeps no find highlight, and the replace row is available only while the editor is the pane searched
+- **Rationale** searching the editor while the user reads the preview gave a count and highlights for a pane they were not looking at, and stepping appeared to do nothing: the editor's scroll to each match was undone by the split scroll sync, which follows the pane the user is working in
+- **Coverage** `winstate::viewmode::tests::find_searches_the_focused_pane_only_in_split`; `window::find::splittests::find_in_split_searches_and_scrolls_the_focused_preview`; `window::find::splittests::moving_focus_between_split_panes_moves_the_open_search`; `tests/MANUAL-TEST.md` §11.21
 
 ## 12. Document outline
 

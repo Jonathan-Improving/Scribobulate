@@ -52,7 +52,8 @@
 //! The crate-facing API (`winstate::TabState`, `winstate::state`, … — all the
 //! `pub(crate)` items) is re-exported here so call sites are unchanged.
 //!
-//! * [`viewmode`] — [`ViewMode`], [`FocusedPane`], and the [`copy_target`] decision.
+//! * [`viewmode`] — [`ViewMode`], [`FocusedPane`], and the [`copy_target`] and
+//!   [`find_pane`] decisions.
 //! * [`scrollsync`] — [`ScrollDriver`] + the [`ScrollSync`] coalescing state (GTK4Rs/AP-16).
 //! * [`ids`] — the [`TabId`] and [`WindowId`] identity newtypes.
 //! * [`fmtinsert`] — [`FmtInsertKind`] (the Insert↔Edit Link/Image kind).
@@ -144,5 +145,5 @@ pub(crate) use selfdelete::SwallowReason;
 pub(crate) use status::{StatusCtx, StatusStack, ERROR_NOTICE_TIME};
 pub(crate) use swap::{next_delay_ms, SwapState, MAX_LATENCY_MS};
 pub(crate) use tab::{TabInit, TabState};
-pub(crate) use viewmode::{copy_target, FocusedPane, ViewMode};
+pub(crate) use viewmode::{copy_target, find_pane, FocusedPane, ViewMode};
 pub(crate) use writegate::WriteGate;

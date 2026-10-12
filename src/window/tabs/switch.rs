@@ -277,17 +277,8 @@ fn resync_find_bar_for_tab(window: &ApplicationWindow, st: &Rc<TabState>) {
     let query = st.find_query.borrow().clone();
     chrome.find_entry.set_text(&query);
     chrome.match_count_label.set_visible(!query.is_empty());
-    let editor_visible = st.view_mode.get().is_editor_visible();
     chrome.replace_row.set_visible(st.find_replace_mode.get());
-    chrome.replace_row.set_sensitive(editor_visible);
-    if st.find_replace_mode.get() && !editor_visible {
-        crate::a11y::describe(
-            &chrome.replace_row,
-            Some("Replace is unavailable in preview mode."),
-        );
-    } else {
-        crate::a11y::describe(&chrome.replace_row, None);
-    }
+    findbar::sync_replace_availability(st);
 
     // QA round-2 N9: enforce "only the active tab's search_context is ever
     // highlighted" as an invariant on every switch, rather than relying on

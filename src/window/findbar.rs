@@ -51,16 +51,8 @@ pub(super) fn wire_find_bar(window: &ApplicationWindow, chrome: &Chrome) {
                 let Some(w) = win.upgrade() else { return };
                 if let Some(st) = state(&w) {
                     st.find_replace_mode.set(replace_mode);
-                    // Replace row is only usable in edit/split; disable in preview.
-                    let mode = current_mode(&w);
-                    let editor_visible = mode.is_editor_visible();
                     rr.set_visible(replace_mode);
-                    rr.set_sensitive(editor_visible);
-                    if replace_mode && !editor_visible {
-                        crate::a11y::describe(&rr, Some("Replace is unavailable in preview mode."));
-                    } else {
-                        crate::a11y::describe(&rr, None);
-                    }
+                    sync_replace_availability(&st);
                     // Show the match count label only if there is a search string.
                     mc.set_visible(!st.chrome().find_entry.text().is_empty());
                     // The engine lights the whole buffer, so only when no passage
@@ -71,7 +63,9 @@ pub(super) fn wire_find_bar(window: &ApplicationWindow, chrome: &Chrome) {
                 }
                 fr.set_reveal_child(true);
                 if let Some(st) = state(&w) {
-                    if st.find_scope.borrow().is_some() && current_mode(&w).is_editor_visible() {
+                    if st.find_scope.borrow().is_some()
+                        && matches!(find_target(&w), FindTarget::Editor)
+                    {
                         crate::window::find::update_editor_readout(
                             &st,
                             st.find_cursor.get().editor_index(),
@@ -145,12 +139,19 @@ pub(super) fn wire_find_bar(window: &ApplicationWindow, chrome: &Chrome) {
                 crate::window::find::clear_editor_scope_highlight(&st);
             }
             clear_preview_highlight(&w);
-            if let Some(st) = state(&w) {
-                // Return focus to the editor (or let it stay on preview).
-                let mode = current_mode(&w);
-                if mode.is_editor_visible() {
-                    st.editor.grab_focus();
+            // Return focus to the pane the search was acting on: the editor, or in split
+            // mode the preview when that is the pane the reader was in (TDD 11.19). Pure
+            // preview leaves the focus where it is.
+            match find_target(&w) {
+                FindTarget::Editor => {
+                    if let Some(st) = state(&w) {
+                        st.editor.grab_focus();
+                    }
                 }
+                FindTarget::Preview(view) if current_mode(&w) == ViewMode::Split => {
+                    view.grab_focus();
+                }
+                FindTarget::Preview(_) | FindTarget::PreviewUnresolved => {}
             }
         }
     });
@@ -799,7 +800,10 @@ pub(super) fn wire_occurrences_count(
         let Some(w) = resolve_tab_window(&cb) else {
             return;
         };
-        if current_mode(&w) == ViewMode::Preview {
+        // The editor's count describes the editor, so it is written only while the
+        // editor is the pane being searched — never in pure preview, and never in split
+        // mode while the reader is in the preview (TDD 11.19).
+        if !matches!(find_target(&w), FindTarget::Editor) {
             return;
         }
         let Some(st) = state(&w) else { return };
@@ -825,6 +829,51 @@ pub(super) fn wire_occurrences_count(
         // that is invisible in any assertion taken before the engine finishes.
         update_editor_readout(&st, st.find_cursor.get().editor_index());
     });
+}
+
+/// Make the replace row usable exactly when the pane being searched is the editor.
+///
+/// The preview is read-only (TDD 11.4), and in split mode the pane searched is the one
+/// last focused (TDD 11.19), so the row follows that pane rather than the view mode —
+/// replacing in the editor while the counter and highlights describe the preview would
+/// edit matches the reader has not been shown. Decided from `st`'s own mode so a tab
+/// switch can call it before the incoming tab is the active one.
+pub(super) fn sync_replace_availability(st: &Rc<TabState>) {
+    let chrome = st.chrome();
+    let row = &chrome.replace_row;
+    let pane = crate::winstate::find_pane(st.view_mode.get(), chrome.focused_pane.get());
+    let available = pane == crate::winstate::FocusedPane::Editor;
+    row.set_sensitive(available);
+    let why = match st.view_mode.get() {
+        ViewMode::Split => {
+            "Replace is unavailable in the preview pane. Click the editor to replace."
+        }
+        ViewMode::Preview | ViewMode::Edit => "Replace is unavailable in preview mode.",
+    };
+    crate::a11y::describe(
+        row,
+        (st.find_replace_mode.get() && !available).then_some(why),
+    );
+}
+
+/// The split pane that last held focus changed: move the open search onto it.
+///
+/// Called by the focus gate when the focus lands in the OTHER real pane of a split.
+/// The pane left behind keeps no find decoration — the preview's highlights are taken
+/// off when the search moves to the editor (the editor's engine highlight stays: it is
+/// the editor's own, and is lit whenever the bar is open). Then the whole search is
+/// re-run against the new pane, so the counter, highlights and next Next all describe
+/// the pane the reader is now in (TDD 11.19).
+pub(crate) fn retarget_find_to_focused_pane(window: &ApplicationWindow) {
+    let Some(st) = state(window) else { return };
+    sync_replace_availability(&st);
+    if !crate::window::find::find_bar_open(&st) {
+        return;
+    }
+    if matches!(find_target(window), FindTarget::Editor) {
+        clear_preview_highlight(window);
+    }
+    refresh_find(window, &st);
 }
 
 /// Re-apply the active tab's preview find-match highlights after a lifecycle boundary

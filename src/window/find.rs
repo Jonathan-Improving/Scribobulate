@@ -37,6 +37,9 @@ mod plan;
 /// **Search in selection** — the shape of the captured bound and the arithmetic over
 /// it. Pure; the marks and the buffer reads are here in the parent.
 mod scope;
+/// Find in side-by-side mode follows the pane the reader is in (TDD 11.19).
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+mod splittests;
 
 use crate::widgets::table::cellattrs;
 pub(crate) use history::{row_label, FindHistory};
@@ -45,10 +48,10 @@ pub(crate) use matcher::{configure_engine_options, configure_engine_query};
 pub(crate) use options::FindOptions;
 pub(crate) use scope::{PreviewScope, RenderKey};
 /// The find bar searches whichever text the user is actually looking at: the
-/// editor's `GtkSourceSearchContext` in edit/split (the editor is visible there),
-/// or the **preview**'s plain `GtkTextBuffer` in pure-preview mode (where the
-/// editor is hidden, so searching it would highlight/scroll nothing the user can
-/// see). `GtkSourceSearchContext` only works on the editor's `GtkSourceBuffer`, so
+/// editor's `GtkSourceSearchContext` in edit mode, the **preview**'s plain
+/// `GtkTextBuffer` in pure-preview mode (where the editor is hidden, so searching it
+/// would highlight/scroll nothing the user can see), and in split mode whichever of the
+/// two the user last worked in (TDD 11.19). `GtkSourceSearchContext` only works on the editor's `GtkSourceBuffer`, so
 /// the preview gets its own `TextIter::forward_search`-based path.
 ///
 /// Where a find operation should act — **three outcomes, not two**.
@@ -69,18 +72,27 @@ pub(crate) use scope::{PreviewScope, RenderKey};
 /// let a caller treat "not in preview" and "preview is broken" the same way, so the
 /// next widget-tree change is a loud error rather than a silent wrong-target search.
 pub(super) enum FindTarget {
-    /// Edit or split mode: the editor is visible and its search engine is correct.
+    /// Edit mode, or split mode with the editor the pane last focused: the editor's
+    /// search engine is correct.
     Editor,
-    /// Pure-preview mode, and the preview view resolved.
+    /// Pure-preview mode, or split mode with the preview the pane last focused, and
+    /// the preview view resolved.
     Preview(CodePreviewView),
-    /// Pure-preview mode, but the preview view did **not** resolve. Never fall back
-    /// to the editor here — it is hidden, so acting on it is invisible to the user.
+    /// The preview is the target, but its view did **not** resolve. Never fall back
+    /// to the editor here — in pure preview it is hidden, and in split mode it is the
+    /// pane the reader is not working in, so acting on it searches the wrong document.
     PreviewUnresolved,
 }
 
-/// Resolve the find target for the window's current view mode.
+/// Resolve the find target for the window's current view mode and, in split mode,
+/// the pane that last held focus (`winstate::find_pane`, TDD 11.19).
 pub(super) fn find_target(window: &ApplicationWindow) -> FindTarget {
-    if current_mode(window) != ViewMode::Preview {
+    let focused = crate::winstate::chrome(window)
+        .map(|ch| ch.focused_pane.get())
+        .unwrap_or(crate::winstate::FocusedPane::Editor);
+    if crate::winstate::find_pane(current_mode(window), focused)
+        == crate::winstate::FocusedPane::Editor
+    {
         return FindTarget::Editor;
     }
     // Resolved through the same consolidated, split-swap-aware accessor its sibling
@@ -98,7 +110,7 @@ pub(super) fn find_target(window: &ApplicationWindow) -> FindTarget {
 /// cannot drift into five different messages (or into none).
 fn warn_preview_unresolved(what: &str) {
     log::error!(
-        "find: in preview mode but the preview view did not resolve — {what} skipped. \
+        "find: searching the preview but its view did not resolve — {what} skipped. \
          The widget tree changed under `zoom::get_preview_sw`; searching the hidden \
          editor instead would act on a document the user cannot see."
     );
@@ -128,8 +140,8 @@ impl FindTarget {
 /// Where the find cursor's index points — **which occurrence list it indexes into**.
 ///
 /// The find bar drives two entirely separate search engines: the editor's
-/// `GtkSourceSearchContext` occurrence list in edit/split mode, and the preview's
-/// unified body-plus-cell hit list ([`PreviewHit`]) in pure-preview mode. Their
+/// `GtkSourceSearchContext` occurrence list when the editor is searched, and the
+/// preview's unified body-plus-cell hit list ([`PreviewHit`]) when the preview is. Their
 /// numbering is independent and there is **no conversion between them** — the same
 /// document yields different counts and a different ordering, because the preview
 /// searches RENDERED text (no `|` table syntax, no `**` markers) and includes matches
@@ -873,7 +885,8 @@ pub(super) fn resync_preview_find(
     }
 }
 
-/// Clear the preview's highlight on find-bar close. No-op outside preview mode.
+/// Clear the preview's highlight on find-bar close, or when the search moves off the
+/// split preview. No-op in edit mode, which has no preview.
 ///
 /// Clears **in place** — no `set_buffer` — so the reading position never moves.
 /// The old scroll-preserving `re_render` rebuilt the whole buffer just
@@ -889,7 +902,13 @@ pub(super) fn clear_preview_highlight(window: &ApplicationWindow) {
         st.preview_find.invalidate();
     }
     match find_target(window) {
-        FindTarget::Editor => (),
+        // In split mode the preview may still carry highlights from while it was the
+        // pane searched (TDD 11.19); they are cleared too. Edit mode has no preview.
+        FindTarget::Editor => {
+            if let Some(view) = super::zoom::get_preview_view(window) {
+                clear_preview_view_highlights(&view);
+            }
+        }
         FindTarget::Preview(view) => clear_preview_view_highlights(&view),
         // Nothing to clear, but the tree is broken and silence here is what made the
         // original defect invisible for as long as it was.
