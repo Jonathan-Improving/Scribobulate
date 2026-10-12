@@ -37,7 +37,7 @@ described from a different vantage point.
 
 | ID | Platform | Scope | Issue | Severity |
 |----|----------|-------|-------|----------|
-| A | Mac | Production | macOS only: an idle preview never fully rests. It holds ~4.7% of a core indefinitely, even on a 3-line document, because something in the app keeps GTK's frame clock ticking; a bare GTK window does not | Medium |
+| A | Mac | Production | macOS only: once any popover has been shown and hidden (the preview's startup pre-warm does it at launch), GDK's macOS backend keeps the frame clock painting empty frames, holding ~4.6% of a core indefinitely. Workaround measured: unrealize each popover after popdown | Medium |
 | B | Mac | Upstream | macOS only: every native file-chooser invocation (Open, Save, Export) grows RSS by ~1.1 MB and does not give it back. Roughly four fifths is AppKit's own price for presenting an `NSSavePanel` — reproduced with no GTK in the process — with about a fifth GTK-attributable. Caching the panel upstream would recover ~95% | Medium |
 | D | Any | Production | The preview's Annotate bubble sits over the line above a selection, so a click there can land on the bubble: in a table, a double- or triple-click on the cell above a selected cell can lose a press and act as a single click | Low |
 | G | Windows | Upstream | After an edit the editor's scrollbar slider is sometimes not drawn until the next scroll (2 of 40 Enters); a GTK defect still open upstream | Low |
@@ -154,31 +154,45 @@ free today, as the probe's control demonstrates — to un-break a minor limitati
 nobody has asked for. It would be a deliberate project chosen on product grounds, not an
 increment, and it should not be started from this entry.
 
-## A. On macOS an idle preview holds ~4.7% of a core indefinitely
+## A. On macOS, once any popover has been shown and hidden, the app holds ~4.6% of a core indefinitely
 
 **Severity**: Medium. Small per window, but permanent, and it contradicts the product's
 negligible-idle-footprint thesis on the platform where battery matters most.
 
-**Measured** (macOS seat, 2026-10-11, release, GTK 4.22.4 / Quartz). A 3-line document in
-preview, idle for 60 s after settling, holds **4.70%** under the System theme and **4.63%**
-under Pixel Quest, so the theme is not the cause. `large-doc.md` in preview holds a steady
-4.5–5.5% for 150 s with no decay. A 3-line document in the editor holds ~2.5%. `sample(1)`
-shows the main thread parked in `poll` ~99% of the time, while short-lived CVDisplayLink
-threads keep appearing and exiting. That means the frame clock keeps requesting frames
-with nothing to draw. Turning off View ▸ Play Animations does not change it.
+**Cause (GDK's macOS backend, GTK 4.22.4).** A `GtkPopover` shown once and then hidden leaves
+the frame clock painting an empty frame every display refresh, permanently. The app does
+nothing in those frames: no tick callbacks, no `queue_draw`, no snapshot, no render. What
+cycles is `gdk_macos_monitor_display_link_cb` → `gdk_surface_thaw_updates` →
+`gdk_frame_clock_request_phase(PAINT)` on the hidden popup surface. That costs ~4.6% of a core
+and starts a fresh CVDisplayLink thread every frame. Same-family GDK-macOS freeze/thaw
+bookkeeping: GTK4Rs/AP-305. The exact GDK line responsible is not yet traced.
 
-**Not reproduced elsewhere.** The same `large-doc.md` preview settles to 0.0% within ~15 s
-on Linux (GTK 4.6.9, Xvfb) and Windows (GTK 4.22.4), measured the same day.
+**Measured** (macOS seat, 2026-10-11, release, `GSK_RENDERER=cairo`):
 
-**It is the app, not GTK.** MEASURED the same day: a bare gtk4-rs window on the same GTK
-4.22.4, with `GSK_RENDERER=cairo`, sits at 0.0% with no CVDisplayLink threads. That holds both
-with only a label and with a focused 3-line `GtkTextView` showing its caret. Scribobulate's
-preview, measured as the control in the same session, starts a fresh CVDisplayLink thread
-every frame (1,153 in 10 s). Something in the app keeps a tick callback, animation or redraw
-request alive in preview on macOS.
+| Case | Idle CPU |
+|---|---|
+| App, preview, any document or theme | ~4.6% |
+| App with the startup popover pre-warm disabled | 0% |
+| …then the toolbar theme dropdown opened and closed | ~4.6% |
+| …then a tooltip shown and hidden | 0% |
+| Bare gtk4-rs window, popover never shown | 0% |
+| Bare window, popover `popup()` + `popdown()` (same turn, deferred, or `autohide`) | ~4.5% |
+| Bare window, popover hidden then `WidgetExt::unrealize()` (same turn or next idle; also after 500 ms open) | 0% |
+| Bare window, popover hidden then unparented | 0% |
 
-**Unverified lead.** In one control run where the window was not forced to the front, the load
-fell from 4.6% to 0.4% partway through. The tick may run only while the window is active.
+So the app triggers it at startup through `codeview::CodePreviewView::prewarm_marker_popover`
+(its popup/popdown on first map), and every user-opened popover triggers it again. Removing
+the pre-warm alone does not fix it. Linux and Windows idle at 0% in the same scenarios.
+
+**Workaround (not yet implemented).** Unrealize a popover immediately after every popdown;
+the next `popup()` re-realizes it. It must cover every popover the app shows on macOS
+(`GtkPopover`, `GtkPopoverMenu`, `MenuButton` and `DropDown` popovers), so it belongs at one
+choke point rather than at each site. Untested risk: the pre-warm exists for GTK4Rs/AP-118 (a
+view-parented popover's first `popup()` forces a validation that scrolls a tall table to its
+top and eats the click). Unrealizing may bring that first-popup cost back on every open, so
+that lesson's check must be re-run on macOS.
+
+**Unknown.** Whether a later GTK fixes it (the researcher has been asked).
 
 ## B. Every native file chooser invocation grows RSS on macOS
 
