@@ -598,7 +598,7 @@ justifies.
 
 `list_step`/`list_item_gap` resolve once and feed **both** `tags.rs` (the
 `li-{depth}` tag's `left_margin`) and `codeview/gutter.rs` (the drawn marker's x); a
-themed step reaching one but not the other strands every marker (GTK4Rs/AP-96), so
+themed step reaching one but not the other strands every marker ([POLICY § One theme key, every application path](POLICY.md)), so
 themed-geometry tests assert the **resolved** pixel position on a realized view.
 
 ## Untrusted input

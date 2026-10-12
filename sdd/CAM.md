@@ -298,8 +298,7 @@ Rules that give the matrix its teeth:
   unrelated action to make a visible surface tell the truth.
 - **One choke point per surface, called by every event.** Each row's refresh
   function is the single entry point; events call it rather than re-implementing the
-  rebuild locally, so a new event cannot half-implement the refresh (the GTK4Rs/AP-47 /
-  GTK4Rs/AP-110 shape). A new derived view must name its choke point here.
+  rebuild locally, so a new event cannot half-implement the refresh (the GTK4Rs/AP-47 shape). A new derived view must name its choke point here.
 - **Take the cheapest correct path.** When the rendered text is invariant, use the
   in-place refresh rather than rebuilding the buffer — a needless `set_buffer`
   brings the repaint/scroll-jump family with it.
@@ -449,7 +448,7 @@ Rules that give the matrix its teeth:
   restore after validation through a single capture/restore choke point
   (`with_preserved_reading_line`). The warm-vs-fresh mechanism is chosen *inside* the
   bracket by view warmth and target distance, never by the call site. A call site
-  that hand-rolls its own capture/restore is the GTK4Rs/AP-110/ScrAP-130 latent-regression
+  that hand-rolls its own capture/restore is the GTK4Rs/AP-110 latent-regression
   shape — the next perturbing event added will forget it, and a happy-path test won't
   catch the silent jump.
 - **Line, not fraction, for same-buffer preservation.** A pixel fraction mixes tall
@@ -909,7 +908,7 @@ Rules that give the matrix its teeth:
   quietly acquiring cells in both (TDD 24.2).
 - **One choke point re-points the backing, and the monitor and its self-delete guard
   travel with it.** They are one mechanism; a path change that re-points the monitor
-  without settling the guard has half-changed the identity (GTK4Rs/AP-108/GTK4Rs/AP-122 shape).
+  without settling the guard has half-changed the identity (GTK4Rs/AP-108 shape).
 - **Refusal is expressed against the filesystem's own notion of identity, never a
   string compare.** Case-insensitive filesystems and symlinks both make `old != new`
   a wrong answer.

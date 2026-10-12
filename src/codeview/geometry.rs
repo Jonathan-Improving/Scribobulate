@@ -73,7 +73,7 @@ pub(crate) fn line_bottom_y(
 /// blank block-separator absorbed it — a loose continuation paragraph abutting a code
 /// block inside a list item (GTK4Rs/AP-127). Shared by the code-block
 /// and blockquote loops in `snapshot_layer` (identical clamp) and exercised directly by
-/// the regression test, so the paint path and the test read the SAME formula (GTK4Rs/AP-78).
+/// the regression test, so the paint path and the test read the SAME formula.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn span_card_y_extent(
     view: &impl IsA<gtk::TextView>,
@@ -146,7 +146,7 @@ pub(crate) fn cell_row_y_h(
 /// card (which anchors itself to that chip). They MUST agree: the card points at the
 /// chip, so a second implementation is free to drift and the drift is visible as a
 /// card floating away from the chip it belongs to. Same shared-extent-helper reflex as
-/// [`span_card_y_extent`] (GTK4Rs/AP-78/GTK4Rs/AP-127) — one formula, two callers, one test.
+/// [`span_card_y_extent`] — one formula, two callers, one test.
 ///
 /// Cache-free by construction: the base row is [`gtk::prelude::TextViewExt::line_yrange`]
 /// (a btree height read that touches no line-display cache — GTK4Rs/AP-22/GTK4Rs/AP-89), never

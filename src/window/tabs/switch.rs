@@ -105,8 +105,7 @@ fn on_active_tab_changed(window: &ApplicationWindow) {
 /// pointer server-side for the render's duration, independent of our blocked
 /// loop. (Compositor-dependent: a Wayland client updates its cursor from frame
 /// callbacks a blocked client can't send, so there it simply won't show — no
-/// harm, just no busy hint. Verify the visible churn on the real X11 session —
-/// GTK4Rs/AP-104.)
+/// harm, just no busy hint. Verify the visible churn on the real X11 session.)
 fn set_busy_cursor(window: &ApplicationWindow) {
     window.set_cursor_from_name(Some("wait"));
     // `display()` is ambiguous between RootExt and WidgetExt (both apply to an
@@ -198,8 +197,7 @@ fn refresh_tab_surfaces(window: &ApplicationWindow) {
     rewire_copy_action(window);
     // Force a repaint of the (window-scoped) format-edit surfaces against THIS
     // tab's selection — the shared cache holds whatever tab last painted them, so
-    // a dedup'd update could leave a stale "Edit …" tooltip after the switch
-    // (GTK4Rs/AP-106).
+    // a dedup'd update could leave a stale "Edit …" tooltip after the switch.
     resync_format_edit_surfaces(window);
     refresh_outline(window);
     refresh_annotations(window);

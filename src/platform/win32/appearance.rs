@@ -318,7 +318,7 @@ mod gtk_integration_tests {
             // suite, on the SAME GTK 4.22.4 the CI runner pins. So "measured on a real
             // Windows host" is true and is NOT assurance about the renderer contract, and
             // a reader will take it as coverage unless told otherwise. A non-observation
-            // is not immunity (GTK4Rs/AP-14's shape). The mechanism behind the split is still
+            // is not immunity. The mechanism behind the split is still
             // unexplained and deliberately not guessed at; the fix stands on GSK's
             // documented contract, not on a theory of the difference.
             renderer.unrealize();

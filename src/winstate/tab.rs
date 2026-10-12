@@ -224,7 +224,7 @@ pub(crate) struct TabState {
     /// `arm`/`disarm`/`consume` methods are the only access, so the
     /// arm/consume/clear protocol is enforced at the type level instead of by
     /// convention across the five call sites that used to touch a `Cell`
-    /// directly (the original GTK4Rs/AP-1 structural root cause QA flagged) — and,
+    /// directly (the original structural root cause QA flagged) — and,
     /// being a plain data type with no GTK dependency, its logic is
     /// unit-tested directly rather than only reachable through a live
     /// `TabState`.

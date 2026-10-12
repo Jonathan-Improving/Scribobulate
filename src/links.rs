@@ -376,9 +376,9 @@ pub(crate) fn scheme_of(url: &str) -> Option<&str> {
 /// event time through.** On the *launch* path GDK substitutes 0 (`GDK_CURRENT_TIME`)
 /// with `gdk_x11_display_get_user_time()` — the last **user-interaction** time, which
 /// the click that got us here already seeded via `XI_ButtonPress`
-/// (`gdkapplaunchcontext-x11.c:346-348`). This is the opposite of GTK4Rs/AP-62,
+/// (`gdkapplaunchcontext-x11.c:346-348`). This is the opposite of GTK4Rs/AP-54,
 /// whose *focus* path (`gdksurface-x11.c:2220`) passes the timestamp **raw** with no
-/// substitution — hence 0 failing there. Different code paths; GTK4Rs/AP-62 does not apply here.
+/// substitution — hence 0 failing there. Different code paths; GTK4Rs/AP-54 does not apply here.
 ///
 /// **Parent is deliberately `None`.** It is not needed for the token (the launch
 /// context comes from `gdk_display_get_default()` when parent is NULL —
@@ -503,7 +503,7 @@ pub(crate) fn resolve_contained_image(src: &str, doc_dir: Option<&Path>) -> Opti
 /// file that escapes the document folder and for a path with no file behind it at
 /// all, and those two are opposite things to tell the reader.
 ///
-/// This is the enum split GTK4Rs/AP-44's 34b half names, applied to the whole gate rather than to
+/// This is the enum split GTK4Rs/AP-34 names, applied to the whole gate rather than to
 /// one corner of it. That entry's fix reached only the untitled-buffer case (no
 /// `doc_dir`, relative `src`), so a **contained** reference whose file was simply
 /// absent at render time still read as `Escapes` — an image sitting safely beside
@@ -821,7 +821,7 @@ pub(crate) enum ImageResolution {
 /// containment gate is enforced: local paths must stay at or beneath the document
 /// folder (`containment_of`), and remote http/https URLs are `Refused`. A local path
 /// the gate turns down is `Refused` only when a file is really there to refuse;
-/// otherwise it is `Missing` (GTK4Rs/AP-44, its 34b half).
+/// otherwise it is `Missing` (GTK4Rs/AP-34).
 ///
 /// When `allow_unsafe_images` is **true**, the containment gate is lifted for
 /// local paths (still canonicalized so symlinks resolve to their real target)
@@ -877,7 +877,7 @@ pub(crate) fn resolve_image(
         // first says the safety policy stopped this, the second says there is
         // nothing here — and the distinction drives the tooltip, not whether an icon
         // appears (§14.9). `containment_of` owns it for both content types; see its
-        // doc comment for what collapsing them cost (GTK4Rs/AP-44, its 34b half).
+        // doc comment for what collapsing them cost (GTK4Rs/AP-34).
         //
         // Every case the old special-casing here handled falls out of that verdict:
         // an untitled buffer (no `doc_dir`) has nothing to resolve a relative `src`
@@ -1437,7 +1437,7 @@ mod tests {
         ));
     }
 
-    /// GTK4Rs/AP-44's 34b half, the part its original fix did not reach: with the containment gate
+    /// GTK4Rs/AP-34, the part its original fix did not reach: with the containment gate
     /// ON, a reference that is perfectly *contained* but has no file behind it yet
     /// must read as **not found**, never as blocked by the safety policy.
     ///

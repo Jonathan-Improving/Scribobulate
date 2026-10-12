@@ -7,7 +7,7 @@ use std::cell::Cell;
 /// R2-2) — its three methods are the ONLY way to touch the underlying flag,
 /// enforcing at the type level what used to be a convention spread across
 /// five call sites in two modules (`window/save.rs`, `app.rs`) with no
-/// static link between them (the original GTK4Rs/AP-1 structural root cause). Being
+/// static link between them (the original structural root cause). Being
 /// plain data with no GTK dependency, it is unit-tested directly here rather
 /// than only reachable through a live, `gtk::init()`-requiring `TabState`.
 #[derive(Default)]

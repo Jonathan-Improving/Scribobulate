@@ -51,7 +51,7 @@ pub(crate) struct FocusSite {
     /// contents' keys are emphatically not the document's.
     pub(crate) shares_the_pane_surface: bool,
     /// The focused widget implements `GtkEditable` — an entry the reader is typing
-    /// into, whose `Home`/`End`/arrows are its own (GTK4Rs/AP-120/GTK4Rs/AP-121).
+    /// into, whose `Home`/`End`/arrows are its own (GTK4Rs/AP-121).
     pub(crate) editable: bool,
 }
 

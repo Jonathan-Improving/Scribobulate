@@ -43,7 +43,8 @@ pub(super) fn draw(snapshot: &gtk::Snapshot, ctx: &PaintCtx) {
         let body_base = lm;
         // The SAME two theme keys `tags.rs` builds the `blockquote` tag's
         // margin from, so a themed bar/gap can never leave a quoted list's
-        // markers beside the quote instead of inside it (GTK4Rs/AP-96).
+        // markers beside the quote instead of inside it
+        // (POLICY "One theme key, every application path").
         let qm = crate::theme::active();
         let quoted_base = lm
             + crate::theme::px(

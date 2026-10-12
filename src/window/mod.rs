@@ -832,8 +832,8 @@ fn wire_format_surface_updates(window: &ApplicationWindow) {
 /// 1. Cancel this window's pending per-window timers, and unparent the single
 ///    caret-overlay popover, while the chrome is still registered — a
 ///    `set_parent`ed popover is NOT auto-unparented, so its host editor would
-///    otherwise finalize "with children left" and leak the popover subtree
-///    (GTK4Rs/AP-106). Destroying a window does not remove a GLib source armed
+///    otherwise finalize "with children left" and leak the popover subtree.
+///    Destroying a window does not remove a GLib source armed
 ///    against it: every timer left running here outlives the window and fires
 ///    into a torn-down one, which is the class GTK4Rs/AP-128 records.
 /// 2. Remove this window's zoom CSS rule from the shared display (the provider

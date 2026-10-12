@@ -84,7 +84,7 @@ thread_local! {
     /// animated WebP is not scalable, so the loader would refuse it one step later and
     /// the test would stay green with the guard deleted. What the guard actually buys is
     /// that those bytes never REACH the loader, because reaching it is what costs
-    /// ~2.3 MB per call (GTK4Rs/AP-66). So the test counts arrivals instead of reading
+    /// ~2.3 MB per call (ScrAP-351). So the test counts arrivals instead of reading
     /// answers. Thread-local, so parallel tests do not see each other's counts.
     static HEADER_PROBES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
@@ -162,7 +162,7 @@ fn probe_header(screened: Screened<'_>) -> Header {
 /// bytes.** A WebP/GIF/APNG file is never scalable, but finding that out HERE would mean
 /// feeding it to a raw `PixbufLoader` — reaching the same leaking header-probe path this
 /// project measured at ~2.3 MB/call on an animated WebP (`Pixbuf::file_info`; see this
-/// crate's module doc comment, GTK4Rs/AP-66) — so richimg-owned content must stay
+/// crate's module doc comment, ScrAP-351) — so richimg-owned content must stay
 /// unreachable here whatever it would have answered. [`super::probe_dimensions`]'s own
 /// doc comment states the same precondition for the same reason.
 ///

@@ -50,7 +50,7 @@ pub(super) fn draw(snapshot: &gtk::Snapshot, ctx: &PaintCtx) {
             // Base Y (anchor line), refined to the exact table row for a CELL
             // marker, via the SHARED `marker_row_y_h` — the same formula the
             // annotation card anchors itself with, so the chip and the card
-            // that points at it can never drift apart (GTK4Rs/AP-78/GTK4Rs/AP-127).
+            // that points at it can never drift apart.
             // Recomputed EVERY frame: both halves are cheap and scroll-stable,
             // so there's nothing to cache against (no flicker, no stale cache).
             let (y, h) = marker_row_y_h(view, buffer, m);
@@ -83,7 +83,7 @@ pub(super) fn draw(snapshot: &gtk::Snapshot, ctx: &PaintCtx) {
             let VisMarker { y, h, .. } = vis_markers[local[0]];
             // SHARED chip arithmetic (`chip_rect`) — the annotation card
             // re-derives its anchor with the very same call, so the drawn chip
-            // and the card pointing at it cannot disagree (GTK4Rs/AP-78/GTK4Rs/AP-127).
+            // and the card pointing at it cannot disagree.
             let (raw_x, raw_y, raw_w, raw_h) = chip_rect(width, rm, y, h);
             // ROUNDED ONCE, here, and then used by all four of the chip's
             // faces — the sprite, the flat fill, the count numeral and the
@@ -93,7 +93,7 @@ pub(super) fn draw(snapshot: &gtk::Snapshot, ctx: &PaintCtx) {
             // boundary is resampled a second time by the compositor. Rounding
             // only the sprite would make what is DRAWN and what is CLICKABLE
             // two different rectangles, which is an interaction defect rather
-            // than a cosmetic one (GTK4Rs/AP-78).
+            // than a cosmetic one.
             let (chip_x, cy) = (raw_x.round(), raw_y.round());
             let (marker_w, chip_h) = (raw_w.round().max(1.0), raw_h.round().max(1.0));
             let rect = graphene::Rect::new(chip_x, cy, marker_w, chip_h);

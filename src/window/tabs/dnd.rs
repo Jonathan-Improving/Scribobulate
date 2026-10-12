@@ -514,8 +514,8 @@ mod gtk_integration_tests {
     /// never hits its same-index no-op guard for the arriving tab — meaning
     /// neither toggle's action was ever actually observed to "lie" via THIS
     /// path in the current codebase (the plausible-from-reading-`WindowInit`
-    /// diagnosis did not hold up under execution — GTK4Rs/AP-91's own
-    /// lesson: verify a source-based theory by running it). The explicit
+    /// diagnosis did not hold up under execution — verify a source-based
+    /// theory by running it). The explicit
     /// resync call is kept anyway as defensive, enforced insurance (see its
     /// call site's comment) against a future change to `widgets/tab`'s
     /// index-bookkeeping silently reintroducing the no-op case. This test

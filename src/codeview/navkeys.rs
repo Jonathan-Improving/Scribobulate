@@ -31,7 +31,7 @@
 //! to the view, so everything in it — including the `CommentEntry` the reader types a
 //! comment into — is a *descendant of the view in the widget tree*. A redirect gated on
 //! the widget tree alone would therefore steal `Home`, `End` and the arrows out of that
-//! entry mid-sentence (GTK4Rs/AP-120/GTK4Rs/AP-121, one level down). Two independent
+//! entry mid-sentence (GTK4Rs/AP-121, one level down). Two independent
 //! gates exclude it: the popover is its own `GtkNative`, and the entry is a
 //! `GtkEditable`. That redundancy is recorded rather than trimmed — a single-gate
 //! mutation of either one stays green (GTK4Rs/AP-254), so the guard below asserts the

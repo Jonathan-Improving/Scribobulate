@@ -364,7 +364,7 @@ async fn apply_recovered_content(
     // Through the loaders' shared write (`reload::write_loaded_text`): the find passage
     // released, `source` set in the same breath as the buffer — `source` is what every
     // DERIVED view renders from, and a recovery once left the preview showing the
-    // pre-recovery text because only the buffer was written (GTK4Rs/AP-78) — the buffer
+    // pre-recovery text because only the buffer was written — the buffer
     // written as a non-undoable load, so one Ctrl+Z cannot revert the recovered work to
     // the file, and the read epoch bumped so a monitor read in flight cannot land on top
     // of it (`winstate::DocEpoch`). The baseline is deliberately NOT touched: the

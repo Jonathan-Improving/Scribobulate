@@ -147,7 +147,7 @@ pub(crate) fn css() -> &'static str {
         Cancel — are flat and padded down so they line up with the label indicators and
         showing Cancel does not make the bar taller. Scoped to the status bar's own class
         (GTK4Rs/AP-77); padding only, since a CSS margin would ADD to the separators'
-        code-set margins (GTK4Rs/AP-161). */
+        code-set margins. */
      .scrib-statusbar button.scrib-statusbar-button { padding: 0 2px; min-height: 0;
                                                       min-width: 0; }"
 }

@@ -252,7 +252,7 @@ pub(crate) fn annotate_markup(
 // (`crate::codeview::gutter`, which paints the bullet/number/checkbox beside it) —
 // only now the single resolution point is the theme key rather than a const
 // (F-DRY-003 → POLICY "One theme key, every application path"). A themed `list_step`
-// that reached the tag but not the gutter would strand every marker: GTK4Rs/AP-96.
+// that reached the tag but not the gutter would strand every marker.
 
 // ── syntect highlight engine (loaded once) ────────────────────────────────────
 

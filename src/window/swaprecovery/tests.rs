@@ -740,7 +740,7 @@ fn the_recovery_notice_follows_the_active_tab() {
 /// mode — this application's *default* mode — would have seen the recovery
 /// silently do nothing.
 ///
-/// Found on a live display (GTK4Rs/AP-104), not headlessly, and the reason is worth
+/// Found on a live display, not headlessly, and the reason is worth
 /// keeping: a headless suite can only catch what its assertions point at, so
 /// aiming them all at one surface makes the suite's greenness evidence about that
 /// surface alone (GTK4Rs/AP-78). Mutation-tested.

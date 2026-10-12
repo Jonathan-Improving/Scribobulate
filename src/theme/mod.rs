@@ -12,7 +12,8 @@
 //!
 //! * **One key → one resolved value → every consumer.** A key that reached the
 //!   `li-{depth}` tag but not the drawn marker gutter would strand every list
-//!   marker — GTK4Rs/AP-96's exact failure mode. Resolution happens once, in
+//!   marker — the failure POLICY "One theme key, every application path"
+//!   prevents. Resolution happens once, in
 //!   [`Theme::resolve`]; consumers read the resolved [`Theme`], never the file.
 //! * **The theme owns Pango SCALE, never CSS `font-size`.** Scale is a tag
 //!   attribute GTK *multiplies* onto the CSS base (`gtktextattributes.c:349-351`),

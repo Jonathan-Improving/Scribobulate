@@ -247,7 +247,7 @@ impl Renderer {
     }
 
     /// Apply a list item's uniform per-level content-margin tags over `[start, end)`,
-    /// PER logical line with the terminating `\n`s left untagged (GTK4Rs/AP-70/GTK4Rs/AP-72).
+    /// PER logical line with the terminating `\n`s left untagged (GTK4Rs/AP-72).
     /// The item's FIRST logical line gets `li-{depth}` (carries the small inter-item
     /// `pixels_above_lines` gap); every LATER logical line gets `li-{depth}-cont` (no
     /// gap). Both variants carry the SAME `left_margin` and `indent = 0` — the marker is

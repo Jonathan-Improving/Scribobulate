@@ -657,7 +657,8 @@ pub(crate) fn setup_tags_with_theme(buf: &TextBuffer, palette: &Palette, zoom: f
     //
     // The bar width/gap are the SAME theme keys `codeview::mod`'s snapshot draws the
     // bar from and `codeview::gutter` offsets a quoted list's markers by, so a themed
-    // bar cannot land beside a differently-indented quote (GTK4Rs/AP-96's failure mode).
+    // bar cannot land beside a differently-indented quote
+    // (POLICY "One theme key, every application path").
     //
     // The PANEL behind the quote (TDD 18.29) is NOT here, and deliberately so. It began
     // as a `paragraph_background_rgba` on this tag — which buys vertical padding and a
@@ -730,7 +731,7 @@ pub(crate) fn setup_tags_with_theme(buf: &TextBuffer, palette: &Palette, zoom: f
     // identical in both variants, so it cannot change — only the inter-item gap could.
     // Applying per-line (content only, '\n's untagged) still gives every line its own
     // margin toggle, which is what prevents a uniform multi-line margin from being
-    // dropped on toggle-free middle lines (GTK4Rs/AP-70/GTK4Rs/AP-72; research §5a). Both keep
+    // dropped on toggle-free middle lines (GTK4Rs/AP-72; research §5a). Both keep
     // pixels_inside_wrap at 0 so a line's own soft wraps stay tight.
     //
     // ACCUMULATIVE margin (GTK4Rs/AP-96): `left_margin` here is the item's indent

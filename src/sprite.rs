@@ -716,7 +716,7 @@ pub(crate) use crate::imagedecode::probe_pixel_size;
 /// **Decodes through [`crate::imagedecode::decode`]**, the application's one
 /// choke point: content-sniffed, so a WebP sprite routes to `richimg` rather than the
 /// gdk-pixbuf loader chain `Texture::from_bytes` used to reach (the same leak
-/// `renderer::start`'s document-image path had — GTK4Rs/AP-66). The file arm went
+/// `renderer::start`'s document-image path had — ScrAP-351). The file arm went
 /// through `from_filename` until the read had to be bounded and re-validated on an
 /// open handle ([`open_checked`]); one read path for both sources is what keeps that
 /// guarantee from having two implementations. Animated sprites are a later work

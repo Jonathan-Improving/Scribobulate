@@ -212,7 +212,7 @@ something.
 - **Comparability rules are part of the gate, not hygiene.** A pinned fixture corpus
   and a scripted scenario; a release-derived build only; **scale the cycle count and
   read the slope — never trust an absolute** (one-time initialisation noise is flat
-  across counts while a real leak grows with them, GTK4Rs/AP-63); one variable per run;
+  across counts while a real leak grows with them, GTK4Rs/AP-141); one variable per run;
   never compare across renderer or feature flags.
 - **Xvfb versus the real session.** Slopes, allocation counts and structural
   sampling are sound under Xvfb. Anything paint-, compositor- or GPU-dependent is

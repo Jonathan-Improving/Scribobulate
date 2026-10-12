@@ -20,7 +20,7 @@
 //! point: it sniffs by content and routes WebP/GIF/APNG
 //! to `richimg` — never `Texture::from_file`, which leaked ~12 MB/call on a valid
 //! animated WebP and SIGSEGVed on a truncated one (`Pixbuf::from_file` errored
-//! outright and was never a fallback — GTK4Rs/AP-66 / GTK4Rs/AP-66, now superseded by
+//! outright and was never a fallback — ScrAP-351 / ScrAP-352, now superseded by
 //! this route for every format it claims).
 //!
 //! **Remote images** are fetched by [`crate::imagefetch`], not by GIO — a

@@ -38,7 +38,7 @@
 //!    us: `gtk_text_view_measure` measures `center_child`, and `gtk_text_view_child_measure`
 //!    takes the **max over every overlay** — so a 280 px card raises the *view's minimum
 //!    width*, which re-arms the marginal `Automatic` h-scrollbar and with it the whole
-//!    GTK4Rs/AP-124/GTK4Rs/AP-23a → GTK4Rs/AP-22 churn-blank chain. There is no opt-out. And it would behave
+//!    GTK4Rs/AP-23a → GTK4Rs/AP-22 churn-blank chain. There is no opt-out. And it would behave
 //!    *differently* on our macOS build (4.22.4, where the scroll bug is fixed) than on our
 //!    4.6.9 floor — the exact cross-platform divergence this rebuild exists to end.
 //!    Full write-up: GTK4Rs/AP-189.
@@ -109,7 +109,7 @@ mod imp {
         /// **Logically showing**, which is not the same as `is_visible()`: the card stays
         /// "open" while temporarily hidden because its chip scrolled off the viewport, so
         /// it can re-show itself when the chip comes back. It is also the lag-free answer
-        /// for `has_open_marker_popover` (GTK4Rs/AP-117).
+        /// for `has_open_marker_popover`.
         pub(super) open: Cell<bool>,
 
         /// Set while the card is hidden because its chip is off the viewport, as opposed
@@ -246,7 +246,7 @@ impl AnnotationCard {
     }
 
     /// Whether the card is logically showing an annotation — lag-free, and true even while
-    /// it is transiently hidden because its chip is scrolled off (GTK4Rs/AP-117: never
+    /// it is transiently hidden because its chip is scrolled off (never
     /// `is_visible()`, and here not even "is it on screen").
     ///
     /// This is the **session** question: does the user have an annotation open? Use it for

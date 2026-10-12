@@ -33,7 +33,8 @@ use gtk::{cairo, gdk, graphene};
 /// `li-{depth}` tags from — so the tag and this gutter cannot drift apart (POLICY "One
 /// theme key, every application path"; they were once duplicated bare literals behind
 /// "KEEP IN SYNC" comments, F-DRY-003). A themed `list_step` that reached the tag but
-/// not this gutter would strand every marker off its text: GTK4Rs/AP-96's exact failure mode.
+/// not this gutter would strand every marker off its text: the failure
+/// POLICY "One theme key, every application path" prevents.
 /// Taken as a parameter rather than read from the thread-local here, so every function
 /// below stays pure and headlessly unit-testable at any metric.
 fn step_f(m: &Metrics) -> f32 {
@@ -284,7 +285,7 @@ pub(crate) fn draw_list_marker(
         }
         ListMarkerKind::Task { checked, .. } => {
             // A static box outline (+ checkmark when checked) — custom-drawn, no live
-            // GtkCheckButton and no icon-theme dependency (research §7; GTK4Rs/AP-91). The
+            // GtkCheckButton and no icon-theme dependency (research §7). The
             // box geometry comes from the shared pure `checkbox_rect` so the hover
             // hit-band (recorded in mod.rs) matches the painted box exactly.
             let rect = checkbox_rect(content_margin, line, zoom, m);
@@ -501,7 +502,7 @@ mod tests {
         assert!(quoted > list_content_margin_px(20.0, 1, 1.0, &m));
     }
 
-    /// TDD 18.10 / GTK4Rs/AP-96 — a THEMED `list_step` must move the marker column and the
+    /// TDD 18.10 — a THEMED `list_step` must move the marker column and the
     /// content margin TOGETHER. This is the drift the one-key rule exists to prevent:
     /// the gutter and `tags.rs` read the same key, so a theme cannot strand a marker.
     #[test]

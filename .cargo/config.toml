@@ -68,7 +68,7 @@ XDG_STATE_HOME = { value = "target/test-state", relative = true }
 #
 # A second effect, deliberate and worth knowing: GTK reads
 # `$XDG_CONFIG_HOME/gtk-4.0/settings.ini`, and under Xvfb — with no XSettings manager —
-# that file is what supplies the theme (GTK4Rs/AP-128). Pinning this means the integration
+# that file is what supplies the theme (GTK4Rs/AP-152). Pinning this means the integration
 # suite stops inheriting the tester's own GTK settings, so a theme-sensitive test now
 # behaves the same here as on a runner instead of quietly depending on the desktop.
 #

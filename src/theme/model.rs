@@ -290,7 +290,7 @@ pub(crate) struct Metrics {
     pub blockquote_text_gap: i32,
     /// The ONE definition both the `li-{depth}` tag's `left_margin` and the drawn
     /// marker gutter's x read. A value that reached one but not the other would
-    /// strand every list marker — GTK4Rs/AP-96.
+    /// strand every list marker (POLICY "One theme key, every application path").
     pub list_step: i32,
     pub list_item_gap: i32,
     pub rule_space: i32,

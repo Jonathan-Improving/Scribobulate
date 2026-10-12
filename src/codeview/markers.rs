@@ -616,7 +616,7 @@ impl CodePreviewView {
     ///
     /// "Open" is the card's own lag-free flag, NOT slot presence (the card is a persistent
     /// instance, so the slot stays `Some` for the view's life) and NOT `is_visible()`
-    /// (GTK4Rs/AP-117) — which now differs from "open" for a second reason too: the card hides
+    /// — which now differs from "open" for a second reason too: the card hides
     /// itself while its chip is scrolled off the viewport, without ending its session.
     /// **No production caller by design** — the two visual-collision gates that used to
     /// call it now (correctly) ask [`marker_card_is_showing`] instead. It survives as the
@@ -685,7 +685,7 @@ impl CodePreviewView {
     /// the chip *is*, never where it *was*.
     ///
     /// Shares [`marker_row_y_h`] and [`chip_rect`] with the painter, so the anchor and the
-    /// drawn chip cannot drift apart (GTK4Rs/AP-78/GTK4Rs/AP-127). Every read here is cache-free and
+    /// drawn chip cannot drift apart. Every read here is cache-free and
     /// side-effect-free — `line_yrange` is a btree height read, and
     /// `buffer_to_window_coords` is a bare `y -= yoffset` — so this forces no layout
     /// validation and is safe to call from a scroll handler (GTK4Rs/AP-22). Returns `None` for an
@@ -1029,7 +1029,7 @@ impl CodePreviewView {
         // in-progress state. A switch to a DIFFERENT marker has different `idxs` and still
         // rebuilds; `open_stepped_marker_popover` advances to a strictly-different marker, so the
         // advance/switch navigation is untouched. The card's own `is_open` (never
-        // `is_visible`) is the authoritative flag (GTK4Rs/AP-117).
+        // `is_visible`) is the authoritative flag.
         let card = self.marker_card();
         if card.is_open() && card.shows_exactly(idxs) {
             return;

@@ -291,8 +291,8 @@ mod imp {
         /// Each VISIBLE code block's card rectangle, `(rect, index into `blocks`)`, in
         /// the BUFFER coordinates the card was painted in — the same convention
         /// `checkbox_hitboxes` uses, and read back through GTK's own
-        /// `window_to_buffer_coords` so no hand-rolled scroll/margin math can drift
-        /// (GTK4Rs/AP-81's lesson). Cleared and repopulated on every
+        /// `window_to_buffer_coords` so no hand-rolled scroll/margin math can drift.
+        /// Cleared and repopulated on every
         /// `snapshot_layer(BelowText)` paint. It exists so the pointer can be mapped to
         /// the block it is over, which is what reveals that block's copy button.
         pub(crate) code_block_rects: RefCell<Vec<(graphene::Rect, usize)>>,
@@ -308,7 +308,7 @@ mod imp {
         /// Hit-boxes for the copy buttons actually DRAWN this paint, `(rect, block
         /// index)`, in buffer coordinates. Recorded by the same code that draws them,
         /// from the same rectangle, so a button can never be clickable where it is not
-        /// visible — nor visible where it is not clickable (GTK4Rs/AP-78).
+        /// visible — nor visible where it is not clickable.
         pub(crate) copy_button_hitboxes: RefCell<Vec<(graphene::Rect, usize)>>,
         /// The block whose copy button is showing its post-copy checkmark, and the
         /// timeout that will clear it. `None` at rest. The confirmation is drawn rather
@@ -375,7 +375,7 @@ mod imp {
         /// primary clipboard is long-lived (outlives the view), so we keep the id +
         /// clipboard here and disconnect in `dispose` — otherwise every fresh render's
         /// view would leak a handler on the shared clipboard (same discipline as the
-        /// window's `copy-primary-handler`, GTK4Rs/AP-28/GTK4Rs/AP-82).
+        /// window's `copy-primary-handler`, GTK4Rs/AP-28).
         pub(crate) primary_sel_handler: RefCell<Option<(gdk::Clipboard, glib::SignalHandlerId)>>,
         /// TDD 27.9: the animated sprites this view's paint plan currently draws. A
         /// sprite is painted directly rather than by a picture, so this view IS its host,

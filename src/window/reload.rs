@@ -82,7 +82,7 @@ pub(crate) fn reload_from_disk(window: &ApplicationWindow) {
 ///   `refresh_dirty_status` synchronously with no `loading` gate of its own, so a
 ///   baseline set afterwards latched a spurious "Unsaved changes" against the old one.
 /// - **The buffer write is `loading`-guarded**, so the split live-preview debounce
-///   ignores it; the caller rebuilds the view from the new source itself (GTK4Rs/AP-89).
+///   ignores it; the caller rebuilds the view from the new source itself.
 /// - **The read epoch is bumped**: content and baseline both changed, so a read still in
 ///   flight describes a document that no longer exists.
 /// - **A recorded backing loss is cleared**: the buffer is no longer the only copy.
@@ -1216,7 +1216,7 @@ mod gtk_integration_tests {
         // Each reload rebuilds the preview subtree, dropping the previous overlay + card.
         // Drive a few bounded cycles and stop the moment the captured entry finalizes — a
         // stranded (GTK4Rs/AP-63-cycled) entry never will, so the loop exhausts and the assert
-        // fires. Frame-count pumped, never a wall-clock sleep (GTK4Rs/AP-122).
+        // fires. Frame-count pumped, never a wall-clock sleep.
         for n in 0..8 {
             apply_external_reload(&window, &format!("# One\n\n# Two {n}\n\nbody {n}"));
             // The one site here that legitimately TOLERATES non-convergence, so it keeps
