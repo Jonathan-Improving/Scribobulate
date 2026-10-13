@@ -2898,7 +2898,7 @@
 ### 17.59 Annotating never changes what the file means to other tools
 - **Given** a document holding a block that other Markdown tools read verbatim — front matter (2.27), a fenced or indented code block, or an HTML block such as an authored `<details>`
 - **When** the reader annotates a selection that falls inside it or ends on it, from the preview or the editor
-- **Then** the block is left byte-for-byte as it was, and the comment is kept on a line of its own just after the block, inside whatever quote or list holds it; its marker appears in the preview and the page otherwise renders as before
+- **Then** the block is left byte-for-byte as it was, and the comment is kept on a line of its own just after the block, inside whatever quote or list holds it; its marker appears in the preview beside the block, not beside the text above it, and the page otherwise renders as before
 - **And** nothing in the file is replaced: the comment is only ever inserted, never written over a blank line or the end of a block, and removing it returns the file to what it was
 - **And** a highlight that touches math (`$…$`, `$$…$$`) covers the whole formula rather than splitting it
 - **And** annotations everywhere else — headings, lists, quotes, footnotes, inline formatting — are unchanged
