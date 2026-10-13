@@ -253,3 +253,65 @@ fn moving_focus_between_split_panes_moves_the_open_search() {
     assert!(st.chrome().replace_row.is_sensitive());
     win.destroy();
 }
+
+/// TDD 11.19: REOPENING the bar over an unchanged query describes the pane now
+/// searched. Close a preview search, focus the editor, reopen: the readout is the
+/// editor's count and the editor is lit. Then the reverse: close, focus the preview,
+/// reopen — the editor is unlit.
+///
+/// Reported by the macOS seat: the readout kept the preview's count after a reopen from
+/// the editor, because an unchanged query leaves the engine's count notification
+/// silent. Mutation check: restoring the scoped-only readout refresh in
+/// `open_find_bar` fails the first readout assertion; restoring the unconditional
+/// `set_highlight(unscoped)` there fails the last.
+#[gtktest::test]
+fn reopening_the_bar_in_split_describes_the_pane_now_searched() {
+    let win = split_window("reopen");
+    let view = preview_view(&win);
+    let st = state(&win).expect("active tab");
+    let close = |w: &ApplicationWindow| {
+        state(w)
+            .expect("active tab")
+            .chrome()
+            .find_entry
+            .emit_by_name::<()>("stop-search", &[]);
+        settle();
+    };
+    let reopen = |w: &ApplicationWindow| {
+        crate::window::actions::simple_action(w, "find")
+            .expect("win.find is registered")
+            .activate(None);
+        settle();
+    };
+
+    focus(&win, &view);
+    search(&win, "alpha");
+    assert_eq!(
+        readout(&win),
+        readout_for_total(PREVIEW_COUNT),
+        "precondition: the preview search counts the preview"
+    );
+    close(&win);
+
+    focus(&win, &st.editor);
+    reopen(&win);
+    assert_eq!(
+        readout(&win),
+        readout_for_total(EDITOR_COUNT),
+        "reopened from the editor, the readout is the editor's count"
+    );
+    assert!(
+        st.search_context.is_highlight(),
+        "reopened from the editor, the editor is lit"
+    );
+    close(&win);
+
+    focus(&win, &view);
+    reopen(&win);
+    assert!(
+        !st.search_context.is_highlight(),
+        "reopened from the preview, the editor keeps no highlight"
+    );
+    assert_eq!(readout(&win), readout_for_total(PREVIEW_COUNT));
+    win.destroy();
+}

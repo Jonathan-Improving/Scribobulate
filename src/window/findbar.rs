@@ -58,14 +58,18 @@ pub(super) fn wire_find_bar(window: &ApplicationWindow, chrome: &Chrome) {
                     // The engine lights the whole buffer, so only when no passage
                     // confines the search; a held passage is repainted once the bar is
                     // revealed, below.
+                    // And only when the editor is the pane searched (TDD 11.19).
                     let unscoped = st.find_scope.borrow().is_none();
-                    st.search_context.set_highlight(unscoped);
+                    let editor_searched = matches!(find_target(&w), FindTarget::Editor);
+                    st.search_context.set_highlight(unscoped && editor_searched);
                 }
                 fr.set_reveal_child(true);
+                // Re-read the editor's count on every reopen that searches the
+                // editor, scoped or not: in split the readout may still hold the
+                // PREVIEW's count from the last search, and an unchanged query makes
+                // the engine's count notification silent (TDD 11.19).
                 if let Some(st) = state(&w) {
-                    if st.find_scope.borrow().is_some()
-                        && matches!(find_target(&w), FindTarget::Editor)
-                    {
+                    if !fe.text().is_empty() && matches!(find_target(&w), FindTarget::Editor) {
                         crate::window::find::update_editor_readout(
                             &st,
                             st.find_cursor.get().editor_index(),
