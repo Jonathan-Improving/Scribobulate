@@ -41,6 +41,7 @@ described from a different vantage point.
 | D | Any | Production | The preview's Annotate bubble sits over the line above a selection, so a click there can land on the bubble: in a table, a double- or triple-click on the cell above a selected cell can lose a press and act as a single click | Low |
 | G | Windows | Upstream | After an edit the editor's scrollbar slider is sometimes not drawn until the next scroll (2 of 40 Enters); a GTK defect still open upstream | Low |
 | Q | Windows, Linux | Upstream | A crafted SVG can corrupt memory: Windows and Linux decode SVG through a librsvg with a published use-after-free (CVE-2026-96889, fixed in 2.63.2), and refuse any SVG that may use XInclude before librsvg sees it until they carry the fix. The macOS bundle carries 2.63.2, and its build fails below that | High |
+| R | Windows | Test | Two split-mode live-reload tests in `window::outline_reload_tests` intermittently fail on Windows CI because the editor is not where the test parked it (top line 0, or 70 where >100 is required) | Low |
 
 ## Closed issues
 
@@ -299,6 +300,33 @@ out (`xinclude::ENFORCED`), because the bundle carries the fix and its build enf
   Linux, where whether 2.52.5 even has the faulty code is still not established.
 - The screen's premise that librsvg follows no non-`data:` reference without a base URL
   (the loader is fed a stream with none) is read from librsvg's design, not measured.
+
+## R. Split-mode live-reload tests sometimes find the editor short of where they parked it on Windows CI
+
+**Severity**: Low (test-only; the run passes on a re-run of the failed job).
+
+**Symptom**: on Windows CI only, `window::outline_reload_tests` fails in split mode:
+- `a_live_reload_keeps_a_heading_at_the_top_of_the_split_preview` (List case):
+  `assert_preview_top_is_the_heading` finds editor top line 0, preview top line 0, heading 445.
+- `a_live_reload_keeps_the_caret_and_the_filtered_outline_in_split`: the precondition
+  `before_top > 100` fails at top line 70. Earlier, the same test failed with editor top 0.
+
+Seen on CI runs 38311458383 (both tests in one run, in the same test thread) and once before
+that. The failed job passed on re-run each time.
+
+**What is known**: both failures are in setup or settling, not in the reload under test. The
+editor never reached the parked line, or did not stay there. Linux: 0 of 20 runs of the module,
+on both the old and the new code, unloaded. Mac: green on every CI run; not checked locally.
+Not reproduced locally on Windows.
+
+**Suspects, unmeasured**: the editor's scroll to the park line is an animated `scroll_to_mark`
+that lands in stages (GTK4Rs/AP-14, GTK4Rs/AP-115), and the helpers' settle may time out on a
+slow runner before it has finished; the two failures in one thread may also mean one test left
+state behind for the next.
+
+**Next step**: have the Windows seat run the module in a loop under CPU load and log the
+editor's vadjustment value and upper across the park, as was done for the reading-position
+flake fixed by "Keep the reading position when a view switch comes before the editor has scrolled into place" (2026-10-11).
 
 ## CLSD-02. A paragraph that mixes fonts lays out wider than the wrap width it was given
 
