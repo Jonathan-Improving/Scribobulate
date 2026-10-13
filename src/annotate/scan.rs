@@ -241,11 +241,20 @@ impl DelimIndex {
         out
     };
 
-    fn build(source: &str) -> Self {
+    /// `code` is [`code_ranges`]'s answer: a delimiter inside code is that code's
+    /// literal text, so it is never indexed and cannot close a construct.
+    fn build(source: &str, code: &[Range<usize>]) -> Self {
         let positions =
             |pat: &str| -> Vec<usize> { source.match_indices(pat).map(|(i, _)| i).collect() };
+        let outside_code = |pat: &str| -> Vec<usize> {
+            source
+                .match_indices(pat)
+                .map(|(i, _)| i)
+                .filter(|&i| !in_code(code, i))
+                .collect()
+        };
         DelimIndex {
-            needles: Self::NEEDLES.map(positions),
+            needles: Self::NEEDLES.map(outside_code),
             blank_lines: positions("\n\n"),
         }
     }
@@ -286,6 +295,44 @@ impl DelimIndex {
         let i = self.blank_lines.partition_point(|&p| p < range.start);
         self.blank_lines.get(i).is_some_and(|&p| p + 2 <= range.end)
     }
+}
+
+/// The byte span of every piece of code in `source` — each inline code span,
+/// backticks included, and each fenced or indented code block, fences included — in
+/// ascending order.
+///
+/// Every other Markdown tool reads `` `{>>x<<}` `` and a fenced sample of CriticMarkup
+/// as code, so CriticMarkup inside code is literal text: it renders as written and is
+/// never an annotation (TDD 17.61). Found by parsing the source as written, the file
+/// other tools read.
+///
+/// Skipped when the source holds no opener at all, so a document without CriticMarkup
+/// pays for no second parse.
+fn code_ranges(source: &str) -> Vec<Range<usize>> {
+    if !PAIRS.iter().any(|(open, _)| source.contains(open)) {
+        return Vec::new();
+    }
+    // Through the normalising seam, like every parse site, so a tab-padded table is a
+    // table here exactly as on the page. The pre-pass keeps every byte where it was,
+    // so the ranges index `source` itself.
+    crate::renderer::NormalizedMd::new(source)
+        .parse()
+        .into_offset_iter()
+        .filter_map(|(ev, r)| {
+            matches!(
+                ev,
+                pulldown_cmark::Event::Code(_)
+                    | pulldown_cmark::Event::Start(pulldown_cmark::Tag::CodeBlock(_))
+            )
+            .then_some(r)
+        })
+        .collect()
+}
+
+/// Whether byte `i` lies inside one of `code` (ascending, non-overlapping).
+fn in_code(code: &[Range<usize>], i: usize) -> bool {
+    let k = code.partition_point(|r| r.end <= i);
+    code.get(k).is_some_and(|r| r.start <= i)
 }
 
 /// If `source[i..]` opens with `open`, return the delimited content's original
@@ -397,11 +444,17 @@ pub(crate) fn extract(source: &str) -> Extraction {
     let mut cursor = 0usize;
     // One linear pass over the source up front; every delimiter lookup below is
     // then a binary search rather than a scan to end-of-input (see `DelimIndex`).
-    let idx = DelimIndex::build(source);
+    let code = code_ranges(source);
+    let idx = DelimIndex::build(source, &code);
 
     while let Some(rel) = source[cursor..].find('{') {
         let i = cursor + rel;
-        let Some(p) = try_parse(source, &idx, i) else {
+        let parsed = if in_code(&code, i) {
+            None
+        } else {
+            try_parse(source, &idx, i)
+        };
+        let Some(p) = parsed else {
             // Not a construct: keep everything through this `{` as literal text.
             cleaned.push_str(&source[cursor..=i]);
             cursor = i + 1;
@@ -589,6 +642,62 @@ mod tests {
         let e = extract("open {== but never closed");
         assert_eq!(e.cleaned, "open {== but never closed");
         assert!(e.annotations.is_empty());
+    }
+
+    #[test]
+    fn criticmarkup_inside_inline_code_is_literal() {
+        // One code span holding a whole construct, and a pair of code spans each
+        // holding one delimiter: neither is an annotation, both render as written.
+        for src in [
+            "Check replies from Jon (`{>>…<<}`).",
+            "Reply between the `{>>` and `<<}` markers.",
+            "Write `{==claim==}{>>why<<}` to annotate.",
+        ] {
+            let e = extract(src);
+            assert_eq!(e.cleaned, src, "{src:?}");
+            assert!(e.annotations.is_empty(), "{src:?}");
+        }
+    }
+
+    #[test]
+    fn criticmarkup_inside_a_code_block_is_literal() {
+        // Fenced (backticks and tildes), fenced inside a quote, and indented.
+        for src in [
+            "How to reply:\n\n```\nThe claim {==is here==}{>>and the reply<<}.\n```\n\nEnd.\n",
+            "~~~\n{>>a comment<<}\n~~~\n",
+            "> ```\n> {==claim==}{>>why<<}\n> ```\n",
+            "Text.\n\n    {==claim==}{>>why<<}\n\nMore.\n",
+        ] {
+            let e = extract(src);
+            assert_eq!(e.cleaned, src, "{src:?}");
+            assert!(e.annotations.is_empty(), "{src:?}");
+        }
+    }
+
+    #[test]
+    fn a_comment_on_its_own_line_after_a_code_block_still_extracts() {
+        // Where TDD 17.59 writes an annotation made inside a block: just after it.
+        let e = extract("```\n{==not this==}\ncode\n```\n{>>about the code<<}\n");
+        assert_eq!(e.annotations.len(), 1);
+        assert_eq!(e.annotations[0].comment.as_deref(), Some("about the code"));
+        assert_eq!(e.cleaned, "```\n{==not this==}\ncode\n```\n\n");
+    }
+
+    #[test]
+    fn a_closer_inside_inline_code_does_not_close_a_construct() {
+        // The `==}` in the code span is code; the construct closes at the real one.
+        let e = extract("{==see `a==}b` here==}{>>note<<} end");
+        assert_eq!(e.cleaned, "see `a==}b` here end");
+        assert_eq!(e.annotations.len(), 1);
+        assert_eq!(e.annotations[0].comment.as_deref(), Some("note"));
+    }
+
+    #[test]
+    fn annotations_around_and_beside_inline_code_still_extract() {
+        let e = extract("{==`cargo test`==}{>>why<<} and `{>>x<<}` then a{>>real<<}.");
+        assert_eq!(e.cleaned, "`cargo test` and `{>>x<<}` then a.");
+        let comments: Vec<_> = e.annotations.iter().map(|a| a.comment.as_deref()).collect();
+        assert_eq!(comments, [Some("why"), Some("real")]);
     }
 
     #[test]

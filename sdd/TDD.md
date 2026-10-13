@@ -2910,6 +2910,12 @@
 - **Then** the whole card is on screen, and each annotation's Edit / Remove (or Save / Cancel while editing) sits directly under its own text, visible and clickable without scrolling past that text
 - **And** the long text scrolls inside the card rather than growing it; where several annotations share the card and still do not fit, their rows scroll together so every one stays reachable — the card never runs off the screen and never closes itself because of its size
 
+### 17.61 CriticMarkup written as code shows as code
+- **Given** a document that writes CriticMarkup inside code — inline code such as `` `{>>…<<}` `` or "between the `` `{>>` `` and `` `<<}` `` markers", or a fenced or indented code block showing a sample annotation
+- **When** it is shown in the preview
+- **Then** the code reads exactly as written, with no margin marker and no annotation in the annotations list
+- **And** a real annotation on the same line, one wrapping a whole code span, or a comment on its own line after a code block (17.59), still renders and lists as an annotation
+
 ## 18. Preview reading themes
 
 The preview pane's purpose is reading. A *reading theme* restyles everything the
