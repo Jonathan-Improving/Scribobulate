@@ -607,12 +607,20 @@ pub(super) fn build_products(buf: &TextBuffer, prepared: &Prepared<'_>) -> Rende
         // an event by source offset would map a claim boundary onto the separator
         // (the wrong line). Restricting to Text/Code/Break keeps the src↔buffer
         // mapping to genuine inline content.
-        let is_content_run = matches!(
-            copy_kind,
-            Some(crate::copymap::RawKind::Text(_))
-                | Some(crate::copymap::RawKind::Code(_))
-                | Some(crate::copymap::RawKind::Break)
-        );
+        //
+        // A code block is the one block whose CONTENT is written at its End event: its
+        // Text events are buffered and emit nothing. Without its End here a comment
+        // written after the block (TDD 17.59) falls into the gap and resolves to the
+        // last paragraph ABOVE the block. No annotation lies inside a code block, so
+        // this record anchors only such a following comment and tags nothing.
+        let is_code_block_end = matches!(ev, Event::End(TagEnd::CodeBlock));
+        let is_content_run = is_code_block_end
+            || matches!(
+                copy_kind,
+                Some(crate::copymap::RawKind::Text(_))
+                    | Some(crate::copymap::RawKind::Code(_))
+                    | Some(crate::copymap::RawKind::Break)
+            );
         // Per-cell capture (cells insert no buffer text — their content lives in the
         // label widgets — so this runs on a separate cell-plain offset counter).
         //
@@ -680,6 +688,16 @@ pub(super) fn build_products(buf: &TextBuffer, prepared: &Prepared<'_>) -> Rende
         // Paired with `before` above: the renderer's cursor, not the buffer's length.
         let after = r.end_offset();
         if is_content_run && after > before {
+            // Every line of a code block ends in a newline, so its end offset is the
+            // start of the NEXT line. Its record ends before those newlines instead, on
+            // the block's last line, where a comment after the block belongs.
+            let mut after = after;
+            while is_code_block_end
+                && after > before
+                && buf.iter_at_offset(after - 1).char() == '\n'
+            {
+                after -= 1;
+            }
             hl_evs.push((src_start, src_end, before, after));
         }
         if is_heading_end {
@@ -2294,6 +2312,28 @@ mod gtk_integration_tests {
             line_of(products.markers[3].anchor),
             4,
             "the third highlight is on line 4"
+        );
+    }
+
+    /// A comment on its own line after a fenced code block — where an annotation made
+    /// inside the block is written (TDD 17.59) — anchors to the block's last line, not to
+    /// the paragraph above it. A code block's text reaches the buffer only at its END
+    /// event, which is not a content run, so the gap fallback once skipped the block.
+    #[gtktest::test]
+    fn a_comment_after_a_code_block_anchors_to_the_block() {
+        let md = "How to reply:\n\n```\nThe claim is here.\nSecond line.\n```\n{>>my note<<}\n";
+        let products = build_render_products(md, None, 1.0, false);
+        let buf = &products.buf;
+        assert_eq!(products.markers.len(), 1, "one marker for the comment");
+        let line = buf.iter_at_offset(products.markers[0].anchor).line();
+        let all = buffer_slice(buf);
+        let text = all
+            .split('\n')
+            .nth(line as usize)
+            .expect("marker line exists");
+        assert_eq!(
+            text, "Second line.",
+            "the marker sits beside the block's last line"
         );
     }
 

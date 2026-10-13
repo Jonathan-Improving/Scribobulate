@@ -42,7 +42,6 @@ described from a different vantage point.
 | G | Windows | Upstream | After an edit the editor's scrollbar slider is sometimes not drawn until the next scroll (2 of 40 Enters); a GTK defect still open upstream | Low |
 | Q | Windows, Linux | Upstream | A crafted SVG can corrupt memory: Windows and Linux decode SVG through a librsvg with a published use-after-free (CVE-2026-96889, fixed in 2.63.2), and refuse any SVG that may use XInclude before librsvg sees it until they carry the fix. The macOS bundle carries 2.63.2, and its build fails below that | High |
 | R | Windows | Test | Two split-mode live-reload tests in `window::outline_reload_tests` intermittently fail on Windows CI because the editor is not where the test parked it (top line 0, or 70 where >100 is required) | Low |
-| S | Any | Production | A comment written on its own line after a code block — where an annotation made inside the block lands — shows its margin marker beside the line above the block, not beside the block | Low |
 
 ## Closed issues
 
@@ -328,34 +327,6 @@ state behind for the next.
 **Next step**: have the Windows seat run the module in a loop under CPU load and log the
 editor's vadjustment value and upper across the park, as was done for the reading-position
 flake fixed by "Keep the reading position when a view switch comes before the editor has scrolled into place" (2026-10-11).
-
-## S. A comment after a code block shows its marker beside the line above the block
-
-**Severity**: Low (the comment is written and listed correctly; only its marker is misplaced).
-
-**Symptom**: annotate a word inside a fenced code block in the preview. The comment is written
-on its own line after the closing fence, as TDD 17.59 requires, but its margin marker appears
-beside the paragraph line above the block, not beside the block. Reproduced on master
-("Record the intermittent Windows CI failure in the split-mode live-reload tests", 2026-10-13) on Linux, in preview mode, with this document:
-
-````
-How to reply:
-
-```
-The claim is here.
-```
-{>>my note<<}
-````
-
-The marker sits beside "How to reply:".
-
-**What is known**: the file is right and the annotations list is right, so the fault is in how
-the marker's line is resolved from the comment's position in the rendered page. Not checked
-on Windows or macOS; the marker placement is shared code, so it is filed as `Any`.
-
-**Suspects, unmeasured**: the comment's position in the rendered text falls at the block
-boundary, and the marker takes the line of the last ordinary text before it rather than the
-code block's own extent.
 
 ## CLSD-02. A paragraph that mixes fonts lays out wider than the wrap width it was given
 
