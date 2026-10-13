@@ -336,7 +336,7 @@ flake fixed by "Keep the reading position when a view switch comes before the ed
 **Symptom**: annotate a word inside a fenced code block in the preview. The comment is written
 on its own line after the closing fence, as TDD 17.59 requires, but its margin marker appears
 beside the paragraph line above the block, not beside the block. Reproduced on master
-(`359a036`) on Linux, in preview mode, with this document:
+("Record the intermittent Windows CI failure in the split-mode live-reload tests", 2026-10-13) on Linux, in preview mode, with this document:
 
 ````
 How to reply:
