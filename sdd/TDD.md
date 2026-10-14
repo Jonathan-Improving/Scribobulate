@@ -213,6 +213,7 @@
 - **And** a drag that starts inside text already selected makes a new selection; it never picks the selected text up to drag it somewhere else
 - **And** a link in a cell is only its text: clicking the link follows it, clicking elsewhere in the cell does not, and a drag across the link's text selects it without following it, so its caption can be copied
 - **And** clicking a link whose text is selected clears the selection without following the link, as its text cursor promises; the next click follows it
+- **And** returning to a document after following a link from one of its table cells leaves that cell as the reader left it; nothing in it becomes selected
 
 ### 2.13 Blockquote bar color adapts to the desktop theme
 - **Given** a document containing a blockquote, rendered under the **System** reading theme (§18) on a light or dark desktop theme

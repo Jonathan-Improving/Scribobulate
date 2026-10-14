@@ -71,6 +71,29 @@ impl WeakTabView {
     }
 }
 
+/// Run `change`, a change to which page the stack shows, with GTK's
+/// `gtk-label-select-on-focus` setting off.
+///
+/// When the stack shows a page again it gives the keyboard focus back to the widget
+/// that last had it on that page (GTK 4.6.9 `gtkstack.c:1333-1338`, GTK4Rs/AP-356).
+/// A selectable `GtkLabel` that gets the focus outside a click selects all of its text
+/// (`gtklabel.c` `gtk_label_grab_focus`, GTK4Rs/AP-107). Every table cell is a
+/// selectable label, so following a link in a cell and coming back selected the whole
+/// cell. The setting is read once per grab, so turning it off for this one
+/// synchronous call leaves the label's own selection as the reader left it. It is
+/// handed back to the platform afterwards rather than set to `true`, so the app never
+/// pins a value the desktop owns.
+fn without_label_select_on_focus(stack: &gtk::Stack, change: impl FnOnce()) {
+    let settings = stack.settings();
+    if !settings.is_gtk_label_select_on_focus() {
+        change();
+        return;
+    }
+    settings.set_gtk_label_select_on_focus(false);
+    change();
+    settings.reset_property("gtk-label-select-on-focus");
+}
+
 impl TabView {
     pub(crate) fn downgrade(&self) -> WeakTabView {
         WeakTabView {
@@ -132,7 +155,7 @@ impl TabView {
             // found by live Xvfb testing during the tab-widget rollout).
             let stack = tv.stack.clone();
             tv.bar.set_internal_switch_cb(move |content, _idx| {
-                stack.set_visible_child(content);
+                without_label_select_on_focus(&stack, || stack.set_visible_child(content));
             });
         }
         tv
@@ -202,7 +225,7 @@ impl TabView {
     pub(crate) fn remove_page(&self, idx: Option<u32>) {
         let Some(idx) = idx else { return };
         if let Some(content) = self.bar.remove_at(idx as usize) {
-            self.stack.remove(&content);
+            without_label_select_on_focus(&self.stack, || self.stack.remove(&content));
         }
     }
 
@@ -217,7 +240,7 @@ impl TabView {
     pub(crate) fn detach_tab(&self, child: &impl IsA<gtk::Widget>) {
         let widget = child.upcast_ref::<gtk::Widget>().clone();
         self.bar.remove_by_content(&widget);
-        self.stack.remove(&widget);
+        without_label_select_on_focus(&self.stack, || self.stack.remove(&widget));
     }
 
     /// Set `child`'s tab-strip label from a **Pango markup** string (the label
@@ -330,5 +353,77 @@ impl TabView {
 
     pub(crate) fn settle_reorder(&self) {
         self.bar.settle_reorder();
+    }
+}
+
+/// GTK-object tests: the stack hands focus back only inside a mapped toplevel, and a
+/// label selects on focus only there too (GTK4Rs/AP-124), so these present a window.
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+mod gtk_integration_tests {
+    use super::*;
+
+    fn pump_until(cond: impl FnMut() -> bool) -> bool {
+        crate::testpump::until_or_for(
+            crate::testpump::Clock::Idle,
+            std::time::Duration::from_secs(5),
+            cond,
+        )
+    }
+
+    /// Coming back to a tab whose focus was in a table cell leaves the cell's
+    /// selection as it was, instead of selecting the whole cell. Follows a link in a
+    /// cell to another document and returns with Back (TDD 2.9a).
+    #[gtktest::test]
+    fn returning_to_a_tab_does_not_select_the_focused_cell() {
+        let tv = TabView::new();
+        let page_a = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        let cell = gtk::Label::new(Some("alpha bravo"));
+        crate::widgets::table::make_cell_selectable(&cell);
+        page_a.append(&cell);
+        let page_b = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        let other = gtk::Button::with_label("other document");
+        page_b.append(&other);
+        tv.append_page(&page_a);
+        tv.mark_first_active();
+        tv.append_page(&page_b);
+
+        let win = gtk::Window::new();
+        win.set_default_size(300, 200);
+        win.set_child(Some(tv.widget()));
+        win.present();
+        assert!(
+            pump_until(|| cell.is_mapped()),
+            "no display: the window never mapped"
+        );
+
+        // The reader clicked a link in the cell: focus there, nothing selected.
+        cell.grab_focus();
+        cell.select_region(0, 0);
+        assert_eq!(cell.selection_bounds(), None);
+
+        tv.set_current_page(Some(1));
+        other.grab_focus();
+        tv.set_current_page(Some(0));
+
+        let focus = GtkWindowExt::focus(&win);
+        assert_eq!(
+            focus.as_ref(),
+            Some(cell.upcast_ref::<gtk::Widget>()),
+            "precondition: the stack gave the focus back to the cell"
+        );
+        assert_eq!(cell.selection_bounds(), None, "the whole cell was selected");
+        assert!(
+            cell.settings().is_gtk_label_select_on_focus(),
+            "the setting was not handed back"
+        );
+
+        // Positive control: the same return through the bare stack selects the cell,
+        // so the assertion above can fail.
+        tv.set_current_page(Some(1));
+        other.grab_focus();
+        tv.stack.set_visible_child(&page_a);
+        assert_eq!(cell.selection_bounds(), Some((0, 11)));
+        cell.select_region(0, 0);
+        win.destroy();
     }
 }
