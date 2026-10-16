@@ -189,11 +189,28 @@ pub(crate) fn wire_editor_format_overlay(editor: &sourceview::View) {
     );
 
     // Hide on scroll — the pointing-to rect is in widget coords and goes stale.
+    //
+    // But only on a scroll that MOVES the text. A wheel step is fractional (GTK's
+    // `pow(page_size, 2/3)`, e.g. 83.28 px), and the text view paints at the truncated
+    // value. The next time the view is allocated, `gtk_text_view_set_vadjustment_values`
+    // writes that truncated value back (416.40 → 416): a `value-changed` that moves
+    // nothing. Showing this overlay is what triggers that allocation (it is parented to
+    // the editor), so hiding on every `value-changed` closed the overlay in the same
+    // frame it opened: the first selection after a wheel scroll showed no overlay, and
+    // every later one did, until the next wheel scroll left a fraction again.
     if let Some(vadj) = editor.vadjustment() {
+        let painted = std::cell::Cell::new(vadj.value());
         vadj.connect_value_changed(gtk::glib::clone!(
             #[weak(rename_to = ed)]
             editor,
-            move |_| {
+            move |adj| {
+                let moved = crate::saferizer::viewport::moves_painted_text(
+                    painted.replace(adj.value()),
+                    adj.value(),
+                );
+                if !moved {
+                    return;
+                }
                 if let Some(st) = editor_host_window(&ed).and_then(|w| state(&w)) {
                     st.chrome().format_overlay.popdown();
                 }
@@ -222,4 +239,91 @@ pub(crate) fn wire_editor_format_overlay(editor: &sourceview::View) {
         }
     ));
     editor.add_controller(key);
+}
+
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+mod gtk_integration_tests {
+    use super::*;
+    use crate::testpump::{drain_for, until, Clock};
+    use crate::window::testkit::test_app_suffixed;
+    use std::time::Duration;
+
+    /// A wheel scroll leaves the editor's vadjustment at a fraction. Showing the overlay
+    /// allocates the editor, and that allocation writes the truncated value back: a
+    /// `value-changed` that moves no text. The scroll-hide must not take it for a scroll,
+    /// or the first selection after a wheel scroll shows no overlay (the operator's
+    /// report: split view, wheel, double-click a word, no overlay; a second try works).
+    ///
+    /// The fraction is planted with a plain adjustment write rather than a wheel event
+    /// (`#[gtktest::test]` cannot synthesise one), and asserted still present just before
+    /// the selection, so the test cannot pass on a value an earlier frame already snapped.
+    #[gtktest::test]
+    fn the_first_selection_after_a_fractional_scroll_keeps_its_overlay() {
+        for mode in ["split", "edit"] {
+            let app = test_app_suffixed(&format!("fmtoverlay-fracscroll-{mode}"));
+            let mut md = String::new();
+            for n in 1..=300 {
+                md.push_str(&format!("Line {n} has alpha beta gamma words.\n\n"));
+            }
+            let win = new_window(&app, "IT-fmtoverlay-scroll", &md, None);
+            win.set_default_size(900, 600);
+            change_action_state(&win, "view-mode", &mode.to_variant());
+            win.present();
+            let st = state(&win).expect("tab state");
+            let vadj = st.editor.vadjustment().expect("editor vadjustment");
+            until(
+                Clock::Frame,
+                "the editor to map with a scroll range",
+                || {
+                    st.editor.is_mapped()
+                        && vadj.page_size() > 0.0
+                        && vadj.upper() > vadj.page_size() + 400.0
+                },
+            );
+            GtkWindowExt::set_focus(&win, None::<&gtk::Widget>);
+            st.editor.grab_focus();
+            drain_for(Clock::Frame, Duration::from_millis(300));
+
+            // Where five wheel steps left it in the live reproduction.
+            crate::saferizer::scrollpos::jump(&vadj, 416.401_609_200_426_4);
+            drain_for(Clock::Frame, Duration::from_millis(300));
+            assert!(
+                vadj.value().fract() != 0.0,
+                "[{mode}] precondition: the editor must still hold the fractional value \
+                 when the word is selected, or nothing below is tested (it reads {})",
+                vadj.value()
+            );
+
+            // A word a few lines below the viewport's top: on screen, clear of the edges.
+            let mut a = crate::saferizer::viewport::ViewportTopIter::of(&st.editor);
+            a.forward_lines(4);
+            let mut b = a;
+            b.forward_word_end();
+            st.editor_buf.select_range(&a, &b);
+
+            let chrome = crate::winstate::chrome(&win).expect("chrome");
+            until(Clock::Frame, "the format overlay to open", || {
+                chrome.format_overlay.is_visible()
+            });
+            drain_for(Clock::Frame, Duration::from_millis(400));
+            assert!(
+                chrome.format_overlay.is_visible(),
+                "[{mode}] the overlay closed on the first selection after a fractional scroll"
+            );
+            // The write-back is what GTK 4.6 does when the overlay's opening re-lays-out
+            // the editor; GTK 4.22 (macOS and Windows CI) does not write it, so there the
+            // case this guards never arises and the half above is all that is checked.
+            if vadj.value().fract() != 0.0 {
+                crate::testsymlink::skipped(
+                    "TDD 10.8 truncated write-back",
+                    "this GTK left the fractional scroll value in place when the overlay \
+                     opened, so the write-back the fix guards against did not happen",
+                );
+            }
+
+            chrome.format_overlay.popdown();
+            drain_for(Clock::Frame, Duration::from_millis(600));
+            win.destroy();
+        }
+    }
 }

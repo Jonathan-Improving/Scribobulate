@@ -1675,6 +1675,7 @@
 - **Given** edit or split mode
 - **When** the user selects a non-empty range of text
 - **Then** a small formatting overlay with the same commands appears centered above the selection with a downward arrow
+- **And** it appears for the first selection made after a mouse-wheel scroll too, not only from the second one on
 - **And when** the user applies a command from the overlay
 - **Then** the selection is preserved so commands can be chained, and the overlay dismisses on Escape, on scrolling, when the selection clears, or when the editor loses focus
 
@@ -2611,6 +2612,7 @@
 - **Given** the document is shown in the preview and the reader selects a claim
 - **When** they choose Annotate, type a comment, and Save
 - **Then** the selected text becomes highlighted with a margin marker, and the underlying Markdown file gains `{==<claim>==}{>>comment<<}` around exactly the selected span (the buffer is marked unsaved until saved to disk)
+- **And** the Annotate pop-up appears for the first selection made after a mouse-wheel scroll too, not only from the second one on, and a scroll that moves the text dismisses it
 
 ### 17.6 A selection spanning blocks becomes a point comment
 - **Given** the reader's preview selection crosses a blank-line block boundary

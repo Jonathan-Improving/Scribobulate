@@ -940,15 +940,27 @@ pub(crate) fn wire_annotation_overlay(
     // on scroll, so pop it down. The scroller's OWN vadjustment is the live one here —
     // the view's is not yet propagated at wire time (same rationale as
     // wire_scroll_position_tracking / GTK4Rs/AP-55), so drive off the scroller's.
+    //
+    // Only a scroll that MOVES the text hides it. A wheel step leaves a fractional value
+    // and the view paints at the truncated one; showing this popover (parented to the
+    // view) allocates the view, which writes the truncated value back — a `value-changed`
+    // that moves nothing. Hiding on that closed the popover in the frame it opened: the
+    // first selection after a wheel scroll showed no Annotate popover. Same rule as the
+    // editor's formatting overlay.
     {
         let vadj = scroller.vadjustment();
+        let painted = std::cell::Cell::new(vadj.value());
         vadj.connect_value_changed(glib::clone!(
             #[weak(rename_to = p)]
             pop,
             #[strong]
             entry_open,
-            move |_| {
-                if !entry_open.get() {
+            move |adj| {
+                let moved = crate::saferizer::viewport::moves_painted_text(
+                    painted.replace(adj.value()),
+                    adj.value(),
+                );
+                if moved && !entry_open.get() {
                     p.popdown();
                 }
             }
@@ -966,6 +978,9 @@ pub(crate) fn wire_annotation_overlay(
 /// Live-display tests for the comment card's dismissal contract. Need a real
 /// display and a real paint; run with `cargo test --features gtk-integration-tests`, under
 /// Xvfb if headless.
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+mod fracscroll_tests;
+
 #[cfg(all(test, feature = "gtk-integration-tests"))]
 mod jjj_tests {
     use super::*;

@@ -99,6 +99,19 @@ impl ViewportTopIter {
     }
 }
 
+/// Whether a `GtkTextView` vadjustment change from `prev` to `next` moves the text on
+/// screen.
+///
+/// The view paints at the TRUNCATED value (`gtk_text_view_value_changed`, GTK 4.6.9
+/// gtktextview.c:8397, `(int) gtk_adjustment_get_value`). A wheel step leaves a fraction
+/// in the value, and the view's next allocation writes the truncated value back
+/// (`gtk_text_view_set_vadjustment_values`, :8331-8365). That write emits `value-changed`
+/// and moves nothing, so a handler that hides something on scroll must ask this, not
+/// react to the signal (GTK4Rs/AP-360).
+pub(crate) fn moves_painted_text(prev: f64, next: f64) -> bool {
+    prev.trunc() != next.trunc()
+}
+
 /// The full visible range of a `GtkTextView`'s viewport: the top and bottom
 /// y-coordinates (buffer space) and the iter at each, both read via the
 /// `line_at_y` contract documented on this module.
@@ -146,6 +159,32 @@ impl ViewportRange {
             top,
             bottom,
         }
+    }
+}
+
+#[cfg(test)]
+mod painted_text_tests {
+    use super::moves_painted_text;
+
+    /// The values are the ones measured on a wheel scroll in split view: five steps to
+    /// 416.40, then the view's allocation writing back 416.
+    #[test]
+    fn writing_back_the_truncated_value_does_not_move_the_text() {
+        assert!(!moves_painted_text(416.401_609_200_426_4, 416.0));
+        assert!(!moves_painted_text(83.280_321_840_085_28, 83.0));
+        assert!(!moves_painted_text(10.0, 10.0));
+        assert!(!moves_painted_text(10.2, 10.9));
+    }
+
+    #[test]
+    fn a_scroll_across_a_pixel_moves_the_text() {
+        assert!(moves_painted_text(
+            333.121_287_360_341_1,
+            416.401_609_200_426_4
+        ));
+        assert!(moves_painted_text(416.0, 415.0));
+        assert!(moves_painted_text(0.9, 1.0));
+        assert!(moves_painted_text(0.0, 83.28));
     }
 }
 
