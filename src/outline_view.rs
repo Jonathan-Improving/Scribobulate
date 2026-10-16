@@ -274,17 +274,74 @@ pub(crate) fn build_outline_content(
     empty_label: &str,
 ) -> gtk::Widget {
     if roots.is_empty() {
-        let placeholder = gtk::Label::builder()
-            .label(empty_label)
-            .xalign(0.0)
-            .margin_start(12)
-            .margin_top(12)
-            .valign(gtk::Align::Start)
-            .build();
-        placeholder.add_css_class("dim-label");
-        return placeholder.upcast();
+        return empty_placeholder(empty_label);
+    }
+    let (tree_model, selection) = heading_tree(roots, paths, keep_collapsed, marks);
+
+    // Re-select the previously activated heading BEFORE wiring the navigation
+    // handler below, so restoring the selection across a rebuild doesn't trigger a
+    // spurious scroll. The build-time expand-all pass in `heading_tree` materialised a row for
+    // every heading in the flattened TreeListModel, so a linear scan finds it by
+    // doc_index. (This holds only at build time — after a user Collapse all,
+    // collapsed headings have no row; the scroll-spy handles that miss gracefully.)
+    if let Some(target) = initial_selected {
+        let n = tree_model.n_items();
+        for i in 0..n {
+            let is_match = tree_model
+                .item(i)
+                .and_downcast::<gtk::TreeListRow>()
+                .and_then(|row| row.item())
+                .and_downcast::<HeadingObject>()
+                .is_some_and(|h| h.doc_index() == target);
+            if is_match {
+                selection.set_selected(i);
+                break;
+            }
+        }
     }
 
+    // Navigate on selection change rather than on `activate`: a single click (and
+    // arrow-key movement) changes the SingleSelection, so this gives single-click
+    // navigation AND keyboard navigation for free — `activate` would require a
+    // double-click / Enter. selected_item() is the GtkTreeListRow (passthrough=false);
+    // the heading is one hop in via row.item(). Fires with None when a rebuild
+    // clears the selection — guarded.
+    selection.connect_selected_item_notify(move |sel| {
+        let Some(item) = sel.selected_item() else {
+            return;
+        };
+        let Some(row) = item.downcast_ref::<gtk::TreeListRow>() else {
+            return;
+        };
+        if let Some(heading) = row.item().and_downcast::<HeadingObject>() {
+            on_activate(heading.path(), heading.doc_index());
+        }
+    });
+
+    heading_list_view(selection).upcast()
+}
+
+/// The muted placeholder an empty outline shows in place of the tree.
+fn empty_placeholder(empty_label: &str) -> gtk::Widget {
+    let placeholder = gtk::Label::builder()
+        .label(empty_label)
+        .xalign(0.0)
+        .margin_start(12)
+        .margin_top(12)
+        .valign(gtk::Align::Start)
+        .build();
+    placeholder.add_css_class("dim-label");
+    placeholder.upcast()
+}
+
+/// The heading tree model and its selection, opened to the default depth — the half of
+/// the outline both the sidebar and Insert Link's Section picker build identically.
+fn heading_tree(
+    roots: &[HeadingNode],
+    paths: &[HeadingPath],
+    keep_collapsed: &BTreeSet<usize>,
+    marks: Option<&BTreeMap<usize, RowMark>>,
+) -> (gtk::TreeListModel, gtk::SingleSelection) {
     let root_store = gio::ListStore::new::<HeadingObject>();
     for r in roots {
         root_store.append(&HeadingObject::new(r, paths, marks));
@@ -323,52 +380,22 @@ pub(crate) fn build_outline_content(
     // still "fully open" and this is the same call it always was.
     expand_rows_except(&tree_model, keep_collapsed);
 
+    // `autoselect` BEFORE `model`, and the order is load-bearing: GObject applies
+    // construct properties in the order given, and setting the model while `autoselect`
+    // is still its default TRUE selects row 0 — the first heading shown as already chosen
+    // before anyone chose it (GTK4Rs/AP-267). The sidebar's scroll-spy overwrites that
+    // straight away; the Section picker has no spy, so there it would stay.
     let selection = gtk::SingleSelection::builder()
-        .model(&tree_model)
         .autoselect(false)
         .can_unselect(true)
+        .model(&tree_model)
         .build();
+    (tree_model, selection)
+}
 
-    // Re-select the previously activated heading BEFORE wiring the navigation
-    // handler below, so restoring the selection across a rebuild doesn't trigger a
-    // spurious scroll. The build-time expand-all pass above materialised a row for
-    // every heading in the flattened TreeListModel, so a linear scan finds it by
-    // doc_index. (This holds only at build time — after a user Collapse all,
-    // collapsed headings have no row; the scroll-spy handles that miss gracefully.)
-    if let Some(target) = initial_selected {
-        let n = tree_model.n_items();
-        for i in 0..n {
-            let is_match = tree_model
-                .item(i)
-                .and_downcast::<gtk::TreeListRow>()
-                .and_then(|row| row.item())
-                .and_downcast::<HeadingObject>()
-                .is_some_and(|h| h.doc_index() == target);
-            if is_match {
-                selection.set_selected(i);
-                break;
-            }
-        }
-    }
-
-    // Navigate on selection change rather than on `activate`: a single click (and
-    // arrow-key movement) changes the SingleSelection, so this gives single-click
-    // navigation AND keyboard navigation for free — `activate` would require a
-    // double-click / Enter. selected_item() is the GtkTreeListRow (passthrough=false);
-    // the heading is one hop in via row.item(). Fires with None when a rebuild
-    // clears the selection — guarded.
-    selection.connect_selected_item_notify(move |sel| {
-        let Some(item) = sel.selected_item() else {
-            return;
-        };
-        let Some(row) = item.downcast_ref::<gtk::TreeListRow>() else {
-            return;
-        };
-        if let Some(heading) = row.item().and_downcast::<HeadingObject>() {
-            on_activate(heading.path(), heading.doc_index());
-        }
-    });
-
+/// The list view over `selection`: one expander row per heading, styled by level and by
+/// a sidebar filter's verdict.
+fn heading_list_view(selection: gtk::SingleSelection) -> gtk::ListView {
     let factory = gtk::SignalListItemFactory::new();
     factory.connect_setup(|_, item| {
         let item = item.downcast_ref::<gtk::ListItem>().unwrap();
@@ -410,8 +437,142 @@ pub(crate) fn build_outline_content(
             }
         }
     });
-
     let list_view = gtk::ListView::new(Some(selection), Some(factory));
     list_view.add_css_class("outline");
+    list_view
+}
+
+/// Build a heading PICKER over `roots` — the outline sidebar's tree, rows and filter
+/// styling, for choosing a heading rather than navigating to it (Insert Link's Section
+/// button). `on_pick` receives the chosen heading's `doc_index` in this build.
+///
+/// Picks on ACTIVATION, not on selection change as the sidebar navigates: a selection
+/// change also fires on every arrow key, and a picker that commits on the first arrow
+/// press closes before the reader reaches the heading they wanted. Single-click
+/// activation keeps the sidebar's one-click feel for the mouse; Enter picks from the
+/// keyboard.
+pub(crate) fn build_heading_picker(
+    roots: &[HeadingNode],
+    paths: &[HeadingPath],
+    marks: Option<&BTreeMap<usize, RowMark>>,
+    empty_label: &str,
+    on_pick: Rc<dyn Fn(usize)>,
+) -> gtk::Widget {
+    if roots.is_empty() {
+        return empty_placeholder(empty_label);
+    }
+    let (tree_model, selection) = heading_tree(roots, paths, &BTreeSet::new(), marks);
+    let list_view = heading_list_view(selection);
+    list_view.set_single_click_activate(true);
+    list_view.connect_activate(move |_, position| {
+        let heading = tree_model
+            .item(position)
+            .and_downcast::<gtk::TreeListRow>()
+            .and_then(|row| row.item())
+            .and_downcast::<HeadingObject>();
+        if let Some(heading) = heading {
+            on_pick(heading.doc_index());
+        }
+    });
     list_view.upcast()
+}
+
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+mod gtk_tests {
+    use super::*;
+    use crate::outline::{build_tree, extract_headings};
+
+    fn selection_of(content: &gtk::Widget) -> gtk::SingleSelection {
+        content
+            .downcast_ref::<gtk::ListView>()
+            .and_then(|v| v.model())
+            .and_then(|m| m.downcast::<gtk::SingleSelection>().ok())
+            .expect("the outline is a single-selection list view")
+    }
+
+    fn outline_of(md: &str) -> (Vec<HeadingNode>, Vec<HeadingPath>) {
+        let roots = build_tree(&extract_headings(md));
+        let paths = crate::outline::expansion::paths_in_document_order(&roots);
+        (roots, paths)
+    }
+
+    /// Neither the sidebar nor the Section picker opens with a row highlighted.
+    ///
+    /// `GtkSingleSelection` selects item 0 when a model is set while `autoselect` is still
+    /// TRUE (GTK4Rs/AP-267). The sidebar hid that — its scroll-spy selects the section in
+    /// view straight after every build — but the picker has no spy, so it opened with the
+    /// first heading looking already chosen. A selection must only ever be one somebody
+    /// asked for. Mutation check (run): put `.model(…)` back before `.autoselect(false)`
+    /// in `heading_tree` and this fails.
+    #[gtktest::test]
+    fn a_freshly_built_outline_selects_nothing() {
+        let (roots, paths) = outline_of("# One\n\n## Two\n\n# Three\n");
+        let sidebar = build_outline_content(
+            &roots,
+            &paths,
+            Rc::new(|_, _| {}),
+            None,
+            &BTreeSet::new(),
+            None,
+            "No headings",
+        );
+        let picker = build_heading_picker(&roots, &paths, None, "No headings", Rc::new(|_| {}));
+        for (name, content) in [("sidebar", sidebar), ("picker", picker)] {
+            assert_eq!(
+                selection_of(&content).selected(),
+                gtk::INVALID_LIST_POSITION,
+                "the {name} must open with nothing selected"
+            );
+        }
+    }
+
+    /// …and a restored selection still lands on the heading it names — the companion that
+    /// stops "nothing selected" being satisfied by a build that ignores restores.
+    #[gtktest::test]
+    fn a_restored_outline_selection_lands_on_its_heading() {
+        let (roots, paths) = outline_of("# One\n\n## Two\n\n# Three\n");
+        let sidebar = build_outline_content(
+            &roots,
+            &paths,
+            Rc::new(|_, _| {}),
+            Some(2),
+            &BTreeSet::new(),
+            None,
+            "No headings",
+        );
+        let selected = selection_of(&sidebar)
+            .selected_item()
+            .and_downcast::<gtk::TreeListRow>()
+            .and_then(|row| row.item())
+            .and_downcast::<HeadingObject>()
+            .map(|h| h.doc_index());
+        assert_eq!(selected, Some(2));
+    }
+
+    /// Activating a picker row hands back that row's heading — here the nested one, so a
+    /// position-for-index mix-up (row 1 is doc_index 1 only while everything is open and
+    /// in order) would still be caught by the filtered case below.
+    #[gtktest::test]
+    fn activating_a_picker_row_picks_its_heading() {
+        let headings = extract_headings("# One\n\n## Two\n\n# Three\n");
+        let paths = crate::outline::expansion::paths_in_document_order(&build_tree(&headings));
+        let query = crate::sidebarfilter::Query::parse("three").expect("a query");
+        let filtered = crate::outline::filter::filter_outline(&headings, &query);
+        let picked = Rc::new(std::cell::Cell::new(None));
+        let sink = picked.clone();
+        let picker = build_heading_picker(
+            &filtered.roots,
+            &paths,
+            Some(&filtered.marks),
+            "No matching headings",
+            Rc::new(move |i| sink.set(Some(i))),
+        );
+        let view = picker.downcast_ref::<gtk::ListView>().expect("a list view");
+        view.emit_by_name::<()>("activate", &[&0u32]);
+        assert_eq!(
+            picked.get(),
+            Some(2),
+            "the only row shown is heading 2, 'Three'"
+        );
+    }
 }

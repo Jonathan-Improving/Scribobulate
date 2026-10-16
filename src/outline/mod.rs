@@ -107,6 +107,21 @@ fn level_to_u8(level: HeadingLevel) -> u8 {
     }
 }
 
+/// The same-document link (`#slug`) that reaches each heading, in document order.
+///
+/// Each heading's canonical GitHub slug, numbered `-1`, `-2` across the whole document by
+/// the same [`crate::anchors::HeadingSlugger`] the preview and the export issue anchors
+/// with, so a link written from this list is one the page resolves. The emoji-free alias
+/// is not offered: it is a convenience for hand-written links, and the canonical slug is
+/// the one GitHub also answers to. Backs Insert Link's "Section" picker.
+pub(crate) fn section_fragments(headings: &[Heading]) -> Vec<String> {
+    let mut slugger = crate::anchors::HeadingSlugger::default();
+    headings
+        .iter()
+        .map(|h| format!("#{}", slugger.next(&h.text).slug))
+        .collect()
+}
+
 /// Walk the Markdown source and return its headings in document order.
 ///
 /// Display text mirrors what `renderer.rs` accumulates into a heading's anchor
@@ -360,5 +375,35 @@ mod tests {
         assert_eq!(hs.len(), 1);
         // The offset must land on the heading's '#', so the slice there starts with it.
         assert!(md[hs[0].src_offset.raw()..].starts_with("## Section"));
+    }
+
+    #[test]
+    fn section_fragments_number_duplicates_and_keep_githubs_emoji_hyphen() {
+        let md = "# Intro\n\n## Notes\n\n## Notes\n\n## 🚨 Escalations\n";
+        assert_eq!(
+            section_fragments(&extract_headings(md)),
+            vec!["#intro", "#notes", "#notes-1", "#-escalations"]
+        );
+    }
+
+    /// A Section link must land where the page puts the heading's anchor. The export is
+    /// the display-free walk that issues the same anchors as the preview
+    /// (`anchors::HeadingSlugger`), so the outline's labels slugged here must equal its
+    /// heading ids for every heading shape whose label is reduced from markup.
+    #[test]
+    fn section_fragments_match_the_anchors_the_document_issues() {
+        let md = "---\ntitle: x\n---\n# **Bold** and `code`\n\n## [Linked](http://x) title\n\n\
+                  ## {==Marked==}{>>note<<} heading\n\n## ~~Struck~~ out\n\nSetext\n------\n\n\
+                  ## Café déjà vu\n\n## Intro\n\n## Intro\n";
+        let ids: Vec<String> = crate::export::doc::build(md, &Default::default())
+            .blocks
+            .iter()
+            .filter_map(|b| match b {
+                crate::export::Block::Heading { id, .. } => Some(format!("#{id}")),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(ids.len(), 8, "fixture lists eight headings: {ids:?}");
+        assert_eq!(section_fragments(&extract_headings(md)), ids);
     }
 }

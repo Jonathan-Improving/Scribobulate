@@ -189,6 +189,45 @@ pub(crate) const fn primary_modifier_for_host() -> gtk::gdk::ModifierType {
     primary_modifier(host())
 }
 
+/// The shortcut that presses a dialog button whose label marks `letter` as its mnemonic
+/// (`B_rowse…` → `r`), on `platform` — or `None` where the toolkit's own Alt+letter
+/// mnemonic already does it.
+///
+/// On macOS the Alt key is Option, and Option+letter **types a character** (Option+S is
+/// `ß`, Option+R is `®`): GTK's mnemonic never sees a plain letter, so the keystroke
+/// lands in the focused field instead of pressing the button. Command+letter is the
+/// platform's own way to press a dialog button, and it types nothing. Spelled `<Primary>`
+/// and passed through [`map`], so it is Command by the same swap every other shortcut
+/// uses rather than by a second spelling of the same fact.
+pub(crate) fn dialog_button_accel(letter: char, platform: Platform) -> Option<String> {
+    match platform {
+        Platform::Mac => Some(
+            map(
+                &format!("<Primary>{}", letter.to_ascii_lowercase()),
+                platform,
+            )
+            .into_owned(),
+        ),
+        Platform::Other => None,
+    }
+}
+
+/// The mnemonic letter a label marks with `_` (`B_rowse…` → `r`), lower-cased; `None`
+/// when it marks none. A doubled `__` is a literal underscore, not a marker.
+pub(crate) fn mnemonic_letter(label: &str) -> Option<char> {
+    let mut chars = label.chars();
+    while let Some(c) = chars.next() {
+        if c == '_' {
+            match chars.next() {
+                Some('_') => continue,
+                Some(m) => return Some(m.to_ascii_lowercase()),
+                None => return None,
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -438,6 +477,25 @@ mod tests {
         mac.sort();
         assert_eq!(linux, mac);
     }
+
+    #[test]
+    fn a_dialog_button_is_pressed_with_command_on_mac_and_by_the_toolkit_elsewhere() {
+        assert_eq!(
+            dialog_button_accel('R', Platform::Mac).as_deref(),
+            Some("<Meta>r")
+        );
+        assert_eq!(dialog_button_accel('s', Platform::Other), None);
+    }
+
+    #[test]
+    fn a_mnemonic_letter_is_the_one_after_the_marker() {
+        assert_eq!(mnemonic_letter("B_rowse…"), Some('r'));
+        assert_eq!(mnemonic_letter("_Section"), Some('s'));
+        assert_eq!(mnemonic_letter("snake__case"), None);
+        assert_eq!(mnemonic_letter("a__b_Xy"), Some('x'));
+        assert_eq!(mnemonic_letter("Plain"), None);
+        assert_eq!(mnemonic_letter("trailing_"), None);
+    }
 }
 
 /// GTK-object tests (`gtk::accelerator_parse` needs an initialised GTK, hence the
@@ -469,5 +527,15 @@ mod gtk_integration_tests {
                 "{platform:?}: the gesture mask disagrees with the accelerator {spelled:?}"
             );
         }
+    }
+
+    /// The Mac dialog-button spelling is one GTK parses into the modifier `<Primary>`
+    /// means there, so the binding and every other Command shortcut agree.
+    #[gtktest::test]
+    fn the_mac_dialog_button_accel_parses_to_command() {
+        let accel = dialog_button_accel('s', Platform::Mac).expect("mac binds");
+        let (key, mods) = gtk::accelerator_parse(&accel).expect("GTK parses it");
+        assert_eq!(key, gtk::gdk::Key::s);
+        assert_eq!(mods, primary_modifier(Platform::Mac));
     }
 }

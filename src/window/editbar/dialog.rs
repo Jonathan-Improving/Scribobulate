@@ -1,5 +1,6 @@
 //! The small modal input form (`input_form`) shared by the Tier-2 Insert dialogs
-//! and Go To Line, plus the "Browse…" file chooser (`BrowseSpec`/`open_file_chooser`).
+//! and Go To Line, plus the "Browse…" file chooser (`BrowseSpec`/`open_file_chooser`)
+//! and, for Insert Link, the "Section" heading picker (`super::section`).
 
 use super::super::*;
 
@@ -49,7 +50,61 @@ pub(in crate::window) struct FieldExtras {
     pub(in crate::window) browse: Option<BrowseSpec>,
     /// Live validation gating the confirm control (Rename — TDD 24.9).
     pub(in crate::window) validate: Option<LiveValidate>,
+    /// A "Section" heading picker on one field (Insert Link).
+    pub(in crate::window) section: Option<super::section::SectionSpec>,
 }
+
+/// The Browse button's label; `r` is its mnemonic letter.
+const BROWSE_LABEL: &str = "B_rowse…";
+
+/// Give each button in `buttons` the platform's shortcut for its mnemonic letter, where
+/// the toolkit's own Alt+letter cannot reach it (`accel::dialog_button_accel` — on macOS
+/// Option+letter types a character, so the button is pressed with Command+letter).
+///
+/// Bubble phase, so a focused field's own bindings answer first; none of them takes a
+/// Command+letter that a dialog button uses. The letter is read from the button's own
+/// label, so a relabelled button cannot keep a stale shortcut.
+fn bind_button_letters(
+    dialog: &gtk::Window,
+    buttons: &[gtk::Widget],
+    platform: crate::accel::Platform,
+) {
+    let controller = gtk::ShortcutController::new();
+    for button in buttons {
+        let label = button
+            .downcast_ref::<gtk::Button>()
+            .and_then(|b| b.label())
+            .or_else(|| {
+                button
+                    .downcast_ref::<gtk::MenuButton>()
+                    .and_then(|b| b.label())
+            });
+        let Some(letter) = label.as_deref().and_then(crate::accel::mnemonic_letter) else {
+            continue;
+        };
+        let Some(accel) = crate::accel::dialog_button_accel(letter, platform) else {
+            continue;
+        };
+        let Some(trigger) = gtk::ShortcutTrigger::parse_string(&accel) else {
+            continue;
+        };
+        let target = button.downgrade();
+        // Always consumed, even when the button cannot act. On macOS an unhandled key
+        // goes on to the native menu bar, where Command+S is Save — of the document
+        // behind this modal dialog, which is not what a keystroke in the dialog means.
+        let action = gtk::CallbackAction::new(move |_, _| {
+            if let Some(b) = target.upgrade().filter(|b| b.is_sensitive()) {
+                b.activate();
+            }
+            gtk::glib::Propagation::Stop
+        });
+        controller.add_shortcut(gtk::Shortcut::new(Some(trigger), Some(action)));
+    }
+    dialog.add_controller(controller);
+}
+
+/// The fewest characters any prompt field shows, whatever buttons share its row.
+const MIN_FIELD_CHARS: i32 = 24;
 
 /// Run a small modal input form: one labelled `GtkEntry` per field, plus Cancel /
 /// `confirm_label`. On confirm, calls `on_ok(window, values)` with the entry texts
@@ -90,7 +145,14 @@ pub(in crate::window) fn input_form(
     vbox.set_margin_start(12);
     vbox.set_margin_end(12);
 
-    let FieldExtras { browse, validate } = extras;
+    let FieldExtras {
+        browse,
+        validate,
+        mut section,
+    } = extras;
+    // The buttons that carry a mnemonic, handed forward to `bind_button_letters` rather
+    // than re-found by walking the finished dialog (GTK4Rs/AP-10).
+    let mut lettered: Vec<gtk::Widget> = Vec::new();
     let entries: Vec<gtk::Entry> = fields
         .iter()
         .enumerate()
@@ -109,6 +171,11 @@ pub(in crate::window) fn input_form(
             // omission, and one the a11y tree-walk guard never sees because it walks
             // windows, not this dialog.
             let entry = crate::widgets::textfield::named_entry(label, initial);
+            // A floor on the field, not a width for it: a row that also carries Browse…
+            // and Section would otherwise squeeze its field to a few characters inside
+            // the dialog's default width. With the floor the non-resizable dialog widens
+            // to fit instead; rows without buttons are already wider and unchanged.
+            entry.set_width_chars(MIN_FIELD_CHARS);
             // Enter triggers the default widget (Insert) from any field.
             entry.set_activates_default(true);
             row.append(&entry);
@@ -118,7 +185,7 @@ pub(in crate::window) fn input_form(
             if browse.as_ref().is_some_and(|b| b.field == i) {
                 let start_dir = browse.as_ref().and_then(|b| b.start_dir.clone());
                 let image_filter = browse.as_ref().is_some_and(|b| b.image_filter);
-                let browse_btn = gtk::Button::with_mnemonic("B_rowse…");
+                let browse_btn = gtk::Button::with_mnemonic(BROWSE_LABEL);
                 let entry_for_browse = entry.clone();
                 browse_btn.connect_clicked(gtk::glib::clone!(
                     #[weak(rename_to = parent)]
@@ -133,6 +200,16 @@ pub(in crate::window) fn input_form(
                     }
                 ));
                 row.append(&browse_btn);
+                lettered.push(browse_btn.upcast());
+            }
+            // The section field (the Link URL) also gets a "Section" picker — mnemonic
+            // Alt+S — whose chosen heading replaces the field's text, as Browse does.
+            if section.as_ref().is_some_and(|s| s.field == i) {
+                if let Some(spec) = section.take() {
+                    let section_btn = super::section::section_button(spec, &entry);
+                    row.append(&section_btn);
+                    lettered.push(section_btn.upcast());
+                }
             }
             vbox.append(&row);
             entry
@@ -160,6 +237,7 @@ pub(in crate::window) fn input_form(
     vbox.append(&btn_row);
 
     dialog.set_child(Some(&vbox));
+    bind_button_letters(&dialog, &lettered, crate::accel::host());
     dialog.set_default_widget(Some(&ok));
 
     // Gate the confirm control on the field's current text, and run it ONCE before
@@ -362,5 +440,73 @@ mod tests {
             "a field's initial text was dropped"
         );
         dialog.destroy();
+    }
+
+    /// On the Mac a dialog's lettered buttons are pressed with Command+letter, because
+    /// Option+letter types a character there; elsewhere the toolkit's Alt mnemonic does
+    /// it and nothing extra is bound. Driven through the shortcut's own action, so the
+    /// Mac half is proved from any host.
+    #[gtktest::test]
+    fn lettered_buttons_take_command_letter_on_the_mac_only() {
+        use crate::accel::Platform;
+        let shortcuts = |platform| {
+            let window = gtk::Window::new();
+            let browse = gtk::Button::with_mnemonic(BROWSE_LABEL);
+            let section = gtk::MenuButton::new();
+            section.set_label("_Section");
+            section.set_use_underline(true);
+            let row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+            row.append(&browse);
+            row.append(&section);
+            window.set_child(Some(&row));
+            bind_button_letters(
+                &window,
+                &[browse.clone().upcast(), section.upcast()],
+                platform,
+            );
+            let controller = window
+                .observe_controllers()
+                .into_iter()
+                .filter_map(Result::ok)
+                .find_map(|c| c.downcast::<gtk::ShortcutController>().ok())
+                .expect("a shortcut controller is installed");
+            let found: Vec<gtk::Shortcut> = (0..controller.n_items())
+                .filter_map(|i| controller.item(i).and_downcast::<gtk::Shortcut>())
+                .collect();
+            (window, browse, found)
+        };
+
+        let (window, _, other) = shortcuts(Platform::Other);
+        assert!(
+            other.is_empty(),
+            "the toolkit's mnemonic serves; nothing is added"
+        );
+        window.destroy();
+
+        let (window, browse, mac) = shortcuts(Platform::Mac);
+        window.present();
+        let spelled: Vec<String> = mac
+            .iter()
+            .filter_map(|s| s.trigger())
+            .map(|t| t.to_str().to_string())
+            .collect();
+        assert_eq!(spelled, ["<Meta>r", "<Meta>s"]);
+        let clicked = std::rc::Rc::new(std::cell::Cell::new(false));
+        let seen = clicked.clone();
+        browse.connect_clicked(move |_| seen.set(true));
+        let action = mac[0].action().expect("an action");
+        assert!(action.activate(
+            gtk::ShortcutActionFlags::empty(),
+            &window,
+            None::<&gtk::glib::Variant>
+        ));
+        // A button's activation is a timed press that clicks when it ends, and only on
+        // a realized button — so the window is shown and the press given wall-clock time.
+        crate::testpump::until(
+            crate::testpump::Clock::Frame,
+            "Command+R pressed Browse",
+            || clicked.get(),
+        );
+        crate::testpump::destroy_after_tooltip_delay(&window, || {});
     }
 }

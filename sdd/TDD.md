@@ -1707,14 +1707,40 @@
 - **Given** the editor pane is focused, with an optional selection
 - **When** the user invokes Insert Link, Insert Image, or Insert Table (Format menu — below a separator, after the inline commands — / toolbar / caret overlay / Ctrl+L for Link, Ctrl+Alt+I for Image, Ctrl+Shift+T for Table)
 - **Then** a small modal dialog appears prompting for the fields (Link: text + URL; Image: alt + URL + title; Table: columns + rows + first cell), with the selection pre-filled into the caption / alt / first-cell field
-- **And** the field taking initial keyboard focus is the one the user still has work to do in, consistently for **both** Insert Link and Insert Image: with a selection (or when editing existing markup) the caption / alt text is already settled, so **the URL field is focused** and typing goes straight into it without a Tab; with no selection every field is empty and the first field (Text / Alt text) is focused. Insert Table is unaffected — its pre-filled Columns/Rows are defaults the user may well want to change, so focus stays on the first field.
 - **And** confirming inserts the corresponding Markdown — `[text](url)`, `![alt](url "title")`, or a GFM table skeleton — as a **single undoable edit** (one Ctrl+Z reverts the whole insertion), and the preview renders it as a real link / image / table — **whatever the fields hold**: a URL or title containing spaces, parentheses, quotes, backslashes or `<`/`>` is written in a form Markdown reads back as exactly that value (a destination that cannot stand bare goes in `<…>`; a typed value is never percent-encoded), so an inserted image is never literal text
 - **And** Cancel or Escape closes the dialog leaving the document unchanged
-- **And given** the Insert Link or Insert Image dialog, its URL field has a **Browse…** button (mnemonic Alt+R) that opens a local file chooser (Image filters to image files; Link offers any file); the chooser starts in the loaded document's folder (defaults when no document is loaded), and the chosen file fills the URL field — as a path relative to the document's folder when the file lives under it, else the absolute path
-- **And given** the selection is **exactly** one existing link (for Insert Link) or one existing image (for Insert Image)
+
+### 10.11a The insert dialog focuses the field still to be filled
+- **Given** the Insert Link or Insert Image dialog is opening
+- **When** its caption / alt text is already settled — by a selection, or because existing markup is being edited
+- **Then** the URL field has keyboard focus, so typing goes straight into it without a Tab
+- **And** with no selection every field is empty and the first field (Text / Alt text) has focus
+- **And** Insert Table always focuses its first field, because its pre-filled Columns / Rows are defaults the user may well want to change
+
+### 10.11b Browse fills a link or image URL with a local file
+- **Given** the Insert Link or Insert Image dialog
+- **When** the user chooses **Browse…** (Alt+R; ⌘R on macOS, where Option+letter types a character) and picks a file
+- **Then** the chosen file **replaces** whatever the URL field held — as a path relative to the document's folder when the file lives under it, else the absolute path
+- **And** the chooser starts in the loaded document's folder (the default folder when no document is loaded); Image filters to image files, Link offers any file
+
+### 10.11c Section fills a link URL with a heading of the same document
+- **Given** the Insert Link dialog
+- **When** the user chooses **Section** (Alt+S; ⌘S on macOS), beside Browse…
+- **Then** it lists the document's own headings the way the outline sidebar does — the same tree, nesting and filter box, with no heading pre-selected — read from the text being edited, unsaved changes included
+- **And** choosing a heading (a click, or Enter in the filter box for the first match) **replaces** whatever the URL field held with a link to that heading that the preview follows and GitHub resolves, a repeated title included
+- **And** a document with no headings says so
+
+### 10.11d Insert over an existing link or image edits it
+- **Given** the selection is **exactly** one existing link (for Insert Link) or one existing image (for Insert Image)
 - **When** that command is invoked
-- **Then** the dialog opens as "Edit Link" / "Edit Image" with every field pre-filled from the selected markup, and confirming **replaces** the selection with the updated markup (not a re-wrap) — a mismatched selection (image markup under Insert Link, or a link under Insert Image) is treated as a normal insert with the raw selection as the caption / alt
-- **And** while that selection is held (in edit/split mode), the command's surfaces relabel **Insert → Edit**: the Format menu item, the toolbar button tooltip, and the caret-overlay button tooltip all read "Edit Link" / "Edit Image"; they revert to "Insert …" when the selection clears or formatting is unavailable (preview mode / editor unfocused). The app-level Format menu follows whichever window is focused.
+- **Then** the dialog opens as "Edit Link" / "Edit Image" with every field pre-filled from the selected markup, and confirming **replaces** the selection with the updated markup (not a re-wrap)
+- **And** a mismatched selection (image markup under Insert Link, or a link under Insert Image) is treated as a normal insert with the raw selection as the caption / alt
+
+### 10.11e Insert reads as Edit while an existing link or image is selected
+- **Given** exactly one existing link or image is selected, in edit or split mode
+- **When** the user looks at the command's surfaces
+- **Then** the Format menu item, the toolbar button tooltip and the caret-overlay button tooltip all read "Edit Link" / "Edit Image"
+- **And** they revert to "Insert …" when the selection clears or formatting is unavailable (preview mode / editor unfocused), and the app-level Format menu follows whichever window is focused
 
 ### 10.12 The caret overlay works in a tab moved to another window
 - **Given** a tab in an editor-visible mode (Edit or Split) has been moved to a new window (View ▸ Move Tab to New Window or a cross-window drag)

@@ -129,6 +129,8 @@ see Help ▸ Keyboard Shortcuts in the app for the exact mapping.)*
   - Format toolbar and shortcuts for bold, italic, headings, lists, quotes,
     code, task lists, and more
   - Lists and quotes continue as you type; fenced code blocks close themselves
+  - Insert a link to a file, or to any heading in the document, picked from the
+    same outline you navigate by
 - **Take the document with you** — File ▸ Export writes what you are reading as
   a standalone **HTML** file to share or a paginated **PDF** to keep. Images
   travel inside the file, so it still works after you send it; your annotations

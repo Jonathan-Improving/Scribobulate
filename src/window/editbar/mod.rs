@@ -29,6 +29,7 @@ mod insert;
 mod newline;
 mod overlay;
 mod relabel;
+mod section;
 
 // Intra-subsystem sibling resolution: a submodule's `use super::*` (super = this
 // module) reaches its siblings' editbar-internal `pub(super)` helpers — the ones
