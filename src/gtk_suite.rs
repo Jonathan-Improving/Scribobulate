@@ -548,6 +548,12 @@ fn parse_args(args: &[String]) -> Result<Cli<'_>, String> {
         };
         if VALUE_FLAGS.contains(&flag) {
             let value = inline.or_else(|| args.get(i + 1).map(String::as_str));
+            // A flag-shaped value is a missing value, not a value. `--skip --timeout 5`
+            // would otherwise skip a case named `--timeout` and turn `5` into a FILTER,
+            // running a handful of cases and exiting 0 — the defect this function closes.
+            if let Some(value) = value.filter(|v| v.starts_with("--")) {
+                return Err(format!("{flag} requires a value, got the flag `{value}`"));
+            }
             match (flag, value) {
                 ("--skip", Some(value)) => skips.push(value),
                 (RUN_CASE_FLAG, Some(value)) => run_cases.push(value),
@@ -859,6 +865,14 @@ fn parse_args_excludes_skipped_cases_instead_of_selecting_them() {
         parse_args(&args).is_err(),
         "--timeout with no value must be rejected for the same reason"
     );
+
+    for flag_shaped in [&["--skip", "--timeout", "5"][..], &["--skip=--timeout"]] {
+        assert!(
+            parse_args(&argv(flag_shaped)).is_err(),
+            "{flag_shaped:?}: a flag-shaped value is a missing value — consuming it would \
+             turn the next argument into a filter"
+        );
+    }
 }
 
 /// The driver decides which case a dead child was running from the report alone, so
@@ -866,15 +880,16 @@ fn parse_args_excludes_skipped_cases_instead_of_selecting_them() {
 /// driver reads it is the ordinary case, not an edge one.
 #[gtktest::test]
 fn the_report_counts_only_complete_lines_and_groups_follow_test_modules() {
-    let path =
-        std::env::temp_dir().join(format!("gtk_suite-selftest-{}.report", std::process::id()));
+    // A private temp dir, not a PID-derived path in the shared one — the same reason
+    // `main`'s `report_dir` is one. Removed when `dir` drops.
+    let dir = tempfile::tempdir().expect("temp dir");
+    let path = dir.path().join("selftest.report");
     std::fs::write(
         &path,
         "start a::t::one\nok a::t::one\nstart a::t::two\nFAILED a::t::two\nstart a::t::thr",
     )
     .expect("write the fixture report");
     let progress = read_report(&path);
-    let _ = std::fs::remove_file(&path);
     assert_eq!(
         progress.started, 2,
         "a start line with no newline yet must not count as started"

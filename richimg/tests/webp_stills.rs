@@ -4,7 +4,9 @@
 mod support;
 
 use richimg::{first_frame, probe, Animation, Error, Limits, LoopCount};
-use support::{assert_matches_reference, fixture_path, read_fixture, read_ref_frame};
+use support::{
+    assert_matches_reference_within, fixture_path, read_fixture, read_ref_frame, Tolerance,
+};
 
 const WIDTH: u32 = 16;
 const HEIGHT: u32 = 16;
@@ -18,7 +20,7 @@ fn assert_still_info(bytes: &[u8], limits: &Limits) {
     assert_eq!(info.loop_count, LoopCount::Finite(1));
 }
 
-fn assert_still_decodes_to(fixture: &str, reference_stem: &str) {
+fn assert_still_decodes_to(fixture: &str, reference_stem: &str, tolerance: Tolerance) {
     let limits = Limits::default();
     let bytes = read_fixture(fixture);
     assert_still_info(&bytes, &limits);
@@ -30,7 +32,8 @@ fn assert_still_decodes_to(fixture: &str, reference_stem: &str) {
     assert_eq!(frame.width, WIDTH);
     assert_eq!(frame.height, HEIGHT);
     assert_eq!(frame.index, 0);
-    assert_matches_reference(
+    assert_matches_reference_within(
+        tolerance,
         &frame.rgba,
         &reference,
         WIDTH,
@@ -46,7 +49,8 @@ fn assert_still_decodes_to(fixture: &str, reference_stem: &str) {
             panic!("{fixture} next_frame call {call} failed: {err}");
         });
         assert_eq!(frame.index, 0, "{fixture} call {call}: index must stay 0");
-        assert_matches_reference(
+        assert_matches_reference_within(
+            tolerance,
             &frame.rgba,
             &reference,
             WIDTH,
@@ -59,17 +63,18 @@ fn assert_still_decodes_to(fixture: &str, reference_stem: &str) {
 
 #[test]
 fn lossy_still_decodes_correctly() {
-    assert_still_decodes_to("lossy_still.webp", "lossy_still");
+    // Lossy: YUV-to-RGB rounding differs from magick's by up to one step.
+    assert_still_decodes_to("lossy_still.webp", "lossy_still", Tolerance::OneLsb);
 }
 
 #[test]
 fn lossless_still_decodes_correctly() {
-    assert_still_decodes_to("lossless_still.webp", "lossless_still");
+    assert_still_decodes_to("lossless_still.webp", "lossless_still", Tolerance::Exact);
 }
 
 #[test]
 fn alpha_still_decodes_with_straight_alpha() {
-    assert_still_decodes_to("alpha_still.webp", "alpha_still");
+    assert_still_decodes_to("alpha_still.webp", "alpha_still", Tolerance::Exact);
 }
 
 #[test]

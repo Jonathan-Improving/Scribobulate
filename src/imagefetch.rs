@@ -197,50 +197,76 @@ mod imagefetch_tests {
     /// *this application's own HTTP client* reaches an image, which is the whole
     /// point of GTK4Rs/AP-292 — a mock would re-test the mock. Loopback keeps it
     /// deterministic and offline: the suite must never depend on a host being up.
-    fn serve_once(status_line: &str, body: Vec<u8>) -> String {
+    /// A loopback server that answers exactly one request, and the thread serving it.
+    struct OneShot {
+        url: String,
+        server: std::thread::JoinHandle<std::io::Result<()>>,
+    }
+
+    impl OneShot {
+        /// Joins the server and fails the test on any error it hit, so a server-side
+        /// fault reads as itself rather than as a confusing client-side mismatch.
+        fn served(self) {
+            self.server
+                .join()
+                .expect("the server thread panicked")
+                .expect("the server answered the request");
+        }
+    }
+
+    fn serve_once(status_line: &str, body: Vec<u8>) -> OneShot {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
         let addr = listener.local_addr().expect("local addr");
         let head = format!(
             "HTTP/1.1 {status_line}\r\nContent-Length: {}\r\nContent-Type: image/png\r\nConnection: close\r\n\r\n",
             body.len()
         );
-        std::thread::spawn(move || {
-            if let Ok((mut stream, _)) = listener.accept() {
-                // Drain the request line/headers so the client is not writing
-                // into a closed socket while we answer.
-                let mut scratch = [0u8; 2048];
-                let _ = stream.read(&mut scratch);
-                let _ = stream.write_all(head.as_bytes());
-                let _ = stream.write_all(&body);
-            }
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept()?;
+            // Drain the request line/headers so the client is not writing
+            // into a closed socket while we answer.
+            let mut scratch = [0u8; 2048];
+            let _ = stream.read(&mut scratch)?;
+            stream.write_all(head.as_bytes())?;
+            stream.write_all(&body)
         });
-        format!("http://{addr}/image.png")
+        OneShot {
+            url: format!("http://{addr}/image.png"),
+            server,
+        }
     }
 
     #[test]
     fn fetches_a_body_over_http() {
-        let url = serve_once("200 OK", b"\x89PNG\r\n\x1a\nnot-really".to_vec());
+        let server = serve_once("200 OK", b"\x89PNG\r\n\x1a\nnot-really".to_vec());
         assert_eq!(
-            fetch_image_bytes(&url).expect("fetch"),
+            fetch_image_bytes(&server.url).expect("fetch"),
             b"\x89PNG\r\n\x1a\nnot-really"
         );
+        server.served();
     }
 
     #[test]
     fn a_non_success_status_is_reported_as_a_status() {
         // Not folded into `Transport`: "the server said 404" and "the server
         // never answered" are different stories in the log.
-        let url = serve_once("404 Not Found", b"nope".to_vec());
+        let server = serve_once("404 Not Found", b"nope".to_vec());
         assert!(matches!(
-            fetch_image_bytes(&url),
+            fetch_image_bytes(&server.url),
             Err(FetchError::Status(404))
         ));
+        server.served();
     }
 
     #[test]
     fn a_response_past_the_cap_is_refused_rather_than_truncated() {
-        let url = serve_once("200 OK", vec![b'x'; 64]);
-        assert!(matches!(fetch_capped(&url, 16), Err(FetchError::TooLarge)));
+        let server = serve_once("200 OK", vec![b'x'; 64]);
+        assert!(matches!(
+            fetch_capped(&server.url, 16),
+            Err(FetchError::TooLarge)
+        ));
+        // Not `served()`: a client that refuses mid-body may close before the server
+        // finishes writing, so the server's write result is not part of this claim.
     }
 
     #[test]

@@ -8,14 +8,44 @@ use std::sync::Arc;
 
 pub const RGBA_CHANNELS: usize = 4;
 
-/// Per-channel tolerance for comparing richimg's decode against `magick
-/// -coalesce`: YUV/blend rounding differences of up to 1 LSB are expected
-/// and documented; a lossless, unblended fixture should in practice
-/// come out exact, but the tolerance is not tightened per-fixture.
-pub const CHANNEL_TOLERANCE: i16 = 1;
+/// How far a decoded channel may stray from its reference frame.
+///
+/// [`Exact`](Tolerance::Exact) is the default, through [`assert_matches_reference`]:
+/// a lossless, unblended path has nothing to round, so any difference is a bug.
+/// [`OneLsb`](Tolerance::OneLsb) is opted into per call, through
+/// [`assert_matches_reference_within`], only where the reference decoder
+/// (`magick -coalesce`, `ffmpeg`) rounds differently from richimg: lossy YUV
+/// conversion, alpha blending, and 16-to-8-bit channel reduction.
+#[derive(Clone, Copy, Debug)]
+pub enum Tolerance {
+    Exact,
+    OneLsb,
+}
+
+impl Tolerance {
+    fn max_channel_delta(self) -> i16 {
+        match self {
+            Tolerance::Exact => 0,
+            Tolerance::OneLsb => 1,
+        }
+    }
+}
 
 fn fixtures_dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
+}
+
+/// Reads a generated fixture or reference frame. Every one is produced by a script in
+/// `tests/fixtures/`, so a missing file names the scripts instead of surfacing as a
+/// bare "No such file" from deep inside an unrelated-looking test.
+fn read_generated(path: &Path) -> Vec<u8> {
+    std::fs::read(path).unwrap_or_else(|err| {
+        panic!(
+            "reading {}: {err} — run the generator for its family in \
+             richimg/tests/fixtures/ (make.sh, make_gif.sh or make_apng.sh)",
+            path.display()
+        )
+    })
 }
 
 pub fn fixture_path(name: &str) -> PathBuf {
@@ -24,9 +54,7 @@ pub fn fixture_path(name: &str) -> PathBuf {
 
 pub fn read_fixture(name: &str) -> Arc<[u8]> {
     let path = fixture_path(name);
-    let bytes = std::fs::read(&path)
-        .unwrap_or_else(|err| panic!("reading fixture {}: {err}", path.display()));
-    Arc::from(bytes)
+    Arc::from(read_generated(&path))
 }
 
 /// Reads a committed raw-RGBA reference frame (`tests/fixtures/refs/<stem>-<index>.rgba`).
@@ -34,7 +62,7 @@ pub fn read_ref_frame(stem: &str, index: u32) -> Vec<u8> {
     let path = fixtures_dir()
         .join("refs")
         .join(format!("{stem}-{index}.rgba"));
-    std::fs::read(&path).unwrap_or_else(|err| panic!("reading reference {}: {err}", path.display()))
+    read_generated(&path)
 }
 
 /// Reads a committed raw-RGBA reference frame from the APNG fixture set
@@ -44,7 +72,7 @@ pub fn read_apng_ref_frame(stem: &str, index: u32) -> Vec<u8> {
     let path = fixtures_dir()
         .join("apng/refs")
         .join(format!("{stem}-{index}.rgba"));
-    std::fs::read(&path).unwrap_or_else(|err| panic!("reading reference {}: {err}", path.display()))
+    read_generated(&path)
 }
 
 /// One excluded rectangle (in pixel coordinates, half-open `[x0,x1) x [y0,y1)`)
@@ -61,13 +89,35 @@ pub struct Exclude {
     pub skip_alpha: bool,
 }
 
-/// Compares `actual` (a decoded `Frame::rgba`) against a committed reference
-/// frame, channel by channel, within [`CHANNEL_TOLERANCE`] — except inside
-/// any `exclusions`, whose named channels are not checked at all (they are
-/// covered by a separate, explicit assertion elsewhere in the same test).
 const ALPHA_CHANNEL: usize = 3;
 
+/// Compares `actual` (a decoded `Frame::rgba`) against a committed reference
+/// frame byte-exactly — except inside any `exclusions`, whose named channels
+/// are not checked at all (they are covered by a separate, explicit assertion
+/// elsewhere in the same test).
 pub fn assert_matches_reference(
+    actual: &[u8],
+    reference: &[u8],
+    width: u32,
+    height: u32,
+    exclusions: &[Exclude],
+    context: &str,
+) {
+    assert_matches_reference_within(
+        Tolerance::Exact,
+        actual,
+        reference,
+        width,
+        height,
+        exclusions,
+        context,
+    );
+}
+
+/// [`assert_matches_reference`] with an explicit per-channel [`Tolerance`], for
+/// the paths where the reference decoder rounds differently from richimg.
+pub fn assert_matches_reference_within(
+    tolerance: Tolerance,
     actual: &[u8],
     reference: &[u8],
     width: u32,
@@ -111,8 +161,8 @@ pub fn assert_matches_reference(
                 let a = i16::from(actual[pixel_index + channel]);
                 let b = i16::from(reference[pixel_index + channel]);
                 assert!(
-                    (a - b).abs() <= CHANNEL_TOLERANCE,
-                    "{context}: pixel ({x},{y}) channel {channel} differs: actual={a} reference={b} (tolerance {CHANNEL_TOLERANCE})"
+                    (a - b).abs() <= tolerance.max_channel_delta(),
+                    "{context}: pixel ({x},{y}) channel {channel} differs: actual={a} reference={b} (tolerance {tolerance:?})"
                 );
             }
         }
@@ -135,9 +185,7 @@ pub fn gif_fixture_path(name: &str) -> PathBuf {
 
 pub fn read_gif_fixture(name: &str) -> Arc<[u8]> {
     let path = gif_fixture_path(name);
-    std::fs::read(&path)
-        .map(Arc::from)
-        .unwrap_or_else(|err| panic!("reading fixture {}: {err}", path.display()))
+    Arc::from(read_generated(&path))
 }
 
 /// Reads a committed raw-RGBA reference frame
@@ -147,7 +195,7 @@ pub fn read_gif_ref_frame(stem: &str, index: u32) -> Vec<u8> {
         .join("gif")
         .join("refs")
         .join(format!("{stem}-{index}.rgba"));
-    std::fs::read(&path).unwrap_or_else(|err| panic!("reading reference {}: {err}", path.display()))
+    read_generated(&path)
 }
 
 // ── the counting allocator, shared by the three no-oversized-alloc targets ────

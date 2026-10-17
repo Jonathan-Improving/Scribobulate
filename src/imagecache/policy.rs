@@ -441,6 +441,13 @@ mod tests {
         // budget pressure.
         c.record_success("ok".into(), 1, 5);
         assert!(c.contains_positive("ok"));
+        // ...and the positive one filling the budget evicted none of the negatives.
+        for i in 0..50 {
+            assert!(
+                matches!(c.lookup(&format!("dead-{i}"), t0), Lookup::NegativeHit),
+                "dead-{i} survives a full byte budget"
+            );
+        }
     }
 
     #[test]

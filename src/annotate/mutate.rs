@@ -394,7 +394,7 @@ mod merged_comment_tests {
     }
 
     /// A comment containing the `<<}` terminator IS sanitised (that is the delimiter, and
-    /// escaping it is correct) — pinned so the KKK join is never blamed for it, and so the
+    /// escaping it is correct) — pinned so the multi-overlap ` | ` join is never blamed for it, and so the
     /// one thing `sanitize_comment` does stays deliberate.
     #[test]
     fn only_the_comment_terminator_is_sanitised() {
@@ -424,7 +424,7 @@ mod merged_comment_tests {
         );
     }
 
-    /// **The multi-overlap decision (KKK — DECIDED)**: every intersecting comment, joined
+    /// **The multi-overlap decision**: every intersecting comment, joined
     /// with ` | `, in SOURCE order. Nothing is destroyed without the user seeing it first.
     #[test]
     fn multi_overlap_joins_every_comment_in_source_order() {
@@ -464,7 +464,7 @@ mod merged_comment_tests {
 
     /// The card and the mutation must agree. Whatever `merged_comment_for` offers, feeding
     /// it straight back to `insert_or_extend_highlight` (the user pressing Save without
-    /// editing) must PRESERVE both comments — which is the entire point of KKK: the merge
+    /// editing) must PRESERVE both comments — which is the entire point of the multi-overlap join: the merge
     /// stops being destructive by default.
     #[test]
     fn committing_the_prepopulated_comment_unchanged_preserves_both_comments() {

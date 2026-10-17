@@ -8,7 +8,10 @@ mod support;
 use std::time::Duration;
 
 use richimg::{probe, Animation, Limits, LoopCount};
-use support::{assert_matches_reference, read_fixture, read_ref_frame};
+use support::{
+    assert_matches_reference, assert_matches_reference_within, read_fixture, read_ref_frame,
+    Tolerance,
+};
 
 const CANVAS: (u32, u32) = (16, 16);
 
@@ -33,7 +36,9 @@ fn animated_full_canvas_frames_match_reference() {
         let frame = anim.next_frame().expect("decode a full-canvas frame");
         assert_eq!(frame.index, index);
         let reference = read_ref_frame("animated_full_canvas", index);
-        assert_matches_reference(
+        // `img2webp` encodes these frames lossy: YUV rounding differs by up to one step.
+        assert_matches_reference_within(
+            Tolerance::OneLsb,
             &frame.rgba,
             &reference,
             CANVAS.0,

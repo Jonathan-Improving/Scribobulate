@@ -2415,28 +2415,21 @@ mod gtk_integration_tests {
         win.set_default_size(400, 300);
         win.set_child(Some(&view));
         win.present();
-        let ctx = gtk::glib::MainContext::default();
-        for _ in 0..200 {
-            ctx.iteration(false);
-            std::thread::sleep(std::time::Duration::from_millis(4));
-            if view.is_mapped() && view.height() > 0 {
-                break;
-            }
-        }
-        assert!(
-            view.is_mapped() && view.height() > 0,
+        crate::testpump::until(
+            crate::testpump::Clock::Frame,
             "the view must be realized, or there is no line-display cache to warm and \
-             this test cannot reproduce GTK4Rs/AP-89's precondition"
+             this test cannot reproduce GTK4Rs/AP-89's precondition",
+            || view.is_mapped() && view.height() > 0,
         );
 
         let a: String = (0..200).map(|n| format!("alpha {n}\n")).collect();
         view.buffer().set_text(&a);
         // Let A lay out, or there is no populated line-display cache for the swap to
         // invalidate and the sequence below is a swap between two cold buffers.
-        for _ in 0..100 {
-            ctx.iteration(false);
-            std::thread::sleep(std::time::Duration::from_millis(4));
-        }
+        crate::testpump::drain_for(
+            crate::testpump::Clock::Idle,
+            std::time::Duration::from_millis(400),
+        );
         // Warm the layout / line-display cache against buffer A.
         let warm = view.iter_location(&view.buffer().iter_at_offset(500));
         // THE PRECONDITION, asserted rather than assumed: the warm must have produced
@@ -2529,15 +2522,9 @@ mod gtk_integration_tests {
         win.set_child(Some(&pane));
         win.present();
 
-        let ctx = glib::MainContext::default();
-        for _ in 0..200 {
-            ctx.iteration(false);
-            std::thread::sleep(std::time::Duration::from_millis(4));
-            if view.is_mapped() && view.height() > 0 {
-                break;
-            }
-        }
-        assert!(view.is_mapped() && view.height() > 0, "view allocated");
+        crate::testpump::until(crate::testpump::Clock::Frame, "view allocated", || {
+            view.is_mapped() && view.height() > 0
+        });
 
         let buffer = view.buffer();
         // Reproduce snapshot_layer's exact visible-range setup so the card extent is

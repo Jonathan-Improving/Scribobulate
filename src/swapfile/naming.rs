@@ -221,14 +221,18 @@ mod tests {
         // rename(2) is atomic only within one filesystem, so the temp must be a sibling
         // of its destination — asserted on the shape, since a future refactor that put
         // it in a temp directory would silently degrade the promote into a copy.
-        let name = swap_file_name(Some(Path::new("/tmp/notes.md")), &doc_id());
-        let temp = format!("{name}{}", crate::swapfile::TEMP_SUFFIX);
+        // The real paths, from the functions the writer calls — comparing the parents of
+        // two bare file names compares `Some("")` with `Some("")` and proves nothing.
+        let doc = Path::new("notes.md");
+        let dest = crate::swapfile::swap_path(Some(doc), &doc_id()).expect("a state directory");
+        let temp = crate::swapfile::swap_temp_path(Some(doc), &doc_id()).expect("a temp path");
         assert_eq!(
-            Path::new(&temp).parent(),
-            Path::new(&name).parent(),
+            temp.parent(),
+            dest.parent(),
             "the temp and its destination must be siblings"
         );
-        assert!(temp.starts_with(&name));
+        assert_ne!(dest.parent(), Some(Path::new("")), "a real directory");
+        assert!(temp.to_string_lossy().starts_with(&*dest.to_string_lossy()));
     }
 
     #[test]

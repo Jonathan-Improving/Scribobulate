@@ -420,6 +420,12 @@ mod tests {
                 .map(|i| i.pixel_size())
                 .unwrap_or_default()
         };
+        // The exact size the theme's marker metric scales to at each zoom: a bare
+        // `large > small` passes a build that grows by the wrong amount.
+        let marker = crate::theme::active().metrics.disclosure_marker_size;
+        for (toggle, zoom) in [(&small, 1.0), (&large, 2.0)] {
+            assert_eq!(px(toggle), crate::theme::px(marker, zoom), "zoom {zoom}");
+        }
         assert!(
             px(&large) > px(&small),
             "a zoomed indicator must grow: {} vs {}",

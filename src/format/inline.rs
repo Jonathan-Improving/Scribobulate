@@ -120,6 +120,14 @@ mod tests {
         assert_eq!(applied(FormatCmd::CodeSpan, "x", 0, 1).0, "`x`");
         assert_eq!(applied(FormatCmd::Superscript, "x", 0, 1).0, "^x^");
         assert_eq!(applied(FormatCmd::Subscript, "x", 0, 1).0, "~x~");
+        assert_eq!(applied(FormatCmd::Highlight, "x", 0, 1).0, "==x==");
+    }
+
+    #[test]
+    fn highlight_toggles_off() {
+        // The wrapped run selected, and the bare word with the markers just outside.
+        assert_eq!(applied(FormatCmd::Highlight, "==x==", 0, 5).0, "x");
+        assert_eq!(applied(FormatCmd::Highlight, "a ==x== b", 4, 5).0, "a x b");
     }
 
     #[test]

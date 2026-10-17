@@ -5,7 +5,10 @@
 mod support;
 
 use richimg::{Animation, Limits};
-use support::{assert_matches_reference, pixel, read_fixture, read_ref_frame, Exclude};
+use support::{
+    assert_matches_reference, assert_matches_reference_within, pixel, read_fixture, read_ref_frame,
+    Exclude, Tolerance,
+};
 
 const CANVAS: (u32, u32) = (16, 16);
 
@@ -68,7 +71,9 @@ fn partial_transparent_blend_on_and_off_composite_correctly() {
     );
 
     let frame1 = anim.next_frame().expect("frame 1");
-    assert_matches_reference(
+    // Alpha blending rounds differently from magick's by up to one step.
+    assert_matches_reference_within(
+        Tolerance::OneLsb,
         &frame1.rgba,
         &read_ref_frame("partial_transparent", 1),
         CANVAS.0,

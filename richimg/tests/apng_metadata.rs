@@ -9,7 +9,10 @@ mod support;
 use std::time::Duration;
 
 use richimg::{probe, Animation, Limits, LoopCount};
-use support::{assert_matches_reference, read_apng_ref_frame, read_fixture};
+use support::{
+    assert_matches_reference, assert_matches_reference_within, read_apng_ref_frame, read_fixture,
+    Tolerance,
+};
 
 fn open(fixture: &str) -> Animation {
     let limits = Limits::default();
@@ -97,7 +100,9 @@ fn sixteen_bit_channels_reduce_to_eight_bits() {
     for index in 0..2u32 {
         let frame = anim.next_frame().expect("sixteen_bit frame");
         let reference = read_apng_ref_frame("sixteen_bit", index);
-        assert_matches_reference(
+        // 16-to-8-bit reduction rounds differently from ffmpeg's by up to one step.
+        assert_matches_reference_within(
+            Tolerance::OneLsb,
             &frame.rgba,
             &reference,
             2,

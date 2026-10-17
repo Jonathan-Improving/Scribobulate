@@ -279,7 +279,7 @@ impl Compositor {
 ///
 /// (<https://wiki.mozilla.org/APNG_Specification>, "`fcTL`: The Frame
 /// Control Chunk" — `APNG_BLEND_OP_OVER`). Computed in `f64` and rounded to
-/// the nearest `u8`; richimg's own test tolerance (`CHANNEL_TOLERANCE = 1` in
+/// the nearest `u8`; richimg's own test tolerance (`Tolerance::OneLsb` in
 /// `tests/support/mod.rs`) absorbs the last-bit rounding difference against
 /// a fixed-point reference decoder such as `ffmpeg`.
 fn over(dst: [u8; RGBA_CHANNELS], src: [u8; RGBA_CHANNELS]) -> [u8; RGBA_CHANNELS] {

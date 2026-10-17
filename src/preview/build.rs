@@ -3433,13 +3433,35 @@ mod gtk_integration_tests {
         assert!(line_carries_h5("six"), "the h6 line folds onto the h5 tag");
     }
 
+    /// Every builtin theme's id, so a parity test covers the themes by construction
+    /// instead of a hand-picked pair that falls behind as themes are added.
+    fn every_builtin_theme_id() -> Vec<String> {
+        crate::theme::Themes::builtin()
+            .chooser_list()
+            .into_iter()
+            .map(|crate::theme::ChooserEntry { id, .. }| id)
+            .collect()
+    }
+
+    /// The value of `name="…"` in a Pango opening span: the cell side of a parity
+    /// compare, read back out of the markup rather than re-derived from the theme key.
+    fn span_attr<'a>(open: &'a str, name: &str) -> &'a str {
+        let key = format!(" {name}=\"");
+        let start = open
+            .find(&key)
+            .unwrap_or_else(|| panic!("no {name} in {open}"))
+            + key.len();
+        let len = open[start..].find('"').expect("the attribute is closed");
+        &open[start..start + len]
+    }
+
     /// TDD 18.5/18.6 — one key, two application paths. The annotation highlight's
     /// body tag and its table-cell Pango markup must carry the SAME theme colour;
     /// they were independent literals, free to drift.
     #[gtktest::test]
     fn the_annotation_highlight_matches_between_body_and_cell_under_every_theme() {
-        for id in ["system", "sepia"] {
-            with_theme(id, || {
+        for id in every_builtin_theme_id() {
+            with_theme(&id, || {
                 let products = build_render_products("{==claim==}{>>note<<}", None, 1.0, false);
                 let tag = products
                     .buf
@@ -3471,30 +3493,44 @@ mod gtk_integration_tests {
     /// `bold_weight` and `supsub_scale` (+ rise) are the two keys that applied ONLY on
     /// the body `GtkTextTag` before this fix — a table cell's `<b>`/`<sup>`/`<sub>`
     /// silently ignored both, and nothing caught it.
-    #[test]
+    ///
+    /// Reads BOTH participants — the body tag's properties and the cell markup's
+    /// attributes — and compares them to each other, so a one-sided drift (either path
+    /// stops reading the key) fails here even though each side alone still looks themed.
+    #[gtktest::test]
     fn bold_and_supsub_match_between_body_and_cell_under_every_theme() {
-        for id in ["system", "sepia"] {
-            with_theme(id, || {
+        use crate::tags::TagName;
+        for id in every_builtin_theme_id() {
+            with_theme(&id, || {
+                let products = build_render_products("**b**", None, 1.0, false);
+                let tag = |name: TagName| {
+                    products
+                        .buf
+                        .tag_table()
+                        .lookup(name.name())
+                        .unwrap_or_else(|| panic!("{id}: the {} tag exists", name.name()))
+                };
                 let theme = crate::theme::active();
                 let bold = crate::renderer::bold_open(&theme);
-                assert!(
-                    bold.contains(&format!("weight=\"{}\"", theme.typography.bold_weight)),
-                    "{id}: bold cell markup: {bold}"
+                assert_eq!(
+                    span_attr(&bold, "weight"),
+                    tag(TagName::Bold).weight().to_string(),
+                    "{id}: body bold weight vs cell markup {bold}"
                 );
-                let sup = crate::renderer::superscript_open(&theme);
-                let sub = crate::renderer::subscript_open(&theme);
-                let pct = (theme.typography.supsub_scale * 100.0).round() as i32;
-                for (open, rise, label) in [
-                    (&sup, theme.typography.superscript_rise, "sup"),
-                    (&sub, theme.typography.subscript_rise, "sub"),
+                for (open, name) in [
+                    (
+                        crate::renderer::superscript_open(&theme),
+                        TagName::Superscript,
+                    ),
+                    (crate::renderer::subscript_open(&theme), TagName::Subscript),
                 ] {
-                    assert!(
-                        open.contains(&format!("size=\"{pct}%\"")),
-                        "{id} {label}: {open}"
-                    );
-                    assert!(
-                        open.contains(&format!("rise=\"{}\"", rise * gtk::pango::SCALE)),
-                        "{id} {label}: {open}"
+                    let body = tag(name);
+                    let body_pct = format!("{}%", (body.scale() * 100.0).round() as i32);
+                    assert_eq!(span_attr(&open, "size"), body_pct, "{id}: {open}");
+                    assert_eq!(
+                        span_attr(&open, "rise"),
+                        body.rise().to_string(),
+                        "{id}: {open}"
                     );
                 }
             });

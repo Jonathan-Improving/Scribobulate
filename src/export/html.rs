@@ -3133,6 +3133,41 @@ mod html_sink_tests {
                 .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/' || c == '='),
             "non-base64 character emitted"
         );
+        // Decode it back, at every padding length (0, 2 and 1 `=`), so a mangled byte
+        // or a wrong tail fails rather than merely producing valid-looking characters.
+        for len in [256, 255, 254, 0] {
+            assert_eq!(
+                decode_base64(&base64(&bytes[..len])),
+                &bytes[..len],
+                "{len} bytes"
+            );
+        }
+    }
+
+    /// An independent standard-base64 decoder for the round trip above — written from
+    /// the alphabet, sharing nothing with the encoder under test.
+    fn decode_base64(text: &str) -> Vec<u8> {
+        const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        assert_eq!(text.len() % 4, 0, "base64 comes in four-character groups");
+        let mut out = Vec::new();
+        for group in text.as_bytes().chunks(4) {
+            let sextets: Vec<u32> = group
+                .iter()
+                .take_while(|&&c| c != b'=')
+                .map(|c| {
+                    let i = ALPHABET.iter().position(|a| a == c).expect("base64 char");
+                    u32::try_from(i).expect("index fits")
+                })
+                .collect();
+            let word = sextets
+                .iter()
+                .chain(std::iter::repeat(&0))
+                .take(4)
+                .fold(0u32, |acc, s| (acc << 6) | s);
+            let [_, b0, b1, b2] = word.to_be_bytes();
+            out.extend_from_slice(&[b0, b1, b2][..sextets.len() - 1]);
+        }
+        out
     }
 
     #[test]

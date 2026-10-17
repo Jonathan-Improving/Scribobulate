@@ -542,6 +542,43 @@ pub(crate) fn theme_css(theme: &Theme, palette: &Palette) -> String {
 mod tests {
     use super::css;
 
+    /// Whether `selector` appears in a live rule HEAD of `sheet`: outside every comment,
+    /// not as a prefix of a longer identifier, and before the next `{` rather than inside
+    /// a declaration block. A bare `contains` is satisfied by a comment that merely
+    /// mentions the class, and this sheet has many such comments.
+    fn has_live_selector(sheet: &str, selector: &str) -> bool {
+        let mut live = String::with_capacity(sheet.len());
+        let mut rest = sheet;
+        while let Some(open) = rest.find("/*") {
+            live.push_str(&rest[..open]);
+            rest = rest[open..]
+                .find("*/")
+                .map_or("", |close| &rest[open + close + 2..]);
+        }
+        live.push_str(rest);
+        let ident = |c: char| c.is_alphanumeric() || c == '-' || c == '_';
+        live.match_indices(selector).any(|(at, _)| {
+            let after = &live[at + selector.len()..];
+            !after.starts_with(ident)
+                && after
+                    .find(['{', '}', ';'])
+                    .and_then(|i| after[i..].chars().next())
+                    == Some('{')
+        })
+    }
+
+    #[test]
+    fn has_live_selector_ignores_comments_and_declarations() {
+        let sheet = "/* .ghost { } */ .real { color: red; } .x { animation: .decl; }";
+        assert!(has_live_selector(sheet, ".real"));
+        assert!(!has_live_selector(sheet, ".ghost"), "only in a comment");
+        assert!(!has_live_selector(sheet, ".decl"), "only in a declaration");
+        assert!(
+            !has_live_selector(sheet, ".re"),
+            "a prefix of a longer class"
+        );
+    }
+
     #[test]
     fn css_defines_the_expected_style_classes() {
         let c = css();
@@ -549,19 +586,29 @@ mod tests {
         // live in exactly one provider (GTK4Rs/AP-101), so their absence here is the contract.
         assert!(!c.contains("scribtable"));
         assert!(!c.contains(".scrib-image-sel"));
-        assert!(c.contains(".conflict-toast"));
-        assert!(c.contains("popover.format-overlay > contents"));
-        assert!(c.contains("popover.annotation-overlay > contents"));
-        assert!(c.contains(".annotation-entry"));
-        assert!(c.contains("listview.outline"));
-        assert!(c.contains(".outline-h1"));
-        assert!(c.contains("tabbar:drop(active)"));
-        assert!(c.contains("@keyframes tab-drop-pulse"));
+        for selector in [
+            ".conflict-toast",
+            "popover.format-overlay > contents",
+            "popover.annotation-overlay > contents",
+            ".annotation-entry",
+            "listview.outline",
+            ".outline-h1",
+            "tabbar:drop(active)",
+            "@keyframes tab-drop-pulse",
+        ] {
+            assert!(
+                has_live_selector(c, selector),
+                "no live rule for {selector}"
+            );
+        }
         // The tab close-button hover-fade styles the same CSS class the
-        // tab-activate guard hit-tests on (QA L-1). Assert the CSS still mentions
+        // tab-activate guard hit-tests on (QA L-1). Assert the CSS still styles
         // that hoisted const so a rename on either side is caught here, not by a
         // silently-reintroduced background-tab-close regression.
-        assert!(c.contains(crate::widgets::tab::TAB_CLOSE_BTN_CLASS));
+        assert!(has_live_selector(
+            c,
+            &format!(".{}", crate::widgets::tab::TAB_CLOSE_BTN_CLASS)
+        ));
     }
 
     // ── generated theme CSS ───────────────────────────────────────────────────
