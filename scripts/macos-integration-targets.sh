@@ -5,10 +5,12 @@
 #
 # WHY THIS EXISTS AT ALL — macOS cannot use the other two ports' selection.
 #
-# Linux and Windows let Cargo choose: their step 5 runs every target, the library's own
-# `#[test]` bodies included. macOS must not, because the dual-harness library bodies abort
-# the process off the main thread on Quartz (GTK4Rs/AP-159, measured on GTK 4.22.4), so this
-# port selects the integration targets BY NAME and leaves `--lib` out. That constraint is
+# Linux lets Cargo choose: its suite runs every target, the library's own `#[test]` bodies
+# included. Windows leaves `--lib` out by choice, with Cargo's `--test *` glob, because those
+# bodies only repeat the suite there (see step 5 in scripts/pipeline.steps). macOS has no
+# choice: the dual-harness library bodies abort the process off the main thread on Quartz
+# (GTK4Rs/AP-159, measured on GTK 4.22.4), so this port selects the integration targets BY
+# NAME and leaves `--lib` out. That constraint is
 # real and is not what this script changes.
 #
 # What it changes is WHERE THE NAMES COME FROM. They were written out by hand in the

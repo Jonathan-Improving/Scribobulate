@@ -494,7 +494,7 @@ function Write-StepList {
 # it. `cmd.exe` has no such syntax: it reads the assignment as the name of a program.
 #
 # TODAY EXACTLY ONE CONTRACT LINE CARRIES A PREFIX, and it is this platform's:
-#   cmd.windows integration  G_DEBUG=fatal-criticals cargo test --features gtk-integration-tests -- --test-threads=1
+#   cmd.windows integration  G_DEBUG=fatal-criticals cargo test --features gtk-integration-tests --test * -- --test-threads=1
 # which is why this port had to implement the grammar and the others got it for nothing.
 # The example here used to be a `cmd.linux integration` line carrying `G_DEBUG` and
 # `xvfb-run`; that line no longer exists (Linux delegates to scripts/run-integration.sh),

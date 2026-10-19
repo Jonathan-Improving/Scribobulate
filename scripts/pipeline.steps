@@ -297,9 +297,9 @@ cmd.windows skipreport  cargo test -- --nocapture
 # unchanged; they moved into the helper, they did not go away.
 #
 # MACOS SELECTS ITS TARGETS BY NAME, AND DERIVES THE NAMES RATHER THAN LISTING THEM.
-# Linux and Windows let Cargo pick every target; macOS must not, because the library's
-# dual-harness bodies abort off the main thread on Quartz (GTK4Rs/AP-159), so `--lib` is left
-# out and the integration targets are named. The names used to be WRITTEN OUT on the
+# macOS must not let Cargo pick every target, because the library's dual-harness bodies
+# abort off the main thread on Quartz (GTK4Rs/AP-159), so `--lib` is left out and the
+# integration targets are named. The names used to be WRITTEN OUT on the
 # `cmd.macos` line below, which made this the one port whose target set could fall behind
 # Cargo.toml — and it did once, caught by a person rather than by anything here. The
 # omission is invisible by construction: a target that is never named is never built and
@@ -307,6 +307,15 @@ cmd.windows skipreport  cargo test -- --nocapture
 # `scripts/macos-integration-targets.sh`, which reads the same manifest Cargo does. Its
 # header explains why it emits a deliberately non-existent target name instead of an empty
 # list when it cannot derive one.
+#
+# WINDOWS LEAVES `--lib` OUT TOO — by choice, not necessity. Its bodies run fine off the main
+# thread, but with the feature on, the library target holds exactly the `#[gtktest::test]`
+# bodies that `gtk_suite` runs again on the main thread, on top of the unit tests step 4
+# already ran: measured, 2,691 library tests with the feature against 1,991 without, and the
+# suite's 700 cases are the difference. That second pass cost ~10.5 minutes of a ~21-minute
+# step and tested nothing the suite does not. `--test *` (a Cargo glob, which `cmd.exe`
+# passes through unexpanded) selects every integration target and no library one, so a new
+# `[[test]]` target is picked up by construction, as macOS's derived list does.
 #
 # THE DEATH CODE DIFFERS BY PLATFORM AND A FAILURE IS EASY TO MISREAD. A promoted critical
 # kills the process via `G_BREAKPOINT()`, which is `SIGTRAP` (exit 133) on Linux and
@@ -321,7 +330,7 @@ class  integration  required
 surface integration  SKIPPED [
 na.linux    integration  permanent  Step 5c (coverage) runs this same suite on Linux, instrumented, on the same throwaway display, and fails on any test failure, so running it here too only repeats it (POLICY § Build pipeline). scripts/run-integration.sh still runs it uninstrumented by hand.
 cmd.macos   integration  cargo test --features gtk-integration-tests $(scripts/macos-integration-targets.sh)
-cmd.windows integration  G_DEBUG=fatal-criticals cargo test --features gtk-integration-tests -- --test-threads=1
+cmd.windows integration  G_DEBUG=fatal-criticals cargo test --features gtk-integration-tests --test * -- --test-threads=1
 disarm.macos integration  permanent  G_DEBUG=fatal-criticals is absent from the macOS command above, and this line is why: GDK's Quartz backend freezes a surface once per CONSTRUCTION and thaws once per MAP, and gdk_macos_surface_hide never freezes, so the second map thaws at zero and the suite emits gdk_surface_thaw_updates assertions on every popover open or dismiss. Present 4.22.4 through main; the freeze/thaw pair is private and absent from the gdk4 bindings, so no application-side fix exists. Do NOT arm it by masking Gdk-CRITICAL: that would also silence GTK4Rs/AP-305, a leaked update-freeze that stops a surface repainting, which is the only signal anybody would get if it happened. See also GTK4Rs/AP-268 before reaching for a g_log_set_writer_func allowlist.
 
 # ---------------------------------------------------------------------------

@@ -138,11 +138,13 @@ cargo run --%SCRIB_ARGS%
 goto :finished
 
 :test
-rem --test-threads=1 for the libtest targets; the GTK suite is a harness = false
+rem `--test *` runs every integration target and leaves the library's own tests out:
+rem with the feature on, those are the GTK suite's bodies a second time (see step 5 in
+rem scripts/pipeline.steps). --test-threads=1 for the libtest targets; the GTK suite is a harness = false
 rem target that is sequential by construction (it owns the process main thread).
 rem Trailing arguments land after the `--`, so `build test --skip <case>` reaches
 rem the runner exactly as pipeline.ps1's step 5 passes it.
-cargo test --features gtk-integration-tests -- --test-threads=1%SCRIB_ARGS%
+cargo test --features gtk-integration-tests --test * -- --test-threads=1%SCRIB_ARGS%
 goto :finished
 
 :failed
