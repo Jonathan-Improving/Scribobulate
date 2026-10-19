@@ -295,7 +295,31 @@ impl CodePreviewView {
             self.imp().scroll_await_alloc.replace(Some(work));
             return;
         }
+        self.stop_kinetic_glide();
         work(self);
+    }
+
+    /// End any kinetic glide the parent `GtkScrolledWindow` is still running, so the
+    /// scroll about to be issued is not undone by it.
+    ///
+    /// After a wheel burst the scroller decelerates on a frame-clock tick that
+    /// `set_value`s the adjustment for most of a second, and a plain `set_value` ends a
+    /// running `animate_to_value` (GTK4Rs/AP-260, GTK4Rs/AP-361): a link or outline jump issued in that
+    /// window was cancelled in its first frame, so the first click after a wheel scroll
+    /// did nothing. The deceleration is not gated on `kinetic-scrolling` (it runs from
+    /// the capture-phase scroll controller's `decelerate`), and GTK has no public cancel.
+    /// The setter's `else` branch is the only route to `cancel_deceleration`
+    /// (`gtkscrolledwindow.c:2611`, GTK 4.6.9), and it early-returns on an unchanged
+    /// value, hence the toggle; the property ends where it started. The toggle also
+    /// re-phases the scroller's drag/swipe/long-press gestures, harmless here because a
+    /// programmatic scroll never runs inside a touch drag (GTK4Rs/AP-326).
+    fn stop_kinetic_glide(&self) {
+        let Some(sw) = self.parent().and_downcast::<gtk::ScrolledWindow>() else {
+            return;
+        };
+        let kinetic = sw.is_kinetic_scrolling();
+        sw.set_kinetic_scrolling(!kinetic);
+        sw.set_kinetic_scrolling(kinetic);
     }
 
     /// Scroll so the buffer position `offset` is at the top of the viewport,
@@ -676,6 +700,82 @@ mod gtk_integration_tests {
         assert!(
             ran_height.is_some_and(|h| h > 0),
             "the released scroll must run against a real allocation, ran at {ran_height:?}"
+        );
+    }
+
+    /// **A programmatic scroll issued while the scroller is still gliding lands.** After a
+    /// wheel burst `GtkScrolledWindow` runs its own kinetic deceleration, a frame-clock
+    /// tick that `set_value`s the adjustment for most of a second. A plain `set_value`
+    /// ends a running `animate_to_value` (GTK4Rs/AP-260, GTK4Rs/AP-361), so the glide killed the
+    /// `scroll_to_mark` animation of a link or outline jump in its first frame: the
+    /// first link click after a wheel scroll did nothing, and a second one, after the
+    /// glide ended, worked.
+    ///
+    /// The glide is started the way the scroller's own capture-phase scroll controller
+    /// starts it, by emitting its `decelerate` signal (`#[gtktest::test]` cannot
+    /// synthesise a wheel event). The in-body control asserts the glide really moved the
+    /// adjustment before the jump, so the test cannot pass on a run that never glided.
+    #[gtktest::test]
+    fn a_scroll_issued_during_a_kinetic_glide_still_lands() {
+        use crate::testpump::{drain_for, Clock};
+        use std::time::Duration;
+        let (view, sw, window, _ctx) = mapped_view(2_000);
+        assert!(
+            gtk::Settings::default().is_some_and(|s| s.is_gtk_enable_animations()),
+            "precondition: the jump must animate, or no glide can interrupt it"
+        );
+        let vadj = sw.vadjustment();
+        {
+            // `mapped_view` returns once `upper` is non-zero, which is a few lines' worth;
+            // the jump below would clamp to that.
+            let vadj = vadj.clone();
+            crate::testpump::until(Clock::Frame, "the document's height to settle", move || {
+                vadj.upper() > vadj.page_size() * 20.0
+            });
+        }
+        crate::saferizer::scrollpos::jump(&vadj, vadj.upper() / 2.0);
+        drain_for(Clock::Frame, Duration::from_millis(300));
+
+        // GTK 4.22 glides only inside a smooth-scroll sequence: its `decelerate` handler
+        // returns early unless the bubble controller's `scroll` has set the private
+        // `scrolling` flag, which takes a `scroll-begin` first (gtkscrolledwindow.c,
+        // `scroll_controller_decelerate` / `scroll_controller_scroll`, 4.22.4). 4.6.9
+        // has no such gate. So replay the sequence a wheel produces: begin, one step,
+        // then the release's `decelerate` on the capture-phase controller.
+        let scroll_ctl = |phase| {
+            sw.observe_controllers()
+                .into_iter()
+                .filter_map(|c| c.ok().and_downcast::<gtk::EventControllerScroll>())
+                .find(|c| c.propagation_phase() == phase)
+                .expect("the scroller carries a kinetic scroll controller in each phase")
+        };
+        let bubble = scroll_ctl(gtk::PropagationPhase::Bubble);
+        let capture = scroll_ctl(gtk::PropagationPhase::Capture);
+        let before_glide = vadj.value();
+        bubble.emit_by_name::<()>("scroll-begin", &[]);
+        bubble.emit_by_name::<bool>("scroll", &[&0.0f64, &1.0f64]);
+        capture.emit_by_name::<()>("decelerate", &[&0.0f64, &4_000.0f64]);
+        drain_for(Clock::Frame, Duration::from_millis(60));
+        let glided = vadj.value() - before_glide;
+
+        let target_line = 200;
+        let target = view
+            .buffer()
+            .iter_at_line(target_line)
+            .map(|it| it.offset())
+            .expect("line 200 exists");
+        view.scroll_to_buffer_offset(target);
+        drain_for(Clock::Frame, Duration::from_millis(2_000));
+        let (top, _) = view.line_at_y(view.visible_rect().y());
+        let top_line = top.line();
+        window.destroy();
+        assert!(
+            glided > 0.0,
+            "precondition: the emitted deceleration must move the adjustment (moved {glided})"
+        );
+        assert!(
+            (top_line - target_line).abs() <= 1,
+            "a jump issued mid-glide must land on line {target_line}, the view shows line {top_line}"
         );
     }
 
