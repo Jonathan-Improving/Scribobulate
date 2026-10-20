@@ -58,4 +58,4 @@ pub(crate) use scroll::{
     restore_preview_scroll_to_line, restore_preview_scroll_to_line_fresh,
     scroll_preview_to_fragment, scroll_preview_to_heading,
 };
-pub(crate) use splice::install::{splice_disclosure, SpliceInputs, SpliceVerdict};
+pub(crate) use splice::install::{splice_disclosure, OnSettled, SpliceInputs, SpliceVerdict};

@@ -53,6 +53,18 @@ pub(crate) struct ScrollSync {
     /// it is handed back unchanged and a round trip is exact. A user scroll changes
     /// the top line and the stored value is discarded.
     pub(crate) applied_reading: Cell<Option<(crate::readingpos::DocPosition, i32)>>,
+    /// The generation of the hold suspending the sync, or `None` while it runs.
+    ///
+    /// A disclosure toggle in split mode holds the reader's place in the PREVIEW (the
+    /// pane they clicked in) through the splice's own restore, and that restore waits
+    /// for the preview to stop moving. A sync left running in that window re-projects
+    /// the editor onto the preview on every settling write — throwing the reader to the
+    /// editor's line, then fighting the restore when it lands. So neither pane writes
+    /// the other until the hold is released; the generation keeps an older toggle's
+    /// release from ending a newer toggle's hold.
+    pub(crate) held: Cell<Option<u64>>,
+    /// The last hold generation issued.
+    pub(crate) hold_gen: Cell<u64>,
 }
 
 impl Default for ScrollSync {
@@ -64,6 +76,8 @@ impl Default for ScrollSync {
             ed_last: Cell::new((-1.0, -1.0)),
             pv_last: Cell::new((-1.0, -1.0)),
             applied_reading: Cell::new(None),
+            held: Cell::new(None),
+            hold_gen: Cell::new(0),
         }
     }
 }
@@ -78,5 +92,6 @@ mod tests {
         assert_eq!(s.driver.get(), ScrollDriver::Editor);
         assert!(!s.guard.get());
         assert!(s.tick.borrow().is_none());
+        assert!(s.held.get().is_none());
     }
 }

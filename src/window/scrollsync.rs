@@ -28,6 +28,9 @@ fn note_adj_change(window: &ApplicationWindow, adj: &gtk::Adjustment, is_editor:
     if st.scroll.guard.get() {
         return; // echo from our own projection's set_value — not a real change
     }
+    if st.scroll.held.get().is_some() {
+        return; // a toggle is holding the reader's place; its release re-projects
+    }
     let cur = (adj.value(), adj.upper());
     let last = if is_editor {
         st.scroll.ed_last.get()
@@ -119,6 +122,9 @@ pub(super) fn queue_scroll_sync(window: &ApplicationWindow) {
 /// Idempotent — re-runs harmlessly as the follower's layout settles.
 fn project_scroll(window: &ApplicationWindow) {
     let Some(st) = state(window) else { return };
+    if st.scroll.held.get().is_some() {
+        return;
+    }
     let Some((editor_sw, preview_sw)) = split_scrollers(window) else {
         return;
     };
@@ -234,6 +240,30 @@ fn project_scroll(window: &ApplicationWindow) {
     }
 }
 
+/// Suspend the split sync until the returned hold is released (`release_split_sync`).
+///
+/// See `ScrollSync::held` for why a disclosure toggle needs this.
+pub(super) fn hold_split_sync(st: &TabState) -> u64 {
+    let generation = st.scroll.hold_gen.get().wrapping_add(1);
+    st.scroll.hold_gen.set(generation);
+    st.scroll.held.set(Some(generation));
+    generation
+}
+
+/// End the hold `generation`, if it is still the current one, and re-project once from
+/// whichever pane now drives — the preview the reader toggled in, unless they have
+/// since touched the editor (`mark_driver_on_input` still runs during a hold).
+pub(super) fn release_split_sync(window: &ApplicationWindow, generation: u64) {
+    let Some(st) = state(window) else { return };
+    if st.scroll.held.get() != Some(generation) {
+        return;
+    }
+    st.scroll.held.set(None);
+    st.scroll.ed_last.set((-1.0, -1.0));
+    st.scroll.pv_last.set((-1.0, -1.0));
+    queue_scroll_sync(window);
+}
+
 /// Char offset of the iter at the top of `view`'s viewport (GTK4Rs/AP-15: `visible_rect`
 /// + `line_at_y`, not `iter_at_location`).
 fn view_top_offset(view: &impl IsA<gtk::TextView>) -> i32 {
@@ -295,6 +325,8 @@ pub(super) fn setup_split_scroll_sync(window: &ApplicationWindow) {
         st.scroll.ed_last.set((-1.0, -1.0));
         st.scroll.pv_last.set((-1.0, -1.0));
         st.scroll.tick.replace(None);
+        // A fresh preview: any toggle hold belonged to the pane it replaced.
+        st.scroll.held.set(None);
     }
     // Only the PREVIEW scroller is wired here: it is a fresh widget on every
     // entry into a preview-visible mode, so its handlers/controllers die with it
@@ -343,6 +375,9 @@ pub(super) fn rerender_split_preview_driven_by_editor(window: &ApplicationWindow
     let allow_unsafe = st.allow_unsafe_images.get();
     st.scroll.driver.set(ScrollDriver::Editor);
     st.scroll.pv_last.set((-1.0, -1.0));
+    // A full re-render supersedes any toggle still settling, and it needs the sync it
+    // relies on to re-converge; the toggle's late release then finds no hold to end.
+    st.scroll.held.set(None);
     re_render(
         Some(st.id),
         &preview_sw,

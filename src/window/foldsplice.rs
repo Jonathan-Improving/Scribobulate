@@ -55,15 +55,28 @@ pub(crate) fn splice_disclosure_in_place(
     // same CALL rather than the same words.
     let md = st.previewed_source(mode);
 
-    // In split mode, force the editor as scroll driver before the buffer changes, so
-    // the preview's own settling writes cannot drive the editor (GTK4Rs/AP-16). The
-    // splice provokes far fewer of them than a re-render does — no collapse, no
-    // top-down revalidation of the whole document — but "fewer" is not "none", and this
-    // is the established answer to the hazard rather than a second one.
-    if mode == ViewMode::Split {
-        st.scroll.driver.set(ScrollDriver::Editor);
-        st.scroll.pv_last.set((-1.0, -1.0));
-    }
+    // In split mode the reader is in the PREVIEW — the toggle is there — so the
+    // preview's own restore (`preview::splice::install`'s reader anchor) is what keeps
+    // their place, and the sync is held off until it has landed. Forcing the editor as
+    // driver instead (the re-render route's answer to GTK4Rs/AP-16) re-projected the
+    // editor's line onto the preview on every settling write: a reader inside a
+    // collapsing block was thrown to the editor's coarser line rather than the
+    // summary (TDD 2.26h), and the restore and the projection then took turns. The
+    // hold keeps the preview's settling writes from driving the editor as well, which
+    // is the hazard the forced driver existed for. On release the editor follows the
+    // preview once (`release_split_sync`).
+    let on_settled = if mode == ViewMode::Split {
+        st.scroll.driver.set(ScrollDriver::Preview);
+        let generation = super::scrollsync::hold_split_sync(&st);
+        let weak = window.downgrade();
+        crate::preview::OnSettled::new(move || {
+            if let Some(window) = weak.upgrade() {
+                super::scrollsync::release_split_sync(&window, generation);
+            }
+        })
+    } else {
+        crate::preview::OnSettled::none()
+    };
 
     let verdict = crate::preview::splice_disclosure(
         &view,
@@ -74,14 +87,9 @@ pub(crate) fn splice_disclosure_in_place(
             zoom: st.chrome().zoom_level.get(),
             allow_unsafe_images: st.allow_unsafe_images.get(),
             folds: &st.folds.borrow(),
+            on_settled,
         },
         key,
     );
-
-    if verdict.spliced() && mode == ViewMode::Split {
-        // The same coalesced re-projection every other in-place render queues, so at
-        // least one editor→preview projection fires against the new heights.
-        queue_scroll_sync(window);
-    }
     verdict
 }

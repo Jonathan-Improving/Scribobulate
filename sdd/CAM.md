@@ -387,7 +387,7 @@ see.
 | 8 | **Split-pane drag** (divider move → the preview pane's width changes) | geometry | ◑ | ✓ | ✓ (preview) — same re-anchor; the width key is **cause-agnostic**, so #7's fix covers this too. Live-verify pending |
 | 9 | **Sidebar toggle** (show/hide outline / annotations → the preview pane's width changes) | geometry | ◑ | ✓ | ✓ (preview) — same cause-agnostic re-anchor as #7. Live-verify pending |
 | 10 | **Crash recovery applies a snapshot** (buffer replaced with recovered content) | rebuild | n/a | n/a | n/a **by position in the lifecycle, not by exemption** — see below |
-| 11 | **Disclosure expand / collapse** (`<details>` toggled, by the reader or by find/outline reaching into a collapsed block) | rebuild, **different text** | — | ✓ | ✓ `RenderShape::ChangedContent` — a `readingpos::DocPosition`, because the line anchor is invalid here by construction (TDD 2.26h) |
+| 11 | **Disclosure expand / collapse** (`<details>` toggled, by the reader or by find/outline reaching into a collapsed block) | rebuild, **different text** | — | ✓ | ✓ the reader's toggle splices in place and restores through its own reader anchor (`preview::splice::install`); in split mode the scroll sync is HELD until that restore lands and the editor then follows the preview once (`window::foldsplice`) — a sync left running re-projects the editor's coarser line over the restore (TDD 2.26h). Find/outline reveals re-render with `RenderShape::ChangedContent` — a `readingpos::DocPosition`, because the line anchor is invalid there by construction |
 
 **Why the three geometry rows collapse to one fix (preview).** The re-anchor keys on
 the preview's **raw allocation width inside its own `size_allocate`**, so it is

@@ -403,6 +403,103 @@ fn collapsing_a_disclosure_above_the_reader_keeps_them_on_their_line() {
     );
 }
 
+/// **TDD 2.26h in SPLIT mode** — the reader's place is in the pane they toggled in.
+///
+/// A toggle in split mode used to force the EDITOR as the scroll-sync driver for the
+/// splice, so every settling write re-projected the editor's line onto the preview.
+/// The editor addresses whole source lines, the preview addresses pixels, so a reader
+/// partway down a tall rendered line (a wrapped paragraph here; an image in the
+/// operator's report) was snapped to that line's top, and the reading-position restore
+/// and the projection then took turns (seen as a flicker). Parked mid-paragraph on
+/// purpose: a reader parked at a line's top passes with the defect, because the
+/// projection and the restore agree there.
+#[gtktest::test]
+fn in_split_mode_collapsing_a_block_keeps_the_preview_reader_on_their_line() {
+    let md = fixture().replace("<details>", "<details open>");
+    let app = crate::window::testkit::test_app(
+        "com.extollit.scribobulate.integrationtest.splicesplitcollapse",
+    );
+    let window = crate::window::new_window(&app, "IT-SPLICE-SPLIT", &md, None);
+    window.set_default_size(PANE_W * 2, PANE_H);
+    window.present();
+    crate::window::change_action_state(&window, "view-mode", &"split".to_variant());
+    let st = crate::winstate::state(&window).expect("tab state");
+    // Resolved AFTER the switch: entering split mounts a fresh preview scroller.
+    let sw = st
+        .split
+        .preview_scroller()
+        .expect("a split preview scroller");
+    let view = sw
+        .child()
+        .and_then(|c| c.downcast::<CodePreviewView>().ok())
+        .expect("a preview view");
+    let adjustment = sw.vadjustment();
+    super::rig::await_viewport(&view, &adjustment);
+    super::rig::settle(&view, &adjustment, WIRED_QUIET);
+    assert!(
+        crate::preview::scrib_render_data(&view)
+            .is_some_and(|rd| !rd.borrow().disclosure_lines.is_empty()),
+        "precondition: the split preview rendered the disclosure"
+    );
+
+    // The reader scrolls the PREVIEW, which is what makes it the sync's driver.
+    st.scroll.driver.set(crate::winstate::ScrollDriver::Preview);
+    super::rig::park_the_reader(&view, &adjustment, WIRED_QUIET);
+    let iter = crate::saferizer::viewport::ViewportTopIter::of(&view);
+    let (y, height) = view.line_yrange(&iter);
+    assert!(
+        f64::from(height) > 8.0 * DRIFT_TOLERANCE_PX,
+        "precondition: the reader's line is a tall wrapped paragraph ({height}px)"
+    );
+    let mid = crate::saferizer::viewport::ViewportTopIter::value_for_top_y(&view, y)
+        + f64::from(height / 2);
+    crate::saferizer::scrollpos::jump(&adjustment, mid);
+    super::rig::settle(&view, &adjustment, WIRED_QUIET);
+    let mark = anchor_reader(&view);
+    let (offset_before, line_before) = reader_offset(&view, &adjustment, &mark);
+    assert!(
+        offset_before < -DRIFT_TOLERANCE_PX * 4.0,
+        "precondition: the reader is partway down their line, not at its top \
+         (offset {offset_before:.0}px)"
+    );
+    assert!(
+        view.buffer()
+            .slice(&view.buffer().start_iter(), &view.buffer().end_iter(), true)
+            .contains(DEEP_IN_THE_BODY),
+        "precondition: the block starts EXPANDED, so the measured toggle collapses it"
+    );
+
+    let toggle = crate::preview::scrib_render_data(&view)
+        .expect("render data")
+        .borrow()
+        .disclosure_lines[0]
+        .1
+        .clone();
+    toggle.set_active(!toggle.is_active());
+    testpump::until(Clock::Idle, "the disclosure to collapse", || {
+        let buf = view.buffer();
+        !buf.slice(&buf.start_iter(), &buf.end_iter(), true)
+            .contains(DEEP_IN_THE_BODY)
+    });
+    super::rig::settle(&view, &adjustment, WIRED_QUIET);
+    let (offset_after, line_after) = reader_offset(&view, &adjustment, &mark);
+    let drift = offset_after - offset_before;
+    println!(
+        "\n=== WIRED split collapse, TDD 2.26h ===\n  offset before {offset_before:.0} \
+         after {offset_after:.0}  drift {drift:+.0}px\n"
+    );
+    assert_eq!(
+        line_after, line_before,
+        "the reader's anchor must name the same line"
+    );
+    assert!(
+        drift.abs() <= DRIFT_TOLERANCE_PX,
+        "TDD 2.26h: in split mode the reader's line moved {drift:+.0}px on screen while \
+         the block above them closed"
+    );
+    window.destroy();
+}
+
 /// **The restore converges in one shot** — MEASURED, not assumed.
 ///
 /// The restore's own `set_value` re-enters `gtk_text_view_value_changed`, which is the

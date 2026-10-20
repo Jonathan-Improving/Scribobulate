@@ -38,6 +38,36 @@ pub(crate) struct SpliceInputs<'a> {
     pub(crate) zoom: f64,
     pub(crate) allow_unsafe_images: bool,
     pub(crate) folds: &'a FoldState,
+    /// Run once this toggle's reading-position restore is over — see [`OnSettled`].
+    pub(crate) on_settled: OnSettled,
+}
+
+/// A callback owed to the caller once the splice has stopped moving the reader.
+///
+/// It runs when the deferred restore finishes (landed or refused), and — because it
+/// runs on `Drop` — also on every path that never reaches one: a refused splice, a
+/// pane with no viewport to capture, or a settle wait discarded because the view was
+/// dropped or unrealized first. One mechanism for all of them, so a new early return
+/// cannot strand whatever the caller suspended for the duration (the split pane's
+/// scroll sync, `window::foldsplice`).
+pub(crate) struct OnSettled(Option<Box<dyn FnOnce()>>);
+
+impl OnSettled {
+    pub(crate) fn none() -> Self {
+        Self(None)
+    }
+
+    pub(crate) fn new(f: impl FnOnce() + 'static) -> Self {
+        Self(Some(Box::new(f)))
+    }
+}
+
+impl Drop for OnSettled {
+    fn drop(&mut self) {
+        if let Some(f) = self.0.take() {
+            f();
+        }
+    }
 }
 
 /// What an attempted in-place disclosure splice did to the pane.
@@ -107,6 +137,7 @@ pub(crate) fn splice_disclosure(
         return SpliceVerdict::Untouched;
     };
     let buf = view.buffer();
+    let on_settled = inputs.on_settled;
 
     // Read the PRE-splice render's own lists before anything moves. `anchored` is the
     // (anchor, widget) pairing the splice needs to compute survivors, and nothing but
@@ -151,7 +182,7 @@ pub(crate) fn splice_disclosure(
     // AFTER the install, so the geometry the restore reads is the geometry of the
     // document the reader is now looking at.
     if let Some(anchor) = anchor {
-        anchor.restore_when_settled(view);
+        anchor.restore_when_settled(view, on_settled);
     }
     SpliceVerdict::Spliced
 }
@@ -557,7 +588,7 @@ impl ReaderAnchor {
     /// scroll issued while the settle is running — a restore landed early is silently
     /// eaten rather than overridden, which looks exactly like a restore that was never
     /// written.
-    fn restore_when_settled(self, view: &CodePreviewView) {
+    fn restore_when_settled(self, view: &CodePreviewView, on_settled: OnSettled) {
         // The deferred restore OWNS the mark from here: it has to survive until the
         // scroll settles, which is well after this call returns. So the refusal-path
         // `Drop` must not delete it — that would take the mark out from under the
@@ -638,6 +669,9 @@ impl ReaderAnchor {
             if !mark.is_deleted() {
                 buffer.delete_mark(&mark);
             }
+            // AFTER the restore's write, so whatever the caller resumes reads the
+            // position the reader was put back at.
+            drop(on_settled);
         });
     }
 }
@@ -963,6 +997,7 @@ mod gtk_integration_tests {
                 zoom: 1.0,
                 allow_unsafe_images: false,
                 folds: &after,
+                on_settled: OnSettled::none(),
             },
             key,
         );
