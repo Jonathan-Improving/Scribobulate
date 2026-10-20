@@ -28,11 +28,17 @@ pub(super) fn connect_selection_marks(buf: &TextBuffer, render_data: &Rc<RefCell
     let rd = Rc::clone(render_data);
     buf.connect_mark_set(move |buf, _iter, _mark| {
         let sel = buf.selection_bounds();
+        // A DELETED anchor is skipped, never resolved: a disclosure splice deletes its
+        // region, then renders into the same buffer — creating a mark, which lands here —
+        // before `install_outcome` prunes the dead anchors from `RenderData`. GTK
+        // answers a deleted anchor with a critical and an unfilled iter, and reading
+        // that iter's offset killed the installed app with SIGSEGV.
         let selected = |anchor: &gtk::TextChildAnchor| {
-            sel.as_ref().is_some_and(|(s, e)| {
-                let off = buf.iter_at_child_anchor(anchor).offset();
-                off >= s.offset() && off < e.offset()
-            })
+            !anchor.is_deleted()
+                && sel.as_ref().is_some_and(|(s, e)| {
+                    let off = buf.iter_at_child_anchor(anchor).offset();
+                    off >= s.offset() && off < e.offset()
+                })
         };
         let rd = rd.borrow();
         for (anchor, tint) in &rd.image_tints {
@@ -964,5 +970,48 @@ mod disclosure_click_tests {
             "the hidden table builds no widget at all — which is WHY it imposes nothing"
         );
         window.destroy();
+    }
+}
+
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+mod selection_marks_tests {
+    use super::*;
+
+    /// **A mark set between a splice's delete and its install never reads a deleted
+    /// anchor.** A disclosure splice deletes a region that can hold an image or a table,
+    /// then renders the new region into the same buffer — and the renderer creates a
+    /// mark there, which emits `mark-set` — before `install_outcome` prunes the dead
+    /// anchors out of `RenderData`. With a selection present the handler resolved every
+    /// listed anchor, and GTK answers a deleted anchor with a critical and an
+    /// unfilled iter: the installed app died with SIGSEGV in `gtk_text_iter_get_offset`.
+    #[gtktest::test]
+    fn a_mark_set_while_a_deleted_anchor_is_still_listed_does_not_crash() {
+        let buf = TextBuffer::new(None);
+        buf.set_text("ab\ncd\n");
+        let anchor = buf.create_child_anchor(&mut buf.iter_at_offset(4));
+        let tint = gtk::Picture::new();
+        tint.set_visible(false);
+        let rd = Rc::new(RefCell::new(RenderData {
+            image_tints: vec![(anchor.clone(), tint.clone().upcast())],
+            ..RenderData::default()
+        }));
+        connect_selection_marks(&buf, &rd);
+        // One character selected, as the reader had it.
+        buf.select_range(&buf.iter_at_offset(0), &buf.iter_at_offset(1));
+
+        // The splice's live delete takes the anchor with it; RenderData still lists it.
+        buf.delete(&mut buf.iter_at_offset(3), &mut buf.iter_at_offset(7));
+        assert!(
+            anchor.is_deleted(),
+            "fixture: the anchor is gone from the buffer"
+        );
+
+        // The region render's mark.
+        let mark = buf.create_mark(None, &buf.start_iter(), false);
+        buf.delete_mark(&mark);
+        assert!(
+            !tint.is_visible(),
+            "a deleted anchor is never inside the selection"
+        );
     }
 }
