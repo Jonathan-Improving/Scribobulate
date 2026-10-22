@@ -577,17 +577,23 @@ impl CodePreviewView {
         }
     }
 
-    /// Remember the selection action popover so `dispose` can unparent it (GTK does
-    /// not auto-unparent `set_parent`-attached native popovers — GTK4Rs/AP-80).
-    pub(crate) fn store_overlay_popover(&self, pop: &gtk::Popover) {
+    /// Record the overlay this view's pane floats its cards over. Set once, where the pane
+    /// is built, before any card is shown.
+    pub(crate) fn set_card_host(&self, host: &gtk::Overlay) {
         use gtk::subclass::prelude::*;
-        // Held as a PersistentPopover so `dispose` tears it down through the one
-        // popdown→unparent order (GTK4Rs/AP-123); the create overlay is non-autohide.
-        self.imp()
-            .overlay_popover
-            .replace(Some(crate::saferizer::PersistentPopover::adopt(
-                pop.clone(),
-            )));
+        self.imp().card_host.set(Some(host));
+    }
+
+    /// The overlay this view's pane floats its cards over, if the pane has one.
+    pub(crate) fn card_host(&self) -> Option<gtk::Overlay> {
+        use gtk::subclass::prelude::*;
+        self.imp().card_host.upgrade()
+    }
+
+    /// Remember the selection action card so opening a marker card can close it.
+    pub(crate) fn store_overlay_popover(&self, pop: &crate::widgets::floating_card::FloatingCard) {
+        use gtk::subclass::prelude::*;
+        self.imp().overlay_popover.replace(Some(pop.clone()));
     }
 
     /// Store the create overlay's primary-clipboard `changed` handler (table-cell annotation) so
@@ -1066,7 +1072,7 @@ impl CodePreviewView {
         // popover would coexist (two popovers over the same table). Opening a marker means
         // the user is acting on an EXISTING annotation, so the create affordance dismisses.
         if let Some(create) = self.imp().overlay_popover.borrow().as_ref() {
-            create.popdown();
+            crate::widgets::floating_card::FloatingCardExt::popdown(create);
         }
         // NO `set_pointing_to` here, deliberately, and no rectangle reached this function
         // to supply one. Anchoring is the card's own job and happens inside its `show`
@@ -1074,7 +1080,6 @@ impl CodePreviewView {
         // what makes the stale anchor unrepresentable rather than merely fixed: this path used to
         // point the card at a rect captured before the navigation's converge-scroll, and
         // there is now no rect to capture and no call site that could pass a stale one.
-        let popover: gtk::Popover = card.clone().upcast();
         // Rebuild only the CHILD content for THIS marker (GTK unparents the old child on
         // set_child), then re-show the same card instance.
         let vbox = gtk::Box::new(gtk::Orientation::Vertical, 8);
@@ -1097,7 +1102,7 @@ impl CodePreviewView {
             rows.append(&build_annotation_row(m, &card, sink.clone()));
         }
         vbox.append(&cardscroll::fit_to_screen(&rows, self));
-        popover.set_child(Some(&vbox));
+        crate::widgets::floating_card::FloatingCardExt::set_child(&card, Some(&vbox));
 
         // Bug B: keep the pane from jerking (and the popover from missing) on a marker
         // click. Two independent scroll triggers, two defenses:
@@ -1173,9 +1178,9 @@ impl CodePreviewView {
         if focus == CardFocus::Take {
             glib::idle_add_local_once(glib::clone!(
                 #[weak]
-                popover,
+                card,
                 move || {
-                    let _ = popover.child_focus(gtk::DirectionType::TabForward);
+                    let _ = card.child_focus(gtk::DirectionType::TabForward);
                 }
             ));
         }
@@ -1293,17 +1298,17 @@ impl CodePreviewView {
         // popdown so it never actually paints a visible frame, but the present→size_allocate
         // →validate cycle (the scroll-causing part) runs now, at scroll 0.
         //
-        // Driven through the RAW popover API rather than `present()`/`dismiss()` on
+        // Driven through the RAW card API rather than `present()`/`dismiss()` on
         // purpose: this is not a presentation, it is a one-shot realization, and the card
         // has no annotation to anchor to yet. Going through `present()` would arm the
         // scroll and outside-click wiring for a session that does not exist, and mark the
         // card open. The `show` vfunc still runs and still asks for an anchor — it finds
         // none (`anchor_src` is `None`) and simply leaves `pointing_to` as set here, which
         // is exactly the intended no-op.
-        let popover: gtk::Popover = card.upcast();
-        popover.set_pointing_to(Some(&gdk::Rectangle::new(0, 0, 1, 1)));
-        popover.popup();
-        popover.popdown();
+        use crate::widgets::floating_card::FloatingCardExt;
+        card.set_pointing_to(Some(&gdk::Rectangle::new(0, 0, 1, 1)));
+        card.popup();
+        card.popdown();
     }
 }
 
@@ -1524,13 +1529,12 @@ mod a11y_integration_tests {
         settle("the marker popover to open", || {
             view.has_open_marker_popover()
         });
-        let popover: gtk::Popover = view
+        let popover = view
             .imp()
             .marker_card
             .borrow()
             .clone()
-            .expect("the card exists once opened")
-            .upcast();
+            .expect("the card exists once opened");
 
         let edit = find_button(&popover, "Edit").expect("the popover offers an Edit button");
         edit.emit_clicked();
@@ -1595,13 +1599,12 @@ mod a11y_integration_tests {
             settle("the marker popover to open", || {
                 view.has_open_marker_popover()
             });
-            let popover: gtk::Popover = view
+            let popover = view
                 .imp()
                 .marker_card
                 .borrow()
                 .clone()
-                .expect("the card exists once opened")
-                .upcast();
+                .expect("the card exists once opened");
             find_button(&popover, "Edit")
                 .expect("the card offers Edit")
                 .emit_clicked();
@@ -2003,28 +2006,15 @@ mod a11y_integration_tests {
         crate::testpump::destroy_after_tooltip_delay(&win, || view.popdown_marker_popover());
     }
 
-    /// `dispose` must `popdown()` an open marker popover BEFORE `unparent()`ing it.
-    ///
-    /// HISTORY: the marker popover used to be the app's only autohide popover, so the only
-    /// one holding a real X11 seat grab (GTK4Rs/AP-83). `unparent()` unrealizes its surface, and
-    /// doing that while the grab was live stranded it — the app stopped accepting clicks and
-    /// keys while hover feedback kept working, unusable until restarted. It is now
-    /// `set_autohide(false)` like every other popover (to fix GTK4Rs/AP-83 click-misrouting on its
-    /// own buttons), so there is NO live seat grab and that specific failure can no longer
-    /// occur. The popdown-before-unparent ordering is retained deliberately anyway: it is
-    /// correct hygiene, and the `unparent` itself is still mandatory (GTK4Rs/AP-80/112).
-    ///
-    /// **This test cannot observe a seat grab** — there no longer is one, and Xvfb never had a
-    /// real one either (GTK4Rs/AP-83, real-compositor-only). It observes the popover's own
-    /// `closed` signal, which fires only on a real popdown, and so still pins the *ordering
-    /// contract* that regresses silently under refactoring.
+    /// `dispose` must close an open marker card as it takes it off the pane, so no
+    /// session outlives the view it points into.
     ///
     /// This is the `dispose` half — the last-resort guarantee covering EVERY teardown
     /// path. The reload-layer popdown is guarded separately in `window::reload`, whose
     /// test deliberately holds a strong ref so `dispose` cannot mask it. Neither test
     /// covers the other's fix.
     #[gtktest::test]
-    fn dispose_popdowns_the_marker_popover_before_unparenting_it() {
+    fn dispose_closes_the_marker_card() {
         use gtk::subclass::prelude::*;
         let pane = crate::preview::render(
             None,
@@ -2050,17 +2040,14 @@ mod a11y_integration_tests {
             view.has_open_marker_popover()
         });
 
-        // `closed` fires only on a genuine popdown — it is not emitted by `unparent()`.
-        // That makes it the exact discriminator between the fix and the bug.
-        let popover: gtk::Popover = view
+        let popover = view
             .imp()
             .marker_card
             .borrow()
             .clone()
-            .expect("the card exists once opened")
-            .upcast();
+            .expect("the card exists once opened");
         let closed = std::rc::Rc::new(std::cell::Cell::new(false));
-        popover.connect_closed({
+        crate::widgets::floating_card::FloatingCardExt::connect_closed(&popover, {
             let c = closed.clone();
             move |_| c.set(true)
         });
@@ -2075,14 +2062,10 @@ mod a11y_integration_tests {
         win.set_child(gtk::Widget::NONE);
         drop(view);
         drop(pane);
-        // `dispose` must popdown the marker popover before unparenting it. Historically
-        // this prevented a stranded X11 seat grab (an autohide popover unrealized mid-grab
-        // left the app dead to clicks/keys, GTK4Rs/AP-83); the popover is non-autohide now
-        // so no grab exists, but popdown-before-unparent is retained hygiene and the
-        // unparent itself is still mandatory (GTK4Rs/AP-80) and must not become a per-use
-        // destroy (GTK4Rs/AP-117).
+        // `dispose` must close the card as it takes it off the pane, so nothing is left
+        // holding a session for a view that is gone.
         settle(
-            "dispose to popdown the marker popover (its `closed` signal) before unparenting",
+            "dispose to close the marker card (its `closed` signal)",
             || closed.get(),
         );
 

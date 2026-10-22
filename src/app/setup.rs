@@ -287,12 +287,9 @@ fn connect_theme_change(app: &Application) {
 /// Every `(detailed action name, accelerator)` pair the command descriptors declare —
 /// the one enumeration of "what is bound to what".
 ///
-/// Extracted so [`register_accelerators`] is not the only thing that can answer it.
-/// A second consumer exists because a focused popover with its own GDK surface never
-/// reaches the window's accelerator machinery, and has to re-offer the same set locally
-/// (`codeview::card`); re-listing the tables there would be a second copy of exactly the
-/// thing every one of these tables exists to prevent (POLICY § Architecture rules, "One
-/// action per command": an accelerator is declared once, in its descriptor).
+/// Extracted so [`register_accelerators`] is not the only thing that can answer it: an
+/// accelerator is declared once, in its descriptor (POLICY § Architecture rules, "One
+/// action per command").
 pub(crate) fn accelerator_bindings() -> Vec<(String, String)> {
     accelerator_bindings_for(crate::accel::host())
 }

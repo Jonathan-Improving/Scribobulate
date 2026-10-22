@@ -17,6 +17,7 @@ use crate::preview::cell_copymap;
 use crate::preview::qdata::RenderData;
 use crate::saferizer::{pin_above, Viewport, ViewportRect};
 use crate::widgets::comment_entry::CommentEntry;
+use crate::widgets::floating_card::{FloatingCard, FloatingCardExt};
 use gtk::glib;
 use gtk::prelude::*;
 use gtk::Label;
@@ -36,6 +37,92 @@ fn clear_cell_selections(view: &CodePreviewView) {
         if label.selection_bounds().is_some() {
             label.select_region(0, 0);
         }
+    }
+}
+
+/// One selection per document: a press anywhere in the preview clears every table cell's
+/// selection but the pressed cell's, and a press in a cell also clears the body text's
+/// (TDD 17.63). A press in body text leaves the body to GTK, which collapses or extends it.
+///
+/// Each cell is its own selectable `GtkLabel`, and a label's selection is sticky: nothing
+/// in GTK clears it when another label or the view is clicked (GTK4Rs/AP-28). So without
+/// this, clicking a different cell left the old cell highlighted, and the Annotate card
+/// that the old selection raised stayed up over it (CAM Document Rendering row 11).
+///
+/// **Raw button presses, not a click gesture.** A `GtkGestureClick` counts presses into
+/// double and triple clicks, and a press that follows a double-click within the
+/// double-click time but somewhere else can reach the window and never emit `pressed` —
+/// measured on macOS (3 of 66 tries, a press ~0.36 s after a double-click in a cell); the
+/// text view's own click gesture ignored the same press. An `EventControllerLegacy` sees
+/// every press with no recognition state to lose it in. CAPTURE phase, so it sees the press
+/// before the cell does, and it never stops the event: the cell, or the text view, still
+/// receives the press and makes its own selection. Primary button only, so a right-click
+/// on a selection keeps it for the context menu.
+fn wire_cell_press_exclusivity(view: &CodePreviewView) {
+    let press = gtk::EventControllerLegacy::new();
+    press.set_propagation_phase(gtk::PropagationPhase::Capture);
+    press.connect_event(|controller, event| {
+        let is_primary_press = event.event_type() == gtk::gdk::EventType::ButtonPress
+            && event
+                .downcast_ref::<gtk::gdk::ButtonEvent>()
+                .is_some_and(|b| b.button() == gtk::gdk::BUTTON_PRIMARY);
+        if !is_primary_press {
+            return glib::Propagation::Proceed;
+        }
+        let Some(view) = controller
+            .widget()
+            .and_then(|w| w.downcast::<CodePreviewView>().ok())
+        else {
+            return glib::Propagation::Proceed;
+        };
+        if let Some((x, y)) = event_point_in(&view, event) {
+            claim_selection_for_press(&view, x, y);
+        }
+        glib::Propagation::Proceed
+    });
+    view.add_controller(press);
+}
+
+/// Where `event` happened, in `widget`'s coordinates. A raw event carries surface
+/// coordinates; the widget's native and its surface transform turn them into the
+/// widget's own.
+fn event_point_in(widget: &impl IsA<gtk::Widget>, event: &gtk::gdk::Event) -> Option<(f64, f64)> {
+    let (sx, sy) = event.position()?;
+    let native = widget.as_ref().native()?;
+    let (tx, ty) = native.surface_transform();
+    native
+        .upcast_ref::<gtk::Widget>()
+        .translate_coordinates(widget, sx - tx, sy - ty)
+}
+
+/// The primary press at `(x, y)` in `view`'s coordinates. See
+/// [`wire_cell_press_exclusivity`].
+fn claim_selection_for_press(view: &CodePreviewView, x: f64, y: f64) {
+    let Some(labels) = crate::preview::scrib_labels(view) else {
+        return;
+    };
+    let labels = labels.borrow().clone();
+    let pressed = view.pick(x, y, gtk::PickFlags::DEFAULT).and_then(|hit| {
+        labels
+            .iter()
+            .find(|l| {
+                let l: &gtk::Widget = l.upcast_ref();
+                &hit == l || hit.is_ancestor(l)
+            })
+            .cloned()
+    });
+    for label in labels.iter().filter(|l| Some(*l) != pressed.as_ref()) {
+        if label.selection_bounds().is_some() {
+            label.select_region(0, 0);
+        }
+    }
+    if pressed.is_none() {
+        return; // a press in body text: GTK collapses or extends the body selection
+    }
+    let buffer = view.buffer();
+    if buffer.has_selection() {
+        let insert = buffer.iter_at_mark(&buffer.get_insert());
+        buffer.select_range(&insert, &insert);
     }
 }
 
@@ -60,7 +147,7 @@ fn point_at_cell_selection(
     label: &Label,
     a: i32,
     b: i32,
-    pop: &gtk::Popover,
+    pop: &FloatingCard,
 ) -> bool {
     let layout = label.layout();
     // selection_bounds are character offsets into the label's plain text; Pango
@@ -92,24 +179,6 @@ fn point_at_cell_selection(
     };
     pin_above(pop, &vr);
     true
-}
-
-/// CHOKE-POINT crash guard (GTK4Rs/AP-128, GTK4Rs/AP-128; sibling of
-/// `codeview::markers::open_marker_popover`). `popup()` realizes the selection-action
-/// popover's surface against `view`'s surface; on an UNREALIZED view that parent surface
-/// is NULL → `gdk_surface_new_popup` `GDK_IS_SURFACE` assert → NULL-deref SIGSEGV
-/// (gtkpopover.c / gdksurface.c). The popover is armed by a deferred ~40 ms timer that can
-/// fire against an alive-but-unrooted ZOMBIE view after teardown (unrealize is synchronous,
-/// finalize deferred; a co-pending strong ref keeps the weak `view.upgrade()` succeeding),
-/// and the GTK4Rs/AP-26 viewport-geometry gate does NOT catch it — a zombie keeps its last
-/// allocation, so the anchor still looks on-viewport. So every path that pops this popover
-/// MUST route through here; a realized-but-unmapped fresh tab is still realized, so a
-/// legitimate open is never wrongly skipped.
-fn popup_selection_action(view: &CodePreviewView, pop: &gtk::Popover) {
-    if !view.is_realized() {
-        return;
-    }
-    pop.popup();
 }
 
 /// Position the entry card over a cell-label selection (overlay-local coords).
@@ -173,7 +242,7 @@ fn position_card_on_cell(
 /// `buffer_to_window_coords(Widget, …)`, never a position→iter hit-test, so it
 /// sidesteps GTK4Rs/AP-15). Returns whether a valid on-screen anchor was set (so the caller
 /// can decide to `popup` vs `popdown`).
-fn point_at_selection(view: &CodePreviewView, pop: &gtk::Popover) -> bool {
+fn point_at_selection(view: &CodePreviewView, pop: &FloatingCard) -> bool {
     let Some((start, end)) = view.buffer().selection_bounds() else {
         return false;
     };
@@ -198,12 +267,12 @@ fn point_at_selection(view: &CodePreviewView, pop: &gtk::Popover) -> bool {
 /// round 2). At that point `point_at_selection`'s on-viewport read is trustworthy: a
 /// genuinely-visible selection reads on-viewport → show; a scrolled-away one reads
 /// off-viewport → hide (the legitimate suppression). Marker-popover open → stay down.
-fn decide_show_action_popover(view: &CodePreviewView, pop: &gtk::Popover) {
+fn decide_show_action_popover(view: &CodePreviewView, pop: &FloatingCard) {
     if view.annotation_sink().is_some()
         && point_at_selection(view, pop)
         && !view.marker_card_is_showing()
     {
-        popup_selection_action(view, pop);
+        pop.popup();
     } else {
         pop.popdown();
     }
@@ -329,14 +398,11 @@ pub(crate) fn wire_annotation_overlay(
     render_data: &Rc<RefCell<RenderData>>,
 ) {
     // ── 1. selection action popover (non-autohide, like the format overlay) ──────
-    let pop = gtk::Popover::new();
-    pop.set_autohide(false);
-    pop.set_has_arrow(true);
+    view.set_card_host(overlay);
+    let pop = FloatingCard::new();
     pop.add_css_class("annotation-overlay");
-    pop.set_parent(view);
-    // A `set_parent`-attached popover is a native child GTK does NOT unparent for us —
-    // the view's `dispose` must (GTK4Rs/AP-80), or teardown floods "GtkPopover is not a child
-    // of ScribCodePreviewView".
+    pop.attach(overlay, view);
+    // Held by the view so opening a marker card can close it (the overlay owns it).
     view.store_overlay_popover(&pop);
 
     // A horizontal button box so future preview-selection actions can join Annotate.
@@ -392,12 +458,9 @@ pub(crate) fn wire_annotation_overlay(
     let anchor_sel: Rc<RefCell<Option<AnchorSel>>> = Rc::new(RefCell::new(None));
     let timer: Rc<RefCell<Option<glib::SourceId>>> = Rc::new(RefCell::new(None));
 
-    // RISK-1 (GTK4Rs/AP-128/152): cancel any pending ~40 ms selection timer when the view
-    // unrealizes, so a torn-down view cannot have a deferred `pop.popup()` fire against a
-    // NULL parent surface. The timer body ALSO routes its popup through the `is_realized()`
-    // choke-point `popup_selection_action` (a `mark-set` during teardown could re-arm a
-    // timer AFTER this fires) — the two are defense-in-depth, either alone prevents the
-    // crash. Captures only the `timer` Rc, never the view, so it adds no reference cycle
+    // Cancel any pending ~40 ms selection timer when the view unrealizes, so a torn-down
+    // view does no selection work (GTK4Rs/AP-128). Captures only the `timer` Rc, never the
+    // view, so it adds no reference cycle
     // (GTK4Rs/AP-63). `take()` no-ops if the timer already fired (the slot is cleared on fire), so
     // this never double-removes a stale SourceId.
     view.connect_unrealize({
@@ -677,9 +740,8 @@ pub(crate) fn wire_annotation_overlay(
             // A newer selection event: invalidate any anchor poll still in flight.
             anchor_gen.set(anchor_gen.get().wrapping_add(1));
             let view = view.clone();
-            // RISK-1 (GTK4Rs/AP-128/152): weak-capture `pop` too, so this deferred closure holds
-            // NO strong widget across the ~40 ms wait (defense-in-depth beside the
-            // `popup_selection_action` realize-gate and the unrealize SourceId cancel).
+            // Weak-capture `pop` too, so this deferred closure holds NO strong widget across
+            // the ~40 ms wait (GTK4Rs/AP-128).
             let pop = pop.downgrade();
             let entry_open = entry_open.clone();
             let hide_entry = hide_entry.clone();
@@ -774,7 +836,7 @@ pub(crate) fn wire_annotation_overlay(
                     if v.annotation_sink().is_some()
                         && point_at_cell_selection(&v, &label, a, b, &pop)
                     {
-                        popup_selection_action(&v, &pop);
+                        pop.popup();
                     } else {
                         pop.popdown();
                     }
@@ -816,8 +878,7 @@ pub(crate) fn wire_annotation_overlay(
                     clk.disconnect(id);
                 }
                 let Some(clock) = v.frame_clock() else {
-                    // Unmapped (no frame clock): best-effort direct decision. The realize gate
-                    // in `popup_selection_action` no-ops it if the view is truly unrealized.
+                    // Unmapped (no frame clock): best-effort direct decision.
                     decide_show_action_popover(&v, &pop);
                     return;
                 };
@@ -893,6 +954,7 @@ pub(crate) fn wire_annotation_overlay(
         }
     });
     connect_selection(&view.buffer());
+    wire_cell_press_exclusivity(view);
     view.connect_notify_local(Some("buffer"), {
         let connect_selection = connect_selection.clone();
         move |v: &CodePreviewView, _| connect_selection(&v.buffer())
@@ -980,6 +1042,16 @@ pub(crate) fn wire_annotation_overlay(
 /// Xvfb if headless.
 #[cfg(all(test, feature = "gtk-integration-tests"))]
 mod fracscroll_tests;
+
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+mod cellpress_tests;
+
+/// The action card wired onto `view`, for tests.
+#[cfg(all(test, feature = "gtk-integration-tests"))]
+fn action_card_of(view: &CodePreviewView) -> Option<FloatingCard> {
+    use gtk::subclass::prelude::*;
+    view.imp().overlay_popover.borrow().clone()
+}
 
 #[cfg(all(test, feature = "gtk-integration-tests"))]
 mod jjj_tests {
@@ -1156,18 +1228,10 @@ mod jjj_tests {
         win.destroy();
     }
 
-    /// The action popover (`.annotation-overlay`) parented to `view`, if any.
-    fn action_popover(view: &CodePreviewView) -> Option<gtk::Popover> {
-        let mut child = view.first_child();
-        while let Some(c) = child {
-            if let Ok(pop) = c.clone().downcast::<gtk::Popover>() {
-                if pop.has_css_class("annotation-overlay") {
-                    return Some(pop);
-                }
-            }
-            child = c.next_sibling();
-        }
-        None
+    /// The action card (`.annotation-overlay`) wired onto `view`, if any.
+    fn action_popover(view: &CodePreviewView) -> Option<FloatingCard> {
+        use gtk::subclass::prelude::*;
+        view.imp().overlay_popover.borrow().clone()
     }
 
     /// GTK4Rs/AP-142: scroll the preview, THEN select on-viewport text
@@ -1263,51 +1327,5 @@ mod jjj_tests {
         );
 
         win.destroy();
-    }
-
-    /// The `popup_selection_action` choke-point crash guard (GTK4Rs/AP-128/GTK4Rs/AP-128).
-    /// The selection-action popover is armed by a deferred ~40 ms timer; if it fires after
-    /// the view is torn down, `popup()` realizes the popover against a NULL parent surface
-    /// → `GDK_IS_SURFACE` assert → SIGSEGV — the GTK4Rs/AP-128/152 shape Section A fixed in
-    /// codeview, found live in preview by the Wave-9 hardening audit. A rendered-but-never-
-    /// presented view is UNREALIZED, so a direct popup through the choke-point must be a
-    /// clean no-op — reaching the assertion without aborting IS the pass (mirrors codeview's
-    /// `open_marker_popover_is_a_no_op_on_an_unrealized_view`). Mutation note: delete the
-    /// `is_realized()` guard in `popup_selection_action` and this aborts with signal 11 —
-    /// `popup()` fires against the `set_parent`'d-but-unrealized popover's NULL parent
-    /// surface. The timer body's weak `pop`-capture and the unrealize SourceId cancel are
-    /// the other two defense-in-depth layers; this pins the choke-point half.
-    #[gtktest::test]
-    fn popup_selection_action_is_a_no_op_on_an_unrealized_view() {
-        let pane = crate::preview::render(
-            None,
-            MD,
-            None,
-            1.0,
-            false,
-            &crate::fold::FoldState::default(),
-        );
-        let view = view_of(pane);
-        assert!(
-            !view.is_realized(),
-            "precondition: a rendered-but-never-presented view is unrealized"
-        );
-
-        // Mirror the real wiring: a non-autohide popover parented to the view.
-        let pop = gtk::Popover::new();
-        pop.set_autohide(false);
-        pop.set_parent(&view);
-
-        // Route through the choke-point. The guard must return before any `popup()`.
-        popup_selection_action(&view, &pop);
-
-        assert!(
-            !pop.is_mapped(),
-            "the is_realized() guard must skip the popup on an unrealized view (no realize \
-             against a NULL parent surface)"
-        );
-
-        // A set_parent'd popover is not auto-unparented (GTK4Rs/AP-80).
-        pop.unparent();
     }
 }

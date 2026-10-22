@@ -15,20 +15,19 @@
 //! here→[`theme_css`] rather than being overridden from there.
 
 pub(crate) fn css() -> &'static str {
-    "popover.format-overlay > contents { border-radius: 12px; padding: 4px; }
-     /* The preview selection ACTION popover (Annotate, …) — same chrome as the editor
-        format overlay for a consistent look/behaviour (GTK4Rs/AP-83: non-autohide popover). */
-     popover.annotation-overlay > contents { border-radius: 12px; padding: 4px; }
-     /* The Annotate comment ENTRY, by contrast, floats as an IN-SURFACE GtkOverlay
-        child over the preview (NOT a popover — the typing entry can't safely live in a
-        popover surface on X11, GTK4Rs/AP-83), so it gets no theme popover chrome; give it its
-        own opaque card so it reads over document text.
+    "/* Every card that floats over a pane — the Annotate comment ENTRY and every
+        `floatingcard` (the preview's Annotate action, the editor's formatting bar, an
+        annotation's comment card) — is an IN-SURFACE GtkOverlay child, not a popover, so
+        it gets no theme popover chrome; give it its own opaque card so it reads over
+        document text. A `floatingcard` stays on the DESKTOP theme even over the preview:
+        its labels and buttons take the desktop's ink, so the reading theme's page fill
+        under them made them illegible (measured: near-white text on a light card).
         This is the BASE (desktop-themed) card, worn by BOTH the editor's card and the
         preview's. The preview's additionally carries `.scrib-preview-card`, which
         `theme_css` recolours when a reading theme states its own page — so the two
         panes look identical under System and each follows its own pane's theme
         otherwise. The two cards share this class deliberately (window/editor_annotate). */
-     .annotation-entry { background-color: @theme_bg_color;
+     .annotation-entry, floatingcard { background-color: @theme_bg_color;
                          border: 1px solid alpha(@theme_fg_color, 0.25);
                          border-radius: 8px; padding: 4px;
                          box-shadow: 0 2px 6px alpha(black, 0.35); }
@@ -588,8 +587,7 @@ mod tests {
         assert!(!c.contains(".scrib-image-sel"));
         for selector in [
             ".conflict-toast",
-            "popover.format-overlay > contents",
-            "popover.annotation-overlay > contents",
+            "floatingcard",
             ".annotation-entry",
             "listview.outline",
             ".outline-h1",

@@ -13,6 +13,9 @@
 //! - [`comment_entry`] — `CommentEntry`, the single annotation comment
 //!   entry + Save pair shared by all three annotation surfaces, wiring every
 //!   commit route once.
+//! - [`floating_card`] — `FloatingCard`, the in-window card every transient
+//!   anchored card (Annotate action, formatting bar, annotation comment) floats as,
+//!   in place of a `GtkPopover` the window manager can leave behind.
 //! - [`rule`] — `SpriteRule`, the horizontal rule when a theme tiles a sprite across
 //!   it (TDD 18.31). Built only where the theme states one; the flat rule stays the
 //!   stock `GtkSeparator` it has always been.
@@ -31,6 +34,7 @@ use gtk::prelude::*;
 
 pub(crate) mod comment_entry;
 pub(crate) mod disclosure;
+pub(crate) mod floating_card;
 pub(crate) mod rule;
 pub(crate) mod sprite_icon;
 pub(crate) mod tab;

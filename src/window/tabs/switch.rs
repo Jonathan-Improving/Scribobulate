@@ -314,31 +314,28 @@ fn resync_find_bar_for_tab(window: &ApplicationWindow, st: &Rc<TabState>) {
     }
 }
 
-/// Re-target the window's single caret-format overlay popover onto `st`'s editor
-/// (GTK4Rs/AP-106). The one overlay per window is `set_parent`ed to the ACTIVE tab's
-/// editor and re-parented here on every tab switch: `point_format_overlay`'s
-/// coordinate math is parent-relative, so the popover must be parented to the editor
-/// it points at. Non-autohide, so the app owns dismissal — pop it DOWN before the
-/// reparent (unparenting a mapped popover is unsafe). Idempotent: a no-op when it is
-/// already parented to this editor.
+/// Re-target the window's single caret-format card onto `st`'s editor (GTK4Rs/AP-106).
+/// The one card per window floats over the ACTIVE tab's editor pane and is re-attached
+/// here on every tab switch: `point_format_overlay` measures in the editor's
+/// coordinates, so the card must be anchored to the editor it points at. Idempotent
+/// for the same pane.
 pub(crate) fn retarget_format_overlay(st: &Rc<TabState>) {
-    // `reparent` is popdown→unparent→set_parent, idempotent when already on this
-    // editor — the GTK4Rs/AP-123 order (and the prior idempotence no-op) live in the handle.
-    st.chrome().format_overlay.reparent(&st.editor);
+    use crate::widgets::floating_card::FloatingCardExt;
+    st.chrome()
+        .format_overlay
+        .attach(&st.split.editor_overlay(), &st.editor);
 }
 
-/// Detach the window's single caret overlay from `editor` if it is currently
-/// parented there (GTK4Rs/AP-106), so `editor` can finalize without a leftover child
-/// (`set_parent`ed popovers are not auto-unparented — the editor would be destroyed
-/// "with children left" and the popover subtree leak with a dangling parent
-/// pointer). Called before a tab whose editor may host the overlay is torn down
-/// (Close Tab, the Move-Tab starter-tab discard). The overlay itself lives on in
-/// `WindowChrome`; the next tab activation re-parents it via `retarget_format_overlay`.
+/// Take the window's single caret card off `editor`'s pane if it is floating there
+/// (GTK4Rs/AP-106), so the card is not destroyed along with a closing tab's pane. Called
+/// before a tab whose editor may host it is torn down (Close Tab, the Move-Tab
+/// starter-tab discard). The card lives on in `WindowChrome`; the next tab activation
+/// re-attaches it via `retarget_format_overlay`.
 pub(super) fn detach_overlay_from(chrome: &winstate::WindowChrome, editor: &sourceview::View) {
+    use crate::widgets::floating_card::FloatingCardExt;
     let editor_w: &gtk::Widget = editor.upcast_ref();
-    if chrome.format_overlay.parent().as_ref() == Some(editor_w) {
-        // Only when THIS editor hosts it; `teardown` is popdown→unparent (GTK4Rs/AP-123).
-        chrome.format_overlay.teardown();
+    if chrome.format_overlay.anchor().as_ref() == Some(editor_w) {
+        chrome.format_overlay.detach();
     }
 }
 

@@ -384,6 +384,12 @@ impl SplitView {
     /// `GtkSourceView`). Stable for the tab's whole life — the split-sync and
     /// scroll-restore code wires to it once and never rewires (unlike the
     /// preview, which is rebuilt).
+    /// The overlay the editor pane floats its cards over (the formatting bar, the
+    /// Annotate card).
+    pub(crate) fn editor_overlay(&self) -> gtk::Overlay {
+        self.imp().edpane()
+    }
+
     pub(crate) fn editor_scroller(&self) -> gtk::ScrolledWindow {
         self.imp().ed()
     }

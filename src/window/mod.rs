@@ -654,10 +654,10 @@ fn build_window(
     update_window_title(&window);
     // The first tab is active by construction but never fires `switch-page`
     // (its page was appended in `build_chrome`, before `wire_tab_switch_page`),
-    // so parent the window's caret-overlay popover onto its editor here — every
-    // later tab re-targets it on its own activation
-    // (`on_active_tab_changed::retarget_format_overlay`). This first parenting is
-    // what triggers the overlay's one-and-only heading-menu font resolution.
+    // so attach the window's caret card over its editor here — every later tab
+    // re-targets it on its own activation
+    // (`on_active_tab_changed::retarget_format_overlay`). This first attachment is
+    // what triggers the card's one-and-only heading-menu font resolution.
     if let Some(st) = winstate::state(&window) {
         retarget_format_overlay(&st);
     }
@@ -723,7 +723,7 @@ fn build_window_chrome_state(
     tb_edit_btns: Vec<(FmtInsertKind, gtk::Button)>,
     documents_btn: gtk::MenuButton,
     theme_btn: gtk::MenuButton,
-    format_overlay: gtk::Popover,
+    format_overlay: crate::widgets::floating_card::FloatingCard,
     ov_edit_btns: Vec<(FmtInsertKind, gtk::Button)>,
     zoom_level: f64,
     sidebar_split: f64,
@@ -759,7 +759,7 @@ fn build_window_chrome_state(
         fmt_edit_btns: tb_edit_btns,
         documents_btn,
         theme_btn,
-        format_overlay: crate::saferizer::PersistentPopover::adopt(format_overlay),
+        format_overlay,
         format_overlay_timer: RefCell::new(None),
         overlay_edit_btns: ov_edit_btns,
         fmt_edit_state: Cell::new(None),
@@ -829,10 +829,8 @@ fn wire_format_surface_updates(window: &ApplicationWindow) {
 /// Register all of the window's teardown handlers in one place, in the order
 /// their firing depends on. `connect_destroy` handlers fire in connection order,
 /// so this order is load-bearing:
-/// 1. Cancel this window's pending per-window timers, and unparent the single
-///    caret-overlay popover, while the chrome is still registered — a
-///    `set_parent`ed popover is NOT auto-unparented, so its host editor would
-///    otherwise finalize "with children left" and leak the popover subtree.
+/// 1. Cancel this window's pending per-window timers, and detach the single
+///    caret card from its pane, while the chrome is still registered.
 ///    Destroying a window does not remove a GLib source armed
 ///    against it: every timer left running here outlives the window and fires
 ///    into a torn-down one, which is the class GTK4Rs/AP-128 records.
@@ -857,9 +855,7 @@ fn register_window_destroy_handlers(window: &ApplicationWindow, zoom_provider: g
             if let Some(id) = chrome.text_stats_timer.borrow_mut().take() {
                 id.remove();
             }
-            // popdown-then-unparent (GTK4Rs/AP-123), via the handle — the prior raw
-            // `unparent()` here skipped the close path.
-            chrome.format_overlay.teardown();
+            crate::widgets::floating_card::FloatingCardExt::detach(&chrome.format_overlay);
         }
     });
     window.connect_destroy(move |_| {

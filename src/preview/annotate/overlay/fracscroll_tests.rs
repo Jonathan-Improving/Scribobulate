@@ -4,21 +4,18 @@
 
 use crate::codeview::CodePreviewView;
 use crate::testpump::{destroy_after_tooltip_delay, drain_for, until, until_or_for, Clock};
+use crate::widgets::floating_card::FloatingCardExt;
 use gtk::prelude::*;
 use std::time::Duration;
 
-/// The action popover (`.annotation-overlay`) parented to `view`.
-fn action_popover(view: &CodePreviewView) -> gtk::Popover {
-    let mut child = view.first_child();
-    while let Some(c) = child {
-        if let Ok(pop) = c.clone().downcast::<gtk::Popover>() {
-            if pop.has_css_class("annotation-overlay") {
-                return pop;
-            }
-        }
-        child = c.next_sibling();
-    }
-    panic!("the action popover is wired and parented to the preview view");
+/// The action card (`.annotation-overlay`) wired onto `view`.
+fn action_popover(view: &CodePreviewView) -> crate::widgets::floating_card::FloatingCard {
+    use gtk::subclass::prelude::*;
+    view.imp()
+        .overlay_popover
+        .borrow()
+        .clone()
+        .expect("the action card is wired onto the preview view")
 }
 
 /// A wheel scroll leaves the preview's vadjustment at a fraction. Showing the action

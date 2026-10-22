@@ -18,7 +18,7 @@
 | 14 | Show Unsafe Images | 14.1 – 14.10 |
 | 15 | Tabbed documents | 15.1 – 15.22 |
 | 16 | Keyboard-shortcuts help & status surfaces | 16.1 – 16.17 |
-| 17 | Annotation & review (CriticMarkup) | 17.1 – 17.60 |
+| 17 | Annotation & review (CriticMarkup) | 17.1 – 17.63 |
 | 18 | Preview reading themes | 18.1 – 18.58 |
 | 19 | Local document-link navigation | 19.1 – 19.13 |
 | 20 | Annotations viewer | 20.1 – 20.25 |
@@ -2945,6 +2945,16 @@
 - **When** it is shown in the preview
 - **Then** the code reads exactly as written, with no margin marker and no annotation in the annotations list
 - **And** a real annotation on the same line, one wrapping a whole code span, or a comment on its own line after a code block (17.59), still renders and lists as an annotation
+
+### 17.62 Every card stays with its window
+- **Given** any card is showing — the Annotate pop-up over a preview selection, the editor's formatting bar, or an annotation's comment card
+- **When** the window is minimized, moved to another virtual desktop or activity, or covered by another application's window
+- **Then** no part of the card is left on screen outside its window: it goes, and comes back, with the window, and another application's window covers it as it covers the window
+
+### 17.63 One selection per document
+- **Given** text is selected in a table cell or in body text, with its Annotate pop-up showing
+- **When** the reader clicks anywhere else in the document — another cell, a header cell, the same cell, body text, or empty page space
+- **Then** the old highlight and its Annotate pop-up go away, exactly as a click elsewhere in body text clears a body selection
 
 ## 18. Preview reading themes
 

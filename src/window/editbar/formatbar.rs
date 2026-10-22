@@ -107,9 +107,16 @@ pub(crate) fn format_items() -> (
 /// [`format_items`] packed into one horizontal row — what the Stage-2 caret
 /// overlay shows. The overlay is a popover sized to its content, so it wants a
 /// single row and never wraps; the toolbar takes the items instead.
-pub(crate) fn build_format_bar() -> (gtk::Box, gtk::MenuButton, Vec<(FmtInsertKind, gtk::Button)>) {
+pub(crate) fn build_format_bar() -> (
+    crate::widgets::wrapbox::ToolbarWrapBox,
+    gtk::MenuButton,
+    Vec<(FmtInsertKind, gtk::Button)>,
+) {
     let (items, heading_btn, edit_btns) = format_items();
-    let bx = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+    // Wraps onto a second row in a pane narrower than the whole bar: the bar floats
+    // inside the editor pane and is clipped to it, so a single row would leave its
+    // last buttons unreachable in a narrow window or a split.
+    let bx = crate::widgets::wrapbox::ToolbarWrapBox::new(2, 2);
     for it in &items {
         bx.append(it);
     }

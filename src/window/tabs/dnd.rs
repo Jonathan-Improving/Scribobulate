@@ -46,14 +46,11 @@ fn spawn_bare_window_for_tab(
     };
     if let Some(starter) = state(&win) {
         let starter_id = starter.id;
-        // QA round-1 H1 (GTK4Rs/AP-106): the window's single caret overlay was parented
-        // to this throwaway starter tab's editor at window creation. Detach it before
-        // the tab's last strong reference drops, or the editor finalizes while it
-        // still has the popover child (`Finalizing … still has children left`
-        // critical) and the popover subtree leaks with a dangling parent pointer.
-        // The overlay lives on in WindowChrome; the caller installs its real tab
-        // immediately after, whose first activation re-parents the overlay
-        // (`retarget_format_overlay`).
+        // QA round-1 H1 (GTK4Rs/AP-106): the window's single caret card was attached
+        // to this throwaway starter tab's editor pane at window creation. Detach it
+        // before the tab's pane is dropped, or the card goes with it. The card lives on
+        // in WindowChrome; the caller installs its real tab immediately after, whose
+        // first activation re-attaches it (`retarget_format_overlay`).
         detach_overlay_from(&chrome, &starter.editor);
         if let Some(idx) = chrome.tabs.page_num(&starter.content_box) {
             chrome.tabs.remove_page(Some(idx));
@@ -89,20 +86,18 @@ fn spawn_window_hosting_tab(
 ) -> Option<ApplicationWindow> {
     let (win, chrome) = spawn_bare_window_for_tab(app, source)?;
 
-    // GTK4Rs/AP-80's shape, third call site — and it lives HERE, in the shared tail, not
-    // in `move_tab_to_new_window` above, because BOTH pop-out paths funnel through this
-    // function and only one of them is the menu action. The source window's single
-    // format overlay is `set_parent`-attached to its active tab's editor (one per
-    // window — GTK4Rs/AP-106), and that is the editor being handed away. GTK does not
-    // auto-unparent `set_parent`ed popovers, so the parent's teardown path must, and
-    // the destination window immediately parents its OWN overlay onto the same editor
-    // via `retarget_format_overlay`.
+    // This lives HERE, in the shared tail, not in `move_tab_to_new_window` above,
+    // because BOTH pop-out paths funnel through this function and only one of them is
+    // the menu action. The source window's single format card floats over its active
+    // tab's editor pane (one per window — GTK4Rs/AP-106), and that pane is being handed
+    // away whole; left attached, the source window's card would ride along into the
+    // destination window, which attaches its OWN card to the same pane via
+    // `retarget_format_overlay`.
     //
     // Which path reaches the damage matters, and is not the obvious one. The MENU
     // action is disabled for a window's only tab (TDD 15.4), so it always leaves a
     // surviving tab behind; that tab becomes active, `retarget_format_overlay` fires,
-    // and its popdown→unparent→set_parent pulls the overlay off the moved editor as a
-    // SIDE EFFECT — the stale parent never forms. The DRAG-to-desktop path has no such
+    // and re-attaching pulls the card off the moved pane as a SIDE EFFECT. The DRAG-to-desktop path has no such
     // restriction (TDD 7.7 keeps it reachable for a single-tab window), so it can strip
     // a window of its last tab with nothing left to trigger that incidental rescue.
     // Putting the call in the action would therefore have guarded the path that already
@@ -575,43 +570,22 @@ mod gtk_integration_tests {
         source.destroy();
     }
 
-    /// Move Tab to New Window must detach the SOURCE window's format overlay
-    /// from the editor it is handing away.
+    /// Move Tab to New Window must detach the SOURCE window's format card from the
+    /// editor pane it is handing away.
     ///
-    /// The overlay is a `set_parent`-attached `GtkPopover`, and GTK does not
-    /// auto-unparent those (GTK4Rs/AP-80). The destination window then parents its
-    /// OWN overlay onto the same editor via `retarget_format_overlay`, so the
-    /// editor ends up with two popover children — one of which belongs to a
-    /// window that no longer owns it.
-    ///
-    /// **Why this asserts the PARENTING and not a warning flood.** When such an
-    /// editor is eventually disposed, `gtk_text_view_dispose` drains its children
-    /// with `while ((child = get_first_child(view))) gtk_text_view_remove(...)`,
-    /// and `gtk_text_view_remove` *warns and returns without unparenting* any
-    /// child lacking `quark_text_view_child` qdata — so the loop hands back the
-    /// same popover forever. On GTK 4.22.4 that is an unbounded spin (measured:
-    /// 28 MB of `GtkPopover is not a child of GtkSourceView` in 30 s on Win32;
-    /// 12.1 GB in 5 min on Quartz). On 4.6.9 the moved editor is simply never
-    /// disposed while the stale parent persists, so the same defect costs
-    /// nothing and is **structurally invisible** here.
-    ///
-    /// A flood-based or hang-based guard would therefore not merely be weak on
-    /// this platform — it would be **vacuous**, because there is no flood to
-    /// observe under any behaviour, correct or broken. Asserting the parenting
-    /// catches the defect everywhere, including where it currently costs
-    /// nothing: **this guard failed on 4.6.9/X11 before the fix above existed**,
-    /// which is the point of its shape. The general rule — assert the STATE that
-    /// constitutes the defect, never the SYMPTOM the platform you found it on
-    /// happens to produce — is why this must not be "simplified" into a timeout
-    /// or warning check later.
+    /// The card floats over the active tab's editor pane, a child of that pane's
+    /// overlay. A tab's pane moves to the destination window whole, so a card left
+    /// attached would ride along: the source window's card, wired to the source
+    /// window's actions, floating inside another window — while the destination
+    /// attaches its OWN card to the same pane. Asserted on the STATE (where the card is
+    /// attached), not on any symptom of it.
     ///
     /// **Why this drives `move_tab_to_new_window` DIRECTLY rather than the
     /// `win.move-tab-new-window` action, and why that is not laziness.** The action is
     /// disabled for a window's only tab (TDD 15.4), so driving it can never produce the
     /// state under test: a surviving tab becomes active, `retarget_format_overlay`
-    /// fires, and its popdown→unparent→set_parent pulls the overlay off the moved editor
-    /// as a SIDE EFFECT — the stale parent never forms, and the check reports "ok" with
-    /// the fix removed. That was measured on the macOS port, where a check built on the
+    /// fires, and re-attaching pulls the card off the moved pane as a SIDE EFFECT — the
+    /// stale attachment never forms, and the check reports "ok" with the fix removed. That was measured on the macOS port, where a check built on the
     /// action passed with `detach_overlay_from` commented out.
     ///
     /// The path that genuinely reaches this state is the **drag-to-desktop pop-out**
@@ -624,9 +598,8 @@ mod gtk_integration_tests {
     /// **So do not "modernise" this to drive the action.** It would still pass, and it
     /// would prove nothing.
     ///
-    /// Mutation-tested in both directions on 4.6.9/X11: with the
-    /// `detach_overlay_from` call removed from `spawn_window_hosting_tab`, this
-    /// test fails on the final assertion; with it restored, it passes.
+    /// Mutation: remove the `detach_overlay_from` call from `spawn_window_hosting_tab`
+    /// and this fails on the final assertion.
     #[gtktest::test]
     fn move_tab_to_new_window_detaches_the_source_windows_format_overlay() {
         let app = gtk::Application::new(
@@ -641,14 +614,21 @@ mod gtk_integration_tests {
         let moved_editor: gtk::Widget = st.editor.clone().upcast();
         let source_chrome = winstate::chrome(&source).expect("source window chrome");
 
-        // Precondition: the source window's overlay really is on this editor, so
+        // Precondition: the source window's card really is on this editor's pane, so
         // a pass below means "detached", not "was never attached".
+        use crate::widgets::floating_card::FloatingCardExt;
         retarget_format_overlay(&st);
+        let moved_pane = st.split.editor_overlay();
         assert_eq!(
-            source_chrome.format_overlay.parent().as_ref(),
+            source_chrome.format_overlay.anchor().as_ref(),
             Some(&moved_editor),
-            "precondition: the source overlay must start out parented on the \
-             editor that is about to be moved"
+            "precondition: the source card must start out anchored on the editor that \
+             is about to be moved"
+        );
+        assert_eq!(
+            source_chrome.format_overlay.host().as_ref(),
+            Some(&moved_pane),
+            "precondition: the source card must start out on that editor's pane"
         );
 
         move_tab_to_new_window(&source);
@@ -661,11 +641,10 @@ mod gtk_integration_tests {
         }
 
         assert_ne!(
-            source_chrome.format_overlay.parent().as_ref(),
-            Some(&moved_editor),
-            "the SOURCE window's format overlay is still parented on the editor \
-             handed to another window; that editor can no longer be disposed \
-             without wedging gtk_text_view_dispose's drain loop"
+            source_chrome.format_overlay.host().as_ref(),
+            Some(&moved_pane),
+            "the SOURCE window's format card is still floating over the pane handed to \
+             another window"
         );
 
         for w in app.windows() {

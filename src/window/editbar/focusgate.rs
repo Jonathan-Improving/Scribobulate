@@ -51,6 +51,9 @@ pub(crate) fn setup_editor_focus_gate(
             || focus.ancestor(gtk::PopoverMenuBar::static_type()).is_some()
             || focus.ancestor(gtk::PopoverMenu::static_type()).is_some()
             || focus.ancestor(gtk::Popover::static_type()).is_some()
+            || focus
+                .ancestor(crate::widgets::floating_card::FloatingCard::static_type())
+                .is_some()
         {
             return;
         }
@@ -123,14 +126,14 @@ fn within(focus: &gtk::Widget, anc: &gtk::Widget) -> bool {
 }
 
 /// Open or close the gate for every action it governs. Closing it also dismisses
-/// the caret overlay: focus genuinely left the editor (and not into the overlay,
-/// which is a popover parented inside the editor subtree).
+/// the caret overlay: focus genuinely left the editor (and not into the overlay card,
+/// which the transient-surface check above treats as still editing).
 fn set_gate(window: &ApplicationWindow, enabled: bool) {
     set_action_enabled(window, "format", enabled);
     set_action_enabled(window, "go-to-line", enabled);
     if !enabled {
         if let Some(st) = state(window) {
-            st.chrome().format_overlay.popdown();
+            crate::widgets::floating_card::FloatingCardExt::popdown(&st.chrome().format_overlay);
         }
     }
 }

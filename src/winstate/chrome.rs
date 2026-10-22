@@ -138,21 +138,16 @@ pub(crate) struct WindowChrome {
     /// (in `window/tabs/documents.rs`) on every tab open/close/move/rename (through
     /// the `documents_menu` rebuild) and on every tab switch.
     pub(crate) documents_btn: gtk::MenuButton,
-    /// The Stage-2 caret/selection formatting overlay: ONE non-autohide
-    /// `GtkPopover` per window (GTK4Rs/AP-106), re-parented to the active tab's editor
+    /// The Stage-2 caret/selection formatting overlay: ONE in-window
+    /// [`FloatingCard`](crate::widgets::floating_card::FloatingCard) per window
+    /// (GTK4Rs/AP-106), re-attached over the active tab's editor
     /// on every tab switch (`window/tabs/retarget_format_overlay`) rather than
     /// built once per tab. Built once at window creation (`editbar::build_format_overlay`),
     /// so its heading `GtkMenuButton` materialises its menu-model exactly once ever
     /// (O(1)) — the source-level cure for GTK4Rs/AP-106's N×6 accelerator-label
     /// font-resolution freeze, which per-tab overlays could only *amortise* via lazy
     /// parenting. The window tears it down on destroy.
-    ///
-    /// Held as a [`PersistentPopover`](crate::saferizer::PersistentPopover): its
-    /// tab-switch reparent and window-destroy teardown go through that handle's
-    /// `reparent`/`teardown`, which always `popdown()` before `unparent()` (GTK4Rs/AP-123),
-    /// so the mapped-popover-move / unparent-while-open order-bug is unrepresentable
-    /// at those call sites.
-    pub(crate) format_overlay: crate::saferizer::PersistentPopover,
+    pub(crate) format_overlay: crate::widgets::floating_card::FloatingCard,
     /// Replaceable coalescing timer for the overlay's show/reposition (mark-set is
     /// chatty during a drag-select, so updates are debounced ~40 ms). Window-scoped
     /// alongside its single [`format_overlay`](Self::format_overlay).

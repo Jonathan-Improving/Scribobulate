@@ -27,6 +27,7 @@
 //! [`pointing_to`] is the sanctioned reader; the raw method is banned crate-wide in
 //! `clippy.toml`, since a type cannot hide an inherent trait method.
 
+use crate::widgets::floating_card::{FloatingCard, FloatingCardExt, Side};
 use gtk::gdk;
 use gtk::prelude::*;
 
@@ -225,22 +226,21 @@ pub(crate) fn on_viewport(vp: Viewport, rect: &gdk::Rectangle) -> Option<gdk::Re
     ))
 }
 
-/// Pin `pop` above a proven on-viewport anchor — **the sole sink for a selection-anchored
-/// popover.**
+/// Pin `card` above a proven on-viewport anchor — **the sole sink for a selection-anchored
+/// card.**
 ///
 /// Takes a [`ViewportRect`], so the GTK4Rs/AP-26 guard cannot be skipped: there is no way to call
 /// this with an unproven anchor. It also owns the caret-sliver rectangle shape
 /// (`width = 1`, height = the line) and the `Top` placement, which three call sites
 /// previously hand-rolled — one of them re-deriving the guard and the clamp inline as well.
-pub(crate) fn pin_above(pop: &impl IsA<gtk::Popover>, vr: &ViewportRect) {
-    let pop = pop.as_ref();
-    pop.set_pointing_to(Some(&gdk::Rectangle::new(
+pub(crate) fn pin_above(card: &impl IsA<FloatingCard>, vr: &ViewportRect) {
+    card.set_side(Side::Top);
+    card.set_pointing_to(Some(&gdk::Rectangle::new(
         vr.x(),
         vr.y(),
         CARET_SLIVER_W,
         vr.line_h(),
     )));
-    pop.set_position(gtk::PositionType::Top);
 }
 
 /// A popover anchor point **proven on-viewport** (GTK4Rs/AP-26).
@@ -298,26 +298,6 @@ impl ViewportRect {
     pub(crate) fn line_h(&self) -> i32 {
         self.line_h
     }
-}
-
-/// The rectangle `popover` is currently pointing at, or `None` when it has none.
-///
-/// The sanctioned reader for `gtk_popover_get_pointing_to` (see the module contract): the
-/// raw binding hands back a `(bool, gdk::Rectangle)` whose bool is `priv->has_pointing_to`
-/// ("an explicit anchor was set"), not "the rectangle is meaningful" — and nothing about
-/// that tuple stops a caller reading the second element regardless. When the bool is false
-/// the rectangle is a **fallback value, not garbage** (gtk/gtkpopover.c:2264-2292,
-/// researcher-confirmed against GTK 4.22.4/main, 2026-07-30): with a parent widget it is
-/// the parent's own bounds; with none (as in a never-`set_parent`'d popover) computing
-/// those bounds fails and it is `memset` to a zero rect — deterministically, not
-/// undefined — and that failure itself fires a `GTK_IS_WIDGET` `CRITICAL` (`:2278/:2280`),
-/// which is therefore expected log noise from this call, not a bug in it. Either way the
-/// rectangle means nothing as an anchor once the bool is false, so `None` here discards it
-/// unread rather than trying to characterise which fallback it was.
-#[expect(clippy::disallowed_methods)]
-pub(crate) fn pointing_to(popover: &impl IsA<gtk::Popover>) -> Option<gdk::Rectangle> {
-    let (is_set, rect) = popover.as_ref().pointing_to();
-    is_set.then_some(rect)
 }
 
 #[cfg(test)]
@@ -543,49 +523,5 @@ mod tests {
         );
         let nowhere = monitor_clip(&gdk::Rectangle::new(9000, 9000, 100, 100), &monitors);
         assert!(on_viewport(nowhere, &gdk::Rectangle::new(10, 10, 14, 18)).is_none());
-    }
-}
-
-#[cfg(all(test, feature = "gtk-integration-tests"))]
-mod gtk_integration_tests {
-    use super::*;
-
-    /// The wrapped call, not just the type (POLICY): an unset popover must read as `None`,
-    /// and a set one must read back the rectangle it was given.
-    ///
-    /// The first half is the one that matters — it is the case where the raw binding hands
-    /// out a rectangle that means nothing. Mutation guard: replace the body with
-    /// `Some(rect)` and the unset assertion fails.
-    ///
-    /// The popover is deliberately **parented**, which makes the unset case STRONGER rather
-    /// than weaker: per [`pointing_to`]'s contract, a parentless popover's fallback is a
-    /// zeroed rect, while a parented one's is the parent's own bounds — so this asserts the
-    /// seam discards a *plausible-looking* rectangle, not an obviously-empty one.
-    ///
-    /// It is also what lets the suite run under `G_DEBUG=fatal-criticals` at all
-    /// (POLICY § Logging). The parentless variant fires a `GTK_IS_WIDGET` `CRITICAL` from
-    /// GTK's own fallback path — harmless log noise, documented on [`pointing_to`], and
-    /// fatal under that flag, which would make the gate unarmable for one line of noise.
-    #[gtktest::test]
-    fn an_unset_anchor_reads_as_none_and_a_set_one_round_trips() {
-        let parent = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        let pop = gtk::Popover::new();
-        pop.set_parent(&parent);
-        assert!(
-            pointing_to(&pop).is_none(),
-            "a popover that was never pointed anywhere has no anchor — the raw binding \
-             hands back a fallback rectangle here (the PARENT's bounds, since this popover \
-             has one), and that fallback must be discarded regardless"
-        );
-
-        let rect = gdk::Rectangle::new(11, 22, 33, 44);
-        pop.set_pointing_to(Some(&rect));
-        let got = pointing_to(&pop).expect("a pointed popover has an anchor");
-        assert_eq!(
-            (got.x(), got.y(), got.width(), got.height()),
-            (11, 22, 33, 44)
-        );
-        // A parented popover must be unparented before it is dropped (GTK4Rs/AP-80).
-        pop.unparent();
     }
 }

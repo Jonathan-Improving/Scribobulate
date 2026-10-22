@@ -37,6 +37,7 @@ described from a different vantage point.
 
 | ID | Platform | Scope | Issue | Severity |
 |----|----------|-------|-------|----------|
+| A | Windows | Production | Clicking **Edit** on an annotation's comment card shows the comment field scrolled so only the bottom few pixels of its text line are visible, until the reader types | Low |
 | B | Mac | Upstream | macOS only: every native file-chooser invocation (Open, Save, Export) grows RSS by ~1.1 MB and does not give it back. Roughly four fifths is AppKit's own price for presenting an `NSSavePanel` — reproduced with no GTK in the process — with about a fifth GTK-attributable. Caching the panel upstream would recover ~95% | Medium |
 | D | Any | Production | The preview's Annotate bubble sits over the line above a selection, so a click there can land on the bubble: in a table, a double- or triple-click on the cell above a selected cell can lose a press and act as a single click | Low |
 | G | Windows | Upstream | After an edit the editor's scrollbar slider is sometimes not drawn until the next scroll (2 of 40 Enters); a GTK defect still open upstream | Low |
@@ -154,6 +155,28 @@ free today, as the probe's control demonstrates — to un-break a minor limitati
 nobody has asked for. It would be a deliberate project chosen on product grounds, not an
 increment, and it should not be started from this entry.
 
+## A. The comment field opens scrolled past its own text when an annotation is edited
+
+**Severity**: Low (the text is there and typing brings it back into view; nothing is lost).
+
+**Observed** (2026-10-22, Windows 10, GTK 4.22.4, `windows` seat): open an annotation's
+comment card from its margin chip and click **Edit**. The comment field shows only the
+bottom few pixels of its line of text, 4 of 4 tries. Reproduces on master before the cards
+moved into the window, so it is not caused by that change.
+
+**Not established**: the mechanism, and whether Linux and macOS show it. A Linux Xvfb
+capture of the same step showed an empty-looking field, which fits but was not examined.
+Filed `Windows` provisionally: the other two platforms have not been checked, so narrow it
+only once they have. A comment field rebuilt into an already-showing card is the shape
+GTK4Rs/AP-354 describes for the horizontal axis (an animated scroll aimed before the
+field's first allocation); check that before guessing.
+
+**Mitigation options**:
+- If it is GTK4Rs/AP-354's shape on the vertical axis, give the field its own vertical adjustment
+  as GTK4Rs/AP-354 does for the horizontal one.
+- Scroll the field to its start once it has its first allocation.
+- Accept it: typing or a click in the field shows the text.
+
 ## B. Every native file chooser invocation grows RSS on macOS
 
 **Severity**: Medium. Monotonic within everything measured at the per-invocation scale, but the
@@ -201,7 +224,7 @@ survive summarising, and the transferable lessons already have permanent homes i
 **Severity**: Low (a click lands on the bubble instead of the text beneath it; nothing is lost).
 
 **Observed** (2026-09-30, Linux, bare Xvfb, GTK 4.6.9): select text in a table cell, so the
-preview's **Annotate** bubble appears above the selection. The bubble's window covers the
+preview's **Annotate** bubble appears above the selection. The bubble covers the
 text of the cell above. Double-click and drag in that cell, and only the first press
 reaches it (instrumented at the cell's own click gesture): the double-click becomes a
 single click and a drag that should extend by words selects characters. The same drive with
@@ -210,7 +233,7 @@ operator reported. In body text the bubble covers the line above in the same way
 separately driven there.
 
 **Not established**: why the first press still reaches the cell while the second does not —
-whether the bubble's window takes the second press, or its hiding/re-showing on the first
+whether the bubble takes the second press, or its hiding/re-showing on the first
 press resets the click count. Measure before choosing between the options below. Filed `Any` because the bubble's
 placement is shared code; macOS and Windows have not been driven.
 

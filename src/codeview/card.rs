@@ -1,7 +1,8 @@
-//! [`AnnotationCard`] — the annotation comment card, as a `GtkPopover` subclass that
-//! owns its own anchoring, scroll-tracking and dismissal.
+//! [`AnnotationCard`] — the annotation comment card, as a
+//! [`FloatingCard`](crate::widgets::floating_card::FloatingCard) subclass that owns its
+//! own anchoring, scroll-tracking and dismissal.
 //!
-//! # Why a subclass, and why still a popover
+//! # Why a subclass
 //!
 //! The card used to be a bare `gtk::Popover` driven entirely from the outside: a caller
 //! computed a rectangle, handed it to `set_pointing_to`, and called `popup()`. Three
@@ -11,10 +12,8 @@
 //! caller carried one across a scroll:
 //!
 //!  * Nothing re-pointed the card when the document scrolled, so it stranded over
-//!    unrelated text. (This was NOT a behaviour the autohide seat grab used to supply and
-//!    that GTK4Rs/AP-83 took away: 4.6.9's autohide check handles button and touch input only,
-//!    never scroll, and GTK implements no anchor-tracking anywhere — GEP-15.)
-//!  * Nothing dismissed it on an outside click, autohide having been switched off.
+//!    unrelated text. (GTK implements no anchor-tracking anywhere — GEP-15.)
+//!  * Nothing dismissed it on an outside click.
 //!  * Activating a different annotation re-pointed the card with a rect captured *before*
 //!    the navigation's converge-scroll, so it landed away from its chip (ScrAP-187's
 //!    family: state captured at a time that expires, here in screen rather than source
@@ -24,35 +23,21 @@
 //! the annotation's **identity** (its `src_span.start`, the same stable key the annotations
 //! viewer navigates by — never a `Vec` index, GTK4Rs/AP-74) and re-derives the chip rectangle
 //! from the live document *every time it is about to be shown or the view scrolls*. A
-//! stale rect is then not "a bug we fixed", it is a value that no longer exists.
+//! stale rect is then not "a bug we fixed", it is a value that no longer exists. It is
+//! the shape of GtkSourceView's `GtkSourceAssistant`, which recomputes its position from a
+//! text position on every adjustment `value-changed` and **hides when its anchor leaves
+//! the viewport**, with the chip (not a bare text iter) as the anchor.
 //!
-//! **It stays a `GtkPopover`, deliberately.** The alternatives were researched against the
-//! GTK 4.6.9 C source and measured:
-//!
-//!  * `gtk_text_view_add_overlay` (the card as a child of the document, in *buffer*
-//!    coordinates) is **disqualified**. Its doc comment promises "@child will scroll with
-//!    the text view" and the implementation does not do it before GTK 4.19.1 — two
-//!    independent short-circuits (`gtk_text_view_value_changed` only re-allocates when
-//!    `anchored_children` is non-empty; `gtk_text_view_child_set_offset` ends in
-//!    `queue_draw`, not `queue_allocate`) leave the child pinned. Worse, and fatally for
-//!    us: `gtk_text_view_measure` measures `center_child`, and `gtk_text_view_child_measure`
-//!    takes the **max over every overlay** — so a 280 px card raises the *view's minimum
-//!    width*, which re-arms the marginal `Automatic` h-scrollbar and with it the whole
-//!    GTK4Rs/AP-23a → GTK4Rs/AP-22 churn-blank chain. There is no opt-out. And it would behave
-//!    *differently* on our macOS build (4.22.4, where the scroll bug is fixed) than on our
-//!    4.6.9 floor — the exact cross-platform divergence this rebuild exists to end.
-//!    Full write-up: GTK4Rs/AP-189.
-//!  * A **popover parented with `set_parent` is in neither list** (`center_child` nor
-//!    `anchored_children`), so it contributes nothing to the view's size request. The route
-//!    we are on is structurally immune to the constraint that disqualified the other one.
-//!
-//! And it is what upstream does for this exact shape of affordance: GtkSourceView's
-//! completion popup, hover and snippet tooltips are all `GtkSourceAssistant`, a
-//! `GtkPopover` subclass parented to the view with `gtk_widget_set_parent`, with
-//! `gtk_popover_set_autohide(…, FALSE)` — the same choice GTK4Rs/AP-83 forced on us — that
-//! recomputes its position from a text position on every adjustment `value-changed` and
-//! **hides when its anchor leaves the viewport**. This module is that pattern, with the
-//! chip (not a bare text iter) as the anchor.
+//! **Not a `GtkPopover` any more, and not `gtk_text_view_add_overlay` either.** A popover
+//! is a window-system surface of its own, which the window manager can leave on screen
+//! when the window is minimized or moved to another desktop (see `widgets::floating_card`).
+//! `gtk_text_view_add_overlay` (the card as a child of the document, in buffer
+//! coordinates) is disqualified separately: before GTK 4.19.1 it does not scroll the child
+//! with the text, and `gtk_text_view_measure` takes the max over every overlay, so a
+//! 280 px card would raise the *view's minimum width* and re-arm the marginal
+//! h-scrollbar churn-blank chain (GTK4Rs/AP-189, GTK4Rs/AP-23a → GTK4Rs/AP-22). A child of
+//! the PANE's overlay is neither: it is part of the window's surface, and it is kept out
+//! of the pane's size request (`set_measure_overlay(false)`).
 //!
 //! # The structural guarantee, and the hole that is easy to leave in it
 //!
@@ -68,7 +53,7 @@
 //! Point 2 is not redundant. `set_visible(true)` on an **already-visible** widget is a
 //! no-op — it does not run the `show` vfunc — and "already visible" is precisely the state
 //! GTK4Rs/AP-190 describes: activating a different annotation while the card is up re-points the
-//! existing card rather than building a new one (which is correct, and is why the popover
+//! existing card rather than building a new one (which is correct, and is why the card
 //! is reused). So a version that relies on the vfunc alone passes every open-from-closed
 //! test and silently fails the one case the issue is about. That is not hypothetical; it is
 //! what the first implementation here did, and what
@@ -81,6 +66,7 @@
 //! presentation must traverse, rather than being a rule each call site has to re-apply).
 
 use super::CodePreviewView;
+use crate::widgets::floating_card::{FloatingCard, FloatingCardExt, FloatingCardImpl, Side};
 use gtk::glib;
 use gtk::prelude::*;
 use gtk::subclass::prelude::*;
@@ -113,7 +99,7 @@ mod imp {
         pub(super) open: Cell<bool>,
 
         /// Set while the card is hidden because its chip is off the viewport, as opposed
-        /// to dismissed. `GtkPopover` emits `closed` from its `hide` vfunc, and the
+        /// to dismissed. The card emits `closed` from its `hide` vfunc, and the
         /// `closed` backstop clears [`open`](Self::open) — so without this a scroll-off
         /// would end the session and the card could never come back when its chip
         /// scrolled into view again.
@@ -141,7 +127,7 @@ mod imp {
     impl ObjectSubclass for AnnotationCard {
         const NAME: &'static str = "ScribAnnotationCard";
         type Type = super::AnnotationCard;
-        type ParentType = gtk::Popover;
+        type ParentType = FloatingCard;
     }
 
     impl ObjectImpl for AnnotationCard {}
@@ -171,37 +157,28 @@ mod imp {
         }
     }
 
-    impl PopoverImpl for AnnotationCard {}
+    impl FloatingCardImpl for AnnotationCard {}
 }
 
 glib::wrapper! {
     pub(crate) struct AnnotationCard(ObjectSubclass<imp::AnnotationCard>)
-        @extends gtk::Popover, gtk::Widget,
-        @implements gtk::Accessible, gtk::Buildable, gtk::ConstraintTarget, gtk::Native, gtk::ShortcutManager;
+        @extends FloatingCard, gtk::Widget,
+        @implements gtk::Accessible, gtk::Buildable, gtk::ConstraintTarget;
 }
 
 impl AnnotationCard {
-    /// Build the card and parent it to `view`.
+    /// Build the card, floating over `view`'s pane and pointing in `view`'s coordinates.
     ///
-    /// `set_parent` (not a container `append`): a popover is a native child, which also
-    /// means GTK will NOT unparent it for us — [`teardown`](Self::teardown) must, from the
-    /// view's `dispose` (GTK4Rs/AP-80/GTK4Rs/AP-80), popping it down first (GTK4Rs/AP-123).
+    /// An in-window [`FloatingCard`] rather than a popover: a popover is its own window-system
+    /// surface, which the window manager can leave on screen when the window is minimized or
+    /// moved to another desktop (see `widgets::floating_card`). A view with no pane overlay
+    /// yet gets an unattached card, which cannot be shown.
     pub(crate) fn new(view: &CodePreviewView) -> Self {
         let card: Self = glib::Object::builder().build();
-        // Non-autohide, like every other popover in this app and like BOTH of
-        // GtkSourceView's non-autohide assistants. An autohide popover holds an X11 seat
-        // grab that (GTK 4.6, researcher-confirmed) drops the popover→window coordinate
-        // offset, so a mouse click on this card's OWN Edit/Remove buttons resolves as
-        // OUTSIDE it and dismisses the card instead of activating the button — keyboard
-        // worked only because it skips pointer routing (GTK4Rs/AP-83). Autohide also supplied
-        // focus-on-open, Escape-dismiss and outside-click dismiss for free; the first two
-        // are re-wired below and in `open_marker_popover`, and outside-click dismissal is
-        // this widget's `arm_outside_dismiss` — which, unlike autohide, cannot misroute a
-        // press onto our own buttons, because those presses are delivered inside the
-        // card's own surface and never reach the toplevel gesture at all.
-        card.set_autohide(false);
-        card.set_position(gtk::PositionType::Left);
-        card.set_parent(view);
+        card.set_side(Side::Left);
+        if let Some(host) = view.card_host() {
+            card.attach(&host, view);
+        }
 
         // Escape-dismiss, CAPTURE phase deliberately: a bubble-phase controller did NOT
         // dismiss once focus was in the edit entry (mac/Windows real-display testing) —
@@ -225,10 +202,9 @@ impl AnnotationCard {
             }
         ));
         card.add_controller(esc);
-        card.add_controller(app_accelerator_controller());
 
-        // Backstop only. Nothing in GTK closes a non-autohide popover on its own, and
-        // every deliberate dismissal routes through `dismiss()` — but `closed` is also
+        // Backstop only. Nothing in GTK closes the card on its own, and every deliberate
+        // dismissal routes through `dismiss()` — but `closed` is also
         // emitted from the `hide` vfunc, so this catches any close we did not initiate.
         // It must NOT fire for our own scroll-off hide, hence `transient_hide`.
         card.connect_closed(|c| {
@@ -239,9 +215,9 @@ impl AnnotationCard {
         card
     }
 
-    /// The view this card is parented to, or `None` once torn down.
+    /// The view this card points into, or `None` once torn down.
     fn view(&self) -> Option<CodePreviewView> {
-        self.parent()
+        self.anchor()
             .and_then(|p| p.downcast::<CodePreviewView>().ok())
     }
 
@@ -288,11 +264,11 @@ impl AnnotationCard {
     ///
     /// Ends in [`reposition`](Self::reposition) rather than a bare `set_visible(true)`,
     /// and that is load-bearing, not tidiness. `set_visible(true)` on an ALREADY-VISIBLE
-    /// popover is a no-op, so it does not run the `show` vfunc — which means the vfunc's
+    /// widget is a no-op, so it does not run the `show` vfunc — which means the vfunc's
     /// recompute would silently not happen on the one path the stale-anchor defect is about:
     /// **switching to another annotation while the card is already up.** (The card is
     /// reused and re-pointed rather than rebuilt, precisely because `set_pointing_to`
-    /// re-presents a visible popover.) Going through `reposition` covers both cases with
+    /// re-places a visible card.) Going through `reposition` covers both cases with
     /// one call: it recomputes unconditionally, points, and shows or hides according to
     /// where the chip actually is — including hiding when the annotation has gone away
     /// entirely. The `show` override remains as the structural backstop for every OTHER
@@ -314,27 +290,24 @@ impl AnnotationCard {
         self.imp().anchor_src.set(None);
         self.set_visible(false);
         self.set_pointing_to(None);
-        self.set_offset(0, 0);
     }
 
     /// Point the card at `rect`, skipping the call when it is already pointing there.
     ///
-    /// The skip is not micro-optimisation: `set_pointing_to` on a *visible* popover
-    /// re-presents it immediately (which is why re-pointing works at all), so an
-    /// unguarded call on every `value-changed` would re-run the popup layout for scroll
-    /// emissions that did not move the chip. Upstream guards the same call the same way.
+    /// The skip is not micro-optimisation: `set_pointing_to` queues a re-layout of the
+    /// pane the card floats over, so an unguarded call on every `value-changed` would
+    /// re-run that layout for scroll emissions that did not move the chip. Upstream guards
+    /// the same call the same way.
     ///
-    /// **Compares against the popover's ACTUAL anchor, not a remembered one.** Upstream's
+    /// **Compares against the card's ACTUAL anchor, not a remembered one.** Upstream's
     /// version — and this widget's first version — caches the last rectangle it wrote and
     /// compares against that. A write-cache is not a reading of the object: anything that
     /// sets `pointing_to` from outside desynchronises it, and the skip then suppresses
     /// exactly the recompute a presentation must perform. Reading the live value cannot
     /// desynchronise, costs a getter, and deletes a piece of state whose only job was to
-    /// be wrong occasionally. `saferizer::pointing_to` is the sanctioned reader — the raw
-    /// binding's `(bool, Rectangle)` hands back an undefined rectangle for an unset anchor,
-    /// which is precisely the case this comparison meets on the very first present.
+    /// be wrong occasionally.
     fn point_at(&self, rect: &gdk::Rectangle) {
-        let same = crate::saferizer::pointing_to(self).is_some_and(|cur| {
+        let same = self.pointing_to().is_some_and(|cur| {
             (cur.x(), cur.y(), cur.width(), cur.height())
                 == (rect.x(), rect.y(), rect.width(), rect.height())
         });
@@ -456,32 +429,13 @@ impl AnnotationCard {
     /// dismissing is a side effect, and the click must still reach whatever it was aimed
     /// at.
     ///
-    /// # Two exclusions, and why the first one is kept even though it "can't" be needed
+    /// # Two exclusions
     ///
-    /// **1. A press inside the card's own surface.** On X11/4.6.9 this exclusion is, as far
-    /// as anyone can make it fire, dead code — and it stays in anyway. Measured with real
-    /// pointer input: a press inside a non-autohide popover reaches a capture controller on
-    /// the popover itself and reaches *nothing* above it — not the popover's widget-parent,
-    /// not the toplevel — while a control press on the window does reach the toplevel, so
-    /// the gesture is wired correctly and delivery genuinely stops at the `GtkNative`
-    /// boundary. That was checked with `GtkEventControllerLegacy` (no gesture recognition,
-    /// no coordinate filtering), so it is delivery stopping, not a gesture declining.
-    ///
-    /// But **the behaviour is verified and the mechanism is not.** `gtk_propagate_event`
-    /// walks widget parents up to the current grab, a non-autohide popover installs no grab
-    /// (`gtk_grab_add` sits inside the `autohide` branch), and every ancestor here is
-    /// realized — so the source reads as though the press *should* reach the window, and
-    /// measurably it does not. Nobody has located the line that stops it. Nor has any of
-    /// this been measured on Quartz or Win32, which is exactly where this widget's history
-    /// of pain comes from.
-    ///
-    /// A behaviour you can demonstrate but cannot explain is not a contract to build on,
-    /// and the failure mode if it does not hold on some backend is precisely the bug this
-    /// app already shipped once: a press on the card's own button resolving as "outside"
-    /// and dismissing the card instead of activating it — which is what forced `autohide`
-    /// off (GTK4Rs/AP-83). Three lines is a cheap price for not re-litigating that on a
-    /// platform we cannot test from here. The discriminator is surface identity, which
-    /// answers the question directly and is correct under every reading.
+    /// **1. A press on the card itself.** The card is a child of the window, so a press on
+    /// its own Edit or Remove button reaches this capture-phase gesture before it reaches the
+    /// button. Counting it as "outside" would dismiss the card instead of activating the
+    /// button — the bug that once forced `autohide` off (GTK4Rs/AP-83), arriving by a
+    /// different route.
     ///
     /// **2. A press on a marker chip.** Without it, clicking a chip would dismiss the open
     /// card here (capture runs first) and the view's own handler would then rebuild and
@@ -529,14 +483,11 @@ impl AnnotationCard {
     /// growing another `if` in the handler (GTK4Rs/AP-108: the mitigation lives at one choke
     /// point, not scattered across call sites).
     fn press_is_ours(&self, gesture: &gtk::GestureClick, x: f64, y: f64) -> bool {
-        // (1) Delivered into the card's OWN popup surface. Surface identity answers this
-        // directly, whatever GTK's propagation does with the widget hierarchy.
-        let ours = self.surface();
-        let from = gesture.current_event().and_then(|e| e.surface());
-        if let (Some(ours), Some(from)) = (ours, from) {
-            if ours == from {
-                return true;
-            }
+        // (1) On the card itself — its own buttons, its edit entry. The card is a child of
+        // the window, so its presses reach this capture-phase gesture on the toplevel
+        // FIRST, before the button they are aimed at.
+        if self.contains_press(gesture, x, y) {
+            return true;
         }
         // (2) On a marker chip — the view's own click handler owns that press, and letting
         // it dismiss here would tear down a card the view is about to re-open.
@@ -551,73 +502,16 @@ impl AnnotationCard {
             .is_some_and(|(vx, vy)| view.is_over_marker(vx as f32, vy as f32))
     }
 
-    /// Tear the card down from the view's `dispose`.
-    ///
-    /// Two halves, and only one of them is this widget's own business:
-    ///
-    ///  * **Ours** — drop the handlers we planted on objects that OUTLIVE us: the
-    ///    scroller's adjustment and the toplevel. Nothing else will; a card per render
-    ///    that left them behind would accumulate one of each on a longer-lived object.
-    ///  * **Not ours** — the parenting teardown, which must be **popdown before unparent**
-    ///    (GTK4Rs/AP-123), with the unparent mandatory because GTK does not unparent a
-    ///    `set_parent`-attached popover for us (GTK4Rs/AP-80/GTK4Rs/AP-80). That order already has a
-    ///    seal — [`PersistentPopover`](crate::saferizer::PersistentPopover) exists so it
-    ///    cannot be written wrongly — so it is **delegated**, not re-implemented here. Two
-    ///    hand-written copies of one invariant is how the invariant drifts, and the copy
-    ///    that drifts is always the one that isn't the seal.
-    ///
-    /// The handle is built transiently rather than stored in the card's own state: holding
-    /// a `PersistentPopover` over `self` would be a strong self-reference, and the card
-    /// would never reach finalize.
-    ///
-    /// Not `Drop`: that fires at GObject *finalize*, after `dispose`, when the parent may
-    /// already be gone — too late to unparent safely.
+    /// Tear the card down from the view's `dispose`: drop the handlers we planted on
+    /// objects that OUTLIVE us — the scroller's adjustment and the toplevel — and take the
+    /// card off its pane. Nothing else will remove the handlers; a card per render that left
+    /// them behind would accumulate one of each on a longer-lived object.
     pub(crate) fn teardown(&self) {
         self.disarm_scroll_tracking();
         self.disarm_outside_dismiss();
         self.imp().open.set(false);
-        crate::saferizer::PersistentPopover::adopt(self.clone().upcast()).teardown();
+        self.detach();
     }
-}
-
-/// A `GtkShortcutController` re-offering every application accelerator locally, so the
-/// app's keyboard stays alive while this card holds the focus.
-///
-/// **Why a focused popover needs its own copy at all** (GTK4Rs/AP-266). This card is `set_parent`ed and
-/// therefore its own `GtkNative` — a widget-tree descendant of the view, but a separate
-/// GDK surface. A key pressed while it has focus is delivered to *that* surface and never
-/// reaches the window surface's handling, where `gtk_application_set_accels_for_action`'s
-/// bindings live. MEASURED (4.6.9/X11): with the card focused, **no** application
-/// accelerator fires — not the annotation walk, not even an unrelated `F8` pane toggle —
-/// and the identical keystroke works the instant Escape returns focus to the view. So the
-/// card was a keyboard dead zone for as long as it was open, which is precisely how long
-/// a reader walking annotations keeps it open.
-///
-/// **BUBBLE phase, deliberately.** The application's own accelerators are effectively
-/// global-scope and beat a focused `GtkText`'s bindings (GTK4Rs/AP-121) — which is a hazard
-/// this controller must not re-import from the other side, because the card hosts a real
-/// text entry while its comment is being edited. A bubble-phase controller is offered the
-/// key only after the focused widget has declined it, so `Ctrl+A` in the comment entry
-/// stays the entry's and never reaches here.
-///
-/// The bindings come from [`crate::app::accelerator_bindings`] — the same table
-/// `register_accelerators` binds from — so this cannot advertise a key the app does not
-/// bind, or miss one it does. A `GtkNamedAction` resolves through the widget's action
-/// muxer, which walks the widget-tree parents to the window, so the `win.` actions are
-/// found even though the surface is not the window's.
-fn app_accelerator_controller() -> gtk::ShortcutController {
-    let controller = gtk::ShortcutController::new();
-    controller.set_propagation_phase(gtk::PropagationPhase::Bubble);
-    for (action, accel) in crate::app::accelerator_bindings() {
-        let Some(trigger) = gtk::ShortcutTrigger::parse_string(&accel) else {
-            continue; // an unparseable accel is already inert app-wide; nothing to add
-        };
-        controller.add_shortcut(gtk::Shortcut::new(
-            Some(trigger),
-            Some(gtk::NamedAction::new(&action)),
-        ));
-    }
-    controller
 }
 
 /// Live-display tests for the annotation card's anchoring contract.
@@ -642,7 +536,7 @@ mod gtk_integration_tests {
     /// raw binding's `(bool, Rectangle)` tuple carries an undefined rectangle when the
     /// bool is false.
     fn anchor(card: &AnnotationCard) -> Option<gdk::Rectangle> {
-        crate::saferizer::pointing_to(card)
+        card.pointing_to()
     }
 
     /// The first descendant `GtkButton` whose label is `label`.
@@ -907,11 +801,10 @@ mod gtk_integration_tests {
     /// **A card whose chip is on no monitor stays hidden (TDD 17.48a).**
     ///
     /// A window wider than its monitor puts the chip in the right margin past the screen's
-    /// edge. GTK 4.6's X11 popup layout looks the card's monitor up from that anchor, finds
-    /// none and asserts `GDK_IS_MONITOR`, which the suite's `G_DEBUG=fatal-criticals` turns
-    /// into a SIGTRAP — so reverting the monitor clip in `Viewport::of` fails this test by
-    /// killing the run, not by a failed assertion. With the clip the card is refused like a
-    /// chip scrolled off the viewport: still open, not shown.
+    /// edge, where nobody can see it. The monitor clip in `Viewport::of` refuses the card
+    /// like a chip scrolled off the viewport: still open, not shown. (When the card was a
+    /// popover this clip was also what kept GTK's X11 popup layout from asserting
+    /// `GDK_IS_MONITOR`; an in-window card is never placed by screen coordinates.)
     ///
     /// The precondition is asserted, not assumed: a chip that happened to land on the
     /// monitor would pass this with the guard deleted.
@@ -966,8 +859,8 @@ mod gtk_integration_tests {
         );
         assert!(
             !card.is_visible(),
-            "a card whose chip is on no monitor must not be shown: GTK has no monitor to \
-             place it on"
+            "a card whose chip is on no monitor must not be shown: nobody can see what it \
+             points at"
         );
         crate::testpump::destroy_after_tooltip_delay(&win, || view.popdown_marker_popover());
     }
@@ -1036,8 +929,7 @@ mod gtk_integration_tests {
 
     /// **Outside-click dismissal is armed, and is cleaned up.**
     ///
-    /// A synthetic click cannot be delivered to a popover surface headlessly, so this
-    /// asserts the STATE that makes the affordance exist — the capture-phase gesture is on
+    /// A synthetic click cannot be delivered headlessly, so this asserts the STATE that makes the affordance exist — the capture-phase gesture is on
     /// the toplevel while the card is open, and is GONE after teardown — rather than the
     /// symptom. That is the durable half anyway: the gesture leaking onto a toplevel that
     /// outlives the view is a per-render accumulation no click test would ever catch, and
@@ -1083,8 +975,7 @@ mod gtk_integration_tests {
         );
         assert!(
             card.parent().is_none(),
-            "teardown must also unparent the popover — GTK does not unparent a \
-             `set_parent`-attached popover for us (GTK4Rs/AP-80/GTK4Rs/AP-80)"
+            "teardown must also take the card off its pane"
         );
         crate::testpump::destroy_after_tooltip_delay(&win, || ());
     }
@@ -1263,79 +1154,22 @@ mod gtk_integration_tests {
         crate::testpump::destroy_after_tooltip_delay(&win, || view.popdown_marker_popover());
     }
 
-    /// **The card must not be a keyboard dead zone.** Every application accelerator is
-    /// re-offered locally, from the one table that binds them app-wide.
+    /// **The card is part of the window's own surface**, not a surface of its own.
     ///
-    /// A `set_parent`ed popover is its own `GtkNative`, and a key pressed while it holds
-    /// focus never reaches the window's accelerator machinery — MEASURED on 4.6.9/X11: with
-    /// the card focused, not even an unrelated `F8` pane toggle fired, and the same
-    /// keystroke worked the instant Escape returned focus to the view. So the card owns a
-    /// local copy or the app has no keyboard for as long as a comment is open.
-    ///
-    /// Asserted against `accelerator_bindings()` rather than a hand-listed set, because a
-    /// hand-listed one is a second copy of the accel SSOT and would pass while the real
-    /// answer drifted. The phase assertion is the other half: BUBBLE is what keeps a
-    /// focused comment entry's own `Ctrl+A` its own (GTK4Rs/AP-121 from the other side), and
-    /// nothing about the visible result would reveal it had been changed.
+    /// The one structural property the in-window card exists for. A `GtkPopover` is its own
+    /// `GtkNative`: the window manager could leave it on screen when the window was
+    /// minimized or moved to another desktop, and a key pressed while it held focus never
+    /// reached the window's accelerators (GTK4Rs/AP-266). Sharing the window's native rules
+    /// out both. Mutation guard: build the card as a popover again and this fails.
     #[gtktest::test]
-    fn the_card_re_offers_every_application_accelerator_locally() {
+    fn the_card_lives_in_the_windows_own_surface() {
         let (win, _view, card) = open_card();
-
-        // A `GtkPopover` carries shortcut controllers of GTK's own (measured: four on a
-        // bare card), so ours is identified by what it OFFERS — the `win.` named actions —
-        // not by being the only one there.
-        let bindings = crate::app::accelerator_bindings();
-        let mut offered: Vec<String> = Vec::new();
-        let mut ours: Option<gtk::ShortcutController> = None;
-        let controllers = card.observe_controllers();
-        for i in 0..controllers.n_items() {
-            let Some(controller) = controllers
-                .item(i)
-                .and_downcast::<gtk::ShortcutController>()
-            else {
-                continue;
-            };
-            let mut names: Vec<String> = Vec::new();
-            for j in 0..controller.n_items() {
-                let Some(shortcut) = controller.item(j).and_downcast::<gtk::Shortcut>() else {
-                    continue;
-                };
-                if let Some(named) = shortcut.action().and_downcast::<gtk::NamedAction>() {
-                    let name = named.action_name().to_string();
-                    // Membership in the app's own table, not a `win.` prefix: the table
-                    // carries `app.` actions too, and GTK's own popover controllers carry
-                    // named actions of their own that must not be mistaken for ours.
-                    if bindings.iter().any(|(action, _)| *action == name) {
-                        names.push(name);
-                    }
-                }
-            }
-            if !names.is_empty() {
-                assert!(
-                    ours.is_none(),
-                    "one controller re-offers the application accelerators, not several — \
-                     two copies would fire an action twice per keypress"
-                );
-                offered = names;
-                ours = Some(controller);
-            }
-        }
-        let controller = ours.expect("the card installs an application-accelerator controller");
+        assert!(card.is_visible(), "precondition: the card is showing");
         assert_eq!(
-            controller.propagation_phase(),
-            gtk::PropagationPhase::Bubble,
-            "BUBBLE, so a focused comment entry keeps the keys it binds itself — a \
-             capture-phase copy would re-import the window-accel-beats-GtkText hole \
-             (GTK4Rs/AP-121) inside the card"
+            card.native(),
+            win.native(),
+            "the card must share the window's native surface"
         );
-        for (action, accel) in bindings {
-            // A detailed name (`win.format::bold`) is bound as a whole by GtkNamedAction.
-            assert!(
-                offered.contains(&action),
-                "the card must re-offer {action} ({accel}); it is bound app-wide, so \
-                 while the card holds focus it would otherwise simply stop working"
-            );
-        }
         crate::testpump::destroy_after_tooltip_delay(&win, || card.dismiss());
     }
 }

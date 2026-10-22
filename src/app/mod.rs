@@ -31,10 +31,9 @@ pub(crate) use open::{
     attach_file_backing, dialog_dir_for, find_open_tab_for_path, focus_tab, remember_dialog_dir,
     LAST_DIALOG_DIR,
 };
-pub(crate) use setup::accelerator_bindings;
 /// The whole binding set for an explicitly named platform — the pure enumeration
 /// `accel`'s cross-platform collision guard checks. Test-only: production code
-/// wants [`accelerator_bindings`], which asks for the host.
+/// wants `setup::accelerator_bindings`, which asks for the host.
 #[cfg(test)]
 pub(crate) use setup::accelerator_bindings_for;
 #[cfg(all(test, feature = "gtk-integration-tests"))]

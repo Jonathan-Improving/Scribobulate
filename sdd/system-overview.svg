@@ -95,7 +95,7 @@
 
   <text class="lbl" x="72" y="418" font-size="9.5">Split adds orientation, pane order, and a <tspan font-style="italic">fraction</tspan> (a ratio, not pixels — so the divider survives a resize).</text>
   <text class="lbl" x="72" y="431" font-size="9.5">Anchored children inside the preview buffer: tables (custom ScribTableWidget), images, horizontal rules.</text>
-  <text class="lbl" x="72" y="444" font-size="9.5">Comment entry floats on a GtkOverlay; the marker card is a GtkPopover subclass re-anchored on scroll.</text>
+  <text class="lbl" x="72" y="444" font-size="9.5">Comment entry and every anchored card float in-window on a GtkOverlay; the marker card re-anchors on scroll.</text>
   <text class="lbl" x="72" y="463" font-size="9.5" font-style="italic">Editor edits and preview annotations both write the tab's one canonical editor buffer.</text>
 
   <!-- ── render pipeline ────────────────────────────────────────────────── -->

@@ -340,22 +340,18 @@ mod imp {
         /// stored by the create overlay so the `win.annotate` action triggers the
         /// same card as the popover's Annotate button.
         pub(crate) annotate_trigger: RefCell<Option<super::AnnotateTrigger>>,
-        /// The selection action popover (Annotate, …), and the current marker popover
-        /// (Edit/Remove on a CriticMarkup marker click). A `GtkPopover` attached via
-        /// `set_parent` is a native child GTK does NOT unparent for us — we must do it
-        /// in `dispose`, or the view's teardown spams "GtkPopover is not a child of
-        /// ScribCodePreviewView" (GTK4Rs/AP-80). (The Annotate comment ENTRY is a GtkOverlay
-        /// child, not a popover — GTK unparents overlay children itself — GTK4Rs/AP-83.)
-        pub(crate) overlay_popover: RefCell<Option<crate::saferizer::PersistentPopover>>,
-        /// The persistent annotation card. Not a bare `gtk::Popover` and not a
-        /// `PersistentPopover`: [`AnnotationCard`](super::card::AnnotationCard) is a
-        /// `GtkPopover` **subclass** that owns its own anchoring (identity, never a
-        /// captured rect), its scroll-tracking, its outside-click dismissal and its
-        /// teardown order — the three defects those used to be spread across the callers
-        /// as three separate defects. Created once and reused for the view's life
-        /// (GTK4Rs/AP-117/GTK4Rs/AP-117:
-        /// destroying a popover per use strands a tooltip timer over an unrealized
-        /// surface); torn down by `dispose` via `AnnotationCard::teardown`.
+        /// The selection action card (Annotate, …). A child of the preview pane's
+        /// overlay, which owns it; held here so opening a marker card can close it.
+        pub(crate) overlay_popover: RefCell<Option<crate::widgets::floating_card::FloatingCard>>,
+        /// The overlay this view's pane floats its cards over. Weak: the overlay is the
+        /// view's ancestor.
+        pub(crate) card_host: glib::WeakRef<gtk::Overlay>,
+        /// The persistent annotation card. [`AnnotationCard`](super::card::AnnotationCard)
+        /// is a floating-card **subclass** that owns its own anchoring (identity, never a
+        /// captured rect), its scroll-tracking and its outside-click dismissal — the three
+        /// defects those used to be spread across the callers as three separate defects.
+        /// Created once and reused for the view's life; torn down by `dispose` via
+        /// `AnnotationCard::teardown`.
         pub(crate) marker_card: RefCell<Option<super::card::AnnotationCard>>,
         /// One-shot guard: has the persistent marker popover been PRE-WARMED (first
         /// `set_parent`+`popup`/`popdown` done while the view sat at scroll 0)? The
@@ -434,6 +430,7 @@ mod imp {
                 annotate_trigger: RefCell::new(None),
                 overlay_popover: RefCell::new(None),
                 marker_card: RefCell::new(None),
+                card_host: glib::WeakRef::new(),
                 marker_popover_warmed: Cell::new(false),
                 primary_sel_handler: RefCell::new(None),
                 sprites: Default::default(),
@@ -449,27 +446,12 @@ mod imp {
     }
 
     impl ObjectImpl for CodePreviewView {
-        /// Unparent our `set_parent`-attached popovers before the view is
-        /// destroyed. GTK does not auto-unparent native popover children, so
-        /// without this teardown floods "GtkPopover is not a child of
-        /// ScribCodePreviewView" (surfaced by the gtk-integration tests).
+        /// Release what the view planted on longer-lived objects before it is destroyed.
         fn dispose(&self) {
-            if let Some(p) = self.overlay_popover.borrow_mut().take() {
-                // `PersistentPopover::teardown()` releases any seat grab BEFORE
-                // unrealizing the surface that holds it: it is `popdown()` THEN
-                // `unparent()`, the one order that is safe here (GTK4Rs/AP-123). `unparent()`
-                // unrealizes the surface; doing that while a grab is live strands it —
-                // and a stranded grab is not a dead app: button/key events keep routing
-                // to the destroyed holder while motion/crossing still reach widgets, so
-                // it looks like anything but a grab. The unparent is also mandatory
-                // (GTK4Rs/AP-80 — a `set_parent`'d popover left parented at dispose leaks)
-                // and must not migrate to a per-use destroy (GTK4Rs/AP-117). `teardown()`
-                // encodes exactly this order, so the "stop unparenting" / "unparent while
-                // open" wrong fixes are unrepresentable through the handle.
-                p.teardown();
-            }
-            // The annotation card carries the same popdown→unparent order inside its own
-            // `teardown`, plus the handlers it planted on objects that OUTLIVE the view
+            // The selection action card belongs to the pane's overlay; only our handle on
+            // it goes here.
+            self.overlay_popover.borrow_mut().take();
+            // The annotation card carries the handlers it planted on objects that OUTLIVE the view
             // (the scroller's adjustment, for scroll-tracking; the toplevel, for
             // outside-click dismissal) — those must come off here or every render's card
             // would leave one behind on a longer-lived object (GTK4Rs/AP-28 discipline).
