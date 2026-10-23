@@ -38,6 +38,7 @@ described from a different vantage point.
 | ID | Platform | Scope | Issue | Severity |
 |----|----------|-------|-------|----------|
 | A | Windows | Production | Clicking **Edit** on an annotation's comment card shows the comment field scrolled so only the bottom few pixels of its text line are visible, until the reader types | Low |
+| C | Any | Production | After a quick click away from a selected table cell, the old cell sometimes keeps a blinking text cursor (no selection, no Annotate card) | Low |
 | B | Mac | Upstream | macOS only: every native file-chooser invocation (Open, Save, Export) grows RSS by ~1.1 MB and does not give it back. Roughly four fifths is AppKit's own price for presenting an `NSSavePanel` — reproduced with no GTK in the process — with about a fifth GTK-attributable. Caching the panel upstream would recover ~95% | Medium |
 | D | Any | Production | The preview's Annotate bubble sits over the line above a selection, so a click there can land on the bubble: in a table, a double- or triple-click on the cell above a selected cell can lose a press and act as a single click | Low |
 | G | Windows | Upstream | After an edit the editor's scrollbar slider is sometimes not drawn until the next scroll (2 of 40 Enters); a GTK defect still open upstream | Low |
@@ -218,6 +219,27 @@ here because this entry exists in order to be deleted when the defect is fixed, 
 evidence must outlive it. Do not restate its figures here; several carry caveats that do not
 survive summarising, and the transferable lessons already have permanent homes in
 `sdd/ANTI-PATTERNS.md`.
+
+## C. A quick click away from a table cell can leave a text cursor in the old cell
+
+**Severity**: Low (cosmetic: the selection and its Annotate card are cleared; only the cursor stays).
+
+**Observed** (2026-10, macOS, GTK 4.24.1): select text in a table cell, then click quickly
+elsewhere. In 6 of 60 tries the old cell kept a blinking text cursor. Its selection and the
+Annotate card were cleared as expected, but keyboard focus stayed in that cell. Not seen in
+Linux Xvfb drives on GTK 4.6.9 (20 tries; the cursor was not specifically checked).
+Windows has not been driven. Filed `Any` until the other platforms are checked.
+
+**Likely cause**: on GTK 4.24 a press that falls inside a double-click series can be denied
+to every click gesture, so no gesture handles it and GTK never moves focus.
+The app's own capture-phase press handler clears selections but does not move focus.
+
+**Mitigation options**:
+- Move focus away from the old cell in the same press handler. Risk: focusing a selectable
+  label can select all of its text, so this needs care and a test.
+- Accept it: the next click or key press moves focus as usual.
+
+The operator chose to accept it for now (2026-10-22).
 
 ## D. The Annotate bubble covers the line above a selection and can swallow a click there
 
