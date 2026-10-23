@@ -176,7 +176,6 @@ src/saferizer/buffer_text.rs
 src/saferizer/click_activation.rs
 src/saferizer/file_monitor.rs
 src/saferizer/native_dialog.rs
-src/saferizer/persistent_popover.rs
 src/saferizer/popover_anchor.rs
 src/saferizer/qdata_key.rs
 src/saferizer/scrollpos.rs
@@ -210,6 +209,7 @@ src/theme/spec.rs
 src/theme/value.rs
 src/widgets/comment_entry.rs
 src/widgets/disclosure.rs
+src/widgets/floating_card.rs
 src/widgets/mod.rs
 src/widgets/rule.rs
 src/widgets/tab/layout.rs
