@@ -152,6 +152,46 @@ fn a_press_in_body_text_clears_the_cells_and_leaves_the_body_to_gtk() {
     destroy_after_tooltip_delay(&win, || ());
 }
 
+/// **A press away from a focused cell takes focus off it, without selecting any cell.**
+///
+/// A quick press GTK denies to every click gesture moved focus nowhere, so the old cell
+/// kept a blinking text cursor after its selection was cleared (TDD 17.63). Calling the
+/// press handler alone is that press: no gesture runs. Both destinations are checked —
+/// another cell and body text. Mutation: drop the `release_cell_focus` call and the
+/// focus assertions fail.
+#[gtktest::test]
+fn a_press_away_from_a_focused_cell_takes_its_focus() {
+    let (win, view, cells) = table_window();
+    let alpha = cell(&cells, "alpha cell");
+    let delta = cell(&cells, "delta cell");
+    let buf = view.buffer();
+    let rect = view.iter_location(&buf.iter_at_offset(2));
+    let (bx, by) = view.buffer_to_window_coords(gtk::TextWindowType::Widget, rect.x(), rect.y());
+    let body = (f64::from(bx), f64::from(by + 2));
+    let elsewhere = [
+        ("another cell", centre_of(&delta, &view)),
+        ("body text", body),
+    ];
+
+    for (what, (x, y)) in elsewhere {
+        alpha.grab_focus();
+        alpha.select_region(0, 5);
+        until(Clock::Frame, "the first cell to hold focus", || {
+            alpha.has_focus()
+        });
+        claim_selection_for_press(&view, x, y);
+        assert!(
+            !alpha.has_focus(),
+            "a press in {what} must take focus off the first cell"
+        );
+        assert!(
+            cells.iter().all(|c| c.selection_bounds().is_none()),
+            "moving focus off the cell must not select any cell's text ({what})"
+        );
+    }
+    destroy_after_tooltip_delay(&win, || ());
+}
+
 /// **The Annotate action card is part of the window's own surface (TDD 17.62).** A popover is its
 /// own window-system surface, which the window manager left on screen when the window was
 /// minimized or moved to another desktop. Mutation: build the action card as a popover

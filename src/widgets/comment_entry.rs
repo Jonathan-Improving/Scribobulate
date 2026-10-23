@@ -255,7 +255,47 @@ pub(crate) fn focus_at_end(field: &sourceview::View) {
     field.grab_focus();
     let buf = field.buffer();
     buf.place_cursor(&buf.end_iter());
-    field.scroll_mark_onscreen(&buf.get_insert());
+    scroll_caret_into_view_once_laid_out(field);
+}
+
+/// Bring `field`'s caret into view, but never before the field has a layout to scroll.
+///
+/// The Edit route switches to a page that was never allocated, and focuses the field in the
+/// same turn. Scrolled then, the field measures the caret against a viewport of height 0,
+/// aims one row down, and its already-mapped scroller animates there. The first allocation
+/// shrinks the range to nothing without cancelling the animation, and its ticks write the
+/// stale target unclamped (GTK4Rs/AP-354, here on the vertical axis): a one-line comment
+/// opened scrolled 17 px down, showing only the bottom of its line (measured, GTK 4.6.9).
+///
+/// So an unallocated field defers the scroll to the end of its first paint, when layout
+/// has run and the target is computed against the real, wrapped field. The vertical
+/// adjustment cannot be given its own like the horizontal one (`pin_horizontal_offset`):
+/// a long comment scrolls vertically, and the scroller's scrollbar must stay attached.
+fn scroll_caret_into_view_once_laid_out(field: &sourceview::View) {
+    if crate::saferizer::viewport::has_viewport(field.upcast_ref()) {
+        field.scroll_mark_onscreen(&field.buffer().get_insert());
+        return;
+    }
+    // Unrealized: no frame clock, nothing on screen, and the next focus_at_end scrolls.
+    let Some(clock) = field.frame_clock() else {
+        return;
+    };
+    let handler: Rc<Cell<Option<glib::SignalHandlerId>>> = Rc::new(Cell::new(None));
+    let weak = field.downgrade();
+    let id = clock.connect_after_paint({
+        let handler = handler.clone();
+        move |clock| {
+            if let Some(id) = handler.take() {
+                clock.disconnect(id);
+            }
+            let Some(field) = weak.upgrade() else { return };
+            if field.is_realized() && crate::saferizer::viewport::has_viewport(field.upcast_ref()) {
+                field.scroll_mark_onscreen(&field.buffer().get_insert());
+            }
+        }
+    });
+    handler.set(Some(id));
+    field.queue_draw();
 }
 
 /// Hold a comment field's horizontal offset at its origin, permanently.

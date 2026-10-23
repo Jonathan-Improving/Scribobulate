@@ -2918,6 +2918,7 @@
 - **Then** the comment text is replaced, in the same place, by the comment field pre-filled with it, with Save and Cancel beneath; the comment is never shown twice, as fixed text and as a field below it
 - **And** the caret rests at the end of the comment with nothing selected
 - **And** the card does not change size or close as the page switches, however long the comment
+- **And** the field shows the comment from its start on every opening; a comment longer than the field opens scrolled to the caret
 
 ### 17.58 A new comment can be abandoned with the pointer, not only with Escape
 - **Given** the comment entry opened to add a new annotation, from either the preview or the editor
@@ -2955,6 +2956,7 @@
 - **Given** text is selected in a table cell or in body text, with its Annotate pop-up showing
 - **When** the reader clicks anywhere else in the document — another cell, a header cell, the same cell, body text, or empty page space
 - **Then** the old highlight and its Annotate pop-up go away, exactly as a click elsewhere in body text clears a body selection
+- **And** when the click lands outside the old cell, no text cursor is left blinking in it
 
 ## 18. Preview reading themes
 

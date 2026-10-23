@@ -51,7 +51,7 @@ use gtk::prelude::*;
 /// Whether `view` has an allocation for `line_at_y` to be answerable against.
 /// See the module contract's second half — a `0×0` visible rect means no layout,
 /// and every geometry read past this point would be answering about nothing.
-fn has_viewport(view: &gtk::TextView) -> bool {
+pub(crate) fn has_viewport(view: &gtk::TextView) -> bool {
     view.visible_rect().height() > 0
 }
 

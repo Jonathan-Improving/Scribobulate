@@ -116,6 +116,12 @@ fn claim_selection_for_press(view: &CodePreviewView, x: f64, y: f64) {
             label.select_region(0, 0);
         }
     }
+    let other_cell_has_focus = labels
+        .iter()
+        .any(|l| Some(l) != pressed.as_ref() && l.has_focus());
+    if other_cell_has_focus {
+        release_cell_focus(view);
+    }
     if pressed.is_none() {
         return; // a press in body text: GTK collapses or extends the body selection
     }
@@ -123,6 +129,21 @@ fn claim_selection_for_press(view: &CodePreviewView, x: f64, y: f64) {
     if buffer.has_selection() {
         let insert = buffer.iter_at_mark(&buffer.get_insert());
         buffer.select_range(&insert, &insert);
+    }
+}
+
+/// Take keyboard focus off a cell the user has pressed away from.
+///
+/// A press that GTK denies to every click gesture (GTK4Rs/AP-363) moves focus nowhere, so
+/// the old cell kept a blinking text cursor after its selection was cleared. Focus goes to
+/// the view, never to a label: a label that grabs focus outside a click selects all of its
+/// text (GTK4Rs/AP-107). When the press does reach the pressed cell, that cell's own click
+/// takes focus from the view as usual.
+fn release_cell_focus(view: &CodePreviewView) {
+    if !view.grab_focus() {
+        if let Some(root) = view.root() {
+            root.set_focus(None::<&gtk::Widget>);
+        }
     }
 }
 

@@ -37,10 +37,9 @@ described from a different vantage point.
 
 | ID | Platform | Scope | Issue | Severity |
 |----|----------|-------|-------|----------|
-| A | Windows | Production | Clicking **Edit** on an annotation's comment card shows the comment field scrolled so only the bottom few pixels of its text line are visible, until the reader types | Low |
-| C | Any | Production | After a quick click away from a selected table cell, the old cell sometimes keeps a blinking text cursor (no selection, no Annotate card) | Low |
 | B | Mac | Upstream | macOS only: every native file-chooser invocation (Open, Save, Export) grows RSS by ~1.1 MB and does not give it back. Roughly four fifths is AppKit's own price for presenting an `NSSavePanel` — reproduced with no GTK in the process — with about a fifth GTK-attributable. Caching the panel upstream would recover ~95% | Medium |
 | D | Any | Production | The preview's Annotate bubble sits over the line above a selection, so a click there can land on the bubble: in a table, a double- or triple-click on the cell above a selected cell can lose a press and act as a single click | Low |
+| E | Linux | Test | `window::find::bartests::a_closed_find_bar_paints_no_match_highlight` intermittently counts 4 matches where the held passage holds 2 (1 of 2 full instrumented pipeline runs; 5 of 5 isolated runs pass) | Low |
 | G | Windows | Upstream | After an edit the editor's scrollbar slider is sometimes not drawn until the next scroll (2 of 40 Enters); a GTK defect still open upstream | Low |
 | Q | Windows, Linux | Upstream | A crafted SVG can corrupt memory: Windows and Linux decode SVG through a librsvg with a published use-after-free (CVE-2026-96889, fixed in 2.63.2), and refuse any SVG that may use XInclude before librsvg sees it until they carry the fix. The macOS bundle carries 2.63.2, and its build fails below that | High |
 | R | Windows | Test | Two split-mode live-reload tests in `window::outline_reload_tests` intermittently fail on Windows CI because the editor is not where the test parked it (top line 0, or 70 where >100 is required) | Low |
@@ -156,28 +155,6 @@ free today, as the probe's control demonstrates — to un-break a minor limitati
 nobody has asked for. It would be a deliberate project chosen on product grounds, not an
 increment, and it should not be started from this entry.
 
-## A. The comment field opens scrolled past its own text when an annotation is edited
-
-**Severity**: Low (the text is there and typing brings it back into view; nothing is lost).
-
-**Observed** (2026-10-22, Windows 10, GTK 4.22.4, `windows` seat): open an annotation's
-comment card from its margin chip and click **Edit**. The comment field shows only the
-bottom few pixels of its line of text, 4 of 4 tries. Reproduces on master before the cards
-moved into the window, so it is not caused by that change.
-
-**Not established**: the mechanism, and whether Linux and macOS show it. A Linux Xvfb
-capture of the same step showed an empty-looking field, which fits but was not examined.
-Filed `Windows` provisionally: the other two platforms have not been checked, so narrow it
-only once they have. A comment field rebuilt into an already-showing card is the shape
-GTK4Rs/AP-354 describes for the horizontal axis (an animated scroll aimed before the
-field's first allocation); check that before guessing.
-
-**Mitigation options**:
-- If it is GTK4Rs/AP-354's shape on the vertical axis, give the field its own vertical adjustment
-  as GTK4Rs/AP-354 does for the horizontal one.
-- Scroll the field to its start once it has its first allocation.
-- Accept it: typing or a click in the field shows the text.
-
 ## B. Every native file chooser invocation grows RSS on macOS
 
 **Severity**: Medium. Monotonic within everything measured at the per-invocation scale, but the
@@ -220,27 +197,6 @@ evidence must outlive it. Do not restate its figures here; several carry caveats
 survive summarising, and the transferable lessons already have permanent homes in
 `sdd/ANTI-PATTERNS.md`.
 
-## C. A quick click away from a table cell can leave a text cursor in the old cell
-
-**Severity**: Low (cosmetic: the selection and its Annotate card are cleared; only the cursor stays).
-
-**Observed** (2026-10, macOS, GTK 4.24.1): select text in a table cell, then click quickly
-elsewhere. In 6 of 60 tries the old cell kept a blinking text cursor. Its selection and the
-Annotate card were cleared as expected, but keyboard focus stayed in that cell. Not seen in
-Linux Xvfb drives on GTK 4.6.9 (20 tries; the cursor was not specifically checked).
-Windows has not been driven. Filed `Any` until the other platforms are checked.
-
-**Likely cause**: on GTK 4.24 a press that falls inside a double-click series can be denied
-to every click gesture, so no gesture handles it and GTK never moves focus.
-The app's own capture-phase press handler clears selections but does not move focus.
-
-**Mitigation options**:
-- Move focus away from the old cell in the same press handler. Risk: focusing a selectable
-  label can select all of its text, so this needs care and a test.
-- Accept it: the next click or key press moves focus as usual.
-
-The operator chose to accept it for now (2026-10-22).
-
 ## D. The Annotate bubble covers the line above a selection and can swallow a click there
 
 **Severity**: Low (a click lands on the bubble instead of the text beneath it; nothing is lost).
@@ -266,6 +222,26 @@ placement is shared code; macOS and Windows have not been driven.
 - Place the bubble clear of any text the reader may click next, e.g. in the margin or below
   the selection. Changes a placement other features and tests rely on.
 - Accept it: the reader can dismiss the bubble by clicking elsewhere first.
+
+## E. The closed-find-bar highlight test sometimes counts the whole document instead of the held passage
+
+**Severity**: Low (test only; no user-visible defect is known behind it).
+
+**Observed** (2026-10-23, Linux, GTK 4.6.9, `scripts/pipeline.sh` step 5c, instrumented
+full suite): `window::find::bartests::a_closed_find_bar_paints_no_match_highlight` failed
+at its `assert_eq!(count(&win), Some(2))` with `Some(4)`: right after Find in Selection
+was switched on over a two-line passage, the count still covered the whole document. The
+next full pipeline run passed, and 5 isolated runs of the test all passed. Filed `Linux`
+because it is the only platform it has been seen on; Windows and macOS have not been
+checked for it.
+
+**Not established**: the mechanism. A count read before the in-selection search has
+re-run would give exactly the whole-document figure, which points at the test's settle
+rather than the product, but that was not measured.
+
+**Mitigation options**:
+- Make the test wait for the in-selection count to settle before asserting it.
+- If the count can be read stale in the app as well, fix the readout's ordering instead.
 
 ## G. On Windows the editor's scrollbar slider sometimes goes missing after an edit
 

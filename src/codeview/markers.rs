@@ -1632,6 +1632,103 @@ mod a11y_integration_tests {
         crate::testpump::destroy_after_tooltip_delay(&win, || view.popdown_marker_popover());
     }
 
+    /// A presented window over `md`, with a mutation sink so the card offers Edit.
+    fn edit_card_window(md: &str) -> (gtk::Window, CodePreviewView) {
+        let pane = crate::preview::render(
+            None,
+            md,
+            None,
+            1.0,
+            false,
+            &crate::fold::FoldState::default(),
+        );
+        let view = view_of(pane.clone());
+        let win = gtk::Window::new();
+        win.set_default_size(700, 400);
+        win.set_child(Some(&pane));
+        win.present();
+        settle("the margin chips to paint", || hitbox_count(&view) > 0);
+        view.set_annotation_sink(std::rc::Rc::new(|_e: AnnotationEdit| {}));
+        (win, view)
+    }
+
+    /// Open the first annotation's card, click Edit, and wait out the page switch.
+    fn open_edit_field(view: &CodePreviewView) -> sourceview::View {
+        use gtk::subclass::prelude::*;
+        assert!(view.open_stepped_marker_popover(0, Direction::Next));
+        settle("the marker popover to open", || {
+            view.has_open_marker_popover()
+        });
+        let card = view
+            .imp()
+            .marker_card
+            .borrow()
+            .clone()
+            .expect("the card exists once opened");
+        find_button(&card, "Edit")
+            .expect("the card offers Edit")
+            .emit_clicked();
+        let field = find_descendant::<sourceview::View>(&card)
+            .expect("the edit page holds the comment field");
+        crate::testpump::drain_for(crate::testpump::Clock::Frame, EDIT_PAGE_SETTLE);
+        assert!(field.is_mapped(), "the edit page is showing");
+        field
+    }
+
+    /// TDD 17.57, the vertical axis: a comment that fits the field opens with its first
+    /// line at the top, not scrolled down past it. Measured before the fix: 21 px down on
+    /// the first opening, leaving only the bottom of the line in view.
+    #[gtktest::test]
+    fn the_edit_field_opens_with_a_short_comment_at_its_top() {
+        let (win, view) = edit_card_window("Intro.\n\nThe {==claim==}{>>short<<} here.\n");
+        for opening in 1..=3 {
+            let field = open_edit_field(&view);
+            // The scroll value, not `visible_rect().y()`: that reads value − top_margin
+            // (GTK4Rs/AP-321), so an unscrolled field reports minus its margin.
+            let vadj = field.vadjustment().expect("the field scrolls vertically");
+            assert_eq!(
+                vadj.value(),
+                vadj.lower(),
+                "opening {opening}: a one-line comment is scrolled down inside its field, \
+                 so only the bottom of its line shows"
+            );
+            view.popdown_marker_popover();
+            settle("the marker popover to close", || {
+                !view.has_open_marker_popover()
+            });
+        }
+        crate::testpump::destroy_after_tooltip_delay(&win, || view.popdown_marker_popover());
+    }
+
+    /// TDD 17.57, the other half: a comment taller than the field opens scrolled to its
+    /// end, where the caret is. The short-comment fix defers that scroll past the field's
+    /// first paint; this proves the deferred scroll still runs.
+    #[gtktest::test]
+    fn the_edit_field_opens_a_long_comment_at_its_caret() {
+        let long = "word ".repeat(400);
+        let (win, view) = edit_card_window(&format!("The {{==claim==}}{{>>{long}end<<}}.\n"));
+        let field = open_edit_field(&view);
+        let vadj = field.vadjustment().expect("the field scrolls vertically");
+        // precondition: the comment really is taller than the field
+        assert!(
+            vadj.upper() > vadj.page_size() * 2.0,
+            "fixture: the comment must overflow the field ({} of {})",
+            vadj.upper(),
+            vadj.page_size()
+        );
+        assert!(
+            // scroll_mark_onscreen brings the caret's line in, not the margin below it.
+            vadj.value() + vadj.page_size()
+                >= vadj.upper() - f64::from(field.bottom_margin()) - 1.0,
+            "a long comment must open scrolled to its end, where the caret is \
+             (value {} page {} upper {})",
+            vadj.value(),
+            vadj.page_size(),
+            vadj.upper()
+        );
+        crate::testpump::destroy_after_tooltip_delay(&win, || view.popdown_marker_popover());
+    }
+
     /// The precondition every other a11y assertion rests on: a presented window paints
     /// the margin chips, so `marker_hitboxes` is populated. If this fails, no popover
     /// can ever open and the whole keyboard path is dead — which is exactly the
