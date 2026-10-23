@@ -53,11 +53,11 @@ fn clear_cell_selections(view: &CodePreviewView) {
 /// double and triple clicks, and a press that follows a double-click within the
 /// double-click time but somewhere else can reach the window and never emit `pressed` —
 /// measured on macOS (3 of 66 tries, a press ~0.36 s after a double-click in a cell); the
-/// text view's own click gesture ignored the same press. An `EventControllerLegacy` sees
-/// every press with no recognition state to lose it in. CAPTURE phase, so it sees the press
-/// before the cell does, and it never stops the event: the cell, or the text view, still
-/// receives the press and makes its own selection. Primary button only, so a right-click
-/// on a selection keeps it for the context menu.
+/// text view's own click gesture ignored the same press (GTK4Rs/AP-363). An
+/// `EventControllerLegacy` sees every press with no recognition state to lose it in.
+/// CAPTURE phase, so it sees the press before the cell does, and it never stops the event:
+/// the cell, or the text view, still receives the press and makes its own selection.
+/// Primary button only, so a right-click on a selection keeps it for the context menu.
 fn wire_cell_press_exclusivity(view: &CodePreviewView) {
     let press = gtk::EventControllerLegacy::new();
     press.set_propagation_phase(gtk::PropagationPhase::Capture);

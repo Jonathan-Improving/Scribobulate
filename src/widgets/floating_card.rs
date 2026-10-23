@@ -24,7 +24,7 @@
 //! A child of the pane's `GtkOverlay` is part of the window's own surface, so nothing the
 //! window manager does to the window can leave it behind: there is no second window to
 //! leave. That is what the comment entry card has always been, and why it never showed
-//! this defect. Measured on all three platforms before the change.
+//! this defect. Measured on all three platforms before the change (GTK4Rs/AP-362).
 //!
 //! It drops two more popover hazards with it. An in-surface card receives keys through
 //! the window, so the application's accelerators keep working while it holds focus
