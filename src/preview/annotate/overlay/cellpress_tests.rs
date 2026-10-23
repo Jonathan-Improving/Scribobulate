@@ -4,7 +4,7 @@
 
 use super::{action_card_of, claim_selection_for_press};
 use crate::codeview::CodePreviewView;
-use crate::testpump::{destroy_after_tooltip_delay, drain_for, until, Clock};
+use crate::testpump::{destroy_after_tooltip_delay, drain_for, until, until_or_for, Clock};
 use gtk::prelude::*;
 use std::time::Duration;
 
@@ -159,9 +159,22 @@ fn a_press_in_body_text_clears_the_cells_and_leaves_the_body_to_gtk() {
 /// press handler alone is that press: no gesture runs. Both destinations are checked —
 /// another cell and body text. Mutation: drop the `release_cell_focus` call and the
 /// focus assertions fail.
+///
+/// Only an active window gives a widget focus, so the test skips when another
+/// application holds the front (seen on macOS while the suite ran in the background):
+/// the precondition could never hold. A reader's press activates the window before
+/// the press handler runs, so the product has no such gap.
 #[gtktest::test]
 fn a_press_away_from_a_focused_cell_takes_its_focus() {
     let (win, view, cells) = table_window();
+    if !until_or_for(Clock::Frame, Duration::from_secs(2), || win.is_active()) {
+        println!(
+            "SKIPPED [TDD 17.63]: the test window never became the active window \
+             (another application holds the front), so no cell can take focus"
+        );
+        destroy_after_tooltip_delay(&win, || ());
+        return;
+    }
     let alpha = cell(&cells, "alpha cell");
     let delta = cell(&cells, "delta cell");
     let buf = view.buffer();
