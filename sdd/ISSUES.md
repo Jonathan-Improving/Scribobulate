@@ -52,8 +52,10 @@ described from a different vantage point.
 |----|----------|-------|-------|----------|
 | A | Windows, Mac | Production | No screen reader on Windows or macOS can read the app's accessible names: our GTK builds leave GTK's AccessKit accessibility backend off, so neither platform gets a tree to carry them. Linux/AT-SPI reads them | Medium |
 | B | Mac | Upstream | macOS only: every native file-chooser invocation (Open, Save, Export) grows RSS by ~1.1 MB and does not give it back. Roughly four fifths is AppKit's own price for presenting an `NSSavePanel` — reproduced with no GTK in the process — with about a fifth GTK-attributable. Caching the panel upstream would recover ~95% | Medium |
+| C | Windows | Production | With the toolbar hidden by unticking its last section, View ▸ Toolbar greys every section row and shows no tick on the section that is still on, so the menu misreports the state | Low |
 | D | Any | Production | The preview's Annotate bubble sits over the line above a selection, so a click there lands on the bubble: the first click of a double- or triple-click opens the comment card, the next press closes it, and the reader gets a single click | Low |
 | E | Linux | Test | `window::find::bartests::a_closed_find_bar_paints_no_match_highlight` intermittently counts 4 matches where the held passage holds 2 (1 of 2 full instrumented pipeline runs; 5 of 5 isolated runs pass) | Low |
+| F | Linux | Test | `window::sidebarfilter::gtk_integration_tests::closing_the_filter_returns_the_focus_to_the_highlighted_row` intermittently finds the list at its top instead of scrolled to the highlighted row (1 failure on CI; passed on retry, and 6 of 6 locally) | Low |
 | G | Windows | Upstream | After an edit the editor's scrollbar slider is sometimes not drawn until the next scroll (2 of 40 Enters); a GTK defect still open upstream | Low |
 | Q | Windows, Linux | Upstream | A crafted SVG can corrupt memory: Windows and Linux decode SVG through a librsvg with a published use-after-free (CVE-2026-96889, fixed in 2.63.2), and refuse any SVG that may use XInclude before librsvg sees it until they carry the fix. The macOS bundle carries 2.63.2, and its build fails below that | High |
 | R | Windows | Test | Two split-mode live-reload tests in `window::outline_reload_tests` intermittently fail on Windows CI because the editor is not where the test parked it (top line 0, or 70 where >100 is required) | Low |
@@ -261,6 +263,24 @@ evidence must outlive it. Do not restate its figures here; several carry caveats
 survive summarising, and the transferable lessons already have permanent homes in
 `sdd/ANTI-PATTERNS.md`.
 
+## C. With the toolbar hidden, View ▸ Toolbar shows no tick on the section that is still on
+
+**Severity**: Low (the state is right and the bar comes back correctly; only the menu's
+display of it is wrong, and only while the bar is hidden).
+
+**Observed** (2026-10-24, Windows, GTK 4.22.4, on master; reported by the `linux-undo` seat):
+in View ▸ Toolbar, untick sections until one remains, then untick that one too, so the
+toolbar hides. Every section row is then greyed, and the row for the section whose state is
+still on shows no tick. Ticking Show brings the bar back with that section, so the state
+was on throughout.
+
+**Platform**: macOS draws the tick on the greyed row, so it does not show this. Linux has
+not been checked.
+
+**Cause** (unconfirmed): probably GTK's Windows theme not drawing the check mark on a
+disabled check menu item. Not `Upstream` until a reproduction outside this app shows that,
+and the ticket search is done.
+
 ## D. The Annotate bubble covers the line above a selection and takes a click meant for it
 
 **Severity**: Low (a click lands on the bubble instead of the text beneath it; nothing is lost).
@@ -306,6 +326,17 @@ rather than the product, but that was not measured.
 **Mitigation options**:
 - Make the test wait for the in-selection count to settle before asserting it.
 - If the count can be read stale in the app as well, fix the readout's ordering instead.
+
+## F. The sidebar-filter focus test sometimes finds the list unscrolled
+
+**Severity**: Low (a test-only intermittent; no product symptom has been seen).
+
+**Observed** (2026-10-24, GitHub CI, Linux coverage leg, step 5c, run 40101250787 attempt 1
+on the commit "Offer the View ▸ Toolbar toggles from a right-click on the toolbar…", 2026-10-24): `closing_the_filter_returns_the_focus_to_the_highlighted_row` failed at
+`src/window/sidebarfilter.rs:1113`, "the highlighted row is scrolled into view, not the top
+of the list". Attempt 2 of the same run passed; so did the same commit inside run
+40102254669 and 6 of 6 local runs. Windows and macOS legs passed both times. Not
+investigated.
 
 ## G. On Windows the editor's scrollbar slider sometimes goes missing after an edit
 
