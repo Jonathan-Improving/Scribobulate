@@ -1905,8 +1905,8 @@
 - **And when** the reader enables **whole word** and searches `note`
 - **Then** `notebook` is not a match, in both panes
 - **And** the options survive switching view mode, and are restored per tab on a tab switch alongside the query (§15.12)
-- **And** each option is one `GAction`, so the find-bar toggle and the Edit-menu item are the same control rather than two that agree
-- **Coverage** `window::find::parity::a_literal_query_counts_the_same_in_both_panes`, `…::whole_word_draws_the_word_boundary_at_the_same_characters`; `window::find::matcher::tests`; `tests/MANUAL-TEST.md` §11.13
+- **And** the options are reached only from the find bar: the Edit menu carries none of them, because they mean nothing while the bar is closed
+- **Coverage** `window::find::parity::a_literal_query_counts_the_same_in_both_panes`, `…::whole_word_draws_the_word_boundary_at_the_same_characters`; `window::find::matcher::tests`; `app::menubar::tests::no_menu_item_drives_a_find_option`; `tests/MANUAL-TEST.md` §11.13
 
 ### 11.14 A regular expression means the same thing in both panes
 - **Given** the regular-expression option enabled

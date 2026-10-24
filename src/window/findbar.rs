@@ -321,13 +321,12 @@ pub(super) fn wire_find_bar(window: &ApplicationWindow, chrome: &Chrome) {
 
     // ── win.find-match-case / win.find-whole-word / win.find-regex ────────────
     // The three match options, one stateful boolean action each. **Uncommon commands**
-    // (CAM § Uncommon commands): an Edit-menu item and a find-bar toggle, no toolbar
-    // section and no context-menu entry — they qualify a query that only exists while
-    // the bar is open.
+    // (CAM § Uncommon commands): a find-bar toggle and nothing else — no menu item,
+    // toolbar section or context-menu entry — because they qualify a query that only
+    // exists while the bar is open.
     //
-    // One action per option is what makes the find-bar toggle and the menu item the
-    // same control rather than two that have to be kept in step (POLICY "One action per
-    // command"). The option itself lives on the TAB, not on the action: the action's
+    // One action per option, which the find-bar toggle is bound to (POLICY "One action
+    // per command"). The option itself lives on the TAB, not on the action: the action's
     // state is a mirror of it, resynced on a tab switch exactly as `show-unsafe-images`
     // is.
     for (name, accessor) in FindOptions::ACTIONS {
