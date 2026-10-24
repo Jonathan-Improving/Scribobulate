@@ -203,13 +203,11 @@ pub(super) fn navigate_to_annotation(
             // a preview-only jump on the next tick; make the preview the driver so the
             // navigation sticks (the coalesced sync then projects preview→editor). A genuine
             // user input on the editor switches the driver back.
-            st.scroll.driver.set(ScrollDriver::Preview);
+            super::panescroll::lead(&st, ScrollDriver::Preview);
             place_editor_caret(&st.editor_buf, src_start);
             open_marker_for_src_deferred(window, src_start, focus);
         }
-        ViewMode::Edit => {
-            super::outline_nav::scroll_editor_to_offset(&st.editor, &st.editor_buf, src_start)
-        }
+        ViewMode::Edit => super::outline_nav::scroll_editor_to_offset(&st, src_start),
     }
 }
 

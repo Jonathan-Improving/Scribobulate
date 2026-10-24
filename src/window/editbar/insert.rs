@@ -170,13 +170,10 @@ pub(crate) fn go_to_line(window: &ApplicationWindow) {
             // the life of the tab.
             let mark =
                 crate::codeview::move_or_create_mark(buf.upcast_ref(), "scrib-go-to-line", &iter);
-            crate::farscroll::scroll_to_mark_when_ready(
-                st.editor.upcast_ref(),
+            crate::window::panescroll::editor_to_mark(
+                &st,
                 &mark,
-                0.0,
-                true,
-                0.0,
-                0.5,
+                crate::window::panescroll::Placement::MIDDLE,
             );
             st.editor.grab_focus();
         },

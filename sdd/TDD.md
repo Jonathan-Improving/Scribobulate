@@ -1371,6 +1371,12 @@
 - **And given** the editor is on screen and the edit being undone or redone lies outside its viewport, above or below
 - **When** the user invokes Undo or Redo, from any surface
 - **Then** the editor scrolls so the caret, which the undo or redo places on the changed text, is on screen, and the user sees what was reverted or re-applied; a change already on screen does not move the view, and a change far into a document still being laid out is reached rather than abandoned part-way
+- **And given** the split view, whichever pane the reader last scrolled or clicked
+- **When** the user invokes Undo or Redo on a change outside the editor's viewport
+- **Then** the editor still scrolls to the change and the preview follows it there; the side-by-side scroll sync never holds the editor at the preview's position, which would leave the change out of sight
+- **And given** the preview-only view, and the edit being undone or redone lies outside the preview's viewport
+- **When** the user invokes Undo or Redo, from any surface
+- **Then** the preview scrolls to the reverted or re-applied text, so the user sees what changed; a change already on screen does not move the view
 
 ### 9.18 Help > About opens the About dialog
 - **Given** a document window

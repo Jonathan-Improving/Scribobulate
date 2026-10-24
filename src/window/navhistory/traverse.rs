@@ -86,9 +86,7 @@ pub(super) fn restore_place(tab: &Rc<TabState>, spot: Option<&NavSpot>) {
     // Make the preview the scroll driver for this jump, exactly as an outline
     // activation does: in split mode the sync otherwise treats the editor as
     // driver and projects editor→preview on the next tick, undoing the traversal.
-    tab.scroll
-        .driver
-        .set(crate::winstate::ScrollDriver::Preview);
+    crate::window::panescroll::lead(tab, crate::winstate::ScrollDriver::Preview);
     match spot {
         NavSpot::Heading(slug) => {
             crate::preview::scroll_preview_to_fragment(&sw, slug);

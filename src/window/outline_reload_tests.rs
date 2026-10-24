@@ -194,6 +194,10 @@ fn park_in_editor(window: &ApplicationWindow, doc: &str, filtered: bool) {
         .iter_at_line(target_line(doc) + 2)
         .expect("a line inside the target section");
     st.editor_buf.place_cursor(&it);
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "test fixture positioning the view as a precondition, not a navigation"
+    )]
     crate::farscroll::scroll_to_mark_when_ready(
         st.editor.upcast_ref(),
         &st.editor_buf.get_insert(),
@@ -546,6 +550,10 @@ fn a_mode_switch_from_edit_keeps_a_heading_at_the_top_of_the_preview() {
                 .iter_at_line(target_line(&doc))
                 .expect("the heading line");
             st.editor_buf.place_cursor(&it);
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "test fixture positioning the view as a precondition, not a navigation"
+            )]
             crate::farscroll::scroll_to_mark_when_ready(
                 st.editor.upcast_ref(),
                 &st.editor_buf.get_insert(),

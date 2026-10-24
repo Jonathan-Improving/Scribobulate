@@ -1342,6 +1342,15 @@ fn preview_hit_span(hit: &PreviewHit) -> (i32, i32) {
     }
 }
 
+/// Where a Find step puts the match in the editor: brought in from a 10% margin and,
+/// when it has to move, centred vertically.
+const FIND_PLACEMENT: super::panescroll::Placement = super::panescroll::Placement {
+    within_margin: 0.1,
+    use_align: false,
+    xalign: 0.0,
+    yalign: 0.5,
+};
+
 /// Where a hit sits in document order, as a buffer char offset. The one place the
 /// three hit kinds are reduced to a common coordinate, so no caller re-derives which
 /// field of which variant carries a position.
@@ -1513,14 +1522,7 @@ pub(super) fn do_find_next(
         // exactly the target iter — same mark-based route the preview path and the
         // sibling `outline_nav::scroll_editor_to_offset` already take. The alignment
         // args are preserved verbatim (within_margin 0.1, use_align false, yalign 0.5).
-        crate::farscroll::scroll_to_mark_when_ready(
-            st.editor.upcast_ref(),
-            &buf.get_insert(),
-            0.1,
-            false,
-            0.0,
-            0.5,
-        );
+        super::panescroll::editor_to_mark(&st, &buf.get_insert(), FIND_PLACEMENT);
         // Ask the engine WHICH occurrence this is, rather than re-deriving it by
         // re-searching the whole document on every press (`occurrence_index`).
         let cursor = editor_cursor_for(occurrence_index(sc, &ms, &me));
@@ -1560,14 +1562,7 @@ fn scoped_editor_step(st: &Rc<TabState>, dir: SearchDir) -> bool {
     };
     let (start, end) = matches[(next - 1) as usize];
     buf.select_range(&buf.iter_at_offset(start), &buf.iter_at_offset(end));
-    crate::farscroll::scroll_to_mark_when_ready(
-        st.editor.upcast_ref(),
-        &buf.get_insert(),
-        0.1,
-        false,
-        0.0,
-        0.5,
-    );
+    super::panescroll::editor_to_mark(st, &buf.get_insert(), FIND_PLACEMENT);
     st.find_cursor.set(FindCursor::Editor(next));
     set_match_label(label, next, total);
     true

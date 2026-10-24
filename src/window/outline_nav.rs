@@ -345,11 +345,11 @@ fn navigate_to_heading(window: &ApplicationWindow, path: &HeadingPath, row_index
                 // this navigation, so the jump sticks and the editor follows it
                 // (the coalesced sync projects preview→editor). Genuine user input
                 // on the editor switches the driver back via mark_driver_on_input.
-                st.scroll.driver.set(ScrollDriver::Preview);
+                super::panescroll::lead(&st, ScrollDriver::Preview);
                 scroll_preview_to_heading_revealing(window, &preview_sw, row_index);
             }
         }
-        ViewMode::Edit => scroll_editor_to_offset(&st.editor, &st.editor_buf, src_offset),
+        ViewMode::Edit => scroll_editor_to_offset(&st, src_offset),
     }
 }
 /// Scroll the preview to a heading, **opening whatever hides it first** (rubric
@@ -434,10 +434,10 @@ fn slug_for_path(
 /// (the buffer's insert mark, deferred until line validation), not
 /// `scroll_to_iter` — same blanking hazard as the preview (GTK4Rs/AP-22).
 pub(super) fn scroll_editor_to_offset(
-    editor: &sourceview::View,
-    buf: &sourceview::Buffer,
+    st: &crate::winstate::TabState,
     src_offset: OriginalByteOffset,
 ) {
+    let buf = &st.editor_buf;
     let (s, e) = buf.bounds();
     let text = crate::saferizer::BufferText::of_range(buf, &s, &e);
     // Byte → char through the shared seam, never a local `get(..).unwrap_or(0)`
@@ -449,14 +449,7 @@ pub(super) fn scroll_editor_to_offset(
     let char_off = text.char_offset_at(src_offset.raw());
     let it = buf.iter_at_offset(char_off);
     buf.place_cursor(&it);
-    crate::farscroll::scroll_to_mark_when_ready(
-        editor.upcast_ref(),
-        &buf.get_insert(),
-        0.0,
-        true,
-        0.0,
-        0.0,
-    );
+    super::panescroll::editor_to_mark(st, &buf.get_insert(), super::panescroll::Placement::TOP);
 }
 
 // ── Scroll-spy ──────────────────────────────────────────────────────────────

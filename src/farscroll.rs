@@ -730,6 +730,10 @@ mod gtk_integration_tests {
             .expect("the fixture is that long");
         buffer.place_cursor(&target);
         let mark = buffer.create_mark(None, &target, true);
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "this module's own test of the call itself"
+        )]
         scroll_to_mark_when_ready(view.upcast_ref(), &mark, 0.0, true, 0.0, 0.5);
 
         pump_until("the viewport to reach the target line", || {

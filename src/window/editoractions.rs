@@ -88,13 +88,7 @@ pub(super) fn register_editor_actions(window: &ApplicationWindow, heading_btn: &
     undo_action.connect_activate(glib::clone!(
         #[weak(rename_to = w)]
         window,
-        move |_, _| {
-            if let Some(st) = state(&w) {
-                st.editor_buf.undo();
-                reveal_editor_caret(&st.editor);
-            }
-            refresh_preview_after_undo_redo(&w);
-        }
+        move |_, _| step_history(&w, HistoryStep::Undo)
     ));
     window.add_action(&undo_action);
 
@@ -103,13 +97,7 @@ pub(super) fn register_editor_actions(window: &ApplicationWindow, heading_btn: &
     redo_action.connect_activate(glib::clone!(
         #[weak(rename_to = w)]
         window,
-        move |_, _| {
-            if let Some(st) = state(&w) {
-                st.editor_buf.redo();
-                reveal_editor_caret(&st.editor);
-            }
-            refresh_preview_after_undo_redo(&w);
-        }
+        move |_, _| step_history(&w, HistoryStep::Redo)
     ));
     window.add_action(&redo_action);
 
@@ -474,13 +462,31 @@ pub(super) fn register_editor_actions(window: &ApplicationWindow, heading_btn: &
     window.add_action(&copy_document_action);
 }
 
-/// Refresh the preview after an Undo/Redo so a reverted/re-applied CriticMarkup
-/// annotation's highlights and margin markers update. Only needed in preview-only
-/// mode: there the live-preview debounce (`wire_live_preview`) is gated off, so the
-/// buffer `changed` an undo emits never reaches the preview. Split mode's debounce
-/// already re-renders on that same `changed`; edit mode has no preview. Uses the
-/// live-buffer re-render (with the annotation-in-place fast path), the same one the
-/// Annotate flow uses.
+/// Which way an Undo/Redo command moves through the editor's history.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HistoryStep {
+    Undo,
+    Redo,
+}
+
+/// Run one Undo or Redo and show the reader what it changed (TDD 9.16), in whichever
+/// panes the view mode shows.
+fn step_history(window: &ApplicationWindow, step: HistoryStep) {
+    let Some(st) = state(window) else { return };
+    // Read before the step: the preview is re-rendered from the new text below, and
+    // "was the change already on screen" is a question about the view the reader saw.
+    let preview_before = super::panescroll::preview_lines_on_screen(&st);
+    match step {
+        HistoryStep::Undo => st.editor_buf.undo(),
+        HistoryStep::Redo => st.editor_buf.redo(),
+    }
+    reveal_editor_caret(&st);
+    if current_mode(window) == ViewMode::Preview {
+        refresh_preview_after_undo_redo(window);
+        reveal_change_in_preview(&st, preview_before);
+    }
+}
+
 /// Bring the editor's caret into view after an undo or redo, so the reader sees what
 /// was reverted or re-applied (TDD 9.16).
 ///
@@ -490,25 +496,43 @@ pub(super) fn register_editor_actions(window: &ApplicationWindow, heading_btn: &
 /// mark (`gtktextview.c:10135-10147` at 4.6.9), and this window action replaces them
 /// with a bare `buffer.undo()`. This restores that step with the same minimal scroll
 /// (no alignment, so a change already on screen does not move the view), through
-/// `farscroll` so a change far away in a document still being laid out is reached
-/// rather than discarded (GTK4Rs/AP-260).
+/// `panescroll`, which reaches a change far away in a document still being laid out
+/// (GTK4Rs/AP-260) and, in split mode, makes the editor lead the scroll sync so the
+/// preview follows it there rather than holding it back (ScrAP-361).
 ///
 /// Skipped when the editor is not on screen (preview mode): there is no viewport to
 /// scroll, and the next switch to the editor restores its position from the
-/// document (Reading-Position CAM row 5).
-fn reveal_editor_caret(editor: &sourceview::View) {
-    if !editor.is_mapped() {
+/// document (Reading-Position CAM row 5). The preview is revealed instead.
+fn reveal_editor_caret(st: &crate::winstate::TabState) {
+    if !st.editor.is_mapped() {
         return;
     }
-    let view = editor.upcast_ref::<gtk::TextView>();
-    let insert = view.buffer().get_insert();
-    crate::farscroll::scroll_to_mark_when_ready(view, &insert, 0.0, false, 0.0, 0.0);
+    super::panescroll::editor_to_mark(
+        st,
+        &st.editor_buf.get_insert(),
+        super::panescroll::Placement::MINIMAL,
+    );
 }
 
+/// Preview-only mode: bring the change an undo or redo made into view in the preview,
+/// unless it was already on screen (TDD 9.16). The caret, which the history places on
+/// the change, is carried across as a document position.
+fn reveal_change_in_preview(st: &crate::winstate::TabState, before: Option<(i32, i32)>) {
+    let buf = &st.editor_buf;
+    let caret = buf.iter_at_mark(&buf.get_insert()).offset();
+    let pos = crate::readingpos::from_editor_char(&st.editor_text(), caret);
+    super::panescroll::preview_reveal(st, pos, before);
+}
+
+/// Refresh the preview after an Undo/Redo so a reverted/re-applied CriticMarkup
+/// annotation's highlights and margin markers update. Only needed in preview-only
+/// mode: there the live-preview debounce (`wire_live_preview`) is gated off, so the
+/// buffer `changed` an undo emits never reaches the preview. Split mode's debounce
+/// already re-renders on that same `changed`; edit mode has no preview. Uses the
+/// live-buffer re-render (with the annotation-in-place fast path), the same one the
+/// Annotate flow uses.
 fn refresh_preview_after_undo_redo(window: &ApplicationWindow) {
-    if current_mode(window) == ViewMode::Preview {
-        rerender_preview_from_live_edit(window);
-    }
+    rerender_preview_from_live_edit(window);
 }
 
 #[cfg(all(test, feature = "gtk-integration-tests"))]
@@ -772,8 +796,179 @@ mod gtk_integration_tests {
     /// `reveal_editor_caret` from either action fails the matching half.
     #[gtktest::test]
     fn undo_and_redo_scroll_the_editor_to_the_change() {
+        assert_undo_and_redo_reveal_the_change("edit", None);
+    }
+
+    /// Split mode, with the PREVIEW last driving the scroll sync (the reader scrolled or
+    /// clicked it before pressing Undo): the sync must not drag the editor back off the
+    /// change once the undo has scrolled it there (TDD 9.16).
+    #[gtktest::test]
+    fn undo_and_redo_reveal_the_change_in_split_mode_when_the_preview_drove_last() {
+        assert_undo_and_redo_reveal_the_change(
+            "split",
+            Some(crate::winstate::ScrollDriver::Preview),
+        );
+    }
+
+    /// Preview-only mode: there is no editor on screen, so the PREVIEW scrolls to the
+    /// change an undo or redo made (TDD 9.16). The precondition puts the preview at the
+    /// top with the change at the document's end, so the test cannot pass by the change
+    /// having been visible already. Mutation: dropping `reveal_change_in_preview` from
+    /// `step_history` leaves the preview at the top and fails both halves.
+    #[gtktest::test]
+    fn undo_and_redo_scroll_the_preview_to_the_change_in_preview_mode() {
         let app = gtk::Application::new(
-            Some("com.extollit.scribobulate.integrationtest.editoractions.undoreveal"),
+            Some("com.extollit.scribobulate.integrationtest.editoractions.undoreveal.preview"),
+            gtk::gio::ApplicationFlags::NON_UNIQUE,
+        );
+        app.register(gtk::gio::Cancellable::NONE)
+            .expect("register (emits startup) before building any window");
+        let doc: String = (1..=400).map(|n| format!("line {n}\n\n")).collect();
+        let window = crate::window::new_window(&app, "IT", &doc, None);
+        window.set_default_size(700, 400);
+        window.present();
+        pump_until(|| window.is_mapped(), "toplevel to map");
+        let st = state(&window).expect("state registered after new_window");
+        st.editor_buf
+            .insert(&mut st.editor_buf.end_iter(), "appended\n");
+        change_action_state(&window, "view-mode", &"preview".to_variant());
+
+        let adjustment = || {
+            st.split
+                .preview_scroller()
+                .expect("preview mode has a preview pane")
+                .vadjustment()
+        };
+        let preview = || {
+            st.split
+                .preview_scroller()
+                .and_then(|sw| sw.child())
+                .and_then(|c| c.downcast::<crate::codeview::CodePreviewView>().ok())
+                .expect("the preview view")
+        };
+        // The first buffer line at the viewport's top. Not `value() == 0`: the preview's
+        // top margin puts its topmost scroll position past zero once it has scrolled.
+        let at_top = || preview().visible_rect().y() == 0;
+        let at_bottom = || {
+            let a = adjustment();
+            a.value() > 0.0 && a.value() + a.page_size() >= a.upper() - 1.0
+        };
+        pump_until(
+            || adjustment().upper() > adjustment().page_size() * 2.0,
+            "the preview to be laid out taller than two screens",
+        );
+
+        for command in ["undo", "redo"] {
+            if !at_top() {
+                // The previous step re-rendered the preview, and a scroll issued while
+                // its layout is still growing can be dropped (GTK4Rs/AP-260). Wait for
+                // the layout to settle before positioning the fixture.
+                let settled = crate::testpump::until_stable(
+                    crate::testpump::Clock::Frame,
+                    std::time::Duration::from_secs(10),
+                    std::time::Duration::from_millis(300),
+                    || adjustment().upper() as i64,
+                );
+                assert!(
+                    settled.converged,
+                    "the re-rendered preview's layout to settle"
+                );
+                preview().scroll_to_buffer_offset(0);
+            }
+            crate::testpump::until(
+                crate::testpump::Clock::Frame,
+                "precondition: the preview at the top, the change off screen",
+                at_top,
+            );
+            simple_action(&window, command)
+                .expect("the window action")
+                .activate(None);
+            crate::testpump::until(
+                crate::testpump::Clock::Frame,
+                &format!("{command} to bring the preview to the change"),
+                at_bottom,
+            );
+        }
+        window.destroy();
+    }
+
+    /// Preview-only mode, the other half of TDD 9.16: an undo whose change is already on
+    /// screen leaves the preview where it is. The reader is parked at the document's end,
+    /// where the change is, and must still be there after the preview re-renders.
+    #[gtktest::test]
+    fn an_undo_already_on_screen_in_preview_mode_does_not_move_the_preview() {
+        let app = gtk::Application::new(
+            Some("com.extollit.scribobulate.integrationtest.editoractions.undoreveal.onscreen"),
+            gtk::gio::ApplicationFlags::NON_UNIQUE,
+        );
+        app.register(gtk::gio::Cancellable::NONE)
+            .expect("register (emits startup) before building any window");
+        let doc: String = (1..=400).map(|n| format!("line {n}\n\n")).collect();
+        let window = crate::window::new_window(&app, "IT", &doc, None);
+        window.set_default_size(700, 400);
+        window.present();
+        pump_until(|| window.is_mapped(), "toplevel to map");
+        let st = state(&window).expect("state registered after new_window");
+        st.editor_buf
+            .insert(&mut st.editor_buf.end_iter(), "appended\n");
+        change_action_state(&window, "view-mode", &"preview".to_variant());
+        let preview = || {
+            st.split
+                .preview_scroller()
+                .and_then(|sw| sw.child())
+                .and_then(|c| c.downcast::<crate::codeview::CodePreviewView>().ok())
+                .expect("the preview view")
+        };
+        let adjustment = || preview().vadjustment().expect("the preview scrolls");
+        let at_bottom = || {
+            let a = adjustment();
+            a.value() > 0.0 && a.value() + a.page_size() >= a.upper() - 1.0
+        };
+        pump_until(
+            || adjustment().upper() > adjustment().page_size() * 2.0,
+            "the preview to be laid out taller than two screens",
+        );
+        let end = preview().buffer().end_iter().offset();
+        preview().scroll_to_buffer_offset(end);
+        crate::testpump::until(
+            crate::testpump::Clock::Frame,
+            "precondition: the reader parked at the end, on the change",
+            at_bottom,
+        );
+
+        for command in ["undo", "redo", "undo"] {
+            simple_action(&window, command)
+                .expect("the window action")
+                .activate(None);
+            crate::testpump::drain_for(
+                crate::testpump::Clock::Frame,
+                std::time::Duration::from_millis(800),
+            );
+            let settled = crate::testpump::until_stable(
+                crate::testpump::Clock::Frame,
+                std::time::Duration::from_secs(10),
+                std::time::Duration::from_millis(300),
+                || adjustment().value() as i64,
+            );
+            assert!(settled.converged, "the preview to settle after {command}");
+            assert!(
+                at_bottom(),
+                "{command}: the change was on screen, so the preview must not move; it is at {} of {}",
+                adjustment().value(),
+                adjustment().upper()
+            );
+        }
+        window.destroy();
+    }
+
+    fn assert_undo_and_redo_reveal_the_change(
+        mode: &str,
+        driver: Option<crate::winstate::ScrollDriver>,
+    ) {
+        let app = gtk::Application::new(
+            Some(&format!(
+                "com.extollit.scribobulate.integrationtest.editoractions.undoreveal.{mode}"
+            )),
             gtk::gio::ApplicationFlags::NON_UNIQUE,
         );
         app.register(gtk::gio::Cancellable::NONE)
@@ -784,7 +979,7 @@ mod gtk_integration_tests {
         window.present();
         pump_until(|| window.is_mapped(), "toplevel to map");
         let st = state(&window).expect("state registered after new_window");
-        change_action_state(&window, "view-mode", &"edit".to_variant());
+        change_action_state(&window, "view-mode", &mode.to_variant());
         let view = st.editor.upcast_ref::<gtk::TextView>().clone();
         let buf = st.editor_buf.clone();
         pump_until(
@@ -799,6 +994,10 @@ mod gtk_integration_tests {
         };
         let to_top = || {
             buf.place_cursor(&buf.start_iter());
+            #[expect(
+                clippy::disallowed_methods,
+                reason = "test fixture positioning the view as a precondition, not a navigation"
+            )]
             crate::farscroll::scroll_to_mark_when_ready(
                 &view,
                 &buf.get_insert(),
@@ -820,33 +1019,34 @@ mod gtk_integration_tests {
         };
 
         buf.insert(&mut buf.end_iter(), "appended");
-        to_top();
-        assert!(
-            !end_on_screen(),
-            "precondition: the change must start off screen"
-        );
-        simple_action(&window, "undo")
-            .expect("win.undo")
-            .activate(None);
-        crate::testpump::until(
-            crate::testpump::Clock::Frame,
-            "undo to bring the caret into view",
-            &caret_on_screen,
-        );
-
-        to_top();
-        assert!(
-            !end_on_screen(),
-            "precondition: the change must start off screen"
-        );
-        simple_action(&window, "redo")
-            .expect("win.redo")
-            .activate(None);
-        crate::testpump::until(
-            crate::testpump::Clock::Frame,
-            "redo to bring the caret into view",
-            &caret_on_screen,
-        );
+        for command in ["undo", "redo"] {
+            to_top();
+            assert!(
+                !end_on_screen(),
+                "precondition: the change must start off screen"
+            );
+            if let Some(driver) = driver {
+                st.scroll.driver.set(driver);
+            }
+            simple_action(&window, command)
+                .expect("the window action")
+                .activate(None);
+            crate::testpump::until(
+                crate::testpump::Clock::Frame,
+                &format!("{command} to bring the caret into view"),
+                &caret_on_screen,
+            );
+            // Let the split sync and the preview's live re-render settle: the change
+            // must still be on screen after they have had their say.
+            crate::testpump::drain_for(
+                crate::testpump::Clock::Frame,
+                std::time::Duration::from_millis(800),
+            );
+            assert!(
+                caret_on_screen(),
+                "{command} in {mode} mode: the caret was revealed, then scrolled away"
+            );
+        }
         window.destroy();
     }
 

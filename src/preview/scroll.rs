@@ -403,11 +403,14 @@ pub(crate) fn restore_preview_scroll_to_line(sw: &ScrolledWindow, line: i32) {
     // The preview is a CodePreviewView — reuse its proven, coalesced,
     // validation-forcing scroll (GTK4Rs/AP-22), targeting the buffer offset of `line`.
     if let Ok(cpv) = child.clone().downcast::<CodePreviewView>() {
-        let offset = cpv
-            .buffer()
+        // A line past the end clamps to the last line, never to the top: the text a
+        // re-render restores onto can be shorter than the one the line was read from
+        // (an undo that removes the last line, with the reader parked on it).
+        let buffer = cpv.buffer();
+        let offset = buffer
             .iter_at_line(line)
-            .map(|i| i.offset())
-            .unwrap_or(0);
+            .unwrap_or_else(|| buffer.end_iter())
+            .offset();
         cpv.scroll_to_buffer_offset(offset);
         return;
     }
