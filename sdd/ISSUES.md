@@ -14,6 +14,19 @@ FIX it** — a workaround may exist, but the repair is not ours to make, so an `
 entry is not work waiting to be scheduled here. It is orthogonal to severity: an `Upstream`
 entry can still be the worst thing in the register.
 
+**An `Upstream` entry carries its evidence in its body.** Calling a defect upstream is the
+claim that excuses us from fixing it, so it must be checkable by the next reader, not taken
+on trust:
+- **A link to the upstream ticket** (bug, issue, advisory or merge request), with its state
+  and the date that state was checked. Name the ticket's own words that match our symptom,
+  and say how the link was made — by a debugger trace into the library, by the library's own
+  reproducer, or by symptom only.
+- **Evidence that the defect is the library's**: a reproduction outside this application,
+  a trace into the library's code, or the ticket's own reproducer.
+- **When no ticket exists**, say so, with the date and where it was searched, and file one
+  — or record why it was not filed. An entry with neither a link nor that statement is not
+  `Upstream` yet.
+
 **Read an entry sceptically before building on it.** Across the five batches that emptied
 this register down from eighteen entries, **four** recorded root causes were measured and
 found WRONG, and three entries turned out not to be defects at all — one whose stated worry
@@ -37,8 +50,9 @@ described from a different vantage point.
 
 | ID | Platform | Scope | Issue | Severity |
 |----|----------|-------|-------|----------|
+| A | Windows, Mac | Production | No screen reader on Windows or macOS can read the app's accessible names: our GTK builds leave GTK's AccessKit accessibility backend off, so neither platform gets a tree to carry them. Linux/AT-SPI reads them | Medium |
 | B | Mac | Upstream | macOS only: every native file-chooser invocation (Open, Save, Export) grows RSS by ~1.1 MB and does not give it back. Roughly four fifths is AppKit's own price for presenting an `NSSavePanel` — reproduced with no GTK in the process — with about a fifth GTK-attributable. Caching the panel upstream would recover ~95% | Medium |
-| D | Any | Production | The preview's Annotate bubble sits over the line above a selection, so a click there can land on the bubble: in a table, a double- or triple-click on the cell above a selected cell can lose a press and act as a single click | Low |
+| D | Any | Production | The preview's Annotate bubble sits over the line above a selection, so a click there lands on the bubble: the first click of a double- or triple-click opens the comment card, the next press closes it, and the reader gets a single click | Low |
 | E | Linux | Test | `window::find::bartests::a_closed_find_bar_paints_no_match_highlight` intermittently counts 4 matches where the held passage holds 2 (1 of 2 full instrumented pipeline runs; 5 of 5 isolated runs pass) | Low |
 | G | Windows | Upstream | After an edit the editor's scrollbar slider is sometimes not drawn until the next scroll (2 of 40 Enters); a GTK defect still open upstream | Low |
 | Q | Windows, Linux | Upstream | A crafted SVG can corrupt memory: Windows and Linux decode SVG through a librsvg with a published use-after-free (CVE-2026-96889, fixed in 2.63.2), and refuse any SVG that may use XInclude before librsvg sees it until they carry the fix. The macOS bundle carries 2.63.2, and its build fails below that | High |
@@ -54,7 +68,6 @@ reused — unlike the letters above, which are positional and get reclaimed.
 |----|----------|-------|-------|
 | CLSD-01 | Any | Upstream | Tables are selection islands; cells are individually selectable but not part of the continuous buffer |
 | CLSD-02 | Any | Upstream | A paragraph that mixes fonts (any inline-code span) can lay out a few pixels wider than the wrap width it was given, summoning the preview's Automatic horizontal scrollbar and intermittently blanking the pane until a resize |
-| CLSD-03 | Windows, Mac | Upstream | No screen reader on Windows or macOS can read the app's accessible names: neither backend publishes a provider tree (no UIA there, no NSAccessibility tree here), so every name the app sets is correct and unreachable. Linux/AT-SPI reads them |
 | CLSD-04 | Mac | Upstream | In fullscreen, a click issued while the transition animation is still running is never delivered — AppKit blocks input for its own ~250-500ms window, in any Cocoa application. Not ours to fix, and not GTK's |
 
 
@@ -82,6 +95,11 @@ text into a cell, but selecting text *within* a cell copies that cell's own Mark
 source character-precisely (each cell carries its own `copymap`, formatting preserved
 — TDD 2.8f); a buffer selection overlapping the table anchor copies the whole table
 source.
+
+**Upstream ticket**: none. GNOME/gtk issues searched 2026-10-23 for selection across
+labels, widgets and child anchors; nothing matches. This is GTK's per-widget selection
+design rather than a defect, so a ticket would be a feature request. Not filed: a filing publishes under the operator's identity, and no seat holds GNOME GitLab credentials, so it waits on the operator.
+The evidence that the wall is GTK's is the source trace and probe below.
 
 ### ⛔ Unmitigable within GTK's selection machinery — investigated, probed, closed
 
@@ -155,6 +173,50 @@ free today, as the probe's control demonstrates — to un-break a minor limitati
 nobody has asked for. It would be a deliberate project chosen on product grounds, not an
 increment, and it should not be started from this entry.
 
+## A. No screen reader on Windows or macOS can read the app's accessible names
+
+**Severity**: Medium (no screen reader on either platform reaches any control; the names
+themselves are set correctly, and Linux/AT-SPI reads them).
+
+Reopened 2026-10-24 by the operator from CLSD-03, a number now retired. That entry was
+closed as inherent to GTK's Windows and Quartz backends, and the premise was wrong.
+
+**Cause**: our GTK builds leave GTK's AccessKit backend off. AccessKit publishes UI
+Automation on Windows and NSAccessibility on macOS:
+[gtk#6394](https://gitlab.gnome.org/GNOME/gtk/-/issues/6394) (closed 2024-12-20), added by
+[!8036](https://gitlab.gnome.org/GNOME/gtk/-/merge_requests/8036), first released in GTK
+4.18. At 4.22.4 it is the `accesskit` build option, **default `disabled`** (`meson.options`).
+Neither of our GTK sources enables it: Homebrew's `gtk4` formula and gvsbuild's `gtk.py` pass
+no `-Daccesskit`. Checked 2026-10-23 by reading those three files; not yet measured with the
+option on.
+
+⚠ The `Platform` cell reads `Windows, Mac` rather than one of the four single values the
+header defines: the consequence is identical on both and the causes are backend-specific,
+so filing it twice would be the header's own "one defect filed twice" trap, and `Any` would
+be false — Linux/AT-SPI reads these names correctly.
+
+MEASURED on both seats while ratifying the status bar (2026-09-15), with AccessKit off.
+**Windows** (GTK 4.22.4 gvsbuild, Win10 19045): UI Automation returns the toplevel (class
+`gdkSurfaceToplevel`) with **zero descendants**, against a positive control of Notepad
+returning two. **macOS** (GTK 4.22.4/Quartz): the window exposes 4 chrome elements and its
+"entire contents" is **empty**, with the reader validated in the same run (the native menu
+bar enumerates, and Save/Save As report their real enabled states).
+
+The consequence for verification: the accessibility rubrics (TDD 16.5, 16.7, 16.17) are
+**unrunnable** on Windows and macOS rather than failing. Their names ARE set — `a11y.rs` is
+the single choke point and `clippy.toml` bans the bare tooltip setter — and AT-SPI reads them
+on Linux, so a run that reports these checks as "not observed" is reporting this gap, not a
+defect in the code under test.
+
+**Fix**: build GTK with `-Daccesskit=enabled` on both platforms — a gvsbuild override on
+Windows and a GTK built by us instead of Homebrew's bottle on macOS — then rerun the
+2026-09-15 reads. Costs to weigh first:
+- The backend needs the Rust `accesskit-c` library at GTK build time on both platforms.
+- Open crash reports with the backend on:
+  [gtk#7653](https://gitlab.gnome.org/GNOME/gtk/-/issues/7653) (Windows) and
+  [gtk#8281](https://gitlab.gnome.org/GNOME/gtk/-/issues/8281) (macOS, reopening a window).
+  Each needs a check that the app does not hit it before the build delivers.
+
 ## B. Every native file chooser invocation grows RSS on macOS
 
 **Severity**: Medium. Monotonic within everything measured at the per-invocation scale, but the
@@ -182,8 +244,10 @@ macOS, per invocation, and the memory never returns. Neither Linux nor Windows r
 project's reference discipline — both call sites were audited and cleared. Roughly 93% is
 recoverable upstream by REUSING the panel rather than releasing it; a patch sketch exists,
 must be authored twice because the 4.6 and current variants differ, and two naive forms of it
-ship a use-after-free. The upstream filing is written and reviewed and **cannot be submitted
-from any seat here** — it needs the operator's credentials or explicit instruction.
+deliver a use-after-free. The upstream filing is gtk#8498 (below).
+
+**Upstream ticket**: [gtk#8498](https://gitlab.gnome.org/GNOME/gtk/-/work_items/8498), "macOS: GtkFileChooserNative is never finalized if hidden while its panel is open", filed by the operator 2026-10-24, open. It reports the GTK-owned share by symptom only, with a self-contained C reproducer run on GTK 4.24.1 / macOS 27.0.1: a native chooser hidden while its panel is up finalizes 0 of 12 times, against 12 of 12 for one never shown. That is the evidence the defect is GTK's. Earlier searches (2026-10-23 and 2026-10-24) found no prior ticket. The AppKit share has no Apple Feedback report.
+Related, none confirmed to be this defect: wxWidgets #22173, Qt QTBUG-39205.
 
 **What this project does about it**: nothing, deliberately. There is no application-side fix,
 the exposure is one panel per invocation on one platform, and TDD §6's ceiling is not
@@ -197,31 +261,31 @@ evidence must outlive it. Do not restate its figures here; several carry caveats
 survive summarising, and the transferable lessons already have permanent homes in
 `sdd/ANTI-PATTERNS.md`.
 
-## D. The Annotate bubble covers the line above a selection and can swallow a click there
+## D. The Annotate bubble covers the line above a selection and takes a click meant for it
 
 **Severity**: Low (a click lands on the bubble instead of the text beneath it; nothing is lost).
 
 **Observed** (2026-09-30, Linux, bare Xvfb, GTK 4.6.9): select text in a table cell, so the
 preview's **Annotate** bubble appears above the selection. The bubble covers the
-text of the cell above. Double-click and drag in that cell, and only the first press
-reaches it (instrumented at the cell's own click gesture): the double-click becomes a
+text of the cell above. Double-click and drag in that cell, and only one press reaches
+it: the double-click becomes a
 single click and a drag that should extend by words selects characters. The same drive with
 the bubble dismissed first behaves correctly. Probably what spoiled a triple-click the
 operator reported. In body text the bubble covers the line above in the same way; not
 separately driven there.
 
-**Not established**: why the first press still reaches the cell while the second does not —
-whether the bubble takes the second press, or its hiding/re-showing on the first
-press resets the click count. Measure before choosing between the options below. Filed `Any` because the bubble's
-placement is shared code; macOS and Windows have not been driven.
+**Mechanism** (2026-10-23, Linux, private Xvfb, GTK 4.6.9, debug build with a backtrace
+on the bubble's hide): the first click of the double-click is a complete click on the
+bubble's **Annotate** button. It opens the comment card (`show_entry` in
+`preview/annotate/overlay.rs`) and hides the bubble; the second press then lands on the
+cell, takes focus out of the card, and the card's focus-leave closes it. The cell sees one
+press, so it acts as a single click. The earlier report that the first press reached the
+cell was wrong. Filed `Any` because the bubble's placement is shared code; macOS and
+Windows have not been driven.
 
-**Mitigation options**:
-- Keep the bubble out of the pointer's way while a mouse button is down or a multi-click is
-  still possible (show it after the double-click time has passed since the last press).
-  Slightly slower to appear after a mouse selection; keyboard selection unaffected.
-- Place the bubble clear of any text the reader may click next, e.g. in the margin or below
-  the selection. Changes a placement other features and tests rely on.
-- Accept it: the reader can dismiss the bubble by clicking elsewhere first.
+**Decision** (operator, 2026-10-24): accepted, no remedy scheduled. The reader can dismiss
+the bubble by clicking elsewhere first. Not taken: placing the bubble clear of text (in the
+margin or below the selection), which changes a placement other features and tests rely on.
 
 ## E. The closed-find-bar highlight test sometimes counts the whole document instead of the held passage
 
@@ -256,9 +320,25 @@ repair, and macOS logs it too with the scrollbar still drawn, so the warning doe
 discriminate.
 
 **Cause**: GTK, still open upstream — GtkTextView changes its scroll range from inside
-paint (GNOME/gtk#6057, merge request !5222 unmerged), which leaves the scrollbar a frame
-behind. Linux on GTK 4.6 had a worse, separate defect (the scrollbar stayed undrawn until a
-resize, 24 of 25 Enters; fixed upstream in GTK 4.10 by !5564). The editor now hides and
+paint, which leaves the scrollbar a frame behind.
+- Upstream bug: [GNOME/gtk#6057](https://gitlab.gnome.org/GNOME/gtk/-/issues/6057),
+  "GtkTextView causes queue_allocate during snapshot", open since 2023-08-24 (state checked
+  2026-10-23). Its reproducer is a bare `GtkTextView` in a `GtkScrolledWindow`: typing
+  lines makes the scrollbars glitch and logs `Trying to snapshot GtkGizmo … without a
+  current allocation`, the warning this editor logs, traced to
+  `gtk_range_adjustment_changed` calling `gtk_widget_set_alloc_needed` during snapshot.
+  The link is by symptom and code path: our Windows case has not been traced to that call
+  in a debugger, and the warning alone does not discriminate (see Observed).
+- Proposed fixes, all unmerged on 2026-10-23:
+  [!5222](https://gitlab.gnome.org/GNOME/gtk/-/merge_requests/5222) (range: handle
+  `GtkAdjustment::changed` at the next frame),
+  [!5547](https://gitlab.gnome.org/GNOME/gtk/-/merge_requests/5547) (textview: don't
+  validate during snapshot),
+  [!6334](https://gitlab.gnome.org/GNOME/gtk/-/merge_requests/6334) (draft).
+
+Linux on GTK 4.6 had a worse, separate defect (the scrollbar stayed undrawn until a resize,
+24 of 25 Enters), fixed upstream in GTK 4.10 by
+[!5564](https://gitlab.gnome.org/GNOME/gtk/-/merge_requests/5564) (merged 2023-02-28). The editor now hides and
 re-shows its scrollbar after every scroll-range or position change
 (`window::splitview::relink_vscrollbar_after_range_changes`), which ended the Linux defect
 (0 of 30) and reduced this one. Not seen on macOS (0 of 20).
@@ -270,8 +350,12 @@ Any pointer motion brings it back. Judged negligible by the operator.
 
 **Mitigation options**:
 - Accept it until GTK fixes gtk#6057.
-- Give the editor non-overlay scrollbars, as the preview has. Untested whether a classic
-  scrollbar shows the same lag.
+- Not an option: non-overlay scrollbars for the editor, as the preview has. Tried 2026-10-23 and
+  rejected: the hide/show repair above leaves a classic scrollbar drawn but unclickable
+  (no thumb drag, no trough click; Linux and Windows), and without the repair GTK 4.6
+  stops drawing its slider after about 11 Enters. A fresh Windows harness also counted
+  0 of 40 on the unchanged overlay scrollbar, so the 2-of-40 figure above has not been
+  reproduced since.
 
 ## Q. Every SVG is decoded by librsvg, which has a published use-after-free
 
@@ -381,6 +465,14 @@ Impact is narrow and real: on roughly 5% of window widths for a code-dense docum
 gets a horizontal scrollbar it cannot use and a pane that intermittently blanks while
 scrolling. It is invisible at every other width.
 
+**Upstream ticket**: none for this case. GNOME/pango issues searched 2026-10-23 for
+`zero_line_final_space`, trailing and hanging space width. Two closed tickets concern
+trailing spaces but not a space left hanging where a font change splits the items:
+[pango#646](https://gitlab.gnome.org/GNOME/pango/-/issues/646) and
+[pango#243](https://gitlab.gnome.org/GNOME/pango/-/issues/243). Not filed: a filing publishes under the operator's identity, and no seat holds GNOME GitLab credentials, so it waits on the operator.
+The evidence that the defect is Pango's is the isolation measurement above and the two
+Pango functions named in it.
+
 **What walls each exit** — recorded so the dead ends are not re-explored:
 
 - **Reserve slack in the wrap budget** (extra `right_margin`, CSS padding, or the private
@@ -415,41 +507,6 @@ scrolling. It is invisible at every other width.
   from GTK.
 - Revisit if the clamp above stops being a symptom gate — if a way appears to distinguish a
   hanging space from a clipped glyph, the clamp becomes safe and this reopens.
-
-## CLSD-03. No screen reader on Windows or macOS can read the app's accessible names
-
-**Status**: Closed (inherent to GTK4's Windows and Quartz backends — the app sets the
-names correctly and neither platform publishes a tree that can carry them)
-
-⚠ The `Platform` cell reads `Windows, Mac` rather than one of the four single values the
-header defines: the consequence is identical on both and the causes are backend-specific,
-so filing it twice would be the header's own "one defect filed twice" trap, and `Any` would
-be false — Linux/AT-SPI reads these names correctly.
-
-MEASURED on both seats while ratifying the status bar (2026-09-15). **Windows** (GTK 4.22.4
-gvsbuild, Win10 19045): UI Automation returns the toplevel (class `gdkSurfaceToplevel`)
-with **zero descendants**, against a positive control of Notepad returning two. **macOS**
-(GTK 4.22.4/Quartz): the window exposes 4 chrome elements and its "entire contents" is
-**empty**, with the reader validated in the same run (the native menu bar enumerates, and
-Save/Save As report their real enabled states). So no screen reader on either platform
-reaches any control — not the toolbar, not the sidebars, not the status-bar indicators.
-
-The consequence for verification is the part that misleads: the accessibility rubrics
-(TDD 16.5, 16.7, 16.17) are **unrunnable** on Windows rather than failing. Their names
-ARE set — `a11y.rs` is the single choke point and `clippy.toml` bans the bare tooltip
-setter — and they are read correctly by AT-SPI on Linux, so a Windows run that reports
-these checks as "not observed" is reporting this gap, not a defect in the code under test.
-
-**Mitigation options**:
-
-- **Accept it** — the position taken. Every exit is walled outside this project: the
-  provider tree is GTK's to publish, there is no application-side API to attach one, and
-  writing a UIA provider for another toolkit's widgets is a different project.
-- **Verify these rubrics on Linux and macOS only**, and record the Windows limb as a
-  platform gap in the run rather than as missing coverage.
-- **Re-check on a future GTK** — if the Windows backend ever gains a UIA bridge this
-  reopens at Low/Medium/High, since the names are already in place to be read.
-
 
 ## CLSD-04. In fullscreen on macOS, a click during the transition animation is never delivered
 

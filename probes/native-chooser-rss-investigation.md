@@ -807,7 +807,7 @@ current at another, with the ten commits' touched files listed so the "none of t
 claim is checkable without re-running the compare); and a function line-range that pointed at
 a comment rather than the declaration.
 
-**When it is filed, put the URL here** and this paragraph becomes a link.
+**Filed 2026-10-24 as [gtk#8498](https://gitlab.gnome.org/GNOME/gtk/-/work_items/8498)**, trimmed to symptoms and a C reproducer (no source diagnosis). The operator writes any follow-up on the issue himself.
 
 **⚠️ IF IT IS FILED UPSTREAM, LEAD WITH THE `hide()` LEAK — NOT THE PANEL RETAIN.**
 The panel retain is now the **weakest** of the three findings: it is arithmetically real but

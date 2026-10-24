@@ -92,6 +92,10 @@ pub(crate) fn wire_tab_buffer_signals(content_box: &gtk::Box, buffer: &sourcevie
         move |_| {
             if let Some(w) = resolve_tab_window(&cb) {
                 refresh_dirty_status(&w);
+                // An edit moves the caret without `mark-set`: GtkTextBuffer shifts the
+                // "insert" mark with the text it inserts or deletes and emits nothing for
+                // it, so typing and Enter left the Ln/Col indicator (TDD 9.21) stale.
+                refresh_position_indicator(&w);
                 // An edit can add or destroy the link under a STATIONARY caret
                 // (an undo, a live external reload), which `mark-set` below never
                 // reports — recompute at this boundary too, not only on the
@@ -121,11 +125,9 @@ pub(crate) fn wire_tab_buffer_signals(content_box: &gtk::Box, buffer: &sourcevie
             }
             if let Some(w) = resolve_tab_window(&cb) {
                 update_format_edit_surfaces(&w);
-                // The footer's Ln/Col indicator (TDD 9.21) tracks the caret,
-                // which moves the "insert" mark — mark-set already fires on
-                // every caret move (typing, arrow keys, clicks), so this
-                // reuses that connection rather than adding a second one for
-                // "cursor-position" (they cover the same events).
+                // The footer's Ln/Col indicator (TDD 9.21) follows a caret that is
+                // SET (arrow keys, clicks, Go To Line). A caret an edit carries along
+                // emits no mark-set; the `changed` handler above covers that half.
                 refresh_position_indicator(&w);
                 // A selection is a pair of marks, so mark-set is also where an
                 // editor selection's word count is re-derived (TDD 16.11). It counts
@@ -775,6 +777,32 @@ mod mark_filter_tests {
             position.text(),
             "Ln 3, Col 1",
             "a caret move must still run them"
+        );
+        window.destroy();
+    }
+
+    /// **TDD 9.21 — the Ln/Col indicator follows a caret that an edit carries along.**
+    /// Typing or Enter moves the caret by shifting the "insert" mark with the text, and
+    /// GtkTextBuffer emits no `mark-set` for that, so the indicator stayed on the line
+    /// the caret was last SET on. Mutation: drop `refresh_position_indicator` from the
+    /// `changed` handler and this fails.
+    #[gtktest::test]
+    fn typing_moves_the_line_column_indicator() {
+        let app = test_app("com.extollit.scribobulate.integrationtest.typedcaret");
+        let window = crate::window::new_window(&app, "IT", "# A\n\none\n", None);
+        change_action_state(&window, "view-mode", &"edit".to_variant());
+        let st = state(&window).expect("tab state");
+        let buf = st.editor_buf.clone();
+        let position = st.chrome().statusbar.position.clone();
+        drop(st);
+
+        buf.place_cursor(&buf.start_iter());
+        assert_eq!(position.text(), "Ln 1, Col 1", "precondition");
+        buf.insert_at_cursor("\n\nab");
+        assert_eq!(
+            position.text(),
+            "Ln 3, Col 3",
+            "the indicator must follow a caret moved by an edit"
         );
         window.destroy();
     }
