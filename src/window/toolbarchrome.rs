@@ -11,8 +11,8 @@
 //! for the whole application. Nothing here is like that: `Show` is always enabled,
 //! and a section's enabled is derived from `Show` (I3), which is itself app-wide
 //! now. So these seven actions live only on the `Application`, and the View ▸
-//! Toolbar menu binds them directly. Adding forwarders would be a second layer with
-//! nothing to carry.
+//! Toolbar menu and the toolbar's right-click menu (`window::toolbarmenu`) bind them
+//! directly. Adding forwarders would be a second layer with nothing to carry.
 //!
 //! **Why `Show` moved with the sections rather than staying per window.** The
 //! last-section rule (I8 below) reinterprets "hide the final visible section" as
@@ -57,13 +57,14 @@ use crate::session::ToolbarSections;
 use crate::widgets::wrapbox::ToolbarWrapBox;
 use gtk::gio::SimpleAction;
 
-/// `app.show-toolbar` — the whole-bar toggle (`T`).
-pub(crate) const SHOW: &str = "show-toolbar";
+/// `app.show-toolbar` — the whole-bar toggle (`T`). Named in `app::commands`, which
+/// every surface offering the toggle builds from.
+pub(crate) const SHOW: &str = crate::app::TOOLBAR_SHOW_ACTION;
 
-/// The action name for one section, e.g. `show-tbtn-format`. The one place the
-/// string is assembled, so the menu, the registration and the reads cannot drift.
+/// The action name for one section, e.g. `show-tbtn-format` — assembled in
+/// `app::commands`, so the menus, the registration and the reads cannot drift.
 pub(crate) fn section_action(id: &str) -> String {
-    format!("show-tbtn-{id}")
+    crate::app::toolbar_section_action(id)
 }
 
 /// The live app-wide toolbar layout: the whole-bar toggle and the six section flags.

@@ -42,6 +42,14 @@ pub(crate) mod table;
 pub(crate) mod textfield;
 pub(crate) mod wrapbox;
 
+/// How long after a popover closes before its surface may be released (unrealized or
+/// unparented). It is measured against GTK's tooltip hover delay (`HOVER_TIMEOUT`, 500 ms
+/// in gtktooltip.c at 4.6.9), plus slack, so a tooltip timeout armed by an enter into the
+/// popover has fired while the surface still exists (GTK4Rs/AP-117). Waited by
+/// `popoverrelease`, the toolbar menu's release (`window::toolbarmenu`), and the suite's
+/// teardown (`testpump::destroy_after_tooltip_delay`).
+pub(crate) const TOOLTIP_HOVER_DRAIN: std::time::Duration = std::time::Duration::from_millis(600);
+
 /// Tile `tex` across `rect` at the texture's NATURAL size, with the grid anchored so the
 /// pattern travels with the document.
 ///

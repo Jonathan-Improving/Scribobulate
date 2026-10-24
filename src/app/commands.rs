@@ -236,6 +236,69 @@ pub(crate) const VIEW_CMDS: [ViewCmd; 3] = [
 /// reorder without reordering the section boxes to match.
 pub(crate) const TBTN_SECTION_IDS: [&str; 6] = ["file", "edit", "format", "view", "split", "zoom"];
 
+/// `show-toolbar` — the whole-bar toggle's action name (`app.` scope, unprefixed).
+pub(crate) const TOOLBAR_SHOW_ACTION: &str = "show-toolbar";
+
+/// The action name for one toolbar section, e.g. `show-tbtn-format` (`app.` scope,
+/// unprefixed). The one place the string is assembled.
+pub(crate) fn toolbar_section_action(id: &str) -> String {
+    format!("show-tbtn-{id}")
+}
+
+/// Which group of the toolbar-layout menu a toggle sits in. Every surface draws a
+/// separator where the group changes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ToolbarToggleGroup {
+    /// The whole-bar `Show` toggle.
+    WholeBar,
+    /// One per-section toggle.
+    Section,
+}
+
+/// One toggle of the toolbar layout, as every surface that offers the layout shows it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct ToolbarToggle {
+    /// The plain label; `mnem` gives its access-key form.
+    pub(crate) label: String,
+    /// The `app.`-scoped action name, unprefixed (`show-tbtn-zoom`).
+    pub(crate) action: String,
+    pub(crate) group: ToolbarToggleGroup,
+}
+
+impl ToolbarToggle {
+    /// The detailed name a menu item or actionable widget binds: `app.<action>`.
+    pub(crate) fn detailed_action(&self) -> String {
+        format!("app.{}", self.action)
+    }
+}
+
+/// THE list of toolbar-layout toggles, in display order: `Show`, then one per section in
+/// canonical `TBTN_SECTION_IDS` order. View ▸ Toolbar and the toolbar's own right-click
+/// menu are both built by walking this, so a toggle added here reaches both and a toggle
+/// cannot be added to one alone (TDD 9.40).
+pub(crate) fn toolbar_toggles() -> Vec<ToolbarToggle> {
+    let show = ToolbarToggle {
+        label: "Show".to_string(),
+        action: TOOLBAR_SHOW_ACTION.to_string(),
+        group: ToolbarToggleGroup::WholeBar,
+    };
+    let sections = TBTN_SECTION_IDS.iter().map(|id| ToolbarToggle {
+        label: title_case(id),
+        action: toolbar_section_action(id),
+        group: ToolbarToggleGroup::Section,
+    });
+    std::iter::once(show).chain(sections).collect()
+}
+
+/// `zoom` → `Zoom`. The section label is derived from its ID so there is no second list.
+fn title_case(id: &str) -> String {
+    let mut chars = id.chars();
+    match chars.next() {
+        Some(head) => head.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
+}
+
 pub(crate) const EDIT_CMDS: [Cmd; 11] = [
     Cmd {
         action: "win.undo",
@@ -813,6 +876,47 @@ mod tests {
     // `cargo test` / `cargo llvm-cov` (the `commands` module is IN the coverage
     // gate). The label-DERIVING helpers wrap `accelerator_get_label`, which DOES
     // require an initialized GTK, so they're tested in `gtk_integration_tests`.
+
+    /// The toolbar-layout list is Show first, then one toggle per section in canonical
+    /// order, each naming the action its section is registered under.
+    #[test]
+    fn toolbar_toggles_are_show_then_every_section_in_canonical_order() {
+        let toggles = toolbar_toggles();
+        assert_eq!(toggles.len(), 1 + TBTN_SECTION_IDS.len());
+        assert_eq!(toggles[0].label, "Show");
+        assert_eq!(toggles[0].detailed_action(), "app.show-toolbar");
+        assert_eq!(toggles[0].group, ToolbarToggleGroup::WholeBar);
+        let labels: Vec<&str> = toggles[1..].iter().map(|t| t.label.as_str()).collect();
+        assert_eq!(labels, ["File", "Edit", "Format", "View", "Split", "Zoom"]);
+        for (toggle, id) in toggles[1..].iter().zip(TBTN_SECTION_IDS) {
+            assert_eq!(toggle.group, ToolbarToggleGroup::Section);
+            assert_eq!(toggle.detailed_action(), format!("app.show-tbtn-{id}"));
+        }
+    }
+
+    /// Every toggle has an access key in `MENU_MNEMONICS`, and no two share one, so each
+    /// surface built from the list offers the same letters and none collide there.
+    #[test]
+    fn toolbar_toggles_each_have_a_distinct_access_key() {
+        let mut keys = Vec::new();
+        for toggle in toolbar_toggles() {
+            let marked = crate::app::mnem(&toggle.label);
+            let (key, _) = crate::app::access_markup(&marked);
+            let key = key.unwrap_or_else(|| panic!("{:?} has no access key", toggle.label));
+            assert!(
+                !keys.contains(&key),
+                "{:?} reuses access key {key:?}",
+                toggle.label
+            );
+            keys.push(key);
+        }
+    }
+
+    #[test]
+    fn title_case_capitalises_the_first_letter_only() {
+        assert_eq!(title_case("zoom"), "Zoom");
+        assert_eq!(title_case(""), "");
+    }
 
     #[test]
     fn inline_accel_resolves_canonical_accel_from_the_table() {

@@ -33,14 +33,10 @@ use gtk::glib;
 use gtk::glib::translate::IntoGlib;
 use gtk::prelude::*;
 use std::cell::{Cell, RefCell};
-use std::time::Duration;
 
-/// How long after a popover closes before its surface is released. It is measured
-/// against GTK's tooltip hover delay (`HOVER_TIMEOUT`, 500 ms in gtktooltip.c at 4.6.9),
-/// plus slack, so a tooltip timeout armed by an enter into the popover has fired while
-/// the surface still exists (GTK4Rs/AP-117). The suite's teardown waits the same span for
-/// the same reason (`testpump::destroy_after_tooltip_delay`).
-pub(crate) const TOOLTIP_HOVER_DRAIN: Duration = Duration::from_millis(600);
+/// How long after a popover closes before its surface is released — defined beside the
+/// widgets because the toolbar menu's own release waits it too, on every platform.
+pub(crate) use crate::widgets::TOOLTIP_HOVER_DRAIN;
 
 thread_local! {
     /// Whether a closed popover is released. Off unless the platform asks for it.
@@ -171,6 +167,7 @@ fn release_if_hidden(popover: &gtk::Popover) {
 mod tests {
     use super::*;
     use crate::testpump::{drain_for, until, Clock};
+    use std::time::Duration;
 
     /// A presented window with a label to parent popovers to.
     fn host() -> (gtk::Window, gtk::Label) {

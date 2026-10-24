@@ -190,7 +190,7 @@ pub(crate) fn drain_for(_clock: Clock, deadline: Duration) {
 /// destroying it: past GTK's tooltip hover delay, so the tooltip timeout an enter armed
 /// has fired while the popover's surface still exists. The app's popover release waits
 /// out the same delay for the same reason, and owns the number.
-pub(crate) const TOOLTIP_HOVER_DRAIN: Duration = crate::popoverrelease::TOOLTIP_HOVER_DRAIN;
+pub(crate) const TOOLTIP_HOVER_DRAIN: Duration = crate::widgets::TOOLTIP_HOVER_DRAIN;
 
 /// Destroy a test window that showed a `set_parent`ed popover, without leaving GTK's
 /// tooltip timeout aimed at a destroyed surface (GTK4Rs/AP-117).

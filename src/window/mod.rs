@@ -162,6 +162,7 @@ mod tabs;
 mod toast;
 mod toolbar;
 pub(crate) mod toolbarchrome;
+mod toolbarmenu;
 pub(crate) mod undo;
 mod viewactions;
 mod wheelcoalesce;
@@ -557,6 +558,8 @@ fn build_window(
     // whichever window is built first; this window then takes the LIVE value.
     toolbarchrome::ensure_registered(app);
     toolbarchrome::seed_window(&window, &toolbar, &section_boxes);
+    // Right-click on the bar offers the same toggles as View ▸ Toolbar (TDD 9.40).
+    toolbarmenu::attach_toolbar_menu(&toolbar);
     register_view_actions(
         &window,
         &chrome.status_bar,

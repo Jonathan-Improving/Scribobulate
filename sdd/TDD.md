@@ -10,7 +10,7 @@
 | 6 | Resource footprint (viability gate) | 6.1 – 6.10 |
 | 7 | Window & layout | 7.0b – 7.25 |
 | 8 | Single-instance lifecycle | 8.1 – 8.8 |
-| 9 | Menu bar, toolbar, and actions | 9.1 – 9.36 |
+| 9 | Menu bar, toolbar, and actions | 9.1 – 9.40 |
 | 10 | Markdown formatting commands | 10.1 – 10.20 |
 | 11 | Find & replace | 11.1 – 11.19 |
 | 12 | Document outline | 12.1 – 12.29 |
@@ -1619,6 +1619,16 @@
 - **Given** the preview, the editor or a tab
 - **When** the reader right-clicks anywhere on screen, including where the full menu fits neither above nor below the pointer
 - **Then** the context menu opens (scrolling if it cannot be shown whole) and stays open
+
+### 9.40 Right-clicking the toolbar offers the View ▸ Toolbar choices
+- **Given** a window with the toolbar shown
+- **When** the reader right-clicks anywhere on the toolbar, a button included
+- **Then** a menu opens offering exactly what View ▸ Toolbar offers, in the same order and grouping — **Show**, a separator, then every toolbar section — each ticked to match the toolbar as it is, with the same underlined letters as the menu bar
+- **And when** the reader ticks or unticks an entry, by clicking it or pressing its letter
+- **Then** the toolbar changes exactly as the same choice in View ▸ Toolbar changes it — in every open window, remembered across a relaunch, and with the same rule that unticking the last visible section hides the whole bar while keeping that section's tick — and View ▸ Toolbar shows the new ticks
+- **And** the menu stays open so several sections can be changed in one visit, and closes on Escape, on a click outside it, or when the bar it belongs to is hidden
+- **And given** a toolbar section is ever added or removed
+- **Then** View ▸ Toolbar and this menu change together; neither can offer a section the other does not
 
 ## 10. Markdown formatting commands
 

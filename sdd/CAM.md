@@ -37,7 +37,8 @@ themselves.
 | 8 | Status-notice CAM | Transient status-bar notices, whose retraction must survive the holder being destroyed or moved |
 | 9 | Document-Identity CAM | State keyed on a document's PATH, and the events that change it |
 | 10 | Hot-path CAM | Handlers on a signal that fires continuously, whose cost is invisible on a small document |
-| 11 | Granted CAM exceptions | Operator-approved deviations, recorded so they are not re-litigated |
+| 11 | Multi-surface setting CAM | A setting the reader can change from more than one surface (menu bar, a context menu, a persistent control), and every member and rule it must carry to each |
+| 12 | Granted CAM exceptions | Operator-approved deviations, recorded so they are not re-litigated |
 
 ---
 
@@ -1050,6 +1051,76 @@ Rules that give the matrix its teeth:
   fixed in the change that adds this matrix. Rows 5 and 6 carry no **M** because their cost
   is bounded by the viewport rather than by the document, which is the property the
   footprint gate and `decorplan`'s visibility gates already measure.
+
+## Multi-surface setting CAM — a setting the reader can change from more than one place
+
+A **multi-surface setting** is a value the reader chooses (on/off, or one of N) that more
+than one surface both *changes* and *shows*. The toolbar layout is one: its whole-bar
+**Show** and six per-section toggles are offered by View ▸ Toolbar and by the toolbar's
+own right-click menu (TDD 9.22, 9.40).
+
+**Why the Action CAM does not cover it.** The Action CAM decides which surfaces a
+*command* must appear on, and requires one `GAction` and one enabled state behind them.
+A setting owes four things a command does not, and each is a latent gap — the surface
+that was built works, the other looks finished:
+
+- **the same members on every surface.** A setting is usually a *family* (six sections,
+  N themes). A member added to one surface's list and not the other's is offered in one
+  place only, and nothing fails.
+- **the value, not only the enabled state.** Every surface shows the current tick, radio
+  or pressed state, and keeps showing it while it is open, whoever changed it.
+- **the setting's rules, from every surface.** A rule that reinterprets a change (the
+  toolbar's last-section rule turns "hide the last section" into "hide the bar") holds
+  wherever the change is made, not only where the rule was first written.
+- **one value everywhere it applies.** Every window that shows the setting, and the next
+  launch, see the same value.
+
+The surfaces (matrix columns):
+
+- **M — menu bar.** The in-window `GtkPopoverMenuBar`, and on macOS the native menu bar
+  built from the same model (TDD 9.35). One column, because they are one model.
+- **X — context menu on the thing the setting changes.** Opened by a right-click on the
+  affected chrome (the toolbar).
+- **P — a persistent control.** A toolbar toggle, a picker or a find-bar check showing the
+  value at all times. The toolbar layout has none: a control on the bar that hides the
+  bar would vanish with it.
+
+| # | Obligation | M | X | P | Choke point / anchor |
+|---|---|:-:|:-:|:-:|---|
+| 1 | **Built from one enumeration.** Every surface walks the same list of members, in the same order and grouping, so a member added there reaches every surface. No surface lists members by hand | ✓ | ✓ | — | `app::commands::toolbar_toggles` (built from `TBTN_SECTION_IDS`); `app::menubar::build_toolbar_layout_menu`; `window::toolbarmenu::open_toolbar_menu` |
+| 2 | **Binds the setting's own action by name.** No per-surface handler, no per-surface copy of the value, no `set_sensitive` | ✓ | ✓ | — | *reference row* → POLICY "One action per command"; the `app.show-toolbar` / `app.show-tbtn-<id>` actions in `window::toolbarchrome` |
+| 3 | **Shows the current value, live.** The tick follows the action's state, including a change made elsewhere (another window, the other surface) while this one is open | ✓ | ✓ | — | GTK's actionable binding (menu model check item; `GtkCheckButton` with an action name) — nothing here mirrors state |
+| 4 | **Greyed exactly when the action is disabled** — never from the surface's own logic | ✓ | ✓ | — | `toolbarchrome` I3 (section items disabled while the bar is hidden). Unreachable on X today: the menu is on the bar, which is shown whenever it can be right-clicked |
+| 5 | **The setting's rules hold from every surface**, because they live in the action's `change_state`, not in a surface's handler | ✓ | ✓ | — | `toolbarchrome::add_section_action` (the last-section rule, I8) |
+| 6 | **Same labels and access keys** on every surface that has access keys, unique within each surface | ✓ | ✓ | — | `app::mnemonics::MENU_MNEMONICS` via `mnem`; `commands` test `toolbar_toggles_each_have_a_distinct_access_key`; the menu bar's `menu_access_keys_unique_per_popover` |
+| 7 | **One value in every window, and across a relaunch** | ✓ | ✓ | — | *reference row* → `toolbarchrome` I1–I5 (app-wide) and the session (TDD 9.22, 7.2) |
+| 8 | **A test compares the surfaces with each other** — the actions one surface binds against the actions another binds, read from each surface as built, never from the shared list (which would compare the list with itself) | ✓ | ✓ | — | `window::toolbarmenu` test `the_toolbar_menu_offers_the_view_toolbar_toggles` (reads the shipped View ▸ Toolbar model) |
+
+Rules that give the matrix its teeth:
+
+- **Two kinds of change enter this matrix, and both owe every applicable cell.** A new
+  *member* of an existing setting (a seventh toolbar section) owes rows 1, 6 and 8 a check
+  on every surface — row 1 is what makes that one edit, row 6 needs its access key added to
+  `MENU_MNEMONICS` (the unit test fails until it is), row 8 confirms both surfaces grew. A
+  new *surface* for an existing setting owes every row in its column.
+- **A surface that cannot reach a member says so, it does not drop it silently.** If a
+  surface must offer a subset, the subset is computed from the shared enumeration and the
+  reason is stated beside it.
+- **A rule added to the setting goes in the action, never in a surface.** Written in a
+  surface's handler it holds there only — row 5's failure, and the hardest to see, since
+  the surface that has it is the one its author tested.
+- **A `tests/MANUAL-TEST.md` check per applicable ✓** — the cross-CAM rule. For the toolbar
+  layout they are 9.22a–l (M) and 9.40a–d (X).
+
+**Back-sweep: not done when written (2026-10-24), and stated here so the matrix does not
+read as satisfied by the whole tree.** The toolbar layout, the member the matrix was
+written for, satisfies every cell above. Other settings already offered on more than one
+surface were not walked against it: the view mode (View menu, toolbar), the Outline and
+Annotations panes (View menu, toolbar, the pane's own close button), Show Unsafe Images
+(View menu, toolbar), the reading theme (View menu radios, the toolbar picker, which binds
+a stateless shim rather than the setting's own action — a row 2 question to settle when it
+is swept), the split arrangement (View menu, toolbar) and the find options (Edit menu, find
+bar). A change to any of them sweeps it against this matrix in that change.
 
 ## Granted CAM exceptions
 

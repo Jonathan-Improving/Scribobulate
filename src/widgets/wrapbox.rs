@@ -17,7 +17,9 @@
 //! child that would overflow the current row moves whole to the next one,
 //! never squeezed to fit. Invisible children (`set_visible(false)`) are
 //! skipped entirely and take no space, exactly like a plain `GtkBox`, so
-//! hiding a toolbar section still costs it nothing here.
+//! hiding a toolbar section still costs it nothing here. A popover parented here
+//! (the toolbar's right-click menu) is skipped the same way — it is drawn on its own
+//! surface — and is presented on each allocation so it follows the bar.
 //!
 //! A child SHORTER than its row is placed by its own `valign`: `Start` at the
 //! row's top, `End` at its bottom, and anything else — including GTK's default
@@ -125,6 +127,18 @@ mod imp {
             for (child, rect) in children.iter().zip(rects.iter()) {
                 child.size_allocate(rect, baseline);
             }
+            // A popover parented here (the toolbar's right-click menu) is laid out on
+            // its own surface, never by the pack above; GTK asks the parent to present
+            // it on each allocation so it follows the parent.
+            let mut next = self.obj().first_child();
+            while let Some(child) = next {
+                if let Some(popover) = child.downcast_ref::<gtk::Popover>() {
+                    if popover.is_visible() {
+                        popover.present();
+                    }
+                }
+                next = child.next_sibling();
+            }
         }
     }
 
@@ -132,7 +146,9 @@ mod imp {
         let mut out = Vec::new();
         let mut next = widget.first_child();
         while let Some(child) = next {
-            if child.is_visible() {
+            // `should_layout`, not `is_visible`: it is also false for a `GtkNative`
+            // child — a popover parented here — which must take no slot in the pack.
+            if child.should_layout() {
                 out.push(child.clone());
             }
             next = child.next_sibling();
@@ -314,6 +330,51 @@ mod gtk_integration_tests {
             "the hidden middle child must not leave a gap or shift `b` further \
              than `a`'s own width plus spacing"
         );
+    }
+
+    /// A popover parented to the box — the toolbar's right-click menu — takes no slot,
+    /// open or closed: it adds nothing to the box's width and moves no sibling.
+    #[gtktest::test]
+    fn a_parented_popover_takes_no_space() {
+        let wrap = ToolbarWrapBox::new(2, 0);
+        let a = gtk::Button::with_label("AAAA");
+        wrap.append(&a);
+        let (_, alone_w, _, _) = wrap.measure(gtk::Orientation::Horizontal, -1);
+
+        let popover = gtk::Popover::new();
+        popover.set_child(Some(&gtk::Label::new(Some("a wide popover body"))));
+        popover.set_parent(&wrap);
+        let b = gtk::Button::with_label("BBBB");
+        wrap.append(&b);
+
+        let win = gtk::Window::new();
+        win.set_child(Some(&wrap));
+        win.present();
+        popover.popup();
+        crate::testpump::drain_for(
+            crate::testpump::Clock::Frame,
+            std::time::Duration::from_millis(200),
+        );
+        assert!(popover.is_visible(), "precondition: the popover is open");
+        let (_, nat_w, _, _) = wrap.measure(gtk::Orientation::Horizontal, -1);
+        let (_, b_w, _, _) = b.measure(gtk::Orientation::Horizontal, -1);
+        assert_eq!(
+            nat_w,
+            alone_w + 2 + b_w,
+            "the open popover must not be measured as a pack item"
+        );
+        wrap.size_allocate(&gtk::Allocation::new(0, 0, nat_w, 100), -1);
+        assert_eq!(
+            b.allocation().x(),
+            a.allocation().width() + 2,
+            "the popover between `a` and `b` must not shift `b`"
+        );
+        popover.popdown();
+        crate::testpump::drain_for(
+            crate::testpump::Clock::Frame,
+            std::time::Duration::from_millis(600),
+        );
+        popover.unparent();
     }
 
     /// A child shorter than its row sits in the MIDDLE of it, not at the top.

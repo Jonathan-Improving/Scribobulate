@@ -148,8 +148,9 @@ pub(crate) fn access_markup(marked: &str) -> (Option<char>, String) {
     (None, gtk::glib::markup_escape_text(marked).to_string())
 }
 
-/// Build a bare-letter access-key `GtkShortcut` for a context-popover button:
-/// `KeyvalTrigger(key, no modifiers)` → activate the button when `gate()` holds and
+/// Build a bare-letter access-key `GtkShortcut` for a context-popover row (a button, or
+/// the toolbar menu's check buttons):
+/// `KeyvalTrigger(key, no modifiers)` → activate the row when `gate()` holds and
 /// the button `is_sensitive()`. Returns `None` if `key` has no keyval.
 ///
 /// The gate lets one Capture-phase controller serve a multi-page (`GtkStack`)
@@ -158,12 +159,12 @@ pub(crate) fn access_markup(marked: &str) -> (Option<char>, String) {
 /// UPPER CASE on the Change-Case page). `activate()` does NOT itself check
 /// sensitivity, so we gate on `is_sensitive()` explicitly (researcher-confirmed).
 pub(crate) fn access_shortcut(
-    button: &gtk::Button,
+    button: &impl IsA<gtk::Widget>,
     key: char,
     gate: impl Fn() -> bool + 'static,
 ) -> Option<gtk::Shortcut> {
     let keyval = gtk::gdk::Key::from_name(key.to_string())?;
-    let btn = button.downgrade();
+    let btn = button.upcast_ref::<gtk::Widget>().downgrade();
     let action = gtk::CallbackAction::new(move |_, _| {
         if !gate() {
             return gtk::glib::Propagation::Proceed;

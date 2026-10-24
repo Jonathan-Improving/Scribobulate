@@ -22,6 +22,9 @@ pub(crate) use commands::{
     accel_hint, inline_accel, inline_cmd, tooltip_with_accel, Cmd, FmtCmd, EDIT_CMDS, FILE_CMDS,
     FORMAT_CMDS, INLINE_ACCEL_CMDS, TBTN_SECTION_IDS, VIEW_CMDS, WELCOME,
 };
+pub(crate) use commands::{
+    toolbar_section_action, toolbar_toggles, ToolbarToggle, TOOLBAR_SHOW_ACTION,
+};
 pub(crate) use menubar::{
     build_menubar, build_reading_theme_toolbar_menu, defer_live_menu_mutation,
     update_format_menu_labels,

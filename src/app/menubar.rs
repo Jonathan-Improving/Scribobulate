@@ -10,7 +10,8 @@
 //! this file used to write was removed rather than tidied.
 
 use super::commands::{
-    Cmd, FormatGroup, EDIT_CMDS, FILE_CMDS, FORMAT_CMDS, TBTN_SECTION_IDS, VIEW_CMDS,
+    toolbar_toggles, Cmd, FormatGroup, ToolbarToggleGroup, EDIT_CMDS, FILE_CMDS, FORMAT_CMDS,
+    VIEW_CMDS,
 };
 use super::mnemonics::mnem;
 use crate::export::ExportTarget;
@@ -258,6 +259,30 @@ pub(crate) fn build_reading_theme_toolbar_menu() -> Menu {
     reading_theme_menu("app.pick-preview-theme", &crate::theme::themes())
 }
 
+/// The View ▸ Toolbar submenu: `Show`, a separator, then the six section toggles —
+/// built by walking [`super::commands::toolbar_toggles`], the same list the toolbar's
+/// right-click menu (`window::toolbarmenu`) walks, so the two surfaces offer the same
+/// toggles bound to the same `app.` actions (TDD 9.40).
+fn build_toolbar_layout_menu() -> Menu {
+    let toolbar_menu = Menu::new();
+    let mut section: Option<(ToolbarToggleGroup, Menu)> = None;
+    for toggle in toolbar_toggles() {
+        if section.as_ref().map(|(group, _)| *group) != Some(toggle.group) {
+            if let Some((_, done)) = section.take() {
+                toolbar_menu.append_section(None, &done);
+            }
+            section = Some((toggle.group, Menu::new()));
+        }
+        if let Some((_, menu)) = &section {
+            menu.append_item(&item(&toggle.label, &toggle.detailed_action()));
+        }
+    }
+    if let Some((_, done)) = section {
+        toolbar_menu.append_section(None, &done);
+    }
+    toolbar_menu
+}
+
 fn build_view_menu(themes: &crate::theme::Themes) -> (Menu, Menu) {
     // Back / Forward through this window's document-visit history (TDD §23), in
     // their own leading section — the browser's own placement, above the view
@@ -343,21 +368,7 @@ fn build_view_menu(themes: &crate::theme::Themes) -> (Menu, Menu) {
     // is ephemeral, so a layout scoped to one never feels saved), and nothing about
     // it is per-window — not even sensitivity, which is the only reason the split
     // arrangement below still keeps `win.` forwarders.
-    let toolbar_menu = Menu::new();
-    let show_section = Menu::new();
-    show_section.append_item(&item("Show", "app.show-toolbar"));
-    toolbar_menu.append_section(None, &show_section);
-    let sections_section = Menu::new();
-    for id in TBTN_SECTION_IDS {
-        // Title-case the canonical ID for the label (drift-free — no second
-        // list to keep in sync with TBTN_SECTION_IDS).
-        let mut label = id.to_string();
-        if let Some(head) = label.get_mut(0..1) {
-            head.make_ascii_uppercase();
-        }
-        sections_section.append_item(&item(&label, &format!("app.show-tbtn-{id}")));
-    }
-    toolbar_menu.append_section(None, &sections_section);
+    let toolbar_menu = build_toolbar_layout_menu();
     chrome_section.append_submenu(Some(&mnem("Toolbar")), &toolbar_menu);
 
     // Reading Theme — one RADIO item per installed theme, targeting the stateful
