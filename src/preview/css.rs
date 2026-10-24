@@ -72,6 +72,16 @@ pub(crate) fn css() -> &'static str {
                                  -gtk-icon-source: -gtk-icontheme(\"pan-end-symbolic-rtl\"); }
      listview.outline expander:checked {
                                  -gtk-icon-source: -gtk-icontheme(\"pan-down-symbolic\"); }
+     /* A greyed menu check item keeps its tick (TDD 9.22: View > Toolbar's sections grey
+        but stay ticked while the bar is hidden). GTK's own Default theme loses it: its
+        `check:checked:disabled` inks the tick white for the filled box a check BUTTON
+        draws, `popover.menu check` removes that box, and the more specific rule keeps
+        its white, so the tick is drawn white on a light menu (MEASURED, GTK 4.22.4).
+        `inherit` takes the greyed row's own ink, so the tick greys with its label under
+        any theme. A plain popover of check buttons (the right-click menus) is not
+        `.menu` and keeps its box. */
+     popover.menu check:checked:disabled,
+     popover.menu radio:checked:disabled { color: inherit; }
      /* widgets/tab: the custom TabBar (widgets/tab, css-name
         `tabbar`) replaced the GtkNotebook-based strip; its own
         GtkDragSource/GtkDropTarget pair (window/tabs/dnd.rs wire_tab_bar_dnd)

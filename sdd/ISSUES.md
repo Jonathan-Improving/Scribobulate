@@ -52,7 +52,6 @@ described from a different vantage point.
 |----|----------|-------|-------|----------|
 | A | Windows, Mac | Production | No screen reader on Windows or macOS can read the app's accessible names: our GTK builds leave GTK's AccessKit accessibility backend off, so neither platform gets a tree to carry them. Linux/AT-SPI reads them | Medium |
 | B | Mac | Upstream | macOS only: every native file-chooser invocation (Open, Save, Export) grows RSS by ~1.1 MB and does not give it back. Roughly four fifths is AppKit's own price for presenting an `NSSavePanel` — reproduced with no GTK in the process — with about a fifth GTK-attributable. Caching the panel upstream would recover ~95% | Medium |
-| C | Windows | Production | With the toolbar hidden by unticking its last section, View ▸ Toolbar greys every section row and shows no tick on the section that is still on, so the menu misreports the state | Low |
 | D | Any | Production | The preview's Annotate bubble sits over the line above a selection, so a click there lands on the bubble: the first click of a double- or triple-click opens the comment card, the next press closes it, and the reader gets a single click | Low |
 | F | Linux | Test | `window::sidebarfilter::gtk_integration_tests::closing_the_filter_returns_the_focus_to_the_highlighted_row` intermittently finds the list at its top instead of scrolled to the highlighted row (1 failure on CI; passed on retry, and about 160 of 160 loaded runs locally) | Low |
 | G | Windows | Upstream | After an edit the editor's scrollbar slider is sometimes not drawn until the next scroll (2 of 40 Enters); a GTK defect still open upstream | Low |
@@ -261,24 +260,6 @@ here because this entry exists in order to be deleted when the defect is fixed, 
 evidence must outlive it. Do not restate its figures here; several carry caveats that do not
 survive summarising, and the transferable lessons already have permanent homes in
 `sdd/ANTI-PATTERNS.md`.
-
-## C. With the toolbar hidden, View ▸ Toolbar shows no tick on the section that is still on
-
-**Severity**: Low (the state is right and the bar comes back correctly; only the menu's
-display of it is wrong, and only while the bar is hidden).
-
-**Observed** (2026-10-24, Windows, GTK 4.22.4, on master; reported by the `linux-undo` seat):
-in View ▸ Toolbar, untick sections until one remains, then untick that one too, so the
-toolbar hides. Every section row is then greyed, and the row for the section whose state is
-still on shows no tick. Ticking Show brings the bar back with that section, so the state
-was on throughout.
-
-**Platform**: macOS draws the tick on the greyed row, so it does not show this. Linux has
-not been checked.
-
-**Cause** (unconfirmed): probably GTK's Windows theme not drawing the check mark on a
-disabled check menu item. Not `Upstream` until a reproduction outside this app shows that,
-and the ticket search is done.
 
 ## D. The Annotate bubble covers the line above a selection and takes a click meant for it
 

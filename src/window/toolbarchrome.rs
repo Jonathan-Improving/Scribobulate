@@ -436,4 +436,103 @@ mod tests {
             win.destroy();
         });
     }
+
+    /// I3 as the reader sees it: a section row greyed by the hidden bar still DRAWS its
+    /// tick in a menu popover (TDD 9.22). GTK 4.22's Default theme inks
+    /// `check:checked:disabled` white for a check button's filled box, which
+    /// `popover.menu check` removes, so the tick was drawn white on a light menu. That
+    /// theme rule is installed here, below the app's sheet, so the test discriminates on
+    /// every GTK version and not only where the theme carries it.
+    ///
+    /// Mutation: cutting the `popover.menu check:checked:disabled` rule from
+    /// `preview::css` fails this.
+    #[gtktest::test]
+    fn a_greyed_section_row_still_draws_its_tick() {
+        let display = gtk::gdk::Display::default().expect("this test needs a display");
+        // Removed again on the way out: a display provider is PROCESS-global and libtest
+        // shares one process (POLICY § Unit tests).
+        struct Installed(gtk::gdk::Display, gtk::CssProvider);
+        impl Drop for Installed {
+            fn drop(&mut self) {
+                gtk::style_context_remove_provider_for_display(&self.0, &self.1);
+            }
+        }
+        let add = |css: &str, priority: u32| {
+            let provider = gtk::CssProvider::new();
+            provider.load_from_data(css);
+            gtk::style_context_add_provider_for_display(&display, &provider, priority);
+            Installed(display.clone(), provider)
+        };
+        fn find_check(widget: &gtk::Widget) -> Option<gtk::Widget> {
+            if widget.css_name() == "check" {
+                return Some(widget.clone());
+            }
+            let mut next = widget.first_child();
+            while let Some(child) = next {
+                if let Some(found) = find_check(&child) {
+                    return Some(found);
+                }
+                next = child.next_sibling();
+            }
+            None
+        }
+
+        with_fresh_session(|| {
+            let app = test_app_suffixed("toolbargreyedtick");
+            let win = crate::window::new_window(&app, "IT", "alpha", None);
+            app.change_action_state(&section_action("zoom"), &true.to_variant());
+            app.change_action_state(SHOW, &false.to_variant());
+            let anchor = win.child().expect("the window has content");
+
+            // (tick ink, its row's ink). A fresh menu per reading, so no reading sees a
+            // style computed before a provider was added.
+            let read = || {
+                let menu = gtk::gio::Menu::new();
+                menu.append(
+                    Some("Zoom"),
+                    Some(&format!("app.{}", section_action("zoom"))),
+                );
+                let popover = gtk::PopoverMenu::from_model(Some(&menu));
+                popover.set_parent(&anchor);
+                let check = find_check(popover.upcast_ref()).expect("a check item draws a check");
+                let flags = check.state_flags();
+                assert!(
+                    flags.contains(gtk::StateFlags::CHECKED | gtk::StateFlags::INSENSITIVE),
+                    "precondition: the row is ticked and greyed, got {flags:?}"
+                );
+                let row = check.parent().expect("a check sits in its row");
+                let inks = (check.style_context().color(), row.style_context().color());
+                popover.unparent();
+                inks
+            };
+
+            // ABOVE anything an earlier test left on the display: providers added for the
+            // display are never removed, and in a whole-suite process the app's own sheet
+            // is already there at APPLICATION priority, where it beats a theme stand-in
+            // placed below it and the control reads the fix instead of the theme
+            // (GTK4Rs/AP-323). What the fixture must preserve is the ORDER, app sheet
+            // over theme, not the absolute priorities.
+            let theme_priority = gtk::STYLE_PROVIDER_PRIORITY_APPLICATION + 10;
+            let _theme = add(
+                "check:checked:disabled { color: rgba(255, 255, 255, 0.7); }",
+                theme_priority,
+            );
+            let (hijacked, _) = read();
+            assert_eq!(
+                (hijacked.red(), hijacked.green(), hijacked.blue()),
+                (1.0, 1.0, 1.0),
+                "fixture no longer discriminates: the theme's white tick must reach the \
+                 check, or the assertion below proves nothing"
+            );
+
+            let _app_sheet = add(crate::preview::css(), theme_priority + 1);
+            let (tick, row) = read();
+            assert_eq!(
+                tick, row,
+                "a greyed row's tick must wear the row's own ink, not the theme's white"
+            );
+
+            win.destroy();
+        });
+    }
 }
