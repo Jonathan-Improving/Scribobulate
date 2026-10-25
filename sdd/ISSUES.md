@@ -54,8 +54,7 @@ described from a different vantage point.
 | B | Mac | Upstream | macOS only: every native file-chooser invocation (Open, Save, Export) grows RSS by ~1.1 MB and does not give it back. Roughly four fifths is AppKit's own price for presenting an `NSSavePanel` — reproduced with no GTK in the process — with about a fifth GTK-attributable. Caching the panel upstream would recover ~95% | Medium |
 | C | Windows | Production | With the toolbar hidden by unticking its last section, View ▸ Toolbar greys every section row and shows no tick on the section that is still on, so the menu misreports the state | Low |
 | D | Any | Production | The preview's Annotate bubble sits over the line above a selection, so a click there lands on the bubble: the first click of a double- or triple-click opens the comment card, the next press closes it, and the reader gets a single click | Low |
-| E | Linux | Test | `window::find::bartests::a_closed_find_bar_paints_no_match_highlight` intermittently counts 4 matches where the held passage holds 2 (1 of 2 full instrumented pipeline runs; 5 of 5 isolated runs pass) | Low |
-| F | Linux | Test | `window::sidebarfilter::gtk_integration_tests::closing_the_filter_returns_the_focus_to_the_highlighted_row` intermittently finds the list at its top instead of scrolled to the highlighted row (1 failure on CI; passed on retry, and 6 of 6 locally) | Low |
+| F | Linux | Test | `window::sidebarfilter::gtk_integration_tests::closing_the_filter_returns_the_focus_to_the_highlighted_row` intermittently finds the list at its top instead of scrolled to the highlighted row (1 failure on CI; passed on retry, and about 160 of 160 loaded runs locally) | Low |
 | G | Windows | Upstream | After an edit the editor's scrollbar slider is sometimes not drawn until the next scroll (2 of 40 Enters); a GTK defect still open upstream | Low |
 | Q | Windows, Linux | Upstream | A crafted SVG can corrupt memory: Windows and Linux decode SVG through a librsvg with a published use-after-free (CVE-2026-96889, fixed in 2.63.2), and refuse any SVG that may use XInclude before librsvg sees it until they carry the fix. The macOS bundle carries 2.63.2, and its build fails below that | High |
 | R | Windows | Test | Two split-mode live-reload tests in `window::outline_reload_tests` intermittently fail on Windows CI because the editor is not where the test parked it (top line 0, or 70 where >100 is required) | Low |
@@ -307,26 +306,6 @@ Windows have not been driven.
 the bubble by clicking elsewhere first. Not taken: placing the bubble clear of text (in the
 margin or below the selection), which changes a placement other features and tests rely on.
 
-## E. The closed-find-bar highlight test sometimes counts the whole document instead of the held passage
-
-**Severity**: Low (test only; no user-visible defect is known behind it).
-
-**Observed** (2026-10-23, Linux, GTK 4.6.9, `scripts/pipeline.sh` step 5c, instrumented
-full suite): `window::find::bartests::a_closed_find_bar_paints_no_match_highlight` failed
-at its `assert_eq!(count(&win), Some(2))` with `Some(4)`: right after Find in Selection
-was switched on over a two-line passage, the count still covered the whole document. The
-next full pipeline run passed, and 5 isolated runs of the test all passed. Filed `Linux`
-because it is the only platform it has been seen on; Windows and macOS have not been
-checked for it.
-
-**Not established**: the mechanism. A count read before the in-selection search has
-re-run would give exactly the whole-document figure, which points at the test's settle
-rather than the product, but that was not measured.
-
-**Mitigation options**:
-- Make the test wait for the in-selection count to settle before asserting it.
-- If the count can be read stale in the app as well, fix the readout's ordering instead.
-
 ## F. The sidebar-filter focus test sometimes finds the list unscrolled
 
 **Severity**: Low (a test-only intermittent; no product symptom has been seen).
@@ -335,8 +314,18 @@ rather than the product, but that was not measured.
 on the commit "Offer the View ▸ Toolbar toggles from a right-click on the toolbar…", 2026-10-24): `closing_the_filter_returns_the_focus_to_the_highlighted_row` failed at
 `src/window/sidebarfilter.rs:1113`, "the highlighted row is scrolled into view, not the top
 of the list". Attempt 2 of the same run passed; so did the same commit inside run
-40102254669 and 6 of 6 local runs. Windows and macOS legs passed both times. Not
-investigated.
+40102254669 and 6 of 6 local runs. Windows and macOS legs passed both times.
+
+**Not reproduced locally** (2026-10-24, Linux, GTK 4.6.9, instrumented build, private
+Xvfb): about 160 runs under heavy parallel load, and 3 runs with animations off, all
+passed. In each, the list was already laid out when the row was revealed and the scroll
+landed near 900. Ruled out by those runs: a stale list size at the moment of the scroll,
+and a close with animations off skipping the hand-back. Not established: the mechanism.
+
+**Mitigation options**:
+- The assertion's message now carries the list's scroll value, upper and page size. If
+  it recurs, read them first: they say whether the reveal ran, ran against a stale size,
+  or was undone afterwards. Change no product code before that.
 
 ## G. On Windows the editor's scrollbar slider sometimes goes missing after an edit
 

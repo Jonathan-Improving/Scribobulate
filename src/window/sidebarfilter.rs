@@ -1110,9 +1110,17 @@ mod gtk_integration_tests {
             Some((target, true)),
             "the focus returns to the highlighted row, which stays the selected one"
         );
+        // The scroll's figures go in the message: this assertion has failed once on CI
+        // and never locally, and they say whether the reveal ran, ran against a stale
+        // list size, or was undone afterwards.
+        let vadj = ch.outline_scroller.vadjustment();
         assert!(
-            ch.outline_scroller.vadjustment().value() > 0.0,
-            "the highlighted row is scrolled into view, not the top of the list"
+            vadj.value() > 0.0,
+            "the highlighted row is scrolled into view, not the top of the list \
+             (value {}, upper {}, page {})",
+            vadj.value(),
+            vadj.upper(),
+            vadj.page_size()
         );
         assert_eq!(
             caret(),

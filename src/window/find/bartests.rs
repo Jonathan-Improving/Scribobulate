@@ -47,13 +47,29 @@ const CASE_EXACT: i32 = 6;
 const WHOLE: i32 = 7;
 
 /// Open the find bar and put `query` in it, for the pane the window is currently
-/// showing.
+/// showing, and return once the search it asks for has actually run.
+///
+/// **Returning before the search runs makes the NEXT step race it.** `GtkSearchEntry`
+/// delivers `search-changed` after its own delay, not on `set_text`, and a caller that
+/// selects a passage straight away was relying on doing so inside that window. When it
+/// ran late the delayed search arrived after the selection and took it away — in the
+/// preview by re-selecting the current match, in the editor through a loss of the X11
+/// PRIMARY selection — so Find in Selection was unavailable, its toggle was ignored,
+/// and the count covered the whole document. Measured: 2 to 6 failures in every 192
+/// loaded, instrumented runs of this module before, none in 192 after. The handler
+/// records the query on the tab, so waiting for that record is waiting for the search,
+/// not for a guessed delay.
 fn search(win: &ApplicationWindow, query: &str) {
     crate::window::actions::simple_action(win, "find")
         .expect("win.find is registered")
         .activate(None);
     let st = state(win).expect("the window has an active tab");
     st.chrome().find_entry.set_text(query);
+    crate::testpump::until(
+        crate::testpump::Clock::Idle,
+        "the find field's delayed search to run",
+        || *st.find_query.borrow() == query,
+    );
 }
 
 /// The readout's text once the search it describes has actually happened.
