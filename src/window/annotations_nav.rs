@@ -47,6 +47,12 @@ pub(crate) fn rebuild_annotations_list(window: &ApplicationWindow) {
     st.chrome()
         .annotations_filter
         .set_count(query.is_some().then_some((rows.len(), entries.len())));
+    // Next/Previous Annotation are enabled iff the document has an annotation to walk
+    // to (TDD 17.55). Set here because this is the one point every change to the
+    // document's annotations passes through — load, edit, reload, undo/redo, tab
+    // switch — and it counts the same unfiltered list the walk itself steps over (the
+    // filter narrows the rows, not the walk).
+    super::annotate::update_annotation_step_state(window, !entries.is_empty());
     // Re-select the previously activated annotation by IDENTITY (src_span start) if it
     // still exists, so the panel keeps its selection across the rebuild; the initial
     // selection is applied inside build_annotations_content *before* the navigation
@@ -262,8 +268,7 @@ fn open_marker_for_src_deferred(
 /// **Mode-complete by construction.** The command used to reach for the preview's marker
 /// layer directly, so in pure-edit mode — where there is no preview view — it was a
 /// silent no-op: the one mode a reviewer does most of their keyboard work in had no
-/// annotation walk at all, and because the action is deliberately always-enabled there
-/// was not even a greyed-out control to explain the silence. Choosing the target here
+/// annotation walk at all, with nothing to explain the silence. Choosing the target here
 /// and handing it to [`navigate_to_annotation`] means each mode presents it the way that
 /// mode already presents a viewer row (card in preview, card + editor caret in split,
 /// editor caret in edit), with no second navigation path to drift.
@@ -298,9 +303,8 @@ pub(super) fn step_annotation(window: &ApplicationWindow, direction: Direction) 
             step_index(&starts, caret, direction).map(|index| starts[index])
         }
     };
-    // No annotations at all in this document — the one case where doing nothing is the
-    // whole correct answer (which is also why the action is not gated on it: a greyed-out
-    // Next Annotation is indistinguishable from a broken one).
+    // No annotations at all: the actions are disabled then (TDD 17.55), so this is only
+    // a guard for a direct call.
     let Some(target) = target else { return };
     navigate_to_annotation(window, target, CardFocus::Take);
 }

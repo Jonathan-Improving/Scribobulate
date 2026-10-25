@@ -57,13 +57,19 @@ pub(super) fn register_annotate_action(window: &ApplicationWindow) {
 /// notion of a parameter carried on a key press; the *behaviour* is one function with a
 /// direction argument, which is where the two cannot drift.
 ///
-/// Always enabled: unlike `win.annotate` (gated on a selection), these need no
-/// precondition a user could observe — they are a no-op only when the document has no
-/// annotations at all, which is exactly the case where greying them out would be
-/// indistinguishable from the feature being broken.
+/// Enabled only while the active document holds at least one annotation (TDD 17.55):
+/// with none there is nowhere to walk to, and the greyed-out item says so. The state is
+/// driven by [`update_annotation_step_state`] from the annotations-list rebuild.
 pub(super) fn register_annotation_step_actions(window: &ApplicationWindow) {
     register_annotation_step(window, "next-annotation", Direction::Next);
     register_annotation_step(window, "prev-annotation", Direction::Previous);
+}
+
+/// Enable or disable both annotation-walk actions together — the single source of
+/// truth for their menu items and accelerators.
+pub(crate) fn update_annotation_step_state(window: &ApplicationWindow, has_annotations: bool) {
+    set_action_enabled(window, "next-annotation", has_annotations);
+    set_action_enabled(window, "prev-annotation", has_annotations);
 }
 
 fn register_annotation_step(window: &ApplicationWindow, name: &str, direction: Direction) {
@@ -452,6 +458,59 @@ mod gtk_integration_tests {
             "annotating in preview-only mode must refresh the sidebar viewer immediately \
              (TDD 20.17 / Derived-view CAM), not leave it stale at 1"
         );
+
+        window.destroy();
+    }
+
+    /// TDD 17.55: Next/Previous Annotation are enabled iff the document has an
+    /// annotation, and follow it as annotations come and go (annotate, undo, redo).
+    #[gtktest::test]
+    fn annotation_walk_is_enabled_only_while_the_document_has_an_annotation() {
+        use gtk::prelude::*;
+        let app = gtk::Application::new(
+            Some("com.extollit.scribobulate.integrationtest.annotationwalkgate"),
+            gtk::gio::ApplicationFlags::NON_UNIQUE,
+        );
+        app.register(gtk::gio::Cancellable::NONE)
+            .expect("register before building a window");
+        let walk_enabled = |w: &ApplicationWindow| {
+            let next = action_enabled(w, "next-annotation");
+            assert_eq!(
+                next,
+                action_enabled(w, "prev-annotation"),
+                "Next and Previous Annotation must share one enabled state"
+            );
+            next
+        };
+
+        let annotated =
+            crate::window::new_window(&app, "IT", "{==alpha==}{>>a comment<<} beta", None);
+        assert!(
+            walk_enabled(&annotated),
+            "a document opened with an annotation enables the walk"
+        );
+        annotated.destroy();
+
+        let window = crate::window::new_window(&app, "IT", "alpha beta", None);
+        let st = state(&window).expect("state after new_window");
+        assert!(
+            !walk_enabled(&window),
+            "a document with no annotations disables the walk"
+        );
+
+        // Annotate the way the preview sink does: edit the source, then refresh.
+        let buf: gtk::TextBuffer = st.editor_buf.clone().upcast();
+        apply_annotation_edit(&buf, highlight_in(&text_of(&buf), 0..5, "one"));
+        crate::window::rerender_preview_from_live_edit(&window);
+        assert!(walk_enabled(&window), "annotating enables the walk");
+
+        window.lookup_action("undo").unwrap().activate(None);
+        assert!(
+            !walk_enabled(&window),
+            "undoing the only annotation disables the walk"
+        );
+        window.lookup_action("redo").unwrap().activate(None);
+        assert!(walk_enabled(&window), "redoing it enables the walk again");
 
         window.destroy();
     }

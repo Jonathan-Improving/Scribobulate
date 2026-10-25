@@ -2917,7 +2917,7 @@
 - **When** the reader walks to an annotation
 - **Then** preview and split scroll to it and open its comment card (split additionally placing the editor caret on it), and pure-edit moves the editor caret to the annotation's source position — each mode presenting it exactly as it presents an activated annotations-viewer row, because there is one navigator and not one per surface
 - **And** in pure edit the caret lands on the right character past multi-byte text (as §20.14 requires of the viewer)
-- **And** a document with no annotations at all does nothing, quietly: the command stays enabled, because a greyed-out Next Annotation is indistinguishable from a broken one
+- **And** in a document with no annotations at all, Next Annotation and Previous Annotation are both disabled (greyed out in the Edit menu, their shortcuts inert), and they become enabled as soon as the document gains one — whether by annotating, editing the source, undo/redo, reload, or switching to a tab that has one
 
 ### 17.56 A comment is typed into a wrapping field, and stays one line
 - **Given** any annotation comment field — the editor Create card, the preview Create card, or the card's Edit
