@@ -342,7 +342,8 @@ fill outright. Every key unset ⇒ the exact hardcoded amber/white the chip alwa
 **Covers:** the page (background/`color`/`font-family`), table cells (their ink,
 borders, metrics — and their header's fill only while it is FLAT; see
 [the hand-offs](#mechanism-cs-two-hand-offs-to-b)), the rule separator, the
-image-selection tint, the preview's floating cards.
+image-selection tint, the conflict toast. (The preview's floating cards stay on the
+desktop theme, so every card is one colour — TDD 17.65.)
 
 **How:** GTK4 removed the GTK3 widget style overrides, so a widget's background/font is
 **CSS-only**. CSS is a *generated artifact* here, never a source of truth —

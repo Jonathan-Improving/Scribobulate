@@ -18,7 +18,7 @@
 | 14 | Show Unsafe Images | 14.1 – 14.10 |
 | 15 | Tabbed documents | 15.1 – 15.22 |
 | 16 | Keyboard-shortcuts help & status surfaces | 16.1 – 16.17 |
-| 17 | Annotation & review (CriticMarkup) | 17.1 – 17.63 |
+| 17 | Annotation & review (CriticMarkup) | 17.1 – 17.65 |
 | 18 | Preview reading themes | 18.1 – 18.58 |
 | 19 | Local document-link navigation | 19.1 – 19.13 |
 | 20 | Annotations viewer | 20.1 – 20.25 |
@@ -2973,6 +2973,18 @@
 - **When** the reader clicks anywhere else in the document — another cell, a header cell, the same cell, body text, or empty page space
 - **Then** the old highlight and its Annotate pop-up go away, exactly as a click elsewhere in body text clears a body selection
 - **And** when the click lands outside the old cell, no text cursor is left blinking in it
+
+### 17.64 Every card points at what it is about
+- **Given** any card is showing — the Annotate pop-up over a preview selection, the editor's formatting bar, or an annotation's comment card
+- **Then** a small pointer on the card's edge points at what it is about: at the middle of the selection for the Annotate pop-up and the formatting bar, at the margin chip for a comment card
+- **And** when the card has no room on its usual side and opens on the other, the pointer moves to the edge that now faces the selection or chip
+- **And** the pointer stays on the straight part of the edge, clear of the rounded corners, however close to the pane's edge the selection is
+- **And** a card that is wider than its pane and wraps onto a second row holds every row inside it, with the pointer still on its edge
+
+### 17.65 The cards over the preview are one colour
+- **Given** a reading theme that colours the page (Pixel Quest, Sepia, …)
+- **When** the reader selects preview text and the Annotate pop-up shows, then clicks Annotate and the comment entry opens
+- **Then** both cards are the same colour, the desktop's, as are the formatting bar and a comment card: the reading theme colours the document, not the cards floating over it (18.7)
 
 ## 18. Preview reading themes
 

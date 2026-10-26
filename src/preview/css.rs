@@ -19,18 +19,22 @@ pub(crate) fn css() -> &'static str {
         `floatingcard` (the preview's Annotate action, the editor's formatting bar, an
         annotation's comment card) — is an IN-SURFACE GtkOverlay child, not a popover, so
         it gets no theme popover chrome; give it its own opaque card so it reads over
-        document text. A `floatingcard` stays on the DESKTOP theme even over the preview:
-        its labels and buttons take the desktop's ink, so the reading theme's page fill
-        under them made them illegible (measured: near-white text on a light card).
-        This is the BASE (desktop-themed) card, worn by BOTH the editor's card and the
-        preview's. The preview's additionally carries `.scrib-preview-card`, which
-        `theme_css` recolours when a reading theme states its own page — so the two
-        panes look identical under System and each follows its own pane's theme
-        otherwise. The two cards share this class deliberately (window/editor_annotate). */
-     .annotation-entry, floatingcard { background-color: @theme_bg_color;
+        document text. Every one of them stays on the DESKTOP theme, the preview's
+        included: their labels and buttons take the desktop's ink, so a reading theme's
+        page fill under them can make them illegible (measured: near-white text on a light
+        card), and a reader who sees one card in the desktop's colours and the next in the
+        page's reads it as a fault. The editor's card shares `.annotation-entry` with the
+        preview's deliberately (window/editor_annotate).
+        A `floatingcard` wears this on its BODY: the card widget's own allocation also
+        holds the pointer strip, which must stay transparent. Its pointer is a square
+        drawn turned and clipped to the strip, so it takes the body's fill and border and
+        joins it seamlessly (widgets/floating_card). */
+     .annotation-entry, floatingcard > .card-body { background-color: @theme_bg_color;
                          border: 1px solid alpha(@theme_fg_color, 0.25);
                          border-radius: 8px; padding: 4px;
                          box-shadow: 0 2px 6px alpha(black, 0.35); }
+     floatingcard > .card-arrow { background-color: @theme_bg_color;
+                         border: 1px solid alpha(@theme_fg_color, 0.25); }
      /* Base conflict toast — likewise recoloured by `theme_css` under a reading theme. */
      .conflict-toast { border-radius: 10px; padding: 10px 16px;
                        background-color: mix(@theme_bg_color, @theme_selected_bg_color, 0.10);
@@ -512,27 +516,21 @@ pub(crate) fn theme_css(theme: &Theme, palette: &Palette) -> String {
         rgba_css(palette.code_chips.page(), 0.60)
     ));
 
-    // ── preview-floating cards ────────────────────────────────────────────────
+    // ── preview conflict toast ────────────────────────────────────────────────
     //
-    // Emitted ONLY when the theme states its own page. With no injected page the
+    // (The preview's floating cards are NOT here: they stay on the desktop theme, see the
+    // static sheet.) Emitted ONLY when the theme states its own page. With no injected page the
     // desktop's own `@theme_*` rules in the static sheet are correct BY DEFINITION —
     // that is resolution link 3 — and re-deriving them here would shift System's
-    // cards from the window chrome colour to the page colour, breaking the
+    // toast from the window chrome colour to the page colour, breaking the
     // byte-identical bar (TDD 18.2). This is keyed on the DATA (does the theme state
     // a page?), never on a theme name — the engine holds no per-theme knowledge.
     //
-    // These DO override the static sheet's rules, which is why the theme provider is
+    // This DOES override the static sheet's rule, which is why the theme provider is
     // installed at a strictly higher priority: priority dominates, and equal-priority
     // add-order would otherwise decide it (GTK4Rs/AP-101).
     if theme.background.is_some() || theme.foreground.is_some() {
-        let card_bg = to_hex_opaque(palette.page_bg);
         let card_border = to_hex_opaque(palette.table_border);
-        // Only the PREVIEW's card — the editor's wears `.annotation-entry` alone and
-        // stays on the desktop theme (TDD 18.7).
-        out.push_str(&format!(
-            ".annotation-entry.scrib-preview-card {{ background-color: {card_bg}; \
-             border-color: {card_border}; }}\n"
-        ));
         out.push_str(&format!(
             ".conflict-toast {{ background-color: {}; border-color: {card_border}; color: {}; }}\n",
             to_hex_opaque(crate::palette::mix_rgba(
@@ -597,7 +595,6 @@ mod tests {
         assert!(!c.contains(".scrib-image-sel"));
         for selector in [
             ".conflict-toast",
-            "floatingcard",
             ".annotation-entry",
             "listview.outline",
             ".outline-h1",
@@ -617,6 +614,39 @@ mod tests {
             c,
             &format!(".{}", crate::widgets::tab::TAB_CLOSE_BTN_CLASS)
         ));
+    }
+
+    /// The floating card's look is on its body and pointer, named by the classes the
+    /// widget sets — a rename on either side would leave a card with no fill, or a pointer
+    /// drawn as a bare square of nothing.
+    #[test]
+    fn the_floating_card_body_and_pointer_are_styled() {
+        use crate::widgets::floating_card::{ARROW_CLASS, BODY_CLASS};
+        let c = css();
+        for class in [BODY_CLASS, ARROW_CLASS] {
+            let selector = format!("floatingcard > .{class}");
+            assert!(
+                has_live_selector(c, &selector),
+                "no live rule for {selector}"
+            );
+        }
+    }
+
+    /// TDD 17.65 — every card over the preview wears the desktop's colours under every
+    /// reading theme, so the Annotate pop-up and the comment entry it opens are one colour.
+    /// Mutation: restore a reading-theme override for `.annotation-entry` and this fails.
+    #[test]
+    fn no_reading_theme_recolours_a_floating_card() {
+        for entry in Themes::builtin().chooser_list() {
+            let c = css_for(&entry.id);
+            for card in [".annotation-entry", "floatingcard"] {
+                assert!(
+                    !c.contains(card),
+                    "theme `{}` recolours {card}, so it no longer matches the other cards",
+                    entry.id
+                );
+            }
+        }
     }
 
     // ── generated theme CSS ───────────────────────────────────────────────────
@@ -663,9 +693,9 @@ mod tests {
     fn system_emits_no_page_rule() {
         let c = css_for(SYSTEM_ID);
         assert!(!c.contains("textview.scrib-preview"));
-        // …and no floating-card override either: with no injected page, the static
-        // sheet's @theme_* cards are correct by definition (resolution link 3).
-        assert!(!c.contains(".scrib-preview-card"));
+        // …and no toast override either: with no injected page, the static sheet's
+        // @theme_* toast is correct by definition (resolution link 3).
+        assert!(!c.contains(".conflict-toast"));
     }
 
     /// TDD 18.4 — a reading theme must reach the page itself, and it takes BOTH
@@ -957,7 +987,6 @@ mod tests {
             "separator.scrib-rule",
             ".scrib-image-sel",
             ".scrib-broken-image",
-            ".annotation-entry.scrib-preview-card",
             ".conflict-toast",
         ] {
             assert!(c.contains(want), "sepia sheet is missing {want}:\n{c}");

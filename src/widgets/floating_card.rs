@@ -53,14 +53,40 @@
 //! silently drop (GTK4Rs/AP-104). Reading geometry there is safe: it measures only the
 //! card's own content and translates between two widgets the overlay is allocating; it
 //! never asks a `GtkTextView` to validate anything (GTK4Rs/AP-22).
+//!
+//! # The pointer (TDD 17.64)
+//!
+//! A popover draws a pointer at what it is about; this card draws its own. The card widget
+//! paints nothing itself: its allocation is the card BODY (which wears the card's CSS and
+//! holds the content) plus a strip [`ARROW_DEPTH`] deep on the side facing the anchor. In
+//! that strip it draws a small square styled like the body, turned 45° and clipped so only
+//! the half that stands out shows — a widget, not a drawn triangle, because its fill and
+//! border must be the body's own CSS colours and GTK 4.6 cannot read a node's background
+//! colour back. [`place`] reports which edge ended up facing the anchor (it flips with the
+//! card), and [`arrow_offset`] where along that edge the anchor's middle is.
 
 use gtk::gdk;
 use gtk::glib;
+use gtk::gsk;
 use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 
 /// Gap in px between the card and the rectangle it points at.
 const GAP: i32 = 4;
+
+/// Side in px of the square that, turned 45°, is the card's pointer.
+const ARROW_SIDE: i32 = 10;
+
+/// How far in px the pointer stands out from the card's edge: half the turned square's
+/// diagonal, `ARROW_SIDE / √2`, rounded. The card reserves a strip this deep on the side
+/// facing what it points at, so the pointer is part of its own allocation and never
+/// clipped by the host.
+const ARROW_DEPTH: i32 = 7;
+
+/// The closest in px the pointer's centre may come to either end of the edge it sits on.
+/// Its half-width plus a margin that clears the card's rounded corner, so the pointer
+/// always joins a straight stretch of the edge.
+const ARROW_END_CLEARANCE: i32 = 16;
 
 /// Which side of its anchor a card prefers. A closed set, so the placement arithmetic has
 /// no "other" case to forget.
@@ -70,6 +96,34 @@ pub(crate) enum Side {
     Top,
     /// Left of the anchor, centred on it vertically; right when there is no room left.
     Left,
+}
+
+impl Side {
+    /// The axis the pointer strip is reserved on. Fixed by the preferred side, so it does
+    /// not change when the card flips, and the card's size request does not either.
+    fn arrow_axis(self) -> gtk::Orientation {
+        match self {
+            Side::Top => gtk::Orientation::Vertical,
+            Side::Left => gtk::Orientation::Horizontal,
+        }
+    }
+
+    /// The edge that faces the anchor when the card sits on this side.
+    fn facing_edge(self) -> Edge {
+        match self {
+            Side::Top => Edge::Bottom,
+            Side::Left => Edge::Right,
+        }
+    }
+}
+
+/// The edge of the card that faces what it points at, and so carries the pointer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Edge {
+    Top,
+    Bottom,
+    Left,
+    Right,
 }
 
 /// An axis-aligned rectangle in the HOST overlay's coordinates — plain data, so the
@@ -82,8 +136,16 @@ pub(crate) struct Rect {
     pub(crate) h: i32,
 }
 
+/// Where a card goes: its top-left corner in the host, and the edge facing its anchor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Placement {
+    pub(crate) x: i32,
+    pub(crate) y: i32,
+    pub(crate) edge: Edge,
+}
+
 /// Where a `card_w` × `card_h` card goes, pointing at `anchor`, inside a `host_w` ×
-/// `host_h` overlay: its top-left corner.
+/// `host_h` overlay.
 ///
 /// On the preferred side when it fits; on the opposite side when it does not; and in every
 /// case clamped so no part of it is outside the host (the host clips it, so a card hanging
@@ -96,35 +158,100 @@ pub(crate) fn place(
     host_w: i32,
     host_h: i32,
     side: Side,
-) -> (i32, i32) {
+) -> Placement {
     let max_x = (host_w - card_w).max(0);
     let max_y = (host_h - card_h).max(0);
-    let (x, y) = match side {
+    let (x, y, edge) = match side {
         Side::Top => {
             let above = anchor.y - GAP - card_h;
-            let y = if above >= 0 {
-                above
+            let (y, edge) = if above >= 0 {
+                (above, Edge::Bottom)
             } else {
-                anchor.y + anchor.h + GAP
+                (anchor.y + anchor.h + GAP, Edge::Top)
             };
-            (anchor.x + anchor.w / 2 - card_w / 2, y)
+            (anchor.x + anchor.w / 2 - card_w / 2, y, edge)
         }
         Side::Left => {
             let left = anchor.x - GAP - card_w;
-            let x = if left >= 0 {
-                left
+            let (x, edge) = if left >= 0 {
+                (left, Edge::Right)
             } else {
-                anchor.x + anchor.w + GAP
+                (anchor.x + anchor.w + GAP, Edge::Left)
             };
-            (x, anchor.y + anchor.h / 2 - card_h / 2)
+            (x, anchor.y + anchor.h / 2 - card_h / 2, edge)
         }
     };
-    (x.clamp(0, max_x), y.clamp(0, max_y))
+    Placement {
+        x: x.clamp(0, max_x),
+        y: y.clamp(0, max_y),
+        edge,
+    }
+}
+
+/// Where along `edge` of `card` the pointer's centre goes, measured from the card's
+/// top-left along that edge, so it points at the middle of `anchor`.
+///
+/// `None` when the anchor is not beyond that edge — a card clamped inside a pane too small
+/// for it can end up over its own anchor, and a pointer there would point at nothing.
+/// Otherwise the centre is held [`ARROW_END_CLEARANCE`] from both ends, or on the middle of
+/// an edge too short for that.
+pub(crate) fn arrow_offset(anchor: Rect, card: Rect, edge: Edge) -> Option<i32> {
+    let beyond = match edge {
+        Edge::Bottom => anchor.y >= card.y + card.h - ARROW_DEPTH,
+        Edge::Top => anchor.y + anchor.h <= card.y + ARROW_DEPTH,
+        Edge::Right => anchor.x >= card.x + card.w - ARROW_DEPTH,
+        Edge::Left => anchor.x + anchor.w <= card.x + ARROW_DEPTH,
+    };
+    if !beyond {
+        return None;
+    }
+    let (centre, len) = match edge {
+        Edge::Top | Edge::Bottom => (anchor.x + anchor.w / 2 - card.x, card.w),
+        Edge::Left | Edge::Right => (anchor.y + anchor.h / 2 - card.y, card.h),
+    };
+    let (lo, hi) = (ARROW_END_CLEARANCE, len - ARROW_END_CLEARANCE);
+    Some(if hi < lo {
+        len / 2
+    } else {
+        centre.clamp(lo, hi)
+    })
+}
+
+/// The body's rectangle inside a `w` × `h` card whose pointer strip is on `edge`.
+fn body_rect(w: i32, h: i32, edge: Edge) -> Rect {
+    let d = ARROW_DEPTH;
+    match edge {
+        Edge::Bottom => Rect {
+            x: 0,
+            y: 0,
+            w,
+            h: (h - d).max(0),
+        },
+        Edge::Top => Rect {
+            x: 0,
+            y: d,
+            w,
+            h: (h - d).max(0),
+        },
+        Edge::Right => Rect {
+            x: 0,
+            y: 0,
+            w: (w - d).max(0),
+            h,
+        },
+        Edge::Left => Rect {
+            x: d,
+            y: 0,
+            w: (w - d).max(0),
+            h,
+        },
+    }
 }
 
 mod imp {
     use super::*;
     use glib::subclass::Signal;
+    use gtk::graphene;
     use std::cell::{Cell, RefCell};
     use std::sync::OnceLock;
 
@@ -137,8 +264,20 @@ mod imp {
         /// `(x, y, width, height)` in the anchor's coordinates.
         pub(super) pointing_to: Cell<Option<(i32, i32, i32, i32)>>,
         pub(super) side: Cell<Side>,
-        /// The card's content, held so `dispose` can unparent it.
+        /// The card's content, held so it can be replaced.
         pub(super) child: RefCell<Option<gtk::Widget>>,
+        /// The card proper: it wears the card's CSS and holds the content. The card widget
+        /// itself draws nothing of its own, so its allocation can include the pointer strip.
+        pub(super) body: gtk::Box,
+        /// The pointer: a square styled like the body, drawn turned 45° and clipped to the
+        /// strip outside the body, so only the half that stands out shows. A widget rather
+        /// than a drawn shape because its fill and border must be the body's own CSS colours,
+        /// and GTK 4.6 offers no way to read a node's background colour back.
+        pub(super) arrow: gtk::Box,
+        /// The edge the pointer is on, from the last placement.
+        pub(super) edge: Cell<Edge>,
+        /// Where along that edge the pointer's centre is; `None` hides it.
+        pub(super) arrow_at: Cell<Option<i32>>,
     }
 
     impl Default for FloatingCard {
@@ -149,6 +288,10 @@ mod imp {
                 pointing_to: Default::default(),
                 side: Cell::new(Side::Top),
                 child: Default::default(),
+                body: gtk::Box::new(gtk::Orientation::Vertical, 0),
+                arrow: gtk::Box::new(gtk::Orientation::Vertical, 0),
+                edge: Cell::new(Side::Top.facing_edge()),
+                arrow_at: Cell::new(None),
             }
         }
     }
@@ -160,7 +303,6 @@ mod imp {
         type ParentType = gtk::Widget;
 
         fn class_init(klass: &mut Self::Class) {
-            klass.set_layout_manager_type::<gtk::BinLayout>();
             klass.set_css_name("floatingcard");
         }
     }
@@ -174,6 +316,13 @@ mod imp {
         fn constructed(&self) {
             self.parent_constructed();
             let obj = self.obj();
+            self.body.add_css_class(BODY_CLASS);
+            self.body.set_parent(&*obj);
+            self.arrow.add_css_class(ARROW_CLASS);
+            self.arrow.set_size_request(ARROW_SIDE, ARROW_SIDE);
+            // Clicks on the pointer fall through to the card's edge or the page under it.
+            self.arrow.set_can_target(false);
+            self.arrow.set_parent(&*obj);
             // Positioned by the host's `get-child-position`; the alignment only matters
             // before the first anchor arrives, and START keeps an unanchored card from
             // filling the pane.
@@ -184,9 +333,9 @@ mod imp {
 
         fn dispose(&self) {
             self.obj().disconnect_host();
-            if let Some(child) = self.child.borrow_mut().take() {
-                child.unparent();
-            }
+            self.child.borrow_mut().take();
+            self.body.unparent();
+            self.arrow.unparent();
         }
     }
 
@@ -197,8 +346,91 @@ mod imp {
             self.parent_hide();
             self.obj().emit_by_name::<()>("closed", &[]);
         }
+
+        /// The body's. Without this a widget with no layout manager is CONSTANT_SIZE, and
+        /// GTK then measures it with `for_size` forced to -1, so content that wraps (the
+        /// formatting bar in a narrow pane) is sized at its one-row height and its second
+        /// row hangs outside the card.
+        fn request_mode(&self) -> gtk::SizeRequestMode {
+            self.body.request_mode()
+        }
+
+        /// The body's size plus the pointer strip on the preferred side's axis.
+        fn measure(&self, orientation: gtk::Orientation, for_size: i32) -> (i32, i32, i32, i32) {
+            if orientation == self.side.get().arrow_axis() {
+                let (min, nat, _, _) = self.body.measure(orientation, for_size);
+                (min + ARROW_DEPTH, nat + ARROW_DEPTH, -1, -1)
+            } else {
+                let for_size = if for_size < 0 {
+                    for_size
+                } else {
+                    (for_size - ARROW_DEPTH).max(0)
+                };
+                let (min, nat, _, _) = self.body.measure(orientation, for_size);
+                (min, nat, -1, -1)
+            }
+        }
+
+        fn size_allocate(&self, width: i32, height: i32, _baseline: i32) {
+            let Rect { x, y, w, h } = body_rect(width, height, self.edge.get());
+            self.body.allocate(
+                w,
+                h,
+                -1,
+                Some(gsk::Transform::new().translate(&graphene::Point::new(x as f32, y as f32))),
+            );
+            // Measured as GTK requires before every allocation; placed in `snapshot`, which
+            // reads the latest pointer position even when GTK skips an unchanged allocation.
+            self.arrow.measure(gtk::Orientation::Horizontal, -1);
+            self.arrow.allocate(ARROW_SIDE, ARROW_SIDE, -1, None);
+        }
+
+        fn snapshot(&self, snapshot: &gtk::Snapshot) {
+            let obj = self.obj();
+            obj.snapshot_child(&self.body, snapshot);
+            let Some(at) = self.arrow_at.get() else {
+                return;
+            };
+            let (w, h) = (obj.width() as f32, obj.height() as f32);
+            let (d, at) = (ARROW_DEPTH as f32, at as f32);
+            // The pointer's centre sits one pixel inside the body's edge, on its border
+            // line, so the clip below keeps that one pixel and the pointer's fill covers
+            // the body's border where the two join.
+            let (centre, clip) = match self.edge.get() {
+                Edge::Bottom => (
+                    graphene::Point::new(at, h - d - 1.0),
+                    graphene::Rect::new(0.0, h - d - 1.0, w, d + 1.0),
+                ),
+                Edge::Top => (
+                    graphene::Point::new(at, d + 1.0),
+                    graphene::Rect::new(0.0, 0.0, w, d + 1.0),
+                ),
+                Edge::Right => (
+                    graphene::Point::new(w - d - 1.0, at),
+                    graphene::Rect::new(w - d - 1.0, 0.0, d + 1.0, h),
+                ),
+                Edge::Left => (
+                    graphene::Point::new(d + 1.0, at),
+                    graphene::Rect::new(0.0, 0.0, d + 1.0, h),
+                ),
+            };
+            let half = ARROW_SIDE as f32 / 2.0;
+            snapshot.push_clip(&clip);
+            snapshot.save();
+            snapshot.translate(&centre);
+            snapshot.rotate(45.0);
+            snapshot.translate(&graphene::Point::new(-half, -half));
+            obj.snapshot_child(&self.arrow, snapshot);
+            snapshot.restore();
+            snapshot.pop();
+        }
     }
 }
+
+/// The CSS class of the card's body, which carries the card's look.
+pub(crate) const BODY_CLASS: &str = "card-body";
+/// The CSS class of the card's pointer, styled like the body.
+pub(crate) const ARROW_CLASS: &str = "card-arrow";
 
 glib::wrapper! {
     pub(crate) struct FloatingCard(ObjectSubclass<imp::FloatingCard>)
@@ -242,20 +474,41 @@ impl FloatingCard {
         let anchor = self.imp().anchor.upgrade()?;
         let (hx, hy) = anchor.translate_coordinates(host, f64::from(ax), f64::from(ay))?;
         let (width, height) = self.size_within(host.width());
-        let (x, y) = place(
-            Rect {
-                x: hx as i32,
-                y: hy as i32,
-                w: aw,
-                h: ah,
-            },
+        let anchor = Rect {
+            x: hx as i32,
+            y: hy as i32,
+            w: aw,
+            h: ah,
+        };
+        let Placement { x, y, edge } = place(
+            anchor,
             width,
             height,
             host.width(),
             host.height(),
             self.imp().side.get(),
         );
+        let card = Rect {
+            x,
+            y,
+            w: width,
+            h: height,
+        };
+        self.set_arrow(edge, arrow_offset(anchor, card, edge));
         Some(gdk::Rectangle::new(x, y, width, height))
+    }
+
+    /// Record where the pointer goes. Repaints when it moved: GTK skips the card's
+    /// allocation when its rectangle is unchanged, which a card clamped against the pane's
+    /// edge keeps while its anchor moves along it. A draw request is safe here, inside the
+    /// host's allocation pass, where a resize request would be dropped (GTK4Rs/AP-29).
+    fn set_arrow(&self, edge: Edge, at: Option<i32>) {
+        let imp = self.imp();
+        let edge_moved = imp.edge.replace(edge) != edge;
+        let arrow_moved = imp.arrow_at.replace(at) != at;
+        if edge_moved || arrow_moved {
+            self.queue_draw();
+        }
     }
 
     /// The card's size inside a host `host_w` wide: its natural width when that fits, else
@@ -275,12 +528,13 @@ pub(crate) trait FloatingCardExt: IsA<FloatingCard> + 'static {
     /// Put the card's content in. Replaces any previous content.
     fn set_child(&self, child: Option<&impl IsA<gtk::Widget>>) {
         let card = self.as_ref();
+        let body = &card.imp().body;
         if let Some(old) = card.imp().child.borrow_mut().take() {
-            old.unparent();
+            body.remove(&old);
         }
         if let Some(child) = child {
             let child = child.as_ref().clone();
-            child.set_parent(card);
+            body.append(&child);
             card.imp().child.replace(Some(child));
         }
     }
@@ -357,7 +611,11 @@ pub(crate) trait FloatingCardExt: IsA<FloatingCard> + 'static {
 
     /// Which side of its anchor the card prefers.
     fn set_side(&self, side: Side) {
-        self.as_ref().imp().side.set(side);
+        let imp = self.as_ref().imp();
+        imp.side.set(side);
+        // Until the next placement says otherwise, the pointer is on the edge this side
+        // faces — the strip `measure` reserves is on that axis.
+        imp.edge.set(side.facing_edge());
         self.as_ref().queue_resize();
     }
 
@@ -414,11 +672,15 @@ mod tests {
         Rect { x, y, w, h }
     }
 
+    fn at(x: i32, y: i32, edge: Edge) -> Placement {
+        Placement { x, y, edge }
+    }
+
     #[test]
     fn top_sits_above_the_anchor_centred_on_it() {
         assert_eq!(
             place(r(100, 200, 40, 20), 60, 30, 800, 600, Side::Top),
-            (90, 200 - GAP - 30)
+            at(90, 200 - GAP - 30, Edge::Bottom)
         );
     }
 
@@ -426,7 +688,7 @@ mod tests {
     fn top_moves_below_when_there_is_no_room_above() {
         assert_eq!(
             place(r(100, 10, 40, 20), 60, 30, 800, 600, Side::Top),
-            (90, 10 + 20 + GAP)
+            at(90, 10 + 20 + GAP, Edge::Top)
         );
     }
 
@@ -434,7 +696,7 @@ mod tests {
     fn left_sits_left_of_the_anchor_centred_on_it() {
         assert_eq!(
             place(r(300, 200, 20, 20), 100, 40, 800, 600, Side::Left),
-            (300 - GAP - 100, 190)
+            at(300 - GAP - 100, 190, Edge::Right)
         );
     }
 
@@ -442,31 +704,84 @@ mod tests {
     fn left_moves_right_when_there_is_no_room_left() {
         assert_eq!(
             place(r(50, 200, 20, 20), 100, 40, 800, 600, Side::Left),
-            (50 + 20 + GAP, 190)
+            at(50 + 20 + GAP, 190, Edge::Left)
         );
     }
 
     #[test]
     fn a_card_never_hangs_off_any_edge() {
         // Anchor at the far right and bottom: clamped back inside on both axes.
-        let (x, y) = place(r(790, 590, 10, 10), 100, 50, 800, 600, Side::Top);
+        let Placement { x, y, .. } = place(r(790, 590, 10, 10), 100, 50, 800, 600, Side::Top);
         assert!(
             x + 100 <= 800 && y + 50 <= 600,
             "({x}, {y}) leaves the host"
         );
         // Anchor off the top-left (negative coordinates): clamped to the origin.
-        assert_eq!(
-            place(r(-50, -80, 10, 10), 100, 50, 800, 600, Side::Top),
-            (0, 0)
-        );
+        let Placement { x, y, .. } = place(r(-50, -80, 10, 10), 100, 50, 800, 600, Side::Top);
+        assert_eq!((x, y), (0, 0));
     }
 
     #[test]
     fn a_card_larger_than_the_host_shows_its_start() {
+        let Placement { x, y, .. } = place(r(100, 100, 10, 10), 900, 700, 800, 600, Side::Top);
+        assert_eq!((x, y), (0, 0));
+    }
+
+    /// The pointer is on the middle of the anchor, whichever edge it is on.
+    #[test]
+    fn the_pointer_points_at_the_middle_of_its_anchor() {
+        // A card above, its anchor a 1 px caret at x = 130: the pointer is 30 px in.
+        let card = r(100, 100, 200, 40);
         assert_eq!(
-            place(r(100, 100, 10, 10), 900, 700, 800, 600, Side::Top),
-            (0, 0)
+            arrow_offset(r(130, 150, 1, 16), card, Edge::Bottom),
+            Some(30)
         );
+        // The same card flipped below its anchor.
+        assert_eq!(arrow_offset(r(130, 80, 1, 16), card, Edge::Top), Some(30));
+        // A card to the left of a 20 px chip centred at y = 150: 50 px down its edge.
+        let side = r(100, 100, 80, 120);
+        assert_eq!(
+            arrow_offset(r(190, 140, 20, 20), side, Edge::Right),
+            Some(50)
+        );
+        assert_eq!(arrow_offset(r(70, 140, 20, 20), side, Edge::Left), Some(50));
+    }
+
+    /// Mutation: drop the clamp in `arrow_offset` and the pointer lands on the rounded
+    /// corner or past the card's end.
+    #[test]
+    fn the_pointer_stays_clear_of_the_corners() {
+        let card = r(100, 100, 200, 40);
+        let far_left = arrow_offset(r(0, 150, 1, 16), card, Edge::Bottom);
+        let far_right = arrow_offset(r(900, 150, 1, 16), card, Edge::Bottom);
+        assert_eq!(far_left, Some(ARROW_END_CLEARANCE));
+        assert_eq!(far_right, Some(200 - ARROW_END_CLEARANCE));
+        // An edge too short for both clearances takes its middle.
+        assert_eq!(
+            arrow_offset(r(0, 150, 1, 16), r(100, 100, 20, 40), Edge::Bottom),
+            Some(10)
+        );
+    }
+
+    /// A card clamped over its own anchor shows no pointer: there is nothing beyond the
+    /// edge for it to point at.
+    #[test]
+    fn a_card_over_its_own_anchor_has_no_pointer() {
+        let card = r(0, 0, 200, 100);
+        assert_eq!(arrow_offset(r(50, 40, 1, 16), card, Edge::Bottom), None);
+        assert_eq!(arrow_offset(r(50, 40, 1, 16), card, Edge::Top), None);
+        assert_eq!(arrow_offset(r(50, 40, 10, 10), card, Edge::Right), None);
+        assert_eq!(arrow_offset(r(50, 40, 10, 10), card, Edge::Left), None);
+    }
+
+    /// The body leaves the pointer strip free on exactly the pointer's edge.
+    #[test]
+    fn the_body_leaves_the_pointer_strip_free() {
+        let d = ARROW_DEPTH;
+        assert_eq!(body_rect(200, 50, Edge::Bottom), r(0, 0, 200, 50 - d));
+        assert_eq!(body_rect(200, 50, Edge::Top), r(0, d, 200, 50 - d));
+        assert_eq!(body_rect(200, 50, Edge::Right), r(0, 0, 200 - d, 50));
+        assert_eq!(body_rect(200, 50, Edge::Left), r(d, 0, 200 - d, 50));
     }
 }
 
@@ -524,6 +839,12 @@ mod gtk_integration_tests {
             assert!(
                 bb.x() + bb.width() <= host.width() as f32,
                 "every button must be inside the pane"
+            );
+            // And inside the card: a card sized at its one-row height leaves the wrapped
+            // row drawn over the page below it (request mode lost, measured on Linux).
+            assert!(
+                bb.y() >= bounds.y() && bb.y() + bb.height() <= bounds.y() + bounds.height(),
+                "every button must be inside the card: {bb:?} in {bounds:?}"
             );
         }
         destroy_after_tooltip_delay(&win, || card.popdown());

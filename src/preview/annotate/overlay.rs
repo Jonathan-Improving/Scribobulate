@@ -441,11 +441,8 @@ pub(crate) fn wire_annotation_overlay(
     // `win.select-all` standdown; that gates on the focused widget's TYPE
     // (`focus_in_text_entry`), covering every entry in the window rather than this card.
     bar.add_css_class(crate::window::ANNOTATION_CARD_CLASS);
-    // The PREVIEW's card additionally follows the reading theme, so it reads as part
-    // of the page it floats over rather than as desktop chrome. The editor's card
-    // (window/editor_annotate) wears `.annotation-entry` alone and stays on the
-    // desktop theme — the reading theme is preview-only (TDD 18.7).
-    bar.add_css_class("scrib-preview-card");
+    // It stays on the desktop theme like every other card over the preview, so it is the
+    // same colour as the Annotate pop-up that opened it (TDD 17.65).
     // START/START + margin_start/margin_top position it via `position_card`; without an
     // explicit align an overlay child FILLs the overlay.
     bar.set_halign(gtk::Align::Start);
