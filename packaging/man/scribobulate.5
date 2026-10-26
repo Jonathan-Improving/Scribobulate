@@ -237,7 +237,14 @@ Every key is optional; omitting one means "derive or inherit it".
 String. Display name in the theme chooser. Defaults to the theme id.
 .TP
 .B symbol
-String. Decorative symbol shown left of the name in the chooser.
+String. Decorative symbol shown left of the name in the chooser. On Windows,
+variation selectors (U+FE00\(enU+FE0F) are dropped before it is drawn.
+.TP
+.B symbol_windows
+String. Replaces
+.B symbol
+on Windows only, for a glyph Windows' emoji font lacks (Windows 10 has no
+Emoji 13 or later). Never inherited.
 .TP
 .B background
 Colour. Page background. One of the three base colours every derived colour

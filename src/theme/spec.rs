@@ -209,6 +209,36 @@ impl ThemeSpec {
         self.get(key.name).and_then(Value::text)
     }
 
+    /// The theme's own picker glyph as this platform should draw it.
+    pub(crate) fn own_symbol(&self) -> Option<String> {
+        self.own_symbol_for(cfg!(windows))
+    }
+
+    /// [`Self::own_symbol`] with the platform as a parameter, so both arms are tested
+    /// on every platform.
+    ///
+    /// **Windows only:** `symbol_windows` replaces `symbol` when stated, and every
+    /// variation selector (U+FE00–U+FE0F) is dropped. Pango on Windows (1.57.1,
+    /// measured) draws ANY character followed by a selector as the missing-glyph box,
+    /// even one it draws in colour bare (📖). Dropping the selector is not enough for a
+    /// text-default emoji such as `🕹` U+1F579: bare, it falls back to a MONOCHROME
+    /// symbol font. `symbol_windows` covers both that and glyphs Windows 10's emoji font
+    /// lacks outright (Emoji 13+, e.g. `🪟`): it should name an Emoji_Presentation=Yes
+    /// codepoint of Emoji ≤ 12. Linux and macOS draw the theme's `symbol` as
+    /// written: they are not made to wear Windows' substitute (ScrAP-362).
+    pub(crate) fn own_symbol_for(&self, windows: bool) -> Option<String> {
+        if !windows {
+            return self.own_text(&keys::SYMBOL).map(str::to_string);
+        }
+        self.own_text(&keys::SYMBOL_WINDOWS)
+            .or_else(|| self.own_text(&keys::SYMBOL))
+            .map(|s| {
+                s.chars()
+                    .filter(|c| !('\u{FE00}'..='\u{FE0F}').contains(c))
+                    .collect()
+            })
+    }
+
     /// The spellings this theme states, for tests that assert on what a file carried.
     #[cfg(test)]
     pub(crate) fn spellings(&self) -> Vec<&str> {

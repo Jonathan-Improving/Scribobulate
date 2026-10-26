@@ -244,7 +244,7 @@ impl Themes {
                 .own_text(&keys::NAME)
                 .map(str::to_string)
                 .unwrap_or_else(|| id.to_string()),
-            symbol: s.own_text(&keys::SYMBOL).map(str::to_string),
+            symbol: s.own_symbol(),
         };
         let mut rest: Vec<ChooserEntry> = self
             .specs

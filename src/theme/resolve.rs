@@ -143,7 +143,7 @@ impl Theme {
                 .own_text(&keys::NAME)
                 .map(str::to_string)
                 .unwrap_or_else(|| id.to_string()),
-            symbol: selected.own_text(&keys::SYMBOL).map(str::to_string),
+            symbol: selected.own_symbol(),
             background: src.color(&keys::BACKGROUND),
             foreground: src.color(&keys::FOREGROUND),
             accent_color: src.color(&keys::ACCENT_COLOR),

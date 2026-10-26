@@ -2986,6 +2986,7 @@ appearance that predates the feature; `Sepia` is the book-like reading theme.
 - **When** the user opens the theme chooser (menu or toolbar)
 - **Then** at least "System" and "Sepia" are offered, with the active one indicated — and both surfaces always show the same choice
 - **And** a theme's **name and picker symbol are its own**: a theme that states no symbol is offered by name alone on *both* surfaces, never wearing the base theme's glyph on one of them
+- **And** on Windows the picker symbol is drawn without variation selectors, and a theme's `symbol_windows` replaces its `symbol` there (System shows `💻`, Pixel Quest `🎮`); on Linux and macOS every theme shows its `symbol` exactly as written
 
 ### 18.2 System renders exactly as it did before themes existed
 - **Given** a fresh profile where no theme has ever been chosen

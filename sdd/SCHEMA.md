@@ -438,7 +438,8 @@ Every key is optional; omitting one means "derive or inherit it".
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `name` | `string` | the theme id | Display name in the theme chooser. |
-| `symbol` | `string` | — | Decorative symbol shown left of the name in the picker. |
+| `symbol` | `string` | — | Decorative symbol shown left of the name in the picker. On Windows, variation selectors (U+FE00–U+FE0F) are dropped before it is drawn. |
+| `symbol_windows` | `string` | `symbol` | Replaces `symbol` on Windows only, for a glyph Windows' emoji font lacks (Windows 10 has no Emoji 13+). Never inherited, like `symbol`. |
 | `background` | colour | derived | Page background. One of the three base colours every derived colour follows from. |
 | `foreground` | colour | derived | Body text colour. |
 | `accent_color` | colour | derived | Accent colour. |

@@ -41,6 +41,8 @@
 [themes.system]
 name = "System"
 symbol = "🪟"
+# Windows 10's emoji font predates 🪟 (Emoji 13) and draws a missing-glyph box.
+symbol_windows = "💻"
 
 # Colours that are literals in the source today.
 annotation_hl_color = "#FFD133_61"   # translucent amber wash behind an annotated claim
@@ -836,6 +838,8 @@ rule_space    = 6
 [themes.pixelquest]
 name       = "Pixel Quest"
 symbol     = "🕹️"
+# Windows draws 🕹 only in a monochrome symbol font, and with its selector not at all.
+symbol_windows = "🎮"
 # PALE daylight sky (L≈0.67). It was a saturated mid-luminance blue (#5c94fc, L≈0.30)
 # until 2026-08-28, and raising it is what finally let this theme's two long-standing
 # legibility exceptions be DELETED rather than renewed. The old page was caught between

@@ -20,6 +20,40 @@ fn builtin_parses_and_ships_the_two_themes() {
     assert!(t.contains("sepia"));
 }
 
+/// **Windows draws every shipped picker symbol; Linux and macOS draw it as written.**
+///
+/// Pango on Windows (1.57.1, measured) draws ANY character followed by U+FE0E/U+FE0F
+/// as the missing-glyph box, and Windows 10's emoji font has no Emoji 13+ glyph. So
+/// the Windows form of a symbol carries no selector, and the other platforms are not
+/// made to wear Windows' substitute (ScrAP-362).
+#[test]
+fn picker_symbols_suit_each_platform() {
+    let t = Themes::builtin();
+    let vs = |s: &str| s.chars().any(|c| ('\u{FE00}'..='\u{FE0F}').contains(&c));
+    for (id, spec) in &t.specs {
+        if let Some(win) = spec.own_symbol_for(true) {
+            assert!(
+                !vs(&win),
+                "theme `{id}` Windows symbol {win:?} carries a variation selector"
+            );
+        }
+        assert_eq!(
+            spec.own_symbol_for(false).as_deref(),
+            spec.own_text(&keys::SYMBOL),
+            "theme `{id}`: Linux/macOS must draw `symbol` as written"
+        );
+    }
+    let pq = &t.specs["pixelquest"];
+    assert_eq!(
+        pq.own_symbol_for(false).as_deref(),
+        Some("\u{1F579}\u{FE0F}")
+    );
+    assert_eq!(pq.own_symbol_for(true).as_deref(), Some("\u{1F3AE}"));
+    let sys = &t.specs["system"];
+    assert_eq!(sys.own_symbol_for(false).as_deref(), Some("\u{1FA9F}"));
+    assert_eq!(sys.own_symbol_for(true).as_deref(), Some("\u{1F4BB}"));
+}
+
 /// **Every floor equals the shipped `[themes.system]` value — proved for all of them
 /// at once, without a list.**
 ///

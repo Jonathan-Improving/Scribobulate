@@ -501,6 +501,8 @@ keys! {
                              Reach::none("the theme's own label, in the picker — not a document style");
     SYMBOL                 = "symbol"                  : Text,
                              Reach::none("the theme's picker glyph — not a document style");
+    SYMBOL_WINDOWS         = "symbol_windows"          : Text,
+                             Reach::none("the picker glyph on Windows, where `symbol` has none — not a document style");
     BACKGROUND             = "background"              : Color;
     FOREGROUND             = "foreground"              : Color;
     ACCENT_COLOR           = "accent_color"            : Color;
