@@ -450,7 +450,7 @@ fn run_child(cases: &[&Case], names: &[&str], report: Option<&str>) -> ! {
     // attempt at this suite changed that format and broke them; the runner
     // deliberately leaves GLib's default handler in place.
     //
-    // The frame the shipped app wears, so a case sees the window a user does.
+    // The frame the delivered app wears, so a case sees the window a user does.
     #[cfg(windows)]
     platform::win32::take_native_frame();
     gtk::init().expect(

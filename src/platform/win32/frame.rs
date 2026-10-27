@@ -89,7 +89,7 @@ extern "system" {
 /// CSD, a forked chrome tree — were rejected.)
 ///
 /// One function because two entries need it: the application's own, and the main-thread
-/// GTK suite's, whose windows would otherwise wear a frame the shipped app never has and
+/// GTK suite's, whose windows would otherwise wear a frame the delivered app never has and
 /// so skip or pass on the wrong one.
 ///
 /// `GTK_CSD` is a GTK-wide variable, NOT a Windows one — this MUST stay `cfg(windows)`,

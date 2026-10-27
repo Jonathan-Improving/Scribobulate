@@ -46,7 +46,7 @@ use gtk::prelude::*;
 use std::time::Duration;
 
 fn main() {
-    // The native Win32 frame the shipped app wears (`platform::win32::take_native_frame`,
+    // The native Win32 frame the delivered app wears (`platform::win32::take_native_frame`,
     // which this external target cannot reach).
     #[cfg(windows)]
     std::env::set_var("GTK_CSD", "0");
