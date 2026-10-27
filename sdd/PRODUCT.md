@@ -154,6 +154,7 @@ editor with the resource footprint of a native desktop application.
 | **Swap file** | A periodic full-content snapshot of a document with unsaved edits, kept in the user's state directory so an unclean exit does not discard them. Borrowed from vim, with one difference worth keeping in mind: it is a snapshot rewritten on a debounce, not an incremental journal, and it is not a lock. |
 | **Tab** | One document's view within a window; a window holds one or more tabs, always shown in a tab strip (even a lone tab, so it always has a drag handle). |
 | **Window** | A titled top-level GTK window holding one or more tabs; many windows share one Scribobulate process. |
+| **Window place** | Everything about where and how a window sits on the desktop: its virtual desktop, its KDE activities, its monitor and position on that monitor, its size, and its window states (maximized, full screen, shaded, kept above or below other windows, shown without titlebar and frame). Saved with the session and restored by it; off X11 only size, maximized and full screen apply. |
 | **Single instance** | The guarantee that launching Scribobulate again reuses the running process instead of starting a new one. |
 | **Annotation** | A reviewer's comment attached to a span of a document, stored inline in the Markdown file as CriticMarkup so it travels with the file. |
 | **Highlight** | The span of text an annotation refers to, shown with a coloured background in the preview. |

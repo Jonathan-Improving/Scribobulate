@@ -2411,6 +2411,43 @@
 - **When** the application is relaunched
 - **Then** every window reopens with the same size and zoom level; every tab reopens with its own path (or blank, if untitled) and view mode; the split arrangement is restored once, for the whole application; and each window's previously active tab is the one shown
 
+Rubrics 15.10a–15.10f cover restoring each window's **window place** (PRODUCT.md vocabulary).
+
+### 15.10a Restored windows return to their place
+- **Given** an X11 desktop where, at quit, the application's windows are spread across different virtual desktops, activities and monitors
+- **When** the application is relaunched and restores the session
+- **Then** each window opens on its own virtual desktop, in its own activities, on its own monitor at the same position on that monitor, and does not appear somewhere else first and then jump
+- **And** a window that was on all desktops, or on several or all activities, is restored to exactly that
+- **And** each window state it had (kept above or below, shaded, without titlebar and frame) is restored with it
+
+### 15.10b Restored windows keep their size, maximized and full screen
+- **Given** windows of different sizes, some maximized and some full screen, open at quit, on any platform
+- **When** the application is relaunched and restores the session
+- **Then** each window reopens at the size it had, a maximized window reopens maximized, a full screen window reopens full screen on the same monitor, and leaving maximized or full screen brings back the size it had before
+- **And** a window's size does not drift across repeated quit-and-relaunch cycles
+
+### 15.10c The place recorded is where the window was at quit
+- **Given** a window whose place changed after it was opened: moved to another virtual desktop, activity or monitor, resized, or a window state turned on or off
+- **When** the application quits and is relaunched
+- **Then** the window comes back where it was at quit, not where it was first opened
+
+### 15.10d A place that no longer exists degrades one part at a time
+- **Given** a saved session where a window's virtual desktop, activity or monitor no longer exists (the desktop was removed, the activity deleted, the monitor disconnected)
+- **When** the session is restored
+- **Then** that part of the place falls back to where a new window would go, every part that still exists is applied as usual, and the restore otherwise proceeds normally
+- **And** a window whose monitor is now smaller than it was opens with its title bar on that monitor, never off-screen
+- **And** a full screen window whose monitor is gone opens full screen on the monitor a new window would use
+
+### 15.10e Only session restore uses the place
+- **Given** the application is running
+- **When** a new window is opened by any path other than session restore
+- **Then** it opens where the window manager places new windows, exactly as before
+
+### 15.10f Off X11, only size, maximized and full screen are restored
+- **Given** a desktop other than X11 (macOS, Windows, Wayland), or a session saved on one and restored on another
+- **When** the session is saved and restored
+- **Then** size, maximized and full screen are restored as on X11; the window otherwise opens where the desktop places new windows, the X11-only parts of a saved place are ignored without error, and every other part of the restore (15.10) is unaffected
+
 ### 15.11 Closing a window with several dirty tabs prompts sequentially
 - **Given** a window with three tabs, two of them dirty
 - **When** the user closes the window (or quits the application)

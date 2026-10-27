@@ -1,0 +1,25 @@
+# Where a GTK4 window sits on the desktop, saved and put back: its size, maximized and
+# full screen everywhere, and on X11 its virtual desktop, KDE activities, monitor and
+# position, and the shaded / above / below / no-border states. Knows nothing about
+# Scribobulate; its whole surface is `Place`, `capture` and `present`.
+[package]
+name = "winplace"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "Capture and restore a GTK4 window's place on the desktop (size, states, and on X11 desktop, activities and position)"
+
+[dependencies]
+# The same train and floor as the application (POLICY § Build: GTK 4.6).
+gtk = { package = "gtk4", version = "0.10", features = ["v4_6"] }
+serde = { version = "1", features = ["derive"] }
+log = "0.4"
+
+[features]
+# `winplace::testing`: hooks an application's GTK tests need on a display with no
+# window manager. Never enabled in a delivered build.
+test-support = []
+
+[dev-dependencies]
+toml = "0.8"

@@ -129,8 +129,11 @@ fn restore_window(
     let default_tab = TabSession::default();
     let first = ws.tabs.first().unwrap_or(&default_tab);
     let init = WindowInit {
-        width: ws.width,
-        height: ws.height,
+        width: ws.place.width,
+        height: ws.place.height,
+        // Session restore is the one path that puts a window back where it was;
+        // every other new window opens where the window manager places it.
+        place: Some(ws.place.clone()),
         zoom_level: ws.zoom_level,
         show_unsafe_images: first.show_unsafe_images,
         // THIS window's own persisted chrome — restore is the one path with a

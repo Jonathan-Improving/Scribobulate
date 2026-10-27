@@ -198,7 +198,7 @@
 
   <rect class="note" x="346" y="672" width="304" height="60" rx="4" stroke-width="1"/>
   <text class="t" x="356" y="688" font-size="10" font-weight="bold">session.toml — XDG_STATE_HOME</text>
-  <text class="lbl" x="356" y="702" font-size="9">Windows, their tabs' paths, view modes, zoom.</text>
+  <text class="lbl" x="356" y="702" font-size="9">Windows, each one's place (<tspan class="mono">winplace</tspan>), tab paths, modes, zoom.</text>
   <text class="lbl" x="356" y="714" font-size="9"><tspan font-weight="bold">No document text here</tspan> — paths only (but see swap, below);</text>
   <text class="lbl" x="356" y="726" font-size="9">restored at startup when no window exists yet.</text>
 

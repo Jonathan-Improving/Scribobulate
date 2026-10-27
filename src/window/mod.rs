@@ -224,6 +224,9 @@ pub(crate) fn apply_editor_style_scheme(buf: &sourceview::Buffer, dark: bool) {
 struct WindowInit {
     width: i32,
     height: i32,
+    /// Where to show the window (`winplace`), or `None` to let the window manager
+    /// place it. Only session restore has one.
+    place: Option<winplace::Place>,
     zoom_level: f64,
     show_unsafe_images: bool,
     /// This window's own toolbar/status-bar/outline visibility — per window, so
@@ -237,6 +240,7 @@ impl Default for WindowInit {
         Self {
             width: config().window.width,
             height: config().window.height,
+            place: None,
             zoom_level: 1.0,
             show_unsafe_images: false,
             chrome: crate::session::ChromeSession::default(),
@@ -706,7 +710,10 @@ fn build_window(
     // waiting out the debounce.
     swap::wire_swap_focus_flush(&window);
 
-    window.present();
+    match &init.place {
+        Some(place) => winplace::present(&window, place),
+        None => window.present(),
+    }
     window
 }
 

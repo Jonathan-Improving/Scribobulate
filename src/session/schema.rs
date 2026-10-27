@@ -84,22 +84,31 @@ pub(crate) struct TabSession {
     pub find_options: crate::window::FindOptions,
 }
 
-/// One persisted window: its geometry, its shared zoom level, its own chrome
-/// visibility, and its tabs.
+/// One persisted window: its place on the desktop, its shared zoom level, its own
+/// chrome visibility, and its tabs.
 ///
 /// FIELD ORDER IS LOAD-BEARING for TOML: a table's scalar keys must all be
-/// emitted before any sub-table, so the scalars come first, then `chrome`
-/// (`[windows.chrome]`), then `tabs` (`[[windows.tabs]]`). Re-ordering `chrome`
-/// above a scalar makes `toml::to_string` fail with `ValueAfterTable` and
-/// [`save`] log-and-drop the whole session.
+/// emitted before any sub-table, so the scalars come first, then `place`
+/// (`[windows.place]`), then `chrome` (`[windows.chrome]`), then `tabs`
+/// (`[[windows.tabs]]`). Re-ordering a table above a scalar makes
+/// `toml::to_string` fail with `ValueAfterTable` and [`save`] log-and-drop the
+/// whole session.
 #[derive(serde::Serialize, serde::Deserialize, PartialEq, Clone, Debug)]
 #[serde(default)]
 pub(crate) struct WindowSession {
-    pub width: i32,
-    pub height: i32,
     pub zoom_level: f64,
     /// Index into `tabs` of the tab that was active when this window closed.
     pub active_tab: usize,
+    /// Where the window sat on the desktop at quit (`winplace`): its default size,
+    /// maximized and full screen everywhere, and on X11 its virtual desktop,
+    /// activities, monitor, position and window states. Restored only by session
+    /// restore; every other new window opens where the window manager puts it.
+    ///
+    /// Replaces the window's former top-level `width` / `height`, which recorded the
+    /// window's ALLOCATION — a maximized window's full-screen size — rather than the
+    /// size it returns to. A file written before this field has those two keys and no
+    /// `place`; `migrate_pre_v7_size` carries them over.
+    pub place: winplace::Place,
     /// THIS window's own toolbar/status-bar/outline visibility (v3 — the
     /// operator's per-window decision). A v2 file has no per-window `chrome`
     /// table; `#[serde(default)]` fills it with the ChromeSession default and
@@ -115,10 +124,13 @@ pub(crate) struct WindowSession {
 impl Default for WindowSession {
     fn default() -> Self {
         Self {
-            width: config().window.width,
-            height: config().window.height,
             zoom_level: 1.0,
             active_tab: 0,
+            place: winplace::Place {
+                width: config().window.width,
+                height: config().window.height,
+                ..winplace::Place::default()
+            },
             chrome: ChromeSession::default(),
             tabs: vec![TabSession::default()],
         }
@@ -422,10 +434,26 @@ pub(super) fn sample_session() -> Session {
         },
         windows: vec![
             WindowSession {
-                width: 1111,
-                height: 222,
                 zoom_level: 1.5,
                 active_tab: 1,
+                // Every field of a place set, so a part the session drops on the way
+                // through fails the round trip here.
+                place: winplace::Place {
+                    width: 1111,
+                    height: 222,
+                    maximized: true,
+                    fullscreen: false,
+                    monitor: Some("HDMI-0".into()),
+                    x: Some(-12),
+                    y: Some(34),
+                    desktop: Some(2),
+                    all_desktops: false,
+                    activities: vec!["aaaa".into(), "bbbb".into()],
+                    shaded: true,
+                    above: true,
+                    below: false,
+                    no_border: true,
+                },
                 chrome: ChromeSession {
                     show_statusbar: true,
                     outline_visible: false,
@@ -458,10 +486,13 @@ pub(super) fn sample_session() -> Session {
                 ],
             },
             WindowSession {
-                width: 800,
-                height: 600,
                 zoom_level: 1.0,
                 active_tab: 0,
+                place: winplace::Place {
+                    width: 800,
+                    height: 600,
+                    ..winplace::Place::default()
+                },
                 // Deliberately the OPPOSITE of window 0's chrome on every
                 // field, so any code that collapses the two windows onto one
                 // shared answer fails here instead of coincidentally passing.
@@ -510,7 +541,7 @@ mod tests {
         // default (toolbar/statusbar/outline shown, annotations hidden, sections
         // at their default — file/edit/view shown, format/split/zoom hidden).
         let s = parse("[[windows]]\nwidth = 900\n");
-        assert_eq!(s.windows[0].width, 900);
+        assert_eq!(s.windows[0].place.width, 900);
         assert_eq!(s.windows[0].chrome, ChromeSession::default());
     }
 

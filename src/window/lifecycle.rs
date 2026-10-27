@@ -112,18 +112,8 @@ fn persist_all_windows_session(closing: &ApplicationWindow) {
                 .iter()
                 .position(|t| Some(t.id) == active_id)
                 .unwrap_or(0);
-            let (width, height) = (w.width(), w.height());
             Some(crate::session::WindowSession {
-                width: if width > 0 {
-                    width
-                } else {
-                    config().window.width
-                },
-                height: if height > 0 {
-                    height
-                } else {
-                    config().window.height
-                },
+                place: window_place(&w),
                 zoom_level: chrome.zoom_level.get(),
                 active_tab,
                 // THIS window's own chrome, off its own `win.*` toggles — the
@@ -181,6 +171,20 @@ fn persist_all_windows_session(closing: &ApplicationWindow) {
         play_animations: crate::animation::policy::reader_choice(&app),
         windows,
     });
+}
+
+/// `window`'s place on the desktop as it is NOW, for the session (`winplace`): the
+/// size it returns to rather than its allocation, its states, and on X11 where it is.
+/// A window with no usable size yet (never mapped) records the configured default.
+fn window_place(window: &ApplicationWindow) -> winplace::Place {
+    let mut place = winplace::capture(window);
+    if place.width <= 0 {
+        place.width = config().window.width;
+    }
+    if place.height <= 0 {
+        place.height = config().window.height;
+    }
+    place
 }
 
 #[cfg(all(test, feature = "gtk-integration-tests"))]
@@ -254,5 +258,234 @@ mod tests {
             setter.destroy();
             closing.destroy();
         });
+    }
+
+    /// A window restored into a place, for the place tests below: the shared
+    /// construction every window takes, with a place as session restore passes one.
+    fn window_in_place(app: &gtk::Application, place: winplace::Place) -> ApplicationWindow {
+        let init = WindowInit {
+            width: place.width,
+            height: place.height,
+            place: Some(place),
+            ..WindowInit::default()
+        };
+        build_window(app, "IT", "# A\n", None, &init)
+    }
+
+    /// What the session saved for its first window.
+    fn saved_place() -> winplace::Place {
+        crate::session::load().windows[0].place.clone()
+    }
+
+    /// TDD 15.10b: a maximized window saves the size it returns to — its default size —
+    /// never its maximized allocation; a save that reads `width()`/`height()` fails here.
+    /// With no window manager on a test display nothing grows a maximized window, so the
+    /// test grows it the way one would; elsewhere the real one does.
+    #[gtktest::test]
+    fn a_maximized_window_saves_the_size_it_returns_to_not_its_maximized_size() {
+        let dir = tempfile::tempdir().unwrap();
+        crate::session::with_state_home_for_test(dir.path(), || {
+            let app = crate::window::testkit::test_app_suffixed("placemaximized");
+            let window = window_in_place(
+                &app,
+                winplace::Place {
+                    width: 700,
+                    height: 500,
+                    maximized: true,
+                    ..winplace::Place::default()
+                },
+            );
+            crate::testpump::until(
+                crate::testpump::Clock::Frame,
+                "the window to maximize",
+                || window.is_maximized(),
+            );
+            winplace::testing::resize_behind_gtk(&window, 1200, 900);
+            crate::testpump::until(crate::testpump::Clock::Frame, "the maximized size", || {
+                window.width() > 700 && window.height() > 500
+            });
+
+            persist_all_windows_session(&window);
+
+            let saved = saved_place();
+            assert!(saved.maximized, "the maximized state is saved");
+            assert_eq!(
+                (saved.width, saved.height),
+                (700, 500),
+                "the saved size is the one the window returns to, not its {}x{} allocation",
+                window.width(),
+                window.height()
+            );
+            window.destroy();
+        });
+    }
+
+    /// TDD 15.10b: a window restored maximized goes back to its saved size when it leaves
+    /// maximized through its frame's restore button. On the Windows native frame a window
+    /// maximized by `gtk_window_maximize` grew to the work area instead, past the taskbar
+    /// (`winplace/src/win32.rs`'s header).
+    #[gtktest::test]
+    fn a_window_restored_maximized_returns_to_its_saved_size_when_un_maximized() {
+        let dir = tempfile::tempdir().unwrap();
+        crate::session::with_state_home_for_test(dir.path(), || {
+            let app = crate::window::testkit::test_app_suffixed("placeunmaximize");
+            let window = window_in_place(
+                &app,
+                winplace::Place {
+                    width: 700,
+                    height: 500,
+                    maximized: true,
+                    ..winplace::Place::default()
+                },
+            );
+            assert!(
+                settled_state(&window, |w| w.is_maximized()),
+                "precondition: the window is restored maximized"
+            );
+            if !winplace::testing::restore_natively(&window) {
+                eprintln!(
+                    "SKIPPED [TDD 15.10b un-maximize]: needs the native Windows frame \
+                     (GTK_CSD=0)"
+                );
+                window.destroy();
+                return;
+            }
+            let settled = crate::testpump::until_stable(
+                crate::testpump::Clock::Frame,
+                std::time::Duration::from_secs(3),
+                std::time::Duration::from_millis(300),
+                || (window.is_maximized(), window.width(), window.height()),
+            );
+            assert!(settled.converged, "the un-maximized size never settled");
+            assert_eq!(
+                settled.value,
+                Some((false, 700, 500)),
+                "leaving maximized returns to the saved size"
+            );
+            window.destroy();
+        });
+    }
+
+    /// The settled reading of `state` for a restored `window`: after it is mapped, and
+    /// once it has held still. Read any sooner and it reports what the window ASKED
+    /// for — GTK sets the flag on an unmapped window directly — rather than what the
+    /// platform did; on macOS that answer arrives up to ~1.6 s after map.
+    fn settled_state(window: &ApplicationWindow, state: fn(&ApplicationWindow) -> bool) -> bool {
+        crate::testpump::until(crate::testpump::Clock::Frame, "the window to map", || {
+            window.is_mapped()
+        });
+        let settled = crate::testpump::until_stable(
+            crate::testpump::Clock::Frame,
+            std::time::Duration::from_secs(20),
+            std::time::Duration::from_millis(2500),
+            || state(window),
+        );
+        assert!(settled.converged, "the window state never settled");
+        settled.value.unwrap_or(false)
+    }
+
+    /// One restored window, in `place`, and its settled state. One window per test:
+    /// on macOS a full-screen window's Space makes a maximized sibling read as not
+    /// maximized, so restoring the two together measures that instead.
+    fn restored_state(
+        suffix: &str,
+        place: winplace::Place,
+        state: fn(&ApplicationWindow) -> bool,
+    ) -> bool {
+        let dir = tempfile::tempdir().unwrap();
+        crate::session::with_state_home_for_test(dir.path(), || {
+            let app = crate::window::testkit::test_app_suffixed(suffix);
+            let window = window_in_place(&app, place);
+            let on = settled_state(&window, state);
+            window.destroy();
+            on
+        })
+    }
+
+    fn place_640x480() -> winplace::Place {
+        winplace::Place {
+            width: 640,
+            height: 480,
+            ..winplace::Place::default()
+        }
+    }
+
+    /// TDD 15.10b: a window restored maximized comes back maximized.
+    #[gtktest::test]
+    fn a_window_restored_maximized_comes_back_maximized() {
+        let place = winplace::Place {
+            maximized: true,
+            ..place_640x480()
+        };
+        assert!(restored_state("placemax", place, |w| w.is_maximized()));
+    }
+
+    /// TDD 15.10b: a window restored full screen comes back full screen.
+    #[gtktest::test]
+    fn a_window_restored_full_screen_comes_back_full_screen() {
+        let place = winplace::Place {
+            fullscreen: true,
+            ..place_640x480()
+        };
+        assert!(restored_state("placefull", place, |w| w.is_fullscreen()));
+    }
+
+    /// TDD 15.10b: a window restored in neither state comes back in neither, at its
+    /// size.
+    #[gtktest::test]
+    fn a_window_restored_plain_comes_back_plain_at_its_size() {
+        assert!(!restored_state("placeplain", place_640x480(), |w| {
+            w.is_maximized() || w.is_fullscreen()
+        }));
+        let dir = tempfile::tempdir().unwrap();
+        crate::session::with_state_home_for_test(dir.path(), || {
+            let app = crate::window::testkit::test_app_suffixed("placeplainsize");
+            let window = window_in_place(&app, place_640x480());
+            assert_eq!(window.default_size(), (640, 480));
+            window.destroy();
+        });
+    }
+
+    /// TDD 15.10b: a size saved, restored and saved again is the same size — repeated
+    /// quit-and-relaunch cycles do not drift it.
+    #[gtktest::test]
+    fn a_windows_size_does_not_drift_across_save_and_restore() {
+        let dir = tempfile::tempdir().unwrap();
+        crate::session::with_state_home_for_test(dir.path(), || {
+            let app = crate::window::testkit::test_app_suffixed("placedrift");
+            let mut place = winplace::Place {
+                width: 913,
+                height: 577,
+                ..winplace::Place::default()
+            };
+            for cycle in 0..3 {
+                let window = window_in_place(&app, place.clone());
+                crate::testpump::until(crate::testpump::Clock::Frame, "the window to map", || {
+                    window.is_mapped()
+                });
+                persist_all_windows_session(&window);
+                let saved = saved_place();
+                assert_eq!(
+                    (saved.width, saved.height),
+                    (913, 577),
+                    "cycle {cycle} drifted the size"
+                );
+                place = saved;
+                window.destroy();
+            }
+        });
+    }
+
+    /// TDD 15.10e: only session restore carries a place. Every other new window —
+    /// File ▸ New Window, a tab moved out, an open batch — is built from
+    /// `inherit_from`, and opens where the window manager puts it.
+    #[gtktest::test]
+    fn only_session_restore_carries_a_place() {
+        let app = crate::window::testkit::test_app_suffixed("placeonlyrestore");
+        let source = crate::window::new_window(&app, "IT", "# A\n", None);
+        assert!(WindowInit::default().place.is_none());
+        assert!(inherit_from(None).place.is_none());
+        assert!(inherit_from(Some(&source)).place.is_none());
+        source.destroy();
     }
 }

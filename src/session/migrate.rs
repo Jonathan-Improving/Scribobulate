@@ -70,6 +70,17 @@
 //! table. Both are now one app-wide value, for the reason that moved the split
 //! arrangement in v5. [`migrate_pre_v6_toolbar`] recovers them from **the first
 //! window**, on the same most-recently-focused rule and for the same reason.
+//!
+//! ## v2–v6 — the window's size at its own top level
+//!
+//! v2–v6 kept each window's `width` and `height` as scalars of its `[[windows]]`
+//! table. They are now the size inside that window's `place` (`winplace::Place`),
+//! which also carries where the window sat on the desktop.
+//! [`migrate_pre_v7_size`] copies each window's pair across, by position. The old
+//! value was the window's allocation, so a window saved maximized comes back at its
+//! maximized size, un-maximized, once — the defect the place exists to fix, and no
+//! better answer is recoverable from a file that never recorded the size it returns
+//! to.
 
 use super::schema::{ChromeSession, Session, TabSession, ToolbarSections, WindowSession};
 use crate::config::config;
@@ -133,8 +144,11 @@ impl From<LegacySession> for Session {
             show_toolbar: l.show_toolbar,
             toolbar_sections: ToolbarSections::default(),
             windows: vec![WindowSession {
-                width: l.width,
-                height: l.height,
+                place: winplace::Place {
+                    width: l.width,
+                    height: l.height,
+                    ..winplace::Place::default()
+                },
                 zoom_level: l.zoom_level,
                 active_tab: 0,
                 // v1 described exactly ONE window, so its flat chrome fields are
@@ -342,6 +356,35 @@ fn migrate_pre_v6_toolbar(session: &mut Session, old: &PreV6Session) {
     }
 }
 
+/// A v2–v6 file's per-window size, which v7 moved into each window's `place`. Both
+/// halves are `Option` so a window carrying neither key (every v7 file) is left alone.
+#[derive(serde::Deserialize, Default)]
+#[serde(default)]
+struct PreV7Session {
+    windows: Vec<PreV7Window>,
+}
+
+#[derive(serde::Deserialize, Default)]
+#[serde(default)]
+struct PreV7Window {
+    width: Option<i32>,
+    height: Option<i32>,
+}
+
+/// Copy each window's old top-level `width` / `height` into its `place`, pairing
+/// windows by position (the same list, parsed twice). Inert on a v7 file, which has
+/// no such keys.
+fn migrate_pre_v7_size(session: &mut Session, old: &PreV7Session) {
+    for (window, sizes) in session.windows.iter_mut().zip(&old.windows) {
+        if let Some(width) = sizes.width {
+            window.place.width = width;
+        }
+        if let Some(height) = sizes.height {
+            window.place.height = height;
+        }
+    }
+}
+
 /// A v1 file migrated to a [`Session`], or `None` if this is not a v1 file.
 ///
 /// **The v1 signal is the ABSENCE of a top-level `windows` key**, tested directly
@@ -384,6 +427,9 @@ pub(super) fn apply_superseded(text: &str, session: &mut Session) {
     // parse, which is exactly where v6 wants them (see `V2AppWideChrome`).
     let pre_v6 = toml::from_str::<PreV6Session>(text).unwrap_or_default();
     migrate_pre_v6_toolbar(session, &pre_v6);
+    // v2–v6 kept each window's size at its own top level.
+    let pre_v7 = toml::from_str::<PreV7Session>(text).unwrap_or_default();
+    migrate_pre_v7_size(session, &pre_v7);
 }
 
 #[cfg(test)]
@@ -434,7 +480,7 @@ split_vertical = false
         // ...and its flat per-window chrome IS that window's chrome.
         assert!(!w.chrome.show_statusbar);
         assert_eq!(
-            (w.width, w.height, w.zoom_level, w.active_tab),
+            (w.place.width, w.place.height, w.zoom_level, w.active_tab),
             (1234, 567, 2.0, 0)
         );
         assert_eq!(w.tabs.len(), 1);
@@ -450,7 +496,7 @@ split_vertical = false
         let s = parse("view_mode = \"edit\"\n");
         assert_eq!(s.windows.len(), 1);
         assert_eq!(s.windows[0].tabs[0].view_mode, ViewMode::Edit);
-        assert_eq!(s.windows[0].width, super::config().window.width);
+        assert_eq!(s.windows[0].place.width, super::config().window.width);
     }
 
     #[test]
@@ -504,9 +550,12 @@ view_mode = \"preview\"
         // `Session` must not turn a v2 file into "no saved session".
         let s = parse(V2_FILE);
         assert_eq!(s.windows.len(), 2, "a v2 file must not lose a window");
-        assert_eq!((s.windows[0].width, s.windows[0].height), (1111, 222));
+        assert_eq!(
+            (s.windows[0].place.width, s.windows[0].place.height),
+            (1111, 222)
+        );
         assert_eq!(s.windows[0].zoom_level, 1.5);
-        assert_eq!(s.windows[1].width, 800);
+        assert_eq!(s.windows[1].place.width, 800);
         assert_eq!(s.windows[0].tabs[0].view_mode, ViewMode::Edit);
         assert_eq!(s.preview_theme, "sepia");
     }
@@ -760,5 +809,41 @@ file = true
         // The migration must not fire on a file this crate wrote itself.
         let text = toml::to_string(&sample_session()).unwrap();
         assert_eq!(parse(&text), sample_session());
+    }
+
+    // ── v2–v6 (size at the window's top level) → v7 (`place`) ──────────────────
+
+    #[test]
+    fn a_pre_v7_windows_size_moves_into_its_place_window_by_window() {
+        let s = parse(V2_FILE);
+        assert_eq!(s.windows.len(), 2);
+        assert_eq!(
+            (s.windows[0].place.width, s.windows[0].place.height),
+            (1111, 222)
+        );
+        assert_eq!(
+            (s.windows[1].place.width, s.windows[1].place.height),
+            (800, 600)
+        );
+        // Nothing else about the place was recorded, so nothing else is invented.
+        assert_eq!(
+            s.windows[0].place,
+            winplace::Place {
+                width: 1111,
+                height: 222,
+                ..winplace::Place::default()
+            }
+        );
+    }
+
+    #[test]
+    fn a_v7_place_is_not_overwritten_by_the_size_migration() {
+        // A v7 file carries the size only inside `place`; a stray top-level key a
+        // hand edit left behind must not be what wins over it either, so the
+        // round trip of a written file is the check that the reader stays inert.
+        let text = toml::to_string(&sample_session()).unwrap();
+        assert!(!text.contains("\nwidth = 1111\nheight = 222\nzoom_level"));
+        let s = parse(&text);
+        assert_eq!(s.windows[0].place, sample_session().windows[0].place);
     }
 }

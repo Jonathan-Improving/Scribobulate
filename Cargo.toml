@@ -13,8 +13,8 @@
 # ordinary test cases. `gtktest` stays out because it has no tests of its own and is
 # compiled anyway, as the app's build dependency.
 [workspace]
-members = [".", "gtktest", "xtask", "richimg"]
-default-members = [".", "xtask", "richimg"]
+members = [".", "gtktest", "xtask", "richimg", "winplace"]
+default-members = [".", "xtask", "richimg", "winplace"]
 
 [package]
 name = "scribobulate"
@@ -49,6 +49,11 @@ sourceview = { package = "sourceview5", version = "0.10" }
 # the leaking loader module unreachable). `src/imagedecode` is the ONLY caller: it sniffs by content and routes
 # these three formats here instead of into the leaking gdk-pixbuf WebP path.
 richimg = { path = "richimg" }
+# Each window's place on the desktop, captured into the session and restored with it
+# (size, maximized, full screen; on X11 virtual desktop, activities, monitor, position
+# and window states). `src/window/restore.rs` and `src/window/lifecycle.rs` are its only
+# callers.
+winplace = { path = "winplace" }
 # Inflates a gzip-compressed SVG (.svgz) so `src/imagedecode/xinclude.rs` can screen
 # the XML librsvg would read: librsvg inflates gzip input itself, so a check of the
 # compressed bytes sees nothing (CVE-2026-96889). Already in the build through `png`
@@ -184,7 +189,7 @@ tempfile = "3"
 #
 # It also enables the two test-only dependencies the main-thread suite needs, so
 # they are absent from every build that does not ask for the suite.
-gtk-integration-tests = ["gtktest", "inventory"]
+gtk-integration-tests = ["gtktest", "inventory", "winplace/test-support"]
 # Third test class (TDD 6.6–6.8): per-render growth-slope and finalization.
 # Empty of extra deps; implies the GTK suite so the bodies can use
 # `#[gtktest::test]`. Pipeline step 5 does NOT pass this feature, so those

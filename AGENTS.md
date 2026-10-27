@@ -56,8 +56,6 @@ Read all of the above, plus:
   markup beyond a control name.
 - [`sdd/PLAN.profiling.md`](sdd/PLAN.profiling.md) — before profiling, proposing a
   performance gate, or reaching for a GTK debug channel.
-- [`sdd/PLAN.window-place.md`](sdd/PLAN.window-place.md) — before saving or restoring a
-  window's virtual desktop, KDE activity, monitor or position.
 
 ## Task triggers
 
@@ -73,6 +71,7 @@ Read the named document before doing any of these:
 | Renaming a file through GIO, or cancelling a `gio::FileMonitor` | `src/docio/rename.rs`'s header |
 | Building a second representation of a rendered document (export) | TECH's `export/` entry |
 | Touching image decoding, animation or the memory-growth step | TECH's `imagedecode/` and `animation/` entries; POLICY § Per-render memory-growth class |
+| Saving or restoring where a window sits (desktop, activity, monitor, position, size, states) | `winplace/src/x11.rs`'s header; run `scripts/winplace-rig.sh` |
 | Adding window chrome | TDD §9.38 (no control may set the window's width floor) |
 | Writing a GTK test, or adding a module to `src/lib.rs` | POLICY § GTK-object integration tests |
 | Retiring a plan, or deleting/renaming any document | run `cargo xtask lint-references`; a hand sweep is never complete |
