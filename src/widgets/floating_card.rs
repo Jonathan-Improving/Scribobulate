@@ -350,7 +350,7 @@ mod imp {
         /// The body's. Without this a widget with no layout manager is CONSTANT_SIZE, and
         /// GTK then measures it with `for_size` forced to -1, so content that wraps (the
         /// formatting bar in a narrow pane) is sized at its one-row height and its second
-        /// row hangs outside the card.
+        /// row hangs outside the card (GTK4Rs/AP-366).
         fn request_mode(&self) -> gtk::SizeRequestMode {
             self.body.request_mode()
         }
