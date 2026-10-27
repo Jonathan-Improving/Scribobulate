@@ -56,7 +56,7 @@ described from a different vantage point.
 | F | Linux | Test | `window::sidebarfilter::gtk_integration_tests::closing_the_filter_returns_the_focus_to_the_highlighted_row` intermittently finds the list at its top instead of scrolled to the highlighted row (1 failure on CI; passed on retry, and about 160 of 160 loaded runs locally) | Low |
 | G | Windows | Upstream | After an edit the editor's scrollbar slider is sometimes not drawn until the next scroll (2 of 40 Enters); a GTK defect still open upstream | Low |
 | Q | Windows, Linux | Upstream | A crafted SVG can corrupt memory: Windows and Linux decode SVG through a librsvg with a published use-after-free (CVE-2026-96889, fixed in 2.63.2), and refuse any SVG that may use XInclude before librsvg sees it until they carry the fix. The macOS bundle carries 2.63.2, and its build fails below that | High |
-| R | Windows | Test | Two split-mode live-reload tests in `window::outline_reload_tests` intermittently fail on Windows CI because the editor is not where the test parked it (top line 0, or 70 where >100 is required) | Low |
+| R | Windows, Mac | Test | Two split-mode live-reload tests in `window::outline_reload_tests` intermittently fail on Windows CI because the editor is not where the test parked it (top line 0, or 70 where >100 is required) | Low |
 | S | Any | Production | On a dark desktop the comment field keeps a white background while its "Add a comment…" hint takes the dark theme's light ink, so the hint is invisible (1.09:1 contrast). Typed text reads fine | Low |
 | T | Mac | Production | Quitting with a full-screen window open logs `Gdk-CRITICAL gdk_surface_request_layout: assertion 'frame_clock' failed` once, as the last line of the session, intermittently; no visible effect | Low |
 
@@ -424,8 +424,10 @@ that. The failed job passed on re-run each time.
 
 **What is known**: both failures are in setup or settling, not in the reload under test. The
 editor never reached the parked line, or did not stay there. Linux: 0 of 20 runs of the module,
-on both the old and the new code, unloaded. Mac: green on every CI run; not checked locally.
-Not reproduced locally on Windows.
+on both the old and the new code, unloaded. Mac: green on every CI run; one local failure in a
+full macOS pipeline (2026-10-27, Paragraph case, editor top 441 where 442 was expected: an
+off-by-one, not the Windows "top 0" shape), and 5 of 5 module reruns passed. Not reproduced
+locally on Windows.
 
 **Suspects, unmeasured**: the editor's scroll to the park line is an animated `scroll_to_mark`
 that lands in stages (GTK4Rs/AP-14, GTK4Rs/AP-115), and the helpers' settle may time out on a
