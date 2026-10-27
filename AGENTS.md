@@ -56,6 +56,8 @@ Read all of the above, plus:
   markup beyond a control name.
 - [`sdd/PLAN.profiling.md`](sdd/PLAN.profiling.md) — before profiling, proposing a
   performance gate, or reaching for a GTK debug channel.
+- [`sdd/PLAN.window-place.md`](sdd/PLAN.window-place.md) — before saving or restoring a
+  window's virtual desktop, KDE activity, monitor or position.
 
 ## Task triggers
 
