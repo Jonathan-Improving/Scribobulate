@@ -23,6 +23,8 @@
 //! Knows nothing about the application that uses it.
 
 mod geom;
+#[cfg(target_os = "macos")]
+mod macos;
 #[cfg(windows)]
 mod win32;
 #[cfg(all(unix, not(target_os = "macos")))]
@@ -88,6 +90,14 @@ pub fn capture(window: &impl IsA<gtk::Window>) -> Place {
         x11::capture(window, &mut place);
         place
     };
+    // While another window's full-screen Space is current, GDK reads a zoomed window as
+    // not maximized (`macos.rs`'s header). Not for a full-screen window: AppKit calls
+    // that one zoomed in its own Space.
+    #[cfg(target_os = "macos")]
+    let place = Place {
+        maximized: place.maximized || (!place.fullscreen && macos::still_zoomed(window)),
+        ..place
+    };
     // Maximized, GTK's default size is the maximized size here, not the one a restore
     // returns to (`win32.rs`'s header).
     #[cfg(windows)]
@@ -104,6 +114,16 @@ pub fn capture(window: &impl IsA<gtk::Window>) -> Place {
         None => place,
     };
     place
+}
+
+/// Follow `window` for the rest of its life so [`capture`] can read its states where the
+/// platform misreports them. Call once per window, restored or not — any window can be
+/// maximized before it is captured. Does nothing except on macOS (`macos.rs`).
+pub fn watch(window: &impl IsA<gtk::Window>) {
+    #[cfg(target_os = "macos")]
+    macos::watch(window.upcast_ref());
+    #[cfg(not(target_os = "macos"))]
+    let _ = window;
 }
 
 /// Show `window` in `place`, in place of `gtk_window_present`.

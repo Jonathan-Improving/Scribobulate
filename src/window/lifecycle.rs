@@ -446,6 +446,122 @@ mod tests {
         });
     }
 
+    /// A maximized window and a full-screen sibling, restored together, both settled.
+    /// On macOS the sibling's Space is then current, and GDK reads the maximized window
+    /// as not maximized while it still is (`winplace/src/macos.rs`).
+    fn maximized_beside_full_screen(
+        app: &gtk::Application,
+    ) -> (ApplicationWindow, ApplicationWindow) {
+        let maximized = window_in_place(
+            app,
+            winplace::Place {
+                maximized: true,
+                ..place_640x480()
+            },
+        );
+        let fullscreen = window_in_place(
+            app,
+            winplace::Place {
+                fullscreen: true,
+                ..place_640x480()
+            },
+        );
+        crate::testpump::until(crate::testpump::Clock::Frame, "both windows to map", || {
+            maximized.is_mapped() && fullscreen.is_mapped()
+        });
+        let settled = crate::testpump::until_stable(
+            crate::testpump::Clock::Frame,
+            std::time::Duration::from_secs(20),
+            std::time::Duration::from_millis(2500),
+            || (maximized.is_maximized(), fullscreen.is_fullscreen()),
+        );
+        assert!(settled.converged, "the two windows' states never settled");
+        (maximized, fullscreen)
+    }
+
+    /// TDD 15.10c: a window that is maximized at quit is saved maximized, even when
+    /// another window's full-screen Space is current then.
+    #[gtktest::test]
+    fn a_maximized_window_is_saved_maximized_while_a_sibling_is_full_screen() {
+        let dir = tempfile::tempdir().unwrap();
+        crate::session::with_state_home_for_test(dir.path(), || {
+            let app = crate::window::testkit::test_app_suffixed("placemaxbesidefull");
+            let (maximized, fullscreen) = maximized_beside_full_screen(&app);
+            assert!(
+                fullscreen.is_fullscreen(),
+                "precondition: the sibling is full screen"
+            );
+            // GTK's own bit for a full-screen window varies with what ran before it in the
+            // process; what is pinned is that capture adds nothing to it.
+            assert_eq!(
+                winplace::capture(&fullscreen).maximized,
+                fullscreen.is_maximized(),
+                "capture does not make the full-screen sibling maximized"
+            );
+            assert!(
+                winplace::capture(&maximized).maximized,
+                "the maximized window is captured maximized (GTK reads is_maximized = {})",
+                maximized.is_maximized()
+            );
+            maximized.destroy();
+            fullscreen.destroy();
+        });
+    }
+
+    /// TDD 15.10c: a window maximized and then taken out of maximized is saved plain
+    /// when a sibling's full-screen Space is current at quit. The correction above
+    /// remembers the frame a window had while zoomed; this is the guard that a window
+    /// which has since left that frame does not still read as zoomed. (It is taken out
+    /// of maximized before the sibling goes full screen: on macOS a window in another
+    /// Space cannot be unzoomed — GDK sends no unzoom for a window it already reads as
+    /// unzoomed, and the window is not on screen for a person to unzoom.)
+    #[gtktest::test]
+    fn a_window_maximized_then_unmaximized_is_saved_plain_beside_a_full_screen_sibling() {
+        let dir = tempfile::tempdir().unwrap();
+        crate::session::with_state_home_for_test(dir.path(), || {
+            let app = crate::window::testkit::test_app_suffixed("placeunmaxbesidefull");
+            let window = window_in_place(
+                &app,
+                winplace::Place {
+                    maximized: true,
+                    ..place_640x480()
+                },
+            );
+            assert!(
+                settled_state(&window, |w| w.is_maximized()),
+                "precondition: the window is restored maximized"
+            );
+            window.unmaximize();
+            if settled_state(&window, |w| w.is_maximized()) {
+                eprintln!(
+                    "SKIPPED [TDD 15.10c un-maximize]: nothing on this display takes a \
+                     window out of maximized"
+                );
+                window.destroy();
+                return;
+            }
+            let sibling = window_in_place(
+                &app,
+                winplace::Place {
+                    fullscreen: true,
+                    ..place_640x480()
+                },
+            );
+            assert!(
+                settled_state(&sibling, |w| w.is_fullscreen()),
+                "precondition: the sibling is full screen"
+            );
+            assert!(
+                !winplace::capture(&window).maximized,
+                "a window no longer maximized is captured plain ({}x{})",
+                window.width(),
+                window.height()
+            );
+            window.destroy();
+            sibling.destroy();
+        });
+    }
+
     /// TDD 15.10b: a size saved, restored and saved again is the same size — repeated
     /// quit-and-relaunch cycles do not drift it.
     #[gtktest::test]

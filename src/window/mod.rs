@@ -710,6 +710,7 @@ fn build_window(
     // waiting out the debounce.
     swap::wire_swap_focus_flush(&window);
 
+    winplace::watch(&window);
     match &init.place {
         Some(place) => winplace::present(&window, place),
         None => window.present(),
