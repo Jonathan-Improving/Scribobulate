@@ -77,6 +77,32 @@ extern "system" {
     ) -> i32;
 }
 
+/// Take the real Win32 window frame instead of GTK's client-side decorations, for every
+/// window this process makes. Must precede GTK init.
+///
+/// GDK-Win32 defaults to CSD, so without this the app draws its own GNOME-style titlebar
+/// and buttons — and gets no native resize borders, no Alt+Space system menu, and no
+/// Snap Layouts. `GTK_CSD=0` restores all of those (all measured; Snap Layouts confirmed
+/// by hand), and only works because this app has no custom titlebar — no `GtkHeaderBar`,
+/// no `set_titlebar`. Adding one would silently put CSD back. (POLICY.md architecture
+/// rule, which also records why the alternatives — an installer-set variable, restyled
+/// CSD, a forked chrome tree — were rejected.)
+///
+/// One function because two entries need it: the application's own, and the main-thread
+/// GTK suite's, whose windows would otherwise wear a frame the shipped app never has and
+/// so skip or pass on the wrong one.
+///
+/// `GTK_CSD` is a GTK-wide variable, NOT a Windows one — this MUST stay `cfg(windows)`,
+/// as this module is. On Linux it would reach a live code path: X11 already uses
+/// server-side decorations, but Wayland negotiates them with the compositor, and forcing
+/// them off there can leave a window with no decorations at all. For the same reason it
+/// must NOT go in `.cargo/config.toml`'s `[env]` table the way `GSK_RENDERER` does — that
+/// table is platform-unconditional and would leak this to every Linux
+/// `cargo test`/`cargo run`.
+pub(crate) fn take_native_frame() {
+    std::env::set_var("GTK_CSD", "0");
+}
+
 /// Ask DWM to paint `window`'s caption to match the desktop's lightness.
 ///
 /// Reads [`crate::palette::desktop_is_dark`] rather than taking a `dark` flag, so

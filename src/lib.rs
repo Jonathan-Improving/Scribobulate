@@ -295,25 +295,11 @@ pub fn run() -> glib::ExitCode {
     window::install_image_refusal_notice();
 
     // Windows: take the real Win32 window frame instead of GTK's client-side
-    // decorations. GDK-Win32 defaults to CSD, so without this the app draws its own
-    // GNOME-style titlebar and buttons — and gets no native resize borders, no
-    // Alt+Space system menu, and no Snap Layouts. `GTK_CSD=0` restores all of those
-    // (all measured; Snap Layouts confirmed by hand), and only works because this app
-    // has no custom titlebar — no `GtkHeaderBar`, no `set_titlebar`. Adding one would
-    // silently put CSD back. Set here rather than in a launcher so the frame is the
-    // same however the binary is started, exactly as `GSK_RENDERER` is. Must precede
-    // GTK init. (POLICY.md architecture rule, which also records why the alternatives
-    // — an installer-set variable, restyled CSD, a forked chrome tree — were rejected).
-    //
-    // `GTK_CSD` is a GTK-wide variable, NOT a Windows one — this MUST stay
-    // `cfg(windows)`. On Linux it would reach a live code path: X11 already uses
-    // server-side decorations, but Wayland negotiates them with the compositor, and
-    // forcing them off there can leave a window with no decorations at all. For the
-    // same reason it must NOT go in `.cargo/config.toml`'s `[env]` table the way
-    // `GSK_RENDERER` does — that table is platform-unconditional and would leak this
-    // to every Linux `cargo test`/`cargo run`.
+    // decorations. Set here rather than in a launcher so the frame is the same however
+    // the binary is started, exactly as `GSK_RENDERER` is. Must precede GTK init. See
+    // `take_native_frame` for why, and why it MUST stay `cfg(windows)`.
     #[cfg(windows)]
-    std::env::set_var("GTK_CSD", "0");
+    platform::win32::take_native_frame();
     // No-op on non-unix targets: the GTK 4.6 compose-table crash this guards against
     // is reached through the X11 input-method path, and the workaround's mechanism
     // (redirecting `XDG_CONFIG_HOME` at a tree of symlinks) has no Windows analogue.

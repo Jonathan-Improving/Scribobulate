@@ -444,7 +444,12 @@ fn in_split_mode_collapsing_a_block_keeps_the_preview_reader_on_their_line() {
 
     // The reader scrolls the PREVIEW, which is what makes it the sync's driver.
     st.scroll.driver.set(crate::winstate::ScrollDriver::Preview);
-    super::rig::park_the_reader(&view, &adjustment, WIRED_QUIET);
+    super::rig::park_the_reader_on_a_tall_line(
+        &view,
+        &adjustment,
+        WIRED_QUIET,
+        (8.0 * DRIFT_TOLERANCE_PX) as i32 + 1,
+    );
     let iter = crate::saferizer::viewport::ViewportTopIter::of(&view);
     let (y, height) = view.line_yrange(&iter);
     assert!(

@@ -46,6 +46,10 @@ use gtk::prelude::*;
 use std::time::Duration;
 
 fn main() {
+    // The native Win32 frame the shipped app wears (`platform::win32::take_native_frame`,
+    // which this external target cannot reach).
+    #[cfg(windows)]
+    std::env::set_var("GTK_CSD", "0");
     gtk::init().expect("GTK init on the process main thread");
 
     let window = gtk::Window::new();

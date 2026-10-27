@@ -266,6 +266,31 @@ pub(super) fn park_the_reader(
     settle(view, adjustment, quiet);
 }
 
+/// [`park_the_reader`], then on to the first line at or below the top of the viewport
+/// that is at least `min_height` tall, at its top.
+///
+/// **By content, not by fraction alone.** Which line a fraction of the range lands on
+/// moves with the viewport's height, so a reader the test needs on a tall wrapped
+/// paragraph can land on the blank line before it instead. MEASURED (Windows): the
+/// native frame gives the split preview 550 px where client-side decorations gave 511,
+/// and the top became a 16 px separator.
+pub(super) fn park_the_reader_on_a_tall_line(
+    view: &CodePreviewView,
+    adjustment: &gtk::Adjustment,
+    quiet: Duration,
+    min_height: i32,
+) {
+    park_the_reader(view, adjustment, quiet);
+    let mut iter = crate::saferizer::viewport::ViewportTopIter::of(view);
+    while view.line_yrange(&iter).1 < min_height && iter.forward_line() {}
+    let (y, _) = view.line_yrange(&iter);
+    crate::saferizer::scrollpos::jump(
+        adjustment,
+        crate::saferizer::viewport::ViewportTopIter::value_for_top_y(view, y),
+    );
+    settle(view, adjustment, quiet);
+}
+
 /// Pump until `adjustment`'s `(upper, value)` pair has held still for `quiet`, offering
 /// every sample to `observe` on the way. Reports whether it converged.
 ///

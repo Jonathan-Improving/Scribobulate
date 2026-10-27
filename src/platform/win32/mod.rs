@@ -55,7 +55,9 @@ pub(crate) mod reduced_motion;
 // children is therefore a local edit, not a tree-wide rename — which is what keeps the
 // cause-based boundaries above cheap enough to honour.
 pub(crate) use appearance::track_system_dark_mode;
-pub(crate) use frame::{sync_caption_theme, track_caption_theme, track_maximized_size};
+pub(crate) use frame::{
+    sync_caption_theme, take_native_frame, track_caption_theme, track_maximized_size,
+};
 pub(crate) use privacy::create_private_directory;
 #[cfg(test)]
 pub(crate) use privacy::directory_dacl_sddl;
