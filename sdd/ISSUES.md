@@ -476,6 +476,14 @@ the ordinary `close` (`window::lifecycle::quit_all_windows`,
 `window::tabs::lifecycle::close_active_tab`); `platform/mac/fullscreen.rs` and
 `winplace::macos::watch` are not involved.
 
+**Worse when the surface is already freed.** On macOS CI (GTK 4.24.1) the GTK suite
+closed a full-screen window and started the next case at once; the late callback then hit
+a finalized surface (`GDK_IS_MACOS_SURFACE (self)` criticals) and once crashed the suite
+with SIGSEGV. The suite now leaves full screen before destroying such a window. In the
+app the surface outlived the callback in every sample (10 ⌘W cycles under
+`MallocScribble=1`, one machine: 0 crashes), so no production crash has been seen, but it
+is not ruled out.
+
 **Fix**: upstream, a destroyed-surface guard in `windowDidResize:`. An app-side workaround
 (leaving full screen before closing) would add AppKit's exit animation to every close of a
 full-screen window, a visible cost for a log line; it has not been tried.
