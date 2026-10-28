@@ -1,7 +1,8 @@
 //! The X11 half of a place: the window properties a window manager reads when it first
 //! manages a window, and the order they have to be written in around `present` so they
 //! survive GTK 4.6 and reach KWin. MEASURED on a nested KWin 5.27.11 with GTK 4.6.9
-//! (`scripts/winplace-rig.sh`).
+//! (`scripts/winplace-rig.sh`). The GDK half of each ordering rule is GTK4Rs/AP-367; the
+//! shaded rule is GTK4Rs/AP-368.
 //!
 //! **Before `present`**, after realize: activities, position (`XMoveWindow` plus
 //! `USPosition` in `WM_NORMAL_HINTS`) and the no-border Motif hint. GTK does not touch
