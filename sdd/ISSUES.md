@@ -58,7 +58,7 @@ described from a different vantage point.
 | Q | Windows, Linux | Upstream | A crafted SVG can corrupt memory: Windows and Linux decode SVG through a librsvg with a published use-after-free (CVE-2026-96889, fixed in 2.63.2), and refuse any SVG that may use XInclude before librsvg sees it until they carry the fix. The macOS bundle carries 2.63.2, and its build fails below that | High |
 | R | Windows, Mac | Test | Two split-mode live-reload tests in `window::outline_reload_tests` intermittently fail on Windows CI because the editor is not where the test parked it (top line 0, or 70 where >100 is required) | Low |
 | S | Any | Production | On a dark desktop the comment field keeps a white background while its "Add a comment…" hint takes the dark theme's light ink, so the hint is invisible (1.09:1 contrast). Typed text reads fine | Low |
-| T | Mac | Production | Quitting with a full-screen window open logs `Gdk-CRITICAL gdk_surface_request_layout: assertion 'frame_clock' failed` once, as the last line of the session, intermittently; no visible effect | Low |
+| T | Mac | Upstream | Closing a full-screen window (Exit or ⌘W) logs `Gdk-CRITICAL gdk_surface_request_layout: assertion 'frame_clock' failed` once: AppKit's exit-full-screen transition resizes the already-destroyed surface, and GDK's resize handler does not check for that; no visible effect | Low |
 
 ## Closed issues
 
@@ -456,20 +456,29 @@ placeholder's ink follows the desktop theme, so either the field's fill or the h
 is coming from somewhere other than the desktop theme. Read the field's CSS node tree with
 the dark theme active before guessing.
 
-## T. Quitting with a full-screen window open logs a frame-clock critical on macOS
+## T. Closing a full-screen window logs a frame-clock critical on macOS
 
-**Severity**: Low (one critical at exit; nothing visible, the session saves correctly).
+**Severity**: Low (one critical per window closed; nothing visible, the session saves
+correctly).
 
-**Observed** (2026-10-27, `mac` seat). macOS, GTK 4.22.4, Quartz. A session with a
-full-screen window open at File ▸ Exit logs `Gdk-CRITICAL gdk_surface_request_layout:
-assertion 'frame_clock' failed`, as the last line written: on `master` 2 of 2, on the
-window-place branch 5 of 6. With no full-screen window at Exit, 0 of 2. Linux (nested KWin,
-GTK 4.6.9, a restored full-screen window at quit) 0 of 3; Windows (GTK 4.22.4, a
-full-screen window at Exit) logged no critical.
+**Observed** (2026-10-27, `mac` seat). macOS, Quartz, GTK 4.22.4 and again on 4.24.1.
+Closing a full-screen window logs `Gdk-CRITICAL gdk_surface_request_layout: assertion
+'frame_clock' failed`: at File ▸ Exit (2 of 2 on 4.24.1) and on ⌘W with no quit (1 of 1).
+With no full-screen window, 0 of 2. Linux (GTK 4.6.9) 0 of 3; Windows (GTK 4.22.4) none.
 
-**Not established**: which surface requests a layout after its frame clock is gone, or
-whether `platform/mac/fullscreen.rs` is involved. Take a backtrace with
-`G_DEBUG=fatal-criticals` before guessing.
+**Cause** (backtrace under `G_DEBUG=fatal-criticals`, 4.24.1). `gtk_window_close` destroys
+the surface (`gtk_window_unrealize` → `gdk_surface_destroy`, which drops the frame clock).
+AppKit then runs its own exit-full-screen transition on the closing `NSWindow`
+(`_NSExitFullScreenTransitionController setupWindowForAfterFullScreenExit`), which sets
+the frame; `-[GdkMacosWindow windowDidResize:]` calls `gdk_surface_request_layout` on the
+dead surface without checking that it is destroyed. No app frames are on the path besides
+the ordinary `close` (`window::lifecycle::quit_all_windows`,
+`window::tabs::lifecycle::close_active_tab`); `platform/mac/fullscreen.rs` and
+`winplace::macos::watch` are not involved.
+
+**Fix**: upstream, a destroyed-surface guard in `windowDidResize:`. An app-side workaround
+(leaving full screen before closing) would add AppKit's exit animation to every close of a
+full-screen window, a visible cost for a log line; it has not been tried.
 
 ## CLSD-02. A paragraph that mixes fonts lays out wider than the wrap width it was given
 
