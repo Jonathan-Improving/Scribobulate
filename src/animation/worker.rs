@@ -452,23 +452,52 @@ mod gtk_tests {
     /// anywhere in the sequence below — in the pool thread's own send, in
     /// `Slot`'s or `Acquire`'s `Drop`, or anywhere else — would fail this test
     /// body itself, since `#[gtktest::test]` runs it like any other test.
+    ///
+    /// The decode is dropped only once it has been seen RUNNING. `Pending` alone
+    /// does not say that: it is also what a decode queued behind a full gate
+    /// returns, and a queued decode dropped never runs at all. The gate is shared by
+    /// every test on the GTK test thread, and an earlier test's slow decodes can
+    /// still hold it, so this test fills whatever is free itself and frees it from
+    /// the main loop a moment later — the queued path is taken on every run, not
+    /// only on a busy host.
     #[gtktest::test]
     fn dropping_a_pending_decode_neither_panics_nor_calls_back() {
+        let mut held = Vec::new();
+        loop {
+            let mut claim = Box::pin(Acquire::new());
+            match poll_once(&mut claim) {
+                Poll::Ready(slot) => held.push(slot),
+                Poll::Pending => break,
+            }
+        }
+        gtk::glib::timeout_add_local_once(Duration::from_millis(100), move || drop(held));
+
+        let started = Arc::new(AtomicBool::new(false));
         let finished = Arc::new(AtomicBool::new(false));
 
+        let started_writer = Arc::clone(&started);
         let finished_writer = Arc::clone(&finished);
         let mut fut = Box::pin(on_pool(move || {
+            started_writer.store(true, Ordering::SeqCst);
             std::thread::sleep(Duration::from_millis(150));
             finished_writer.store(true, Ordering::SeqCst);
         }));
 
-        // One poll is enough: `on_pool`'s `Acquire` resolves synchronously when a
-        // slot is free, so the same call reaches `gio::spawn_blocking`, which
-        // dispatches the moment it is called — the task is genuinely running on
-        // the pool thread by the time this returns `Pending`.
+        // Poll until the pool thread has picked it up, running the main loop in
+        // between so the slots this test (or an earlier one) holds come back.
+        let main = gtk::glib::MainContext::default();
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !started.load(Ordering::SeqCst) && Instant::now() < deadline {
+            assert!(
+                poll_once(&mut fut).is_pending(),
+                "the decode cannot finish before it has started"
+            );
+            main.iteration(false);
+            std::thread::sleep(Duration::from_millis(5));
+        }
         assert!(
-            poll_once(&mut fut).is_pending(),
-            "the decode is now in flight"
+            started.load(Ordering::SeqCst),
+            "the decode must be running on the pool before it is dropped"
         );
 
         drop(fut);
