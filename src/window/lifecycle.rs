@@ -384,6 +384,27 @@ mod tests {
         settled.value.unwrap_or(false)
     }
 
+    /// Destroy `window`, taking it out of full screen first and waiting for that to
+    /// settle. On macOS, AppKit runs its own exit-full-screen transition on a window
+    /// closed while full screen and calls back into GDK's surface after GDK has
+    /// destroyed it. In a running app the surface outlives that callback; in
+    /// this suite the next case starts at once, and on CI the callback has landed on a
+    /// FREED surface and crashed the suite. Waiting here keeps that callback inside the
+    /// case that caused it, while the surface is still alive.
+    fn destroy_settled(window: &ApplicationWindow) {
+        if window.is_fullscreen() {
+            window.unfullscreen();
+            let settled = crate::testpump::until_stable(
+                crate::testpump::Clock::Frame,
+                std::time::Duration::from_secs(20),
+                std::time::Duration::from_millis(2500),
+                || window.is_fullscreen(),
+            );
+            assert!(settled.converged, "leaving full screen never settled");
+        }
+        window.destroy();
+    }
+
     /// One restored window, in `place`, and its settled state. One window per test:
     /// on macOS a full-screen window's Space makes a maximized sibling read as not
     /// maximized, so restoring the two together measures that instead.
@@ -397,7 +418,7 @@ mod tests {
             let app = crate::window::testkit::test_app_suffixed(suffix);
             let window = window_in_place(&app, place);
             let on = settled_state(&window, state);
-            window.destroy();
+            destroy_settled(&window);
             on
         })
     }
@@ -504,7 +525,7 @@ mod tests {
                 maximized.is_maximized()
             );
             maximized.destroy();
-            fullscreen.destroy();
+            destroy_settled(&fullscreen);
         });
     }
 
@@ -558,7 +579,7 @@ mod tests {
                 window.height()
             );
             window.destroy();
-            sibling.destroy();
+            destroy_settled(&sibling);
         });
     }
 
